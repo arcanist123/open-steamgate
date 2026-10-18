@@ -8,7 +8,7 @@ failed a test: compilation has not yet reached that stage.
 
 ## Measurement and scope
 
-The best measured pair is OSG `e0f0f5bdf54972b0bec88121ad6dc1361e2f7da5`
+The best measured pair is OSG `75e64181b3b6942103f86692a338e9cd70655081`
 (a **private, unmerged** G candidate based on main
 `602822731dda56d5b44ce3ec5e5282e7bbdda7c8`) and unmerged abapiti core5
 source `c53c35518077ac6a8aff0e4dfd8a66043f354da4`. The typed step-4 driver
@@ -18,7 +18,7 @@ The Node-gogen reference Go has SHA-256
 the trap run checked that reference hash. These identifiers pin the **inputs
 to the diagnostic**, not a completed self-hosting result.
 
-The reached-function scan reports **3 root trap locations, 1,089 hits**,
+The reached-function scan reports **2 root trap locations, 880 hits**,
 `0/35 unknown`, and **322 unreached functions**. A hit is
 one occurrence attributed to a trapped root in the lowering/reachability
 report; it is not an independent defect or a count of failed unit tests. The
@@ -31,12 +31,11 @@ the measured OSG commit; line numbers can move on later branches.
 | --- | --- | --- | --- |
 | Front end | `frontend.mjs:874` `classIr` · 41 | `IMethodDefinition` interface passed where a concrete structural class shape is expected by `fn_addSig` | Method-definition typing crosses an abaplint interface/shape boundary. A broader union exposed another failure in `fn_addSig`; this needs a compatible contract or a compiler fix, not only a wider annotation. |
 | Front end | `frontend.mjs:1741` `statement` · 839 | Recursive union literal has no admitted tag or compatible payload | IR statement construction, first reported at the `REFRESH`/`FREE` mapped `clear`/`clear_data` literals, is rejected as a recursive discriminated union. Check the produced tag and payload against the IR type, then the compiler's recursive-union admission. |
-| Emitter | `emit-go.mjs:954` `method` · 209 | `Method` passed to `sinkLocals`, which expects `SinkMethod` | Two emitter method contracts disagree at a helper boundary. Compare the actual fields used by `sinkLocals` with both declared shapes. |
 
 The largest remaining root, front-end `statement`, accounts for 839 of
-1,089 hits. Hit count is not an effort estimate: any of the three trapped
-functions can still prevent a complete generator build. The `classIr` and
-`method` errors cross structural type boundaries; the recursive-union error
+880 hits. Hit count is not an effort estimate: either trapped function can
+still prevent a complete generator build. The `classIr` error crosses a
+structural type boundary; the recursive-union error
 may require abapiti lowering support. That division remains a diagnostic
 hypothesis until a candidate removes the exact root without adding another.
 
@@ -139,6 +138,22 @@ Forty emitter tests passed, and direct comparison against its G parent
 produced 243 byte-identical artifacts in every one of six sink/cache modes.
 The typed filter now distinguishes `unsupported === undefined` from an empty
 unsupported message; that edge remains for review before integration.
+
+The next private G candidate `75e64181b3b6942103f86692a338e9cd70655081`
+uses the shared IR types for local sinking and gives its empty binding-name set
+a string key type. On the same core5 binary and driver, the 209-hit `method`
+root disappeared: **2 / 880**, `0/35 unknown`, 322 unreached. The two
+front-end roots retained their locations and hit counts. The first of the two
+commits only moved `method` to a dynamic collection-key failure; the second
+cleared it, so the result is credited to the pair. The final candidate passed
+76 focused sink/emitter tests and direct parent-to-candidate comparison of
+243 byte-identical artifacts in each of six sink/cache modes. It remains
+private pending review and the required integration checks.
+
+On published abapiti integration `964884687c516465688dfebeac49898ffdbdd2ea`,
+the same G candidate reduced **5 / 1,110** to **4 / 901**. The removed root
+was again `method`; `compileProgram` (one hit) and `constructor_function`
+(20 hits) still need core5, while the two front-end roots remain.
 
 ## Completion gate
 
