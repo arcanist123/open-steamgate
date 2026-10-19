@@ -3,9 +3,9 @@
 Snapshot: 2026-10-19. The latest private candidates clear all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution in `frontend.mjs` `defaultValue()` on a live typed-array
-view. The preceding negative-predicate conversions in `call()` are passed
-by the latest private candidate. A zero-trap scan establishes that the reached lowering paths
+execution in `frontend.mjs` `fieldChainParts()` on a checked IR-family
+view read. The latest private candidate passes the preceding negative-predicate
+conversions in `call()` and the null-array fallback in `defaultValue()`. A zero-trap scan establishes that the reached lowering paths
 compile; execution, output equality, and the unit test still need to pass.
 
 ## Measurement and scope
@@ -309,9 +309,31 @@ exact Node reference run confirms **0 reached traps**, `0/11 unknown`, and
 the separate classifier now requires retained, nonempty coverage and refuses
 to classify when it is missing.
 
-This array-view failure is the **one confirmed current runtime barrier**.
-The private compiler changes are not integrated on the required main/selfhost
-branches.
+Private abapiti `b80749609d20197d6bbd10a4f03a816da84e646e` corrects
+union-slot formation to reject mixed rest/array calling conventions and makes
+the shared signature check include variadic flags. Core6's independent tests
+pass on the correction, including positive common-rest dispatch and checked
+refusal for unsupported mixed conventions. A separate null-array conditional
+join fix preserves the absent array reference instead of requesting live
+storage from `null`; its Node-versus-Go regression covers null comparison,
+original-array identity and empty arrays. Focused combined checks pass.
+Independent review and the full short compiler suite are pending.
+
+The exact `b8074960` + G `50f84f00` run builds Go and passes both preceding
+runtime boundaries. It stops at `frontend.mjs:3416:204`, `fieldChainParts()`,
+during a checked IR-family view read of `.type`. Its precise cause remains
+under investigation. Classification against this run's retained Node V8
+coverage confirms **0 reached traps**, `0/11 unknown`, and **322 unreached**.
+The output remains empty. This family-view read is the **one confirmed current
+runtime barrier**. The private compiler changes are not integrated on the
+required main/selfhost branches.
+
+The final target-build recipe has also been checked separately: the exact
+pinned Node reference `b906…` builds in a fresh module and test runner from
+the measured G source, then passes `ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED`.
+This validates the recipe using reference code; the self-hosted output still
+needs to reach the same gate. The historical target kit pins a different
+reference and must not be substituted for this check.
 
 ## Completion gate
 
