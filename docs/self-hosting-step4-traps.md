@@ -191,6 +191,17 @@ assertion and loss of the guard across the dynamic `any` boundary; that
 diagnosis still needs a compiler fix and an end-to-end rerun. The diagnostic
 print was removed from the generated Go after inspection.
 
+A second **diagnostic-only** Go build skipped constructed objects that did
+not implement `IRule`, allowing execution past the first panic. It then
+reached `src/config.ts:93:3` and hit a lowering trap: the `JSON5` namespace
+import was not a lowered local or module value, and assignment to its `parse`
+property was unsupported. That constructor was among the 322 functions not
+proved by the initial reached-function scan. Skipping objects by Go interface
+membership is only a probe and does not establish JavaScript-equivalent
+behavior. The original generated Go was restored after the probe; the
+compiler needs a proper dynamic-boundary fix and then a fresh full run to
+measure what remains.
+
 ## Completion gate
 
 For each candidate, compare the reached trap locations and hit counts on the
