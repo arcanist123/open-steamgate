@@ -3,8 +3,9 @@
 Snapshot: 2026-10-19. The latest private candidates clear all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution at a checked reference conversion in `frontend.mjs`
-`call()`, after negative expression predicates. A zero-trap scan establishes that the reached lowering paths
+execution in `frontend.mjs` `defaultValue()` on a live typed-array
+view. The preceding negative-predicate conversions in `call()` are passed
+by the latest private candidate. A zero-trap scan establishes that the reached lowering paths
 compile; execution, output equality, and the unit test still need to pass.
 
 ## Measurement and scope
@@ -282,11 +283,31 @@ inspection of generated Go and the binary confirms these are different
 conversions, although both diagnostics report the function's source start.
 The remaining narrowing after negative predicates therefore also affects
 method receivers. This compiler fix is partial and is not ready for
-integration. The full compiler test suite remains in progress. The generator
+integration. Its full `tsfront` test suite subsequently passed (920.366 s). The generator
 still writes no Go output, so byte equality and the unit
 test remain unproved.
-This is the **one confirmed current runtime barrier**. Neither compiler
-candidate is integrated on the required main/selfhost branches.
+The next private abapiti candidate,
+`2cb16bdb39d42b4f4122f98d13daa1b17012f470`, retains a direct method receiver's
+existing interface when its common virtual slot has the same signature,
+including variadic flags, as the selected method. A Node-versus-Go test
+reproduces the old failure and passes with this change for variables and
+array elements. Focused union, virtual-call, covariant-return, predicate,
+closure-inventory and numeric-conversion checks pass. Independent adversarial
+review and the full compiler suite are pending.
+
+The exact full run of this compiler with G `50f84f00` builds Go and executes
+past `call()` and `concatTokens()`. It next fails in `defaultValue()`,
+`frontend.mjs:5424:170`, with **`live typed array requires array storage`**.
+The cause of this array-view failure is not yet established. The generator
+still writes no output. Classification with retained V8 coverage from this
+exact Node reference run confirms **0 reached traps**, `0/11 unknown`, and
+**322 unreached functions**. The full-run driver deletes raw coverage on exit;
+the separate classifier now requires retained, nonempty coverage and refuses
+to classify when it is missing.
+
+This array-view failure is the **one confirmed current runtime barrier**.
+The private compiler changes are not integrated on the required main/selfhost
+branches.
 
 ## Completion gate
 
