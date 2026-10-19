@@ -1,10 +1,11 @@
 # Self-hosting step 4: lowering traps and runtime barrier
 
-Snapshot: 2026-10-19. The latest private candidate clears all reached
+Snapshot: 2026-10-19. The latest private candidates clear all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution at a live class field conversion. A zero-trap scan is
-therefore a compiler milestone, not a self-hosting pass.
+execution when a structural class view rejects a prototype-bearing source in
+`frontend-session.mjs`. A zero-trap scan is therefore a compiler milestone,
+not a self-hosting pass.
 
 ## Measurement and scope
 
@@ -217,6 +218,29 @@ view reads its `Registry` class descriptor from the supplied core object.
 The generated Go contains an explicit trap for that view read. It still
 writes no Go output, so byte equality and the unit test remain unproved.
 This abapiti candidate is private and awaits review and integration.
+
+An additional private abapiti candidate `5f8c204fe90977379e271678e2fc7d3ef81e1191`
+admits a class descriptor in a live class field through the existing checked
+`ClassValue` conversion. It passes the focused and full Go emitter package
+tests. With G `a082e7099de980a406b2755d5b81ec674646ed0f`, execution gets past
+the previous live field trap and reaches a dynamic Boolean conversion in
+`frontend.mjs`: the `includeTests` predicate supplies a truthy `Set` object
+where the generated callback requires a Boolean.
+
+Private G `47de828f92d16473c7cd5af414d1a761716e7cf9` spells that
+predicate as an explicit Boolean for the declared `boolean | Set<string>`
+inputs. It passes 51 focused frontend tests and the six-mode byte comparison
+of 243 artifacts per mode against its parent. The corresponding change is on
+[draft PR #815](https://github.com/oisee/open-steamgate/pull/815); checks and
+review are pending. With this G commit and abapiti `5f8c204f`, the exact
+reachability scan reports **0 reached traps**, `0/11 unknown`, and **322
+unreached functions**. The full Go build succeeds. Execution then stops in
+`frontend-session.mjs` when the compiler's structural class view refuses a
+prototype-bearing source passed through a recorder callback. It writes no
+output, so the reference comparison fails at byte one and the unit test has
+not run. This is the **one confirmed current runtime barrier**; its cause and
+fix are still under investigation. Neither private compiler candidate is
+integrated.
 
 ## Completion gate
 
