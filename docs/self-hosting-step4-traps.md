@@ -1,40 +1,48 @@
 # Self-hosting step 4: lowering traps and runtime barrier
 
-Snapshot: 2026-10-19. Earlier pairs cleared all reached lowering traps
-and built the compiled generator. The latest completed pair, reviewed abapiti
-source8b752b51 / published integrationb59f47d0 with private G b1a49df3,
-still builds Go, but reports **2 reached lowering roots** and stops during
-execution at a checked object conversion in tableRegistry(). The target
-output remains empty. The earlier nullable-boxing semantic regression is
-fixed in the reviewed compiler; these additional conversion failures are
-being investigated separately.
+Snapshot: 2026-10-19. The latest completed pair, reviewed abapiti source
+`8b752b51` / published integration `b59f47d0` with G `8633d7fd`,
+builds Go and completes `compileProgram()`, including the Table/View
+registry. It reaches `emitGo()` and stops at **one reached lowering trap**:
+an optional/dynamic array conversion. The target output remains empty.
+The earlier nullable-boxing semantic regression is fixed in the reviewed A;
+the compiler owner is investigating the remaining array conversion.
 
-## Current reached roots and runtime barrier
+## Current reached root
 
-Exact pair: A8b752b5150de3286858a1c9ef6530bdb4ced9df8 and
-G b1a49df317ef1435ba38adcb006abae84b70bb2c. Retained Node coverage:
-**2 reached**, **0/11 unknown**, **322 unreached**. Hits are diagnostic
-occurrences, not separate bugs.
+Exact pair: A `8b752b5150de3286858a1c9ef6530bdb4ced9df8` and
+G `8633d7fd18ba87230795af46336b217feef0fdbc`. Retained Node coverage:
+**1 reached**, **0/11 unknown**, **322 unreached**. The public draft G head
+`58997b8d874f060bb60f8da9f474fc4bcd76ef2e` has the same compiler source;
+only an emitter test mock differs.
 
 | Root | Hits | Nature |
 | --- | ---: | --- |
-| emit-go.mjs:319:268, emitGo | 1 | HIR rejects narrowing optional<dynamic> to array<string>. The failing synthetic node has no original source position; the exact expression is still being reduced. |
-| frontend.mjs:274:30, table callback | 131 | HIR rejects array<dynamic> where the FrontendTable constructor requires array<string>. TypeScript confirms the object at source288:80 has a key inferred through any[], while the declared field requires readonly string[]. |
+| `emit-go.mjs:319:268`, `emitGo` | 1 | HIR rejects narrowing `optional<dynamic>` to `array<string>`. The synthetic failing node has no original source position. Core8 owns the compiler diagnosis and fix. |
 
-The A compiler owner investigates these two array conversions. The G owner
-investigates the separate runtime barrier: a Table/View value is cast to a
-concrete AbstractObject base pointer before table metadata extraction.
-A direct guard alone did not remove that generated cast. Private G
-a56fc8e971918df07545ec28fb4cb088d75ffb20 keeps separate concrete Table and
-View receivers, passes TypeScript, all 51 front-end output tests and all six
-243-artifact comparisons, and is now in a full diagnostic run. It is not yet
-published or accepted.
+The preceding A8b/Gb1 pair had two reached roots and stopped earlier at an
+AbstractObject pointer cast. G863 removes that runtime barrier and the
+callback trap without changing the array code: nominal Table/View guards
+start from a local `unknown` value and retain separate concrete receivers.
+TypeScript 5.9.3 showed that the structural registry probe's public
+`parsedType` field conflicts with Table's private member, reducing its
+direct guarded branch to `never`. Starting the same mandatory class
+checks from `unknown` restores the actual Table/View types. The original
+artifact identity and effectful calls remain unchanged. The full generated
+generator now passes registry construction and enters the emitter.
 
-M1 Go and frozen M2 Go pass on published A b59f47d0; M2 output is byte-equal
-to9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa.
-The complete Go corpus run is still executing. OSGO milestones, final output
-equality and its unit test, final published pins and both full corpus results
-are still required.
+The G follow-up passes TypeScript checking, focused whole-testdata/refusal
+tests, and all six 243-artifact Node comparisons. Prior to the final
+unknown-boundary adjustment, the separate-receiver change also passed all
+51 front-end output tests. Final CI and independent whole-stack review are
+still required; this is a draft, not a completed self-hosting result.
+
+M1 Go and frozen M2 Go pass on published A `b59f47d0`; M2 output is
+byte-equal to `9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa`.
+The complete Go corpus run is still executing. OSGO milestones, actual raw
+output equality and its target unit, final published main/selfhost pins and
+both full corpus results remain required. Additional A changes require
+revalidation on their exact final SHA.
 
 The sections below retain the earlier measurements and the path to this
 state; their zero-trap results apply only to their named older pairs.
@@ -449,7 +457,7 @@ boxing reproducer now agrees with Node. GLM approved this bounded compiler
 fix. These checks resolve the discovered boxing RED in the new compiler;
 they do not establish completion of the full self-hosting goal.
 
-The next combined full run uses this reviewed compiler and G `b1a49df3`.
+A later completed diagnostic used this reviewed compiler and G `b1a49df3`, before the G863 boundary fix summarized above.
 The earlier b807 binary is no longer used for new full runs. Final published
 G/main and A/selfhost pins, actual generated output equality and target unit,
 and complete M1/M2 plus both 11,060-test runs remain required.
