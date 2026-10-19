@@ -2918,14 +2918,23 @@ const STRING_FNS = {
   const n = upper(name);
   // me as a value: the object itself (in Go its most-derived self)
   if (n === "ME") return {e: "me", type: {k: "ref", name: ctx.className}};
-  if (ctx.fieldSymbols?.has(n)) { fsCheck(n, ctx); /** @type {Extract<import("./frontend-types.ts").ValueExpr, {e: "fs"}>} */ const value = {e: "fs", name: n, type: ctx.fieldSymbols.get(n)}; return value; }
+  if (ctx.fieldSymbols?.has(n)) {
+    fsCheck(n, ctx);
+    /** @type {Extract<import("./frontend-types.ts").ValueExpr, {e: "fs"}>} */
+    const value = {e: "fs", name: n, type: ctx.fieldSymbols.get(n)};
+    return value;
+  }
   const p = ctx.sig.params.find((x) => x.name === n);
   // ref: a pointer in Go; box: an EXPORTING / CHANGING box in JS (an
   // IMPORTING table or structure is a pointer in Go and the object itself in JS)
   if (p) return {e: "var", name: n, type: p.type, ref: p.dir !== "importing" || byRef(p), box: p.dir !== "importing"};
   if (ctx.sig.returning?.name === n) return {e: "var", name: n, type: ctx.sig.returning.type};
   if (ctx.localConstants?.has(n)) return ctx.localConstants.get(n);
-  if (ctx.locals.has(n)) { /** @type {Extract<import("./frontend-types.ts").ValueExpr, {e: "var"}>} */ const value = {e: "var", name: n, type: ctx.locals.get(n)}; return value; }
+  if (ctx.locals.has(n)) {
+    /** @type {Extract<import("./frontend-types.ts").ValueExpr, {e: "var"}>} */
+    const value = {e: "var", name: n, type: ctx.locals.get(n)};
+    return value;
+  }
   const attr = findAttribute(ctx, n);
   if (attr) return attr;
   throw new Unsupported(`${ctx.method}: ${name} is not a local, parameter or attribute of the subset`);
