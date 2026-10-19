@@ -3,9 +3,9 @@
 Snapshot: 2026-10-19. The latest private candidates clear all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution when a structural class view rejects a prototype-bearing source in
-`frontend-session.mjs`. A zero-trap scan is therefore a compiler milestone,
-not a self-hosting pass.
+execution at a checked reference conversion in `frontend.mjs`
+`call()`, after negative expression predicates. A zero-trap scan establishes that the reached lowering paths
+compile; execution, output equality, and the unit test still need to pass.
 
 ## Measurement and scope
 
@@ -255,8 +255,35 @@ annotations to separate lines makes the checker retain the two literal tags
 and fixes the generated payloads. The original constant-write guard is kept.
 The generated Go builds and executes past the class view, local constants,
 `flatChildren`, and `lvalue`. It next stops at a checked reference conversion
-in `call()`, `frontend.mjs:5122:355`; its precise cause remains under
-investigation. It still writes no Go output, so byte equality and the unit
+in `call()`, `frontend.mjs:5122:355`. The first `isExpr` predicate can
+return false for an expression of a different subclass. The checker then
+excludes expression nodes from the next argument, and abapiti inserts a
+`TokenNode` reference conversion before the next predicate can inspect the
+actual expression. An isolated regression test reproduces the premature
+conversion for both a variable and an array element. A private abapiti fix
+preserves the original argument when the callee accepts `unknown` or `any`;
+the focused test passes. Its first form (`f4962819`) passes the `call()`
+barrier in a full run but introduces a lowering error in
+`StatementNode.findExpressionsAfterToken`: an evolving array's contextual
+`any` type causes a necessary narrowing to be skipped before `push`. That
+function is outside the Node-covered set; the corresponding scan still
+reports **0 reached traps**, but now `0/12 unknown` and **323 unreached**.
+The candidate is excluded. Follow-up `b7a437cad1c03f614eaab5f2f51ab53139387ea2`
+restricts preservation to the argument tested by a type-predicate signature.
+Its Node-versus-Go regression test covers both parameter types, variable and
+array-element inputs, and guarded pushes to an inferred array. The previously
+failing closure-inventory, statements/structures differential, and numeric
+conversion tests also pass. Its full step-4 run builds Go and restores the
+scan to **0 reached traps**, `0/11 unknown`, **322 unreached**. Execution passes
+the reference conversion before the predicate, then fails at a later
+`TokenNode` conversion before a common `concatTokens()` method call in the
+same `call()` function. The stack offset changes from `+0x94c` to `+0xa3b`;
+inspection of generated Go and the binary confirms these are different
+conversions, although both diagnostics report the function's source start.
+The remaining narrowing after negative predicates therefore also affects
+method receivers. This compiler fix is partial and is not ready for
+integration. The full compiler test suite remains in progress. The generator
+still writes no Go output, so byte equality and the unit
 test remain unproved.
 This is the **one confirmed current runtime barrier**. Neither compiler
 candidate is integrated on the required main/selfhost branches.
