@@ -242,17 +242,22 @@ not run. Neither private compiler candidate is integrated.
 
 A generated-Go-only diagnostic that removed this view's prototype guard
 advanced to a callable conversion failure; that generated file was restored.
-The newer G candidate on draft PR #815, head `6001c08c`, passes a plain class
+The newer G candidate on draft PR #815, head `b52e7d96`, passes a plain class
 source with own typed getter functions and keeps both the local-constant walk
 and flattened structure children behind explicit `instanceof` guards. Its
 Node output is byte-identical to its parent in six sink/cache modes (243
 artifacts per mode); focused frontend-output tests pass **51/51**. With
 abapiti `5f8c204f`, the reached trap scan is still **0**, `0/11 unknown`, and
-**322 unreached**. The generated Go builds and executes past the class view,
-local constants, and `flatChildren`. It next stops in `frontend.mjs:2970:173`
-while lowering an assignable target (`lvalue`). The failure passes through a
-generated union-view read; its precise cause remains under investigation. It
-still writes no Go output, so byte equality and the unit test remain unproved.
+**322 unreached**. Two inline JSDoc annotations in `variable()` were not
+attached to their declarations: both records widened to `e: string`, and a
+`var` record acquired a payload whose view admitted only `fs`. Moving those
+annotations to separate lines makes the checker retain the two literal tags
+and fixes the generated payloads. The original constant-write guard is kept.
+The generated Go builds and executes past the class view, local constants,
+`flatChildren`, and `lvalue`. It next stops at a checked reference conversion
+in `call()`, `frontend.mjs:5122:355`; its precise cause remains under
+investigation. It still writes no Go output, so byte equality and the unit
+test remain unproved.
 This is the **one confirmed current runtime barrier**. Neither compiler
 candidate is integrated on the required main/selfhost branches.
 
