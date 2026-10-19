@@ -140,7 +140,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   program.localInterfaces = new Map();
   LOCAL_DEFS.clear();
   /** @type {import("./frontend-types.ts").LocalClass[]} */ const localDefs = [];
-  for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (includeTests || LOCAL_CLASSES.has(upper(o.getName()))))) {
+  for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (includeTests === true || includeTests instanceof Set || LOCAL_CLASSES.has(upper(o.getName()))))) {
     localDiscovery(reg, obj, includeTests === true || (includeTests instanceof Set && includeTests.has(upper(obj.getName()))), () => {
     if (LOCAL_CLASSES.has(upper(obj.getName()))) {
       const top = new abaplint.SyntaxLogic(reg, obj).run().spaghetti.getTop();
