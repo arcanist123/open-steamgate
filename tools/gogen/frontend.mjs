@@ -3438,7 +3438,7 @@ const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N
   // space: the c(1) blank, stored without its blank like every c value
   if (text === "SPACE") return {e: "chars", value: "", type: C(1)};
   if (text === "SY-ABCDE") return {e: "chars", value: "ABCDEFGHIJKLMNOPQRSTUVWXYZ", type: C(26)};
-  let place;
+  /** @type {import("./frontend-types.ts").ValueExpr} */ let place;
   let i = 0;
   if (isExpr(kids[0], Expressions.ClassName) && isTok(kids[1], "=>")) {
     const owner = upper(kids[0].concatTokens());
@@ -3446,8 +3446,10 @@ const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N
     place = resolveStatic(owner, attr, ctx);
     i = 3;
   } else if ((isTok(kids[0], "ME") || upper(kids[0].concatTokens()) === "ME") && isTok(kids[1], "->")) {
-    place = {e: "attr", name: upper(kids[2].concatTokens()), type: findAttribute(ctx, upper(kids[2].concatTokens()))?.type};
-    if (place.type === undefined) throw new Unsupported(`me->${kids[2].concatTokens()}: not an attribute`);
+    const name = upper(kids[2].concatTokens());
+    const type = findAttribute(ctx, upper(kids[2].concatTokens()))?.type;
+    if (type === undefined) throw new Unsupported(`me->${kids[2].concatTokens()}: not an attribute`);
+    place = {e: "attr", name, type};
     i = 3;
   } else if (isExpr(kids[0], Expressions.SourceField) || isExpr(kids[0], Expressions.SourceFieldSymbol)) {
     place = variable(kids[0].concatTokens(), ctx);
