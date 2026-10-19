@@ -1,5 +1,7 @@
 // Real runner, copied inputs, serial memory-capped builds and artifact hashes.
 import assert from "node:assert/strict";
+import {abaplint} from "./frontend-base.mjs";
+import {discoveryEvidence, matchingDiscoveryEvidence} from "./runner-selection-evidence.mjs";
 import {spawnSync} from "node:child_process";
 import {createHash} from "node:crypto";
 import {cpSync, mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync, openSync, closeSync} from "node:fs";
@@ -23,7 +25,9 @@ for (const folder of ["libs/zlnt-core/src", "inputs/zlnt-tests-statements/src", 
 const report = join(input, "inputs/zlnt-tests-base/src/zlnt_tests_run.prog.abap");
 const libs = ["libs/zlnt-core/src", "inputs/zlnt-tests-statements/src"].flatMap((folder) => ["--lib", join(input, folder)]);
 const results = {buildBinary, baseline, rows: [], comparisons: []};
+const artifactFolders = new WeakMap(), capturedSelections = new WeakMap();
 const save = () => writeFileSync(join(work, "report.json"), JSON.stringify(results, null, 2) + "\n");
+const logicPlan = realisticEdit(); // Fail before expensive builds if no eligible edit exists.
 function capture(label, enabled, cwd = process.cwd()) {
   const build = join(work, `.build-${label}`), diagnostics = join(work, `${label}.ndjson`);
   const env = {...process.env, NODE_OPTIONS: "--max-old-space-size=24576", OSABAP_BUILD_ROOT: build,
@@ -42,23 +46,26 @@ function capture(label, enabled, cwd = process.cwd()) {
     throw new Error(`${label}: build failed: ${log}`);
   }
   const phases = {}, phaseRounds = [];
-  let counts, closureRounds, selectionEvidence;
+  let counts, closureRounds, selectionEvidence, selection;
   for (const line of readFileSync(log, "utf8").split("\n")) if (line.startsWith("OSABAP_TIMING ")) {
     const row = JSON.parse(line.slice("OSABAP_TIMING ".length));
     if (row.round > 0) { phaseRounds.push(row); phases[row.phase] = (phases[row.phase] ?? 0) + row.ms; }
     else phases[row.phase] = row.ms;
     if (row.phase === "frontend") {
       counts = {lowered: row.lowered, reused: row.reused};
-      closureRounds = row.closureRounds; selectionEvidence = row.selectionEvidence;
+      closureRounds = row.closureRounds; selectionEvidence = row.selectionEvidence; selection = row.selection;
     }
   }
   for (const name of ["frontend", "emit", "goBuild", "total"]) assert.ok(Number.isFinite(phases[name]), `missing ${name}`);
+  if (cwd !== baseline) assert.ok(Array.isArray(selection) && selection.every(n => typeof n === "string"), "missing ordered selection");
   const generated = join(build, "go/cmd/osabap");
   const hashes = Object.fromEntries(readdirSync(generated).filter((name) => name.startsWith("zz_") || name === "symbols.json").sort()
     .map((name) => [name, createHash("sha256").update(readFileSync(join(generated, name))).digest("hex")]));
-  const reasons = {}, loweredClasses = [], roundCounts = new Map(), allClasses = new Set(), invalidation = [], recordingScopes = [];
+  for (const name of ["zz_app.go", "zz_generated.go", "zz_db.json", "symbols.json"]) assert.ok(hashes[name], `missing ${name}`);
+  const reasons = {}, loweredClasses = [], roundCounts = new Map(), allClasses = new Set(), invalidation = [], recordingScopes = [], methodDiscovery = [];
   if (existsSync(diagnostics)) for (const line of readFileSync(diagnostics, "utf8").split("\n")) if (line) {
     const row = JSON.parse(line);
+    if (row.event === "method-discovery") methodDiscovery.push(row);
     if (row.event === "certificate-validation") invalidation.push(row);
     if (row.event === "recording-scope") recordingScopes.push(row);
     if (row.event === "class") {
@@ -73,17 +80,26 @@ function capture(label, enabled, cwd = process.cwd()) {
   }
   const rounds = [...roundCounts.values()];
   if (enabled) assert.equal(allClasses.size, counts.lowered + counts.reused, "diagnostics must cover the final class universe");
-  results.rows.push({label, enabled, closureRounds, selectionEvidence, phases, phaseRounds, invalidation, recordingScopes, counts, reasons, loweredClasses, rounds,
+  results.rows.push({label, enabled, closureRounds, selectionEvidence, selection, phases, phaseRounds, invalidation, recordingScopes, methodDiscovery, counts, reasons, loweredClasses, rounds,
     uniqueClasses: allClasses.size || counts.lowered + counts.reused,
     uniqueLowered: enabled ? [...new Set(loweredClasses)].sort() : undefined,
     manifestHash: createHash("sha256").update(JSON.stringify(hashes)).digest("hex"),
     wallMs: Math.round(performance.now() - start), hashes});
   save(); console.error(JSON.stringify(results.rows.at(-1)));
+  artifactFolders.set(hashes, generated); capturedSelections.set(hashes, selection);
   return hashes;
 }
 function equal(left, right, label) {
   assert.deepEqual(right, left, `${label}: generated artifacts differ`);
-  results.comparisons.push({label, equal: true}); save();
+  for (const name of ["zz_app.go", "zz_generated.go", "zz_db.json", "symbols.json"])
+    assert.deepEqual(readFileSync(join(artifactFolders.get(right), name)), readFileSync(join(artifactFolders.get(left), name)), `${label}: ${name} bytes`);
+  const a = capturedSelections.get(left), b = capturedSelections.get(right);
+  // Every comparison must carry an ordered selection: the runner emits it only
+  // under OSABAP_TIMING=1, and without this assert that guarantee can be lost
+  // silently (GLM review note 2026-10-20).
+  assert.ok(a && b, `${label}: ordered selection missing (run the proof with OSABAP_TIMING=1)`);
+  assert.deepEqual(b, a, `${label}: ordered selections differ`);
+  results.comparisons.push({label, equal: true, selectionEqual: true, byteFiles: 4}); save();
 }
 const recorded = capture("cold-enabled", true);
 if (baseline) {
@@ -117,3 +133,40 @@ if (baselineWarm) {
   results.unchangedBaselineBudgetMet = warm.phases.total <= baselineWarm.phases.total;
 }
 save();
+
+// Change a real condition in a method of an existing mid-size test class.
+// Token positions come from the parser; only the fresh input copy is edited.
+function realisticEdit() {
+  const folder = join(input, "inputs/zlnt-tests-statements/src");
+  for (const name of readdirSync(folder).sort()) {
+    if (!name.endsWith(".clas.abap") || name === "zcl_lnt_add_module.clas.abap") continue;
+    const file = join(folder, name), before = readFileSync(file, "utf8"), lines = before.split("\n");
+    if (lines.length < 80 || lines.length > 800) continue;
+    const reg = new abaplint.Registry(); reg.addFile(new abaplint.MemoryFile(name, before)); reg.parse();
+    const statements = [...reg.getObjects()].flatMap(o => o.getABAPFiles().flatMap(f => f.getStatements()));
+    let method;
+    for (const statement of statements) {
+      if (statement.get() instanceof abaplint.Statements.MethodImplementation) method = statement.concatTokens();
+      if (statement.get() instanceof abaplint.Statements.EndMethod) method = undefined;
+      if (!method?.startsWith("METHOD test_initialize_") || !(statement.get() instanceof abaplint.Statements.If)) continue;
+      const token = statement.getTokens().find(t => t.getStr() === "=");
+      if (!token) continue;
+      const start = token.getStart(), offset = lines.slice(0, start.getRow() - 1).reduce((n, line) => n + line.length + 1, 0) + start.getCol() - 1;
+      assert.equal(before.slice(offset, offset + 1), "=");
+      const after = before.slice(0, offset) + "<>" + before.slice(offset + 1);
+      if (matchingDiscoveryEvidence(discoveryEvidence(name, before), discoveryEvidence(name, after)) !== "method-discovery-candidate") continue;
+      return {apply: () => writeFileSync(file, after), file: name, lines: lines.length, method, statement: statement.concatTokens(), before: "=", after: "<>"};
+    }
+  }
+  throw new Error("no reference-preserving condition in a mid-size test class");
+}
+logicPlan.apply(); results.realisticEdit = logicPlan; save();
+const realistic = capture("realistic-enabled", true), realisticCold = capture("realistic-disabled", false);
+equal(realisticCold, realistic, "realistic edit enabled = independent roots disabled");
+assert.notDeepEqual(realisticCold, editedCold, "realistic edit must change generated artifacts");
+const realisticOn = results.rows.find(r => r.label === "realistic-enabled"), realisticOff = results.rows.find(r => r.label === "realistic-disabled");
+results.realisticBudgetMet = realisticOn.closureRounds === 1 && realisticOn.phases.total < realisticOff.phases.total;
+save();
+assert.equal(realisticOn.selectionEvidence, "method-discovery-references", "realistic edit must exercise the general proof");
+assert.equal(realisticOn.closureRounds, 1, "realistic edit must use the certified one-round path");
+assert.ok(results.realisticBudgetMet, "realistic edit must beat cache-off");

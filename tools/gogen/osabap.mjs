@@ -257,7 +257,7 @@ const program = compileClosedProgram({
   skip: (path) => /\.testclasses\.abap$/i.test(path),
 });
 finishRunnerCache(runnerCache.certificate);
-phase("frontend", frontendStarted, {closureRounds: program.closureRounds, selectionEvidence: program.selectionEvidence, dependencyRecording: runnerCache.options.dependencyCache ?? false, lowered: program.frontendCounts.lowered, reused: program.frontendCounts.reused});
+phase("frontend", frontendStarted, {selection: process.env.OSABAP_TIMING === "1" ? [...program.wanted] : undefined, closureRounds: program.closureRounds, selectionEvidence: program.selectionEvidence, dependencyRecording: runnerCache.options.dependencyCache ?? false, lowered: program.frontendCounts.lowered, reused: program.frontendCounts.reused});
 const emitStarted = performance.now();
 // (kept after rttiObjects: test/dsl-report.mjs evaluates the selections block alone)
 for (const parameter of [...readParams, ...readLists]) {

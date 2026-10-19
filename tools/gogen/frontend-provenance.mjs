@@ -1,4 +1,5 @@
 // Observational tracing facade. Ordinary compilation never loads the recorder.
+import {staticDiscoveryReferences, functionDiscoveryReferences} from "./frontend-discovery-references.mjs";
 import {freshRegistry, finishInputs} from "./frontend-inventory.mjs";
 import {createRequire} from "node:module";
 import {beginFrontendRound, finishFrontendRound} from "./frontend-timing.mjs";
@@ -95,22 +96,7 @@ export function scopedProvenance() { return recorder?.scopedProvenance() ?? fals
         // Preserve the per-file order: all FM ownership queries precede static
         // attribute lookups, even when those accesses occur earlier in the file.
         for (const statement of statements) {
-          const names = [];
-          if (statement.get() instanceof abaplint.MacroContent) {
-            const tokens = statement.getTokens();
-            for (let i = 0; i + 2 < tokens.length; i++) {
-              if (upper(tokens[i].getStr()) === "CALL" && upper(tokens[i + 1].getStr()) === "FUNCTION")
-                names.push(tokens[i + 2]);
-            }
-          } else if (statement.get() instanceof abaplint.Statements.CallFunction
-              && upper(statement.getTokens()[1]?.getStr()) === "FUNCTION") {
-            names.push(statement.findDirectExpression(abaplint.Expressions.FunctionName)?.getFirstToken());
-          }
-          for (const name of names) {
-            if (!(name instanceof abaplint.Tokens.StringToken)) continue;
-            const literal = name.getStr();
-            if (!literal.startsWith("'") || !literal.endsWith("'") || literal.length <= 2) continue;
-            const functionName = upper(literal.slice(1, -1));
+          for (const functionName of functionDiscoveryReferences(statement, abaplint)) {
             const group = fmGroups.get(functionName);
             semanticQuery(reg, "function-module-owner", [functionName],
               group ? [`FUGR ${upper(group)}`] : [], {policy: "gogen-last-wins"});
@@ -120,15 +106,7 @@ export function scopedProvenance() { return recorder?.scopedProvenance() ?? fals
         // A PUBLIC CLASS-DATA read is a dependency too. Only identifier tokens
         // surrounding a static arrow count; comments and literal text do not.
         for (const statement of statements) {
-          const tokens = statement.getTokens();
-          for (let i = 1; i + 1 < tokens.length; i++) {
-            if (tokens[i].getStr() !== "=>"
-                || !(tokens[i - 1] instanceof abaplint.Tokens.Identifier)
-                || !(tokens[i + 1] instanceof abaplint.Tokens.Identifier)) continue;
-            // Keep the existing lookup spelling for namespaced owners: the
-            // former identifier match used the final namespace component.
-            const owner = tokens[i - 1].getStr().split("/").at(-1).toLowerCase();
-            const attr = upper(tokens[i + 1].getStr());
+          for (const {owner, member: attr} of staticDiscoveryReferences(statement, abaplint)) {
             const def = reg.getObject("CLAS", owner)?.getDefinition();
             if (def?.getAttributes().getStatic().some((a) => upper(a.getName()) === attr && a.getVisibility?.() === abaplint.Visibility.Public)
                 && !wanted.includes(owner)) wanted.push(owner);

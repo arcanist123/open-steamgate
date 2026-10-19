@@ -5,9 +5,9 @@ import {join} from "node:path";
 import {deriveProgramWanted} from "./frontend.mjs";
 import {withRole} from "./frontend-provenance.mjs";
 import {selectionScope} from "./runner-selection-scope.mjs";
-import {discoveryEvidence} from "./runner-selection-evidence.mjs";
+import {discoveryEvidence, matchingDiscoveryEvidence} from "./runner-selection-evidence.mjs";
 const digest = value => createHash("sha256").update(JSON.stringify(value ?? null)).digest("hex");
-function closedSelection(saved, options, reg) {
+function closedSelection(saved, options, reg, frames) {
   const roots = options.objects;
   const strings = value => Array.isArray(value) && value.every(n => typeof n === "string");
   const same = (left, right) => left.length === right.length && left.every((n, i) => n === right[i]);
@@ -17,8 +17,11 @@ function closedSelection(saved, options, reg) {
   for (const [round, row] of saved.rounds.entries()) {
     if (![row.inputs, row.wanted, row.missing, row.supers, row.added].every(strings)
         || !same(row.inputs, expected)) return undefined;
-    const wanted = deriveProgramWanted(reg, {...options, objects: expected, tolerant: round ? true : options.tolerant}, session);
+    const capture = {};
+    const wanted = deriveProgramWanted(reg, {...options, objects: expected, tolerant: round ? true : options.tolerant}, session, capture);
     if (!same(row.wanted, wanted)) return undefined;
+    if (!capture.selection) return undefined;
+    frames.push({inputs: expected, wanted: capture.selection.wanted, diagnostics: capture.selection.diagnostics, broken: [...capture.selection.broken], expanded: wanted});
     selected ??= new Set(wanted);
     // Replay the controller from the request, never from persisted wanted.
     const added = [...row.missing, ...row.supers].filter(n => !selected.has(n) && reg.getObject("CLAS", n));
@@ -39,7 +42,7 @@ export function runnerSelectionCache(cacheDir, identity, files, policy) {
   const scope = selectionScope(previous?.key?.identity === identity ? previous.scope : undefined);
   const current = () => files.map(({layer, name, hash, path}) => ({layer, name, hash,
     evidence: discoveryEvidence(name, readFileSync(path, "utf8"))}));
-  let inputs, request, replayed;
+  let inputs, request, replayed, prepared;
   const key = options => ({identity, policy, roots: options.objects, tolerant: options.tolerant ?? false,
     includeTests: options.includeTests instanceof Set ? [...options.includeTests] : options.includeTests ?? false});
   return {
@@ -54,21 +57,24 @@ export function runnerSelectionCache(cacheDir, identity, files, policy) {
           inputs = files.map((row, i) => row.layer === previous.inputs[i].layer && row.name === previous.inputs[i].name && row.hash === previous.inputs[i].hash ? previous.inputs[i] : {
             layer: row.layer, name: row.name, hash: row.hash, evidence: discoveryEvidence(row.name, readFileSync(row.path, "utf8"))});
           if (!inputs.every((row, i) => row.layer === previous.inputs[i].layer && row.name === previous.inputs[i].name
-              && row.evidence === previous.inputs[i].evidence
-              && (row.hash === previous.inputs[i].hash || row.evidence.startsWith("local-v1:")))) return;
+              && (row.hash === previous.inputs[i].hash || matchingDiscoveryEvidence(previous.inputs[i].evidence, row.evidence)))) return;
         }
         if (!Array.isArray(previous.rounds) || !previous.rounds.length) return;
         if (!Array.isArray(previous.selection) || !previous.selection.every(n => typeof n === "string")) return;
         request = options;
-        return {selection: previous.selection, get closed() { return replayed; }, evidence: exact ? "exact-inputs" : "local-string-initializers", rounds: previous.rounds};
+        return {selection: previous.selection, get closed() { return replayed; }, evidence: exact ? "exact-inputs" : "discovery-references", rounds: previous.rounds};
       } catch { return; } // Incomplete evidence always restarts discovery.
     },
     check(reg, seeded) {
-      const evidence = scope.check(reg, seeded);
-      if (!seeded || evidence === false) return evidence;
+      if (!seeded) return scope.check(reg, false);
       try {
-        replayed ??= withRole("scheduling", () => closedSelection(previous, request, reg));
-        return replayed ? evidence : false;
+        if (!replayed) {
+          const frames = [];
+          replayed = withRole("scheduling", () => closedSelection(previous, request, reg, frames));
+          if (!replayed) return false;
+          prepared = frames;
+        }
+        return scope.check(reg, true, prepared, request?.includeTests);
       } catch { return false; }
     },
     write(options, selection, rounds) {

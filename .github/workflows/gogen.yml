@@ -91,8 +91,11 @@ jobs:
   gogen:
     runs-on: ubuntu-latest
     # 20 minutes cut the job mid-suite on main (2026-10-11, 10-13) and on
-    # #721 twice: a cancelled run is not a green one, so give it room
-    timeout-minutes: 35
+    # #721 twice: a cancelled run is not a green one, so give it room.
+    # 45 since #816: the cache block carries runner-selection-cache.test.mjs
+    # (broad-edit certification, isolated parses in both line modes); main
+    # peaked at 33 of 35 and the additions need ~5 more.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -138,7 +141,7 @@ jobs:
         # mid-test (provenance, digest and query suites were never run here).
         env:
           GOGEN_CACHE_SHADOW_VALIDATE: "1"
-        run: node --test --test-concurrency=1 tools/gogen/frontend-cache.test.mjs tools/gogen/runner-cache.test.mjs tools/gogen/frontend-object-cache.test.mjs tools/gogen/frontend-replay.test.mjs tools/gogen/frontend-portable.test.mjs tools/gogen/frontend-provenance.test.mjs tools/gogen/frontend-provenance-regression.test.mjs tools/gogen/frontend-provenance-compare.test.mjs tools/gogen/frontend-artifact-digests.test.mjs tools/gogen/frontend-queries.test.mjs tools/gogen/frontend-v3-shadow.test.mjs tools/gogen/frontend-certificates.test.mjs tools/gogen/frontend-v3-sensitivity.test.mjs tools/gogen/frontend-v3-audit.test.mjs tools/gogen/cache-oracle.test.mjs
+        run: node --test --test-concurrency=1 tools/gogen/frontend-cache.test.mjs tools/gogen/runner-cache.test.mjs tools/gogen/runner-selection-cache.test.mjs tools/gogen/frontend-object-cache.test.mjs tools/gogen/frontend-replay.test.mjs tools/gogen/frontend-portable.test.mjs tools/gogen/frontend-provenance.test.mjs tools/gogen/frontend-provenance-regression.test.mjs tools/gogen/frontend-provenance-compare.test.mjs tools/gogen/frontend-artifact-digests.test.mjs tools/gogen/frontend-queries.test.mjs tools/gogen/frontend-v3-shadow.test.mjs tools/gogen/frontend-certificates.test.mjs tools/gogen/frontend-v3-sensitivity.test.mjs tools/gogen/frontend-v3-audit.test.mjs tools/gogen/cache-oracle.test.mjs
       - name: Go byte fixtures and ABAPiti repros
         run: node tools/gogen/unit.mjs --fixture tools/gogen/testdata --jobs 4
       # osabap: a report built into a native command (open-abap-gui's
@@ -150,7 +153,7 @@ jobs:
           OSABAP_STRICT_PINS: "1"
         run: node --test tools/gogen/builtins.test.mjs tools/gogen/lib-pins.test.mjs tools/gogen/osabap-f4.test.mjs tools/gogen/osabap-list.test.mjs tools/gogen/osabap.test.mjs tools/gogen/osabap-sql-corpus.test.mjs tools/gogen/unit.test.mjs
       # Node only: reuse the pinned libraries without rebuilding a native
-      # binary for every list fixture; keep the 35-minute job budget.
+      # binary for every list fixture; keep the job time budget.
       - name: List positioning, direct and converted Node
         run: node tools/gogen/list-position-oracle.mjs --check
       - name: Generated-class ABAP Unit CI entry points (real Go and JS builds)

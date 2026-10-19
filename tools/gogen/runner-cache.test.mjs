@@ -158,3 +158,29 @@ test("generated tool output cannot change the compiler identity", () => {
     assert.equal(identity(), first);
   } finally { rmSync(output, {recursive: true, force: true}); }
 });
+
+
+test("real runner timing exposes ordered selection for the emit-only independent roots oracle", () => {
+  const dir = mkdtempSync(join(tmpdir(), "gogen-runner-selection-timing-"));
+  try {
+    const run = (label, enabled) => {
+      const build = join(dir, label), child = spawnSync(process.execPath,
+        ["--preserve-symlinks", join(import.meta.dirname, "osabap.mjs")], {
+          encoding: "utf8", maxBuffer: 20e6, env: {...process.env, OSABAP_BUILD_ROOT: build,
+            OSABAP_EMIT_ONLY: "1", OSABAP_TIMING: "1", OSD_GOGEN_CACHE: enabled ? join(dir, "cache") : ""},
+        });
+      assert.equal(child.status, 0, child.stderr);
+      const rows = child.stderr.split("\n").filter(s => s.startsWith("OSABAP_TIMING ")).map(s => JSON.parse(s.slice(14)));
+      const frontend = rows.find(r => r.phase === "frontend");
+      assert.ok(frontend.selection.includes("ZCL_OSABAP_HELLO"));
+      assert.equal(rows.find(r => r.phase === "goBuild").skipped, true);
+      const artifacts = ["zz_app.go", "zz_generated.go", "zz_db.json", "symbols.json"].map(name => readFileSync(join(build, "go/cmd/osabap", name)));
+      return {frontend, artifacts};
+    };
+    const reference = run("roots", false), recorded = run("recorded", true), warm = run("warm", true);
+    assert.deepEqual(recorded.artifacts, reference.artifacts); assert.deepEqual(warm.artifacts, reference.artifacts);
+    assert.deepEqual(recorded.frontend.selection, reference.frontend.selection);
+    assert.deepEqual(warm.frontend.selection, reference.frontend.selection);
+    assert.equal(warm.frontend.closureRounds, 1);
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});

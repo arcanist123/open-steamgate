@@ -986,3 +986,263 @@ are in `verified.json` and load samples in `load.ndjson` beside it. Validation
 logs, including the expected four failures on `57cfbdbb` and the clean osabap
 rerun, are under `/mnt/ssd-510/osg/stoker/tmp/c4b3-follow-validation`.
 The copied inputs are `/mnt/ssd-510/osg/stoker/tmp/c4b3-follow-input`.
+
+## Step 4b.4: method-body discovery equivalence
+
+There are now three independent proofs: the existing equal-width local string
+initializer proof (`local-string-initializers`), the conservative local integer
+proof (`discovery-references`), and general method-body discovery equivalence
+(`method-discovery-references`). The first two remain inexpensive special cases.
+The general path accepts parsed method-body statement changes with unchanged
+discovery observations, including inferred locals, string processing, arithmetic,
+condition changes, branch insertion and new primitive local variables.
+
+The general path has two stages. `runner-method-projection.mjs` parses the source
+with the frontend's pinned parser and retains declarations, method identities,
+and named reference observations. Static member and function-module observations
+come from `frontend-discovery-references.mjs`, the same readers used by
+`expandProgramSelection`. A matching projection is only a **candidate**, never
+authority to reuse a selection. Each evidence record also retains the parsed
+source, so the second stage can reconstruct the previous owner without reading
+or changing a previous worktree.
+
+`runner-method-discovery.mjs` constructs isolated before/after registries from
+the current normalized loaded files, replacing edited owners with their saved
+sources on the before side. Configuration, dependency roles, inventory order,
+original roots, include-test policy and CDS identity remain guarded by the
+existing selection scope. All owners requiring the general proof are replaced together. Owners already
+certified by the independent literal/integer proofs use their current sources
+on both sides; this composes the proofs without making a fast-path edit depend
+on general lowering eligibility. Separate, serial Node processes for before
+and after prevent compiler globals from changing the live compilation or
+retaining two registry heaps. The checker performs no filesystem writes. The real `compileProgram` builds selection, signatures, local definitions,
+function-module signatures, supplied parameters and CATCH indexes for
+**each saved closure-round input**. Its registries use the frontend's observed
+parse boundary, so guarded compilation cannot silently rebuild them. Its probe
+entry lowers only the changed owners and their local classes using the ordinary
+`classIr` path, with both object caching and selection seeding disabled.
+
+A method-only candidate fixes every declaration and every other source file.
+The isolated registries therefore retain the authoritative loaded registry's
+diagnostics for unchanged owners and use the parser's ordinary
+`findIssuesObject` rule runner to recompute all diagnostics for each changed
+owner, including its attached files. Unknown diagnostic ownership refuses the
+proof. The existing diagnostics-session contract carries these answers across
+round contexts; it reuses no class IR. File order, raw source, dependency roles,
+configuration and registry identity are fenced throughout the check. Any
+unexpected replacement, mutation or synthesized input restarts roots. This
+avoids rechecking unchanged method bodies across both complete registries.
+While re-deriving the saved round ledger, the parent captures each actual
+`prepareSelection` result from the current loaded registry: ordered raw wanted
+names, diagnostics and broken owners. The probes reuse these fenced frames,
+then run the ordinary supplied/signature/CATCH/local preparation and actual owner
+lowering for every historical context. Each resulting expanded selection must
+match the parent's re-derived frame. No persisted selection is substituted for
+current discovery, and changed-owner syntax is checked independently in both
+variants. This avoids repeating whole-registry selection scans twelve times.
+Per-variant parse, syntax and round-check timings are included in the optional
+`method-discovery` diagnostic row and the runner proof report.
+
+The existing `recordLowering` observer supplies the per-owner discovery reference
+sequence (the certified "reference set"): operations on `wanted`, `missing`,
+`caught`, `supplied`, `functionModules`, `dynStatics` and `interfaces`, including query arguments and
+read answers, in first-discovery order, with repeated positions preserved.
+Before and after must have identical ordered sequences; a reorder is not
+certified and falls back to full rediscovery from roots. Signature observations
+additionally bind the queried signature slot and its final availability (typed, unsupported or missing), rather than
+memoization hit booleans that vary when a call is duplicated. `wanted` membership checks are the actual closure guards, and
+`missing` additions include dependencies inferred by lowering rather than
+spelled in a statement. This catches, for example, adding `CREATE OBJECT o`
+when `o` already has an unchanged `TYPE REF TO` declaration. Before and after
+must agree in every historical round context, including rounds where a missing
+dependency prevented a method from lowering completely. Final-round edited
+methods must lower successfully and contain no partial-statement stubs. An
+unrecordable operation, observer budget refusal, parse/syntax failure, child
+failure, or unsupported changed method refuses the general certificate.
+
+| Discovery input | Where discovery reads it | Guard |
+| --- | --- | --- |
+| Superclass | `compileClosedProgram` superclass walk; `classIr` hierarchy | Declaration AST stays bound; current superclass ledger remains re-derived. |
+| Interfaces, aliases, friends | `classIr`, `componentInterfaces`, signature/attribute resolution | Declaration AST stays bound, including class/interface names. |
+| Static calls, external constants/types/attributes | `expandProgramSelection` static-attribute lookup; `call`, `resolveStatic`, `registerConst`, type/signature resolution | Shared owner/member reader, named AST observations and actual lowering membership reads. |
+| TYPE REF TO and CREATE OBJECT TYPE | Type lowering and `createObject`/`newExpr` | Named AST observations plus inferred target's real `wanted`/`missing` operations. |
+| RAISING/CATCH and implicit exception classes | Signatures, `tryStatement`, `caughtIndex`, dynamic calls, exception widening | Signature/named AST observations plus actual CATCH answers and implicit dependency additions. |
+| Dynamic literal names | `dynamicStaticCall`, dynamic construction/type lookup | Dynamic AST operands stay bound; actual dispatch names and exception dependencies must agree. |
+| Function modules | `prepareSelection` → `expandProgramSelection`; `functionGroupSignatures`, `callFunction` | Shared literal FM reader; actual function-module signature reads and closure dependencies. |
+| DDIC/CDS | Type/database lowering, `prepareCdsRegistry`, table/lock registries | Named type/database AST references, exact non-class files and loaded CDS/inventory identity. |
+| Supplied parameters | `suppliedIndex`, `suppliedMethods`, `suppliedComparison` | Declaration/signature AST, parameter-name set, the shared `suppliedComparison` reader and actual supplied-index reads. |
+| Local classes and test markers | `deriveProgramWanted`, `localClasses`, local-dispatch selection | Declaration AST and test policy stay bound; local/include/test files require exact bytes. |
+| INCLUDEs/macros | Parser expansion and original macro-definition scans in `expandProgramSelection` | Main files with INCLUDE/DEFINE/MacroContent have no general proof; any include/macro-file edit restarts roots. |
+| Existing raw-source probes | `localInterfaceNames`, `currentTypeNames`, `amcSource` | Compare the frontend's existing probe answers; no new regex dependency parser. |
+| Refusal and normalization boundaries | `normalizeSource`, `blockList`, class/method lowering | Unknown AST statements, unrecordable lowering, changed dropped/partial methods and SUBMIT files fail closed. |
+
+Both filesystem preflight and the normalized loaded scope must agree. The
+round ledger is still re-derived from the **current request and registry**;
+previous `wanted` arrays do not authorize membership. Tool/config/CDS/inventory,
+layer order, owner roles and roots guards are unchanged. The cache directory
+remains trusted; checksums detect corruption rather than malicious replacement.
+Every object-cache hit still passes its independent dependency/replay guards.
+The feature remains opt-in and default off. Compiler initialization stays pure,
+and the isolated host checker introduces no compiler builtin imports or
+prototype changes. `frontend.mjs` is smaller than `origin/main`.
+
+The fresh-process selection oracle disables both object caching and selection
+seeding on its reference side. It covers general string/condition/arithmetic
+edits, branch insertion, inferred and explicit locals, reference additions and
+removals, inferred CREATE dependencies, TYPE REF/CATCH/constant/interface/
+superclass/dynamic-literal changes, include/macros, multiple edits, reverts,
+concurrent general-proof publishers, coherent ledger corruption and load races.
+The omitted-static-reference negative control deliberately erases that reference
+kind from a test-only clone of both the AST preflight and actual lowering
+observations. The faulty certifier must really accept the removal and report
+`method-discovery-references` in one round; the independent roots oracle then
+detects the stale superset's different selection and generated bytes. Production has no fault
+switch for omitting references. Both reverse-edge fault detectors remain enabled
+in the certificate suite.
+
+`cache-runner-proof.mjs` now changes a parsed condition from `=` to `<>` inside
+an existing test-initialization method of an 80–800-line copied test class. This must exercise the
+general proof, change generated output, take one closure round and beat its
+cache-disabled control. The preceding literal edit is retained, so the logic
+pair measures cumulative edits. Every case runs serially in a 70 GiB/zero-swap
+scope with a 24 GiB Node heap, saves its results immediately, and skips Go build.
+Ordered selections must also match. Both SHA-256 equality and direct byte comparisons cover `zz_app.go`,
+`zz_generated.go`, `zz_db.json` and `symbols.json` against independent roots
+runs. Source inputs are read and copied from `.local/zlnt-system`; edits are made
+only in the fresh copy. Installed inputs, other worktrees and shared libraries
+are never modified.
+
+Changes from the preceding partial implementation add
+`runner-method-projection.mjs` and `runner-method-discovery.mjs`, the explicit
+probe contract in `frontend-session-types.ts`/`frontend.mjs`, general candidate
+and loaded-scope validation in the three selection modules, broader selection
+tests, condition-edit/direct-byte proof checks, and this documentation.
+
+Validation before the large proof: the complete cache/selection/certificate/
+provenance/replay matrix passed 315 tests with no failures or skips in 489.2 s,
+using `--preserve-symlinks --test-concurrency=1` and shadow validation. Its oracle
+ran 60 mutations in 62 attempts with zero mismatches (123.5 s); both reverse-edge
+negative controls passed. A subsequent 10-test runner suite includes an emit-only
+real-runner comparison of ordered selections and all four files with caching off,
+cold-on and warm-on. The four host-boundary checks, TypeScript, all 153 size
+budgets and the explicit 17-path leak gate passed. `frontend.mjs` is net -7 lines
+and -216 bytes against `origin/main` at `60282273`. Validation logs are retained
+under `/mnt/ssd-510/osg/stoker/tmp/c4b4-validation`.
+
+The first eight-case proof at `c3e32e24` passed all five ordered-selection and
+four-artifact direct-byte comparisons, but **failed the realistic performance
+gate**: 772.4 s enabled versus 524.2 s off, despite taking one round. The complete
+failed measurement is retained at
+`/mnt/ssd-510/osg/stoker/tmp/c4b4-proof/report.json`; it is not a passing timing
+claim for the final implementation. The isolated checker had parsed outside the
+observed boundary, allowing registry rebuilding, and performed full diagnostics
+for unchanged owners. The follow-up uses observed parsing, scoped authoritative
+diagnostics and separate variant processes as described above. It also qualifies
+method completeness by implementation owner and keeps CLI execution separate
+from importing the host checker. New regressions cover valid local include
+methods with shared names, mixed fast/general edits involving unchanged partial
+statements, and unchanged broken-owner diagnostics in historical contexts.
+
+The follow-up also covers duplicate static-call insertion and revert: insertion
+now restarts roots when the ordered observations differ, while reverting can
+reuse the retained exact-input certificate. It also covers loaded CDS mappings,
+raw CDS invalidation and actual acceptance by the deliberately
+reference-incomplete negative-control certifier.
+
+A bounded copied-corpus probe of the optimized checker passed on the actual
+7,031-file loaded registry: 129.3 s total, with before/after parsing 57.1/60.7 s
+and historical-round checks 3.6/3.4 s. This is diagnostic evidence, not an
+end-to-end runner timing. The optimized `frontend.mjs` is net -13 lines and
+-753 bytes against `origin/main` (`60282273`).
+
+### Final step 4b.4 runner proof
+
+Measured on 2026-10-18 at implementation `1320af0a`, after the complete required
+matrix passed. All eight cases used fresh processes and distinct build roots,
+serial 70 GiB / zero-swap scopes, `NODE_OPTIONS=--max-old-space-size=24576`,
+`TMPDIR=/mnt/ssd-510/osg/stoker/tmp`, and
+`GOCACHE=/mnt/ssd-510/osg/go-build`. Go build was skipped in every case.
+The filesystem and loaded-scope guards, ledger derivation, object-cache guards,
+closure controller, emission and gofmt all ran normally.
+
+| Case | Cache | Rounds | Frontend (s) | Emission (s) | gofmt (s) | Total (s) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Cold | on | 6 | 1,780.2 | 42.4 | 18.6 | 1,843.2 |
+| Warm | on | 1 | 166.8 | 42.5 | 18.5 | 229.8 |
+| Cold | off | 6 | 467.4 | 33.4 | 18.5 | 521.4 |
+| Warm | off | 6 | 482.0 | 35.0 | 18.5 | 537.5 |
+| Literal edit | on | 1 | 322.2 | 63.9 | 18.6 | 406.7 |
+| Literal edit | off | 6 | 462.7 | 33.5 | 18.5 | 516.7 |
+| Method logic edit | on | 1 | 431.7 | 39.9 | 18.6 | 492.2 |
+| Method logic edit | off | 6 | 464.5 | 33.8 | 18.5 | 518.8 |
+
+The literal edit changes the existing `add 2` initializer to `add 3` in
+`zcl_lnt_add_module.clas.abap` and uses `local-string-initializers`. The realistic
+edit changes `IF t2 = abap_true` to `IF t2 <> abap_true` in
+`METHOD test_initialize_4` of the 234-line
+`zcl_lnt_add_crrspndng_mdl.clas.abap`. It uses
+`method-discovery-references`, retaining the preceding literal edit.
+
+Warm saves 307.7 s (57.3%); the literal edit saves 110.1 s (21.3%); the
+realistic edit saves 26.6 s (5.1%), each against its matching cache-disabled
+control.
+
+The realistic margin is modest: this is one serial measurement per case on a
+shared host, not a claim of a fixed speedup on every run. Both edits pass the
+one-round and faster-than-off gates. Cold cache population remains expensive;
+this change optimizes eligible subsequent edits, not the first cache build.
+
+The realistic certificate itself takes 124.4 s. Before/after variants spend
+56.1/56.7 s parsing, 0.030/0.032 s checking changed-owner syntax, and
+3.5/3.5 s checking all historical round contexts (59.7/60.3 s variant totals).
+Two complete isolated parses remain its main cost. The final realistic round
+lowers 13 classes and reuses 3,042. Warm lowers 9 and reuses 3,046 of 3,055
+classes (99.705% reuse); literal lowers 14 and reuses 3,041.
+
+All five comparisons pass both SHA-256 checks and direct byte comparison of
+`zz_app.go`, `zz_generated.go`, `zz_db.json` and `symbols.json`. All cases have the
+same ordered 3,177-entry selection. Both edit pairs match their independent
+cache-disabled, unseeded roots oracle. Each edit actually changes
+`zz_generated.go`; the other three required artifacts remain unchanged.
+
+An additional independent post-run verifier rereads every compared file,
+checks saved hashes, checks all eight observed memory/swap scopes, verifies all
+5,978 installed source hashes are unchanged, and verifies that exactly the two
+intended files differ in the fresh input copy. No installed input, other
+worktree or shared library was modified.
+
+Final validation at this implementation: **328 tests pass, zero failures or
+skips**, in 581.7 s with `--preserve-symlinks --test-concurrency=1` and
+`GOGEN_CACHE_SHADOW_VALIDATE=1`. The 60-mutation oracle completes 62 attempts
+with zero mismatches in 126.7 s. Both reverse-edge controls and the genuinely
+accepted omitted-static-reference control pass. All four host-I/O tests,
+`tsc -p tsconfig.gogen.json`, all 153 size budgets, and the explicit changed-path
+leak scan pass (exit 0). `frontend.mjs` remains net -13 lines / -753 bytes versus
+`origin/main` at `60282273`.
+
+Machine-local evidence: `/mnt/ssd-510/osg/stoker/tmp/c4b4-final-proof/report.json`,
+`verified.json`, `input-manifest.json`, `scope-verified.json`, per-case logs,
+diagnostics, generated artifacts and `monitor.ndjson`. The edited copy is
+`/mnt/ssd-510/osg/stoker/tmp/c4b4-final-input`. Required-check logs are under
+`/mnt/ssd-510/osg/stoker/tmp/c4b4-validation` (`release-matrix.log`,
+`host-final.log`, `tsc-release.log`, `size-final.log`, `leak-final.log`).
+
+Files changed by step 4b.4 relative to `origin/main` (unqualified names share
+`tools/gogen/`):
+
+| Area | Files |
+| --- | --- |
+| Shared discovery and pure compiler seam | `frontend-discovery-references.mjs`, `frontend-provenance.mjs`, `frontend-selection.mjs`, `frontend-session-types.ts`, `frontend.mjs` |
+| Host edit proofs and loaded-scope validation | `runner-discovery-projection.mjs`, `runner-discovery-types.mjs`, `runner-method-projection.mjs`, `runner-method-discovery.mjs`, `runner-selection-evidence.mjs`, `runner-selection-scope.mjs`, `runner-selection-cache.mjs` |
+| Runner proof and telemetry | `cache-runner-proof.mjs`, `osabap.mjs` |
+| Tests and CI | `runner-selection-cache.test.mjs`, `runner-cache.test.mjs`, `.github/workflows/gogen.yml` |
+| Documentation | `docs/gogen-cache-runners.md` |
+
+Changes to declarations/signatures, hierarchy/interfaces/aliases/friends,
+named references, dynamic literal targets, function modules or DDIC/CDS inputs
+remain non-certifiable when their discovery observations change. Include,
+macro, local/test-include edits, SUBMIT normalization, unknown syntax,
+unclassified observations and unsupported/partial changed methods restart
+roots. Inventory/config/tool/root/order/role changes and loaded-scope mismatches
+also restart roots. The literal and integer special cases remain independently
+available; the general path never grants authority to reuse cached IR.

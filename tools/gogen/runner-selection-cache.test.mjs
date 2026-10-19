@@ -1,12 +1,15 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {spawnSync} from "node:child_process";
+import {spawnSync, spawn} from "node:child_process";
 import {createHash} from "node:crypto";
 import {mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync} from "node:fs";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
+import ts from "typescript";
+import {abaplint} from "./frontend-base.mjs";
+import {discoveryProjection} from "./runner-discovery-projection.mjs";
 import {syntheticCorpus} from "./cache-oracle-corpus.mjs";
-import {discoveryEvidence} from "./runner-selection-evidence.mjs";
+import {discoveryEvidence, matchingDiscoveryEvidence} from "./runner-selection-evidence.mjs";
 const source = (name, body, superclass = "") => `CLASS ${name} DEFINITION PUBLIC ${superclass ? `INHERITING FROM ${superclass}` : ""}.
 PUBLIC SECTION. CLASS-METHODS run. ENDCLASS.
 CLASS ${name} IMPLEMENTATION. METHOD run. ${body} ENDMETHOD. ENDCLASS.`;
@@ -16,10 +19,19 @@ import {prepareRunnerCache, finishRunnerCache} from ${JSON.stringify(new URL("ru
 import {artifactsOf} from ${JSON.stringify(new URL("cache-oracle-capture.mjs", import.meta.url).href)};
 import {readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
-const {input, cacheDir, objects, policy, tolerant, forceSelection, mutateAfterPrepare, restoreAtCheck} = JSON.parse(process.argv[1]);
+const {input, cacheDir, objects, policy, tolerant, includeTests, forceSelection, mutateAfterPrepare, restoreAtCheck, faultModule} = JSON.parse(process.argv[1]);
 const folders = [input];
 const runner = prepareRunnerCache(folders, cacheDir ? {cacheDir, dependencyCache: true, provenance: false} : {}, policy);
 try {
+ if (faultModule) {
+   process.env.GOGEN_CACHE_DIAGNOSTICS = join(cacheDir, "fault-diagnostics.ndjson");
+   const {runnerSelectionCache} = await import(faultModule);
+   const {readdirSync} = await import("node:fs");
+   const {createHash} = await import("node:crypto");
+   const {toolIdentity} = await import(${JSON.stringify(new URL("frontend-object-cache.mjs", import.meta.url).href)});
+   const files = readdirSync(input).sort((a,b) => a.localeCompare(b)).map(name => ({layer: 0, name, path: join(input,name), hash: createHash("sha256").update(readFileSync(join(input,name))).digest("hex")}));
+   runner.options.selectionCache = runnerSelectionCache(cacheDir, toolIdentity(), files, policy);
+ }
  if (mutateAfterPrepare) {
    const file = join(input, "zentry.clas.abap"), original = readFileSync(file, "utf8");
    writeFileSync(file, mutateAfterPrepare);
@@ -28,7 +40,7 @@ try {
      runner.options.selectionCache.check = (...args) => { writeFileSync(file, original); return check(...args); };
    }
  }
- const p = compileClosedProgram({...runner.options, folders, objects, tolerant, ...(forceSelection ? {selectionCache: {read: () => ({selection: forceSelection, closed: forceSelection, evidence: "test-forced", rounds: []}), write() {}}} : {})});
+ const p = compileClosedProgram({...runner.options, folders, objects, tolerant, includeTests, ...(forceSelection ? {selectionCache: {read: () => ({selection: forceSelection, closed: forceSelection, evidence: "test-forced", rounds: []}), write() {}}} : {})});
  finishRunnerCache(runner.certificate);
  console.log(JSON.stringify({artifacts: artifactsOf(p).artifacts, wanted: [...p.wanted], rounds: p.closureRounds, evidence: p.selectionEvidence}));
 } catch(e) { console.log(JSON.stringify({error: e.message})); }
@@ -111,6 +123,21 @@ for (const noline of [false, true]) {
     }));
   }
 }
+for (const noline of [false, true]) test(`reordered static calls restart discovery in first-discovery order; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  put("zentry", source("zentry", "zleaf=>run( ). zother=>run( )."));
+  const prime = oracle(input, cache, {}, noline);
+  assert.deepEqual(prime.wanted, ["ZENTRY", "ZLEAF", "ZOTHER"]);
+  assert.equal(capture(input, cache, {}, noline).evidence, "exact-inputs");
+  put("zentry", source("zentry", "zother=>run( ). zleaf=>run( )."));
+  const edited = capture(input, cache, {}, noline), cold = capture(input, undefined, {}, noline);
+  assert.ok(!edited.error, edited.error); assert.ok(!cold.error, cold.error);
+  assert.equal(edited.evidence, "discovery-from-roots");
+  assert.ok(edited.rounds > 1, "reordered discovery references cannot reuse the one-round selection");
+  assert.deepEqual(cold.wanted, ["ZENTRY", "ZOTHER", "ZLEAF"]);
+  assert.deepEqual(edited.wanted, cold.wanted, "ordered selection matches independent discovery from roots");
+  assert.deepEqual(edited.artifacts, cold.artifacts);
+}));
+
 test("policy, roots, corruption and tool identity fail closed", () => fixture(({input, cache}) => {
   oracle(input, cache);
   assert.equal(oracle(input, cache, {policy: "different"}).evidence, "discovery-from-roots");
@@ -128,7 +155,7 @@ test("policy, roots, corruption and tool identity fail closed", () => fixture(({
 }));
 test("discovery evidence excludes only plain local string initializer values", () => {
   const before = source("z", "DATA(t5) = CONV string( |value 1| ).");
-  const key = text => discoveryEvidence("z.clas.abap", text);
+  const key = text => JSON.parse(discoveryEvidence("z.clas.abap", text))[0];
   assert.equal(key(before), key(before.replace("value 1", "value 2")));
   for (const after of [before.replace("string", "zother"), before.replace("value 1", "{ zother=>run( ) }"), before.replace("value 1", "value 22"),
     before.replace("CONV string( |value 1| )", "zother=>run( )"), before.replace("DATA(t5)", "DATA(other)"),
@@ -153,16 +180,16 @@ test("seed controller continues missing-class rounds and keeps explicit roots st
   assert.match(capture(input, undefined, {forceSelection: ["ZENTRY", "ZLEAF"]}).error, /cannot be generic/);
 }));
 
-for (const noline of [false, true]) test(`literal width changes restart discovery; noline=${noline}`, () => fixture(({input, cache, put}) => {
+for (const noline of [false, true]) test(`literal width changes use the general proof; noline=${noline}`, () => fixture(({input, cache, put}) => {
   oracle(input, cache, {}, noline);
   put("zentry", source("zentry", "DATA(t5) = CONV string( |value 22| ). zleaf=>run( )."));
   const result = oracle(input, cache, {}, noline);
-  assert.equal(result.evidence, "discovery-from-roots");
-  assert.equal(result.rounds, 2);
+  assert.equal(result.evidence, "method-discovery-references");
+  assert.equal(result.rounds, 1);
 }));
 
 test("literal edits must preserve the frontend's actual raw-source probe answers", () => {
-  const key = text => discoveryEvidence("z.clas.abap", source("z", `DATA(t5) = CONV string( |${text}| ).`));
+  const key = text => JSON.parse(discoveryEvidence("z.clas.abap", source("z", `DATA(t5) = CONV string( |${text}| ).`)))[0];
   assert.notEqual(key("TYPES ztype1 TYPE i."), key("TYPES ztype2 TYPE i."));
   assert.notEqual(key("INTERFACE lif_one."), key("INTERFACE lif_two."));
   assert.notEqual(key("CL_AMC_CHANNEL_MANAGER"), key("ZL_AMC_CHANNEL_MANAGER"));
@@ -262,4 +289,262 @@ for (const noline of [false, true]) test(`cold compiler expansions certify local
   const warm = oracle(input, cache, extra, noline);
   assert.equal(warm.rounds, 1);
   assert.equal(warm.evidence, "exact-inputs");
+}));
+
+for (const noline of [false, true]) test(`local integer logic, declaration, multi-edit and revert certify; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "DATA counter TYPE i. counter = 1. IF counter > 2. counter = counter + 1. ENDIF. zleaf=>run( ).";
+  put("zentry", source("zentry", body));
+  oracle(input, cache, {}, noline);
+  for (const after of [body.replace("counter > 2", "counter >= 3"),
+    body.replace("counter = 1.", "counter = 2. counter = counter + 1."),
+    body + " DATA another TYPE i. another = 4.",
+    body.replace("DATA counter TYPE i. counter = 1.", "DATA counter TYPE i VALUE 2. ADD 1 TO counter."), body]) {
+    put("zentry", source("zentry", after));
+    const result = oracle(input, cache, {}, noline);
+    assert.equal(result.rounds, 1);
+    assert.equal(result.evidence, "discovery-references");
+  }
+}));
+for (const noline of [false, true]) for (const kind of ["type-ref", "catch-new", "constant", "interface", "dynamic-literal", "include"]) {
+  test(`reference boundary ${kind} restarts roots; noline=${noline}`, () => fixture(({input, cache, put}) => {
+    let before = "", after = "";
+    if (kind === "type-ref") { before = "DATA o TYPE REF TO zleaf."; after = "DATA o TYPE REF TO zother."; }
+    if (kind === "constant") {
+      for (const n of ["zleaf", "zother"]) put(n, `CLASS ${n} DEFINITION PUBLIC. PUBLIC SECTION. CONSTANTS c TYPE i VALUE 1. ENDCLASS. CLASS ${n} IMPLEMENTATION. ENDCLASS.`);
+      before = "DATA x TYPE i. x = zleaf=>c."; after = "DATA x TYPE i. x = zother=>c.";
+    }
+    if (kind === "catch-new") {
+      put("cx_root", source("cx_root", ""));
+      for (const n of ["zcx_old", "zcx_new"]) put(n, `CLASS ${n} DEFINITION PUBLIC INHERITING FROM cx_root. ENDCLASS. CLASS ${n} IMPLEMENTATION. ENDCLASS.`);
+      before = "TRY. CATCH zcx_old. ENDTRY."; after = "TRY. CATCH zcx_new. ENDTRY.";
+    }
+    if (kind === "dynamic-literal") { before = "CALL METHOD ('ZLEAF')=>('RUN')."; after = "CALL METHOD ('ZOTHER')=>('RUN')."; }
+    if (kind === "include") {
+      writeFileSync(join(input, "zfirst.prog.abap"), "DATA x TYPE i.");
+      writeFileSync(join(input, "zsecond.prog.abap"), "DATA y TYPE i.");
+      before = "INCLUDE zfirst."; after = "INCLUDE zsecond.";
+    }
+    const make = body => kind === "interface" ? source("zentry", "").replace("PUBLIC SECTION.", `PUBLIC SECTION. ${body}`) : source("zentry", body);
+    if (kind === "interface") {
+      writeFileSync(join(input, "zif_a.intf.abap"), "INTERFACE zif_a PUBLIC. ENDINTERFACE.");
+      writeFileSync(join(input, "zif_b.intf.abap"), "INTERFACE zif_b PUBLIC. ENDINTERFACE.");
+      before = "INTERFACES zif_a."; after = "INTERFACES zif_b.";
+    }
+    put("zentry", make(before)); oracle(input, cache, {}, noline);
+    put("zentry", make(after));
+    const result = oracle(input, cache, {}, noline);
+    assert.equal(result.evidence, "discovery-from-roots");
+  }));
+}
+test("AST candidates still exclude changed named references, includes and macros", () => {
+  const proof = body => discoveryEvidence("z.clas.abap", source("z", body));
+  const matches = (a, b) => matchingDiscoveryEvidence(proof(a), proof(b));
+  for (const [a, b] of [
+    ["DATA x TYPE i. x = 1.", "DATA x TYPE ztype. x = 1."],
+    ["INCLUDE zfirst.", "INCLUDE zfirst. DATA x TYPE i."],
+    ["DEFINE m. END-OF-DEFINITION.", "DEFINE m. END-OF-DEFINITION. DATA x TYPE i."],
+    ["not an abap statement.", "not an abap statement. DATA x TYPE i."],
+  ]) assert.equal(matches(a, b), undefined, `${a} -> ${b}`);
+});
+
+test("negative control: omitting static-call references really certifies a stale superset caught by the roots oracle", () => fixture(({input, cache, put}) => {
+  // Clone only the host certification chain. No production fault-injection flag,
+  // no forced selection: the deliberately faulty certifier must accept the edit.
+  const directory = join(cache, "fault"); mkdirSync(directory, {recursive: true});
+  const modules = ["runner-method-projection.mjs", "runner-selection-evidence.mjs", "runner-method-discovery.mjs", "runner-selection-scope.mjs", "runner-selection-cache.mjs"];
+  for (const name of modules) {
+    let text = readFileSync(new URL(name, import.meta.url), "utf8");
+    text = text.replace("createRequire(import.meta.url)", `createRequire(${JSON.stringify(new URL(name, import.meta.url).href)})`);
+    if (name === "runner-method-projection.mjs") text = text.replace("  const retained =", '  statements = statements.filter(s => !staticDiscoveryReferences(s, core).some(r => r.owner.toUpperCase() === "ZLEAF"));\n  const retained =');
+    if (name === "runner-method-discovery.mjs") text = text.replace("return {references, phases:", 'return {references: references.filter(r => !r.includes("ZLEAF")), phases:');
+    const ast = ts.createSourceFile(name, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS), edits = [];
+    for (const node of ast.statements) if (ts.isImportDeclaration(node) && node.moduleSpecifier.text.startsWith(".")) {
+      const spec = node.moduleSpecifier.text, leaf = spec.slice(2);
+      if (!modules.includes(leaf)) edits.push([node.moduleSpecifier.getStart(ast), node.moduleSpecifier.getEnd(), JSON.stringify(new URL(spec, import.meta.url).href)]);
+    }
+    const visit = node => {
+      if (ts.isCallExpression(node) && node.expression.getText(ast) === "require" && ts.isStringLiteralLike(node.arguments[0]) && node.arguments[0].text.startsWith(".")) {
+        const arg = node.arguments[0]; edits.push([arg.getStart(ast), arg.getEnd(), JSON.stringify(new URL(arg.text, import.meta.url).pathname)]);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+    for (const [start,end,value] of edits.sort((a,b) => b[0]-a[0])) text = text.slice(0,start) + value + text.slice(end);
+    writeFileSync(join(directory,name), text);
+  }
+  const faultModule = new URL(`file://${join(directory, "runner-selection-cache.mjs")}`).href;
+  put("zentry", source("zentry", "zleaf=>run( )."));
+  const prime = capture(input, cache, {faultModule}); assert.ok(!prime.error, prime.error);
+  put("zentry", source("zentry", ""));
+  const stale = capture(input, cache, {faultModule}), reference = capture(input, undefined);
+  assert.ok(!stale.error, stale.error); assert.ok(!reference.error, reference.error);
+  assert.equal(stale.rounds, 1); assert.equal(stale.evidence, "method-discovery-references", "faulty certifier actually accepts the missing reference: " + readFileSync(join(cache, "fault-diagnostics.ndjson"), "utf8"));
+  assert.deepEqual(stale.wanted, prime.wanted);
+  assert.notDeepEqual(stale.wanted, reference.wanted);
+  assert.notDeepEqual(stale.artifacts, reference.artifacts, "independent oracle detects the omitted static reference kind");
+}));
+test("concurrent edited readers publish atomic compatible selection proofs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "gogen-selection-concurrent-")), input = join(root, "input"), cache = join(root, "cache");
+  mkdirSync(input);
+  try {
+    const file = join(input, "zentry.clas.abap");
+    writeFileSync(file, source("zentry", "DATA(counter) = 1. zleaf=>run( )."));
+    writeFileSync(join(input, "zleaf.clas.abap"), source("zleaf", ""));
+    oracle(input, cache);
+    writeFileSync(file, source("zentry", "DATA(counter) = 1. counter = counter + 2. zleaf=>run( )."));
+    const reference = capture(input, undefined);
+    const captures = await Promise.all([1, 2, 3].map(() => new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ["--preserve-symlinks", "--input-type=module", "-e", childCode,
+        JSON.stringify({input, cacheDir: cache, objects: ["zentry"], policy: "test-v1"})]);
+      let stdout = "", stderr = "";
+      child.stdout.on("data", b => { stdout += b; }); child.stderr.on("data", b => { stderr += b; });
+      child.on("error", reject); child.on("close", code => code ? reject(new Error(stderr)) : resolve(JSON.parse(stdout)));
+    })));
+    for (const result of captures) {
+      assert.deepEqual(result.artifacts, reference.artifacts); assert.deepEqual(result.wanted, reference.wanted);
+      assert.equal(result.rounds, 1); assert.ok(["method-discovery-references", "exact-inputs"].includes(result.evidence));
+    }
+    assert.equal(oracle(input, cache).evidence, "exact-inputs");
+  } finally { rmSync(root, {recursive: true, force: true}); }
+});
+
+test("the loaded syntax scope certifies primitive TYPE i despite an inherited same-name type", () => fixture(({input, cache, put}) => {
+  put("zparent", "CLASS zparent DEFINITION PUBLIC. PUBLIC SECTION. TYPES i TYPE string. ENDCLASS. CLASS zparent IMPLEMENTATION. ENDCLASS.");
+  put("zentry", source("zentry", "DATA counter TYPE i.", "zparent"));
+  oracle(input, cache);
+  put("zentry", source("zentry", "DATA counter TYPE i. counter = 1.", "zparent"));
+  const result = oracle(input, cache);
+  assert.equal(result.evidence, "discovery-references");
+  assert.equal(result.rounds, 1);
+}));
+
+for (const noline of [false, true]) test(`multiple owners edit and revert; static-call additions/removals restart; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const entry = "DATA counter TYPE i. counter = 1. zleaf=>run( ).", leaf = "DATA counter TYPE i. counter = 1.";
+  put("zentry", source("zentry", entry)); put("zleaf", source("zleaf", leaf)); oracle(input, cache, {}, noline);
+  for (const value of [2, 1]) {
+    put("zentry", source("zentry", entry.replace("= 1", `= ${value}`)));
+    put("zleaf", source("zleaf", leaf.replace("= 1", `= ${value}`)));
+    assert.equal(oracle(input, cache, {}, noline).rounds, 1);
+  }
+  put("zentry", source("zentry", entry + " zother=>run( )."));
+  const added = oracle(input, cache, {}, noline); assert.equal(added.evidence, "discovery-from-roots"); assert.ok(added.wanted.includes("ZOTHER"));
+  put("zentry", source("zentry", entry));
+  const removed = oracle(input, cache, {}, noline); assert.equal(removed.evidence, "discovery-from-roots"); assert.ok(!removed.wanted.includes("ZOTHER"));
+}));
+
+for (const noline of [false, true]) test(`general method logic uses actual frontend discovery references; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "DATA(text) = CONV string( |hello| ). IF strlen( text ) > 1. text = to_upper( text ). ENDIF. zleaf=>run( ).";
+  put("zentry", source("zentry", body)); oracle(input, cache, {}, noline);
+  for (const after of [body.replace("> 1", ">= 2"), body.replace("text = to_upper( text ).", "text = to_lower( text ). text = text && text."), body + " DATA added TYPE string. added = text.", body]) {
+    put("zentry", source("zentry", after));
+    const result = oracle(input, cache, {}, noline);
+    assert.equal(result.rounds, 1); assert.equal(result.evidence, "method-discovery-references");
+  }
+}));
+
+for (const noline of [false, true]) test(`general inferred locals and branch insertion certify; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "DATA(x) = 1. zleaf=>run( ).";
+  put("zentry", source("zentry", body)); oracle(input, cache, {}, noline);
+  for (const after of ["DATA(x) = 2. IF x > 0. x = x / 2. ENDIF. zleaf=>run( ).", body]) {
+    put("zentry", source("zentry", after));
+    const result = oracle(input, cache, {}, noline);
+    assert.equal(result.rounds, 1); assert.equal(result.evidence, "method-discovery-references");
+  }
+}));
+for (const noline of [false, true]) test(`general unknown lowering and refusal boundaries restart roots; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "DATA(text) = CONV string( |hello| ). zleaf=>run( ).";
+  put("zentry", source("zentry", body)); oracle(input, cache, {}, noline);
+  put("zentry", source("zentry", "DATA(text) = CONV string( |hello| ). BREAK-POINT. zleaf=>run( )."));
+  const result = oracle(input, cache, {}, noline);
+  assert.equal(result.evidence, "discovery-from-roots");
+}));
+
+for (const noline of [false, true]) for (const create of [false, true]) test(`lowering-derived CREATE dependency changes despite identical named AST set; create=${create}, noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "DATA o TYPE REF TO zleaf.";
+  put("zentry", source("zentry", body + (create ? " CREATE OBJECT o." : "")));
+  oracle(input, cache, {}, noline);
+  put("zentry", source("zentry", body + (create ? "" : " CREATE OBJECT o.")));
+  const result = oracle(input, cache, {}, noline);
+  assert.equal(result.evidence, "discovery-from-roots");
+}));
+
+for (const noline of [false, true]) test(`SUPPLIED uses the frontend comparison reader while unrelated logic edits certify; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "IF p IS SUPPLIED AND p > 1. DATA(x) = 1. ENDIF. zleaf=>run( ).";
+  const make = body => source("zentry", body).replace("CLASS-METHODS run.", "CLASS-METHODS run IMPORTING p TYPE i OPTIONAL.");
+  put("zentry", make(body)); oracle(input, cache, {}, noline);
+  for (const after of [body.replace("p > 1", "p > 2"), body.replace("p IS SUPPLIED", "p IS NOT SUPPLIED"), body]) {
+    put("zentry", make(after));
+    const result = oracle(input, cache, {}, noline);
+    assert.equal(result.rounds, 1); assert.equal(result.evidence, "method-discovery-references");
+  }
+}));
+
+test("main-method edits with same-named local include methods reject stubs and include changes", () => fixture(({input, cache, put}) => {
+  const body = "DATA(text) = CONV string( |hello| ). zleaf=>run( ).";
+  writeFileSync(join(input, "zentry.clas.locals_def.abap"), "CLASS lcl_aux DEFINITION. PUBLIC SECTION. CLASS-METHODS run. ENDCLASS.");
+  const local = "CLASS lcl_aux IMPLEMENTATION. METHOD run. DATA(counter) = 1. ENDMETHOD. ENDCLASS.";
+  writeFileSync(join(input, "zentry.clas.locals_imp.abap"), local);
+  put("zentry", source("zentry", body)); oracle(input, cache, {includeTests: true});
+  const after = body + " text = to_upper( text ).";
+  put("zentry", source("zentry", after));
+  const changed = oracle(input, cache, {includeTests: true});
+  assert.equal(changed.rounds, 1); assert.equal(changed.evidence, "method-discovery-references");
+  put("zentry", source("zentry", after + " BREAK-POINT."));
+  assert.equal(oracle(input, cache, {includeTests: true}).evidence, "discovery-from-roots");
+  put("zentry", source("zentry", after));
+  writeFileSync(join(input, "zentry.clas.locals_imp.abap"), local.replace("= 1", "= 2"));
+  assert.equal(oracle(input, cache, {includeTests: true}).evidence, "discovery-from-roots");
+}));
+test("importing the host checker with an unrelated --probe argument performs no CLI work", () => {
+  const child = spawnSync(process.execPath, ["--preserve-symlinks", "--input-type=module", "-e",
+    `process.argv = [process.execPath, "unrelated.mjs", "--probe"]; await import(${JSON.stringify(new URL("runner-method-discovery.mjs", import.meta.url).href)}); console.log("imported");`],
+    {encoding: "utf8", input: "{}"});
+  assert.equal(child.status, 0, child.stderr); assert.equal(child.stdout, "imported\n");
+});
+for (const noline of [false, true]) for (const special of ["literal", "integer"]) test(`general edit composes with an independently certified partial-method ${special} edit; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = (special === "literal" ? "DATA(t5) = CONV string( |value 1| )." : "DATA counter TYPE i. counter = 1.") + " BREAK-POINT. zleaf=>run( ).";
+  const logic = "DATA(text) = CONV string( |hello| ). IF strlen( text ) > 1. text = to_upper( text ). ENDIF.";
+  put("zentry", source("zentry", body)); put("zleaf", source("zleaf", logic));
+  oracle(input, cache, {}, noline);
+  put("zentry", source("zentry", body.replace(special === "literal" ? "value 1" : "= 1", special === "literal" ? "value 2" : "= 2")));
+  put("zleaf", source("zleaf", logic.replace("> 1", "> 2")));
+  const result = oracle(input, cache, {}, noline);
+  assert.equal(result.rounds, 1); assert.equal(result.evidence, "method-discovery-references");
+}));
+for (const noline of [false, true]) test(`unchanged broken-owner diagnostics remain authoritative in every historical context; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  put("zbroken", source("zbroken", "DATA x TYPE any."));
+  const before = "DATA(text) = CONV string( |hello| ). IF strlen( text ) > 1. text = to_upper( text ). ENDIF. zleaf=>run( ).";
+  const options = {objects: ["zentry", "zbroken"], tolerant: true};
+  put("zentry", source("zentry", before)); oracle(input, cache, options, noline);
+  put("zentry", source("zentry", before.replace("> 1", "> 2")));
+  const result = oracle(input, cache, options, noline);
+  assert.equal(result.rounds, 1); assert.equal(result.evidence, "method-discovery-references");
+}));
+
+for (const noline of [false, true]) test(`general method edits preserve the actual loaded CDS mapping and reject raw CDS changes; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  for (const name of ["zgogen_t_dbw.tabl.xml", "zgogen_t_dbwc.view.xml", "zgogen_t_dbwv.view.xml"])
+    writeFileSync(join(input, name), readFileSync(new URL(`./testdata/${name}`, import.meta.url)));
+  const file = join(input, "zgogen_t_dbwc.ddls.asddls"), ddls = "@AbapCatalog.sqlViewName: 'ZGOGEN_T_DBWV'\ndefine view ZGOGEN_T_DBWC as select from zgogen_t_dbw { key id, val as amount }";
+  writeFileSync(file, ddls);
+  const before = "SELECT id FROM zgogen_t_dbwv INTO TABLE @DATA(rows). DATA(text) = CONV string( |hello| ). IF strlen( text ) > 1. text = to_upper( text ). ENDIF. zleaf=>run( ).";
+  put("zentry", source("zentry", before));
+  const initial = oracle(input, cache, {}, noline);
+  assert.deepEqual(JSON.parse(initial.artifacts.partial), []); assert.deepEqual(JSON.parse(initial.artifacts.skipped), []);
+  put("zentry", source("zentry", before.replace("> 1", "> 2")));
+  const result = oracle(input, cache, {}, noline);
+  assert.equal(result.rounds, 1, JSON.stringify({evidence: result.evidence, partial: result.artifacts.partial, skipped: result.artifacts.skipped})); assert.equal(result.evidence, "method-discovery-references");
+  assert.deepEqual(JSON.parse(result.artifacts.cdsViews), {ZGOGEN_T_DBWC: "ZGOGEN_T_DBWV"});
+  writeFileSync(file, ddls + "\n// raw CDS edit");
+  assert.equal(oracle(input, cache, {}, noline).evidence, "discovery-from-roots");
+}));
+
+for (const noline of [false, true]) test(`duplicate static-call insertion restarts roots and revert reuses exact inputs; noline=${noline}`, () => fixture(({input, cache, put}) => {
+  const body = "DATA(text) = CONV string( |hello| ). zleaf=>run( ).";
+  put("zentry", source("zentry", body)); oracle(input, cache, {}, noline);
+  for (const after of [body + " zleaf=>run( ).", body]) {
+    put("zentry", source("zentry", after));
+    const result = oracle(input, cache, {}, noline);
+    assert.equal(result.rounds, after === body ? 1 : 3);
+    assert.equal(result.evidence, after === body ? "exact-inputs" : "discovery-from-roots");
+  }
 }));

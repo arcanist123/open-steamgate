@@ -29,7 +29,7 @@ import {hoistLocalConstants} from "./frontend-local-constants.mjs";
 // why; a method that calls a skipped one is refused in turn.
 import {resolveStatic as lowerStatic, staticSlot} from "./frontend-static.mjs";
 import {prepareSession, finishSession, compileClass} from "./frontend-session.mjs";
-import {prepareSelection} from "./frontend-selection.mjs";
+import {prepareSelection, deriveSelectionWanted} from "./frontend-selection.mjs";
 import {sourceOwnershipSafety} from "./frontend-owned.ts";
 import {builtin} from "./frontend-builtins.mjs";
 import {literalText, textLiteral} from "./frontend-literals.ts";
@@ -62,7 +62,7 @@ const HOST_REPLACED = new Set(["ZCL_OSD_ENQ_KERNEL"]);
  */
 // skip(path): a file not to load, for a layered build where a later folder
 // hides an object an earlier one holds (osg-build.mjs; ultra/packs)
-export const compileProgram = withProvenance(/** @param {import("./frontend-session-types.ts").CompileOptions} options */ function compileProgram({folders, objects, tolerant = false, skip = () => false, includeTests = false, registry, session, cacheDir, dependencyCache = false, closureContext, strictRoots}) {
+export const compileProgram = withProvenance(/** @param {import("./frontend-session-types.ts").CompileOptions} options */ function compileProgram({folders, objects, tolerant = false, skip = () => false, includeTests = false, registry, session, cacheDir, dependencyCache = false, closureContext, strictRoots, discoveryProbe}) {
   const config = abaplint.Config.getDefault().get();
   config.syntax = {...config.syntax, version: "v758", errorNamespace: "."};
   // only the syntax check and parser errors are read below (parser_error is a
@@ -75,7 +75,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   /** @type {import("./frontend-session-types.ts").Registry} */ const reg = registry ?? /** @type {import("./frontend-session-types.ts").Registry} */ (new abaplint.Registry(new abaplint.Config(JSON.stringify(config))));
   // Resolve files; diagnose selection.
   /** @param {string} fn @returns {string} */ const objName = (fn) => fn.split("/").pop().split(".")[0].toLowerCase().replace(/#/g, "/");
-  /** @type {import("./frontend-cache-types.ts").CdsSource[]} */ const ddls = [];
+  /** @type {import("./frontend-cache-types.ts").CdsSource[]} */ const ddls = discoveryProbe?.cds ?? [];
   /** @param {string} dir @returns {void} */ const walk = (dir) => {
     for (const e of readdirEntries(dir).sort((x, y) => x.name.localeCompare(y.name))) {
       const path = join(dir, e.name);
@@ -119,8 +119,8 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     auditedBookkeeping("session-prepare", () => prepareSession(session, reg)); // Input guards only.
   }
   if (session) session.cdsInputs = cdsIdentity;
-  /** @type {typeof compileClass} */ const compile = diskFrontend ? (...args) => diskFrontend.compileDiskClass.call(undefined, ...args) : compileClass;
-  const {wanted, diagnostics, broken} = prepareSelection(reg, {objects, tolerant, strictRoots}, session, () => { prepareArtifactDigests(reg, !!session, closureContext); });
+  /** @type {typeof compileClass} */ const compile = discoveryProbe ? discoveryProbe.compile : diskFrontend ? (...args) => diskFrontend.compileDiskClass.call(undefined, ...args) : compileClass;
+  const {wanted, diagnostics, broken} = prepareSelection(reg, {objects, tolerant, strictRoots}, session, () => { prepareArtifactDigests(reg, !!session, closureContext); }, discoveryProbe?.selection);
 
   // Eager collections keep first writes inside the replay proxies. Anonymous
   // type identities use a Map so their ordered effects can be replayed too;
@@ -184,7 +184,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     PROGRAM = ctx.program; // Global type helpers must use the tracked program too.
     try { return classIr(ctx, obj); } finally { PROGRAM = saved; }
   };
-  for (const obj of enumerateObjects(reg, "selected-classes", wanted, "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()))) {
+  for (const obj of enumerateObjects(reg, "selected-classes", wanted, "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (!discoveryProbe || discoveryProbe.owners.has(upper(o.getName()))))) {
     if (!(obj instanceof abaplint.Objects.Class)) continue;
     // The session layer accepts a class source with own getter functions.
     // Keep the core object beside it for syntax analysis and provenance.
@@ -194,8 +194,9 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
       getABAPFiles: /** @returns {readonly import('@abaplint/core').ABAPFile[]} */ () => obj.getABAPFiles()};
     program.classes.push(compile(ctx0, source, lowerClass, session));
   }
-  for (const l of localDefs) program.classes.push(compile(ctx0, l, lowerClass, session));
-  for (const g of readable) program.classes.push(withArtifact(ctx0, g, () => functionGroupIr(ctx0, g)));
+  for (const l of localDefs.filter(l => !discoveryProbe || discoveryProbe.owners.has(l.owner))) program.classes.push(compile(ctx0, l, lowerClass, session));
+  for (const g of readable.filter(() => !discoveryProbe)) program.classes.push(withArtifact(ctx0, g, () => functionGroupIr(ctx0, g)));
+  if (discoveryProbe) return program;
   // every interface used as a reference type: its methods whose signature
   // types, which is what a class must provide to satisfy it
   program.interfaceMethods = new Map();
@@ -482,15 +483,9 @@ let PERSIST_LOWERING = false;
 
 // Reconstruct a cold round's membership on the CURRENT normalized registry.
 // No lowering or persisted wanted participates in this derivation.
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-session-types.ts").CompileOptions} options @param {import("./frontend-diagnostics.ts").DiagnosticsSession} [session] @returns {string[]} */
-export function deriveProgramWanted(reg, options, session) {
-  const {wanted} = prepareSelection(reg, options, session);
-  const result = new Set(wanted.map(upper)), includeTests = options.includeTests ?? false;
-  for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (includeTests || LOCAL_CLASSES.has(upper(o.getName()))))) {
-    for (const local of localClasses(reg, obj, includeTests === true || (includeTests instanceof Set && includeTests.has(upper(obj.getName()))))) result.add(local.name);
-  }
-  for (const group of enumerateObjects(reg, "selected-groups", wanted, "scheduling", (o) => o instanceof abaplint.Objects.FunctionGroup && selectionHas(wanted, o.getName().toLowerCase()))) result.add(fugrOwner(group));
-  return [...result];
+/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-session-types.ts").CompileOptions} options @param {import("./frontend-diagnostics.ts").DiagnosticsSession} [session] @param {{selection?: import("./frontend-session-types.ts").PreparedSelection}} [capture] @returns {string[]} */
+export function deriveProgramWanted(reg, options, session, capture) {
+  return deriveSelectionWanted(reg, options, session, capture, localClasses, LOCAL_CLASSES);
 }
 
 /*
