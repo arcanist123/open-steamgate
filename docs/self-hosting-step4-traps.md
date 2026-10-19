@@ -231,28 +231,27 @@ Private G `47de828f92d16473c7cd5af414d1a761716e7cf9` spells that
 predicate as an explicit Boolean for the declared `boolean | Set<string>`
 inputs. It passes 51 focused frontend tests and the six-mode byte comparison
 of 243 artifacts per mode against its parent. The corresponding change is on
-[draft PR #815](https://github.com/oisee/open-steamgate/pull/815); checks and
-review are pending. With this G commit and abapiti `5f8c204f`, the exact
+[draft PR #815](https://github.com/oisee/open-steamgate/pull/815); review is
+pending. With this G commit and abapiti `5f8c204f`, the exact
 reachability scan reports **0 reached traps**, `0/11 unknown`, and **322
 unreached functions**. The full Go build succeeds. Execution then stops in
 `frontend-session.mjs` when the compiler's structural class view refuses a
 prototype-bearing source passed through a recorder callback. It writes no
 output, so the reference comparison fails at byte one and the unit test has
-not run. This is the **one confirmed current runtime barrier**; its cause and
-fix are still under investigation. Neither private compiler candidate is
-integrated.
+not run. Neither private compiler candidate is integrated.
 
 A generated-Go-only diagnostic that removed this view's prototype guard
-advanced to a second failure at `frontend-session.mjs:66:394`: the view could
-not convert the source's `getMainABAPFile` method into its expected callable
-field. The diagnostic generated file was restored. A private G experiment
-wrapped the core class in a plain object with own getter functions. Its Node
-outputs stayed byte-identical across six sink/cache modes (243 artifacts per
-mode), and the exact trap scan stayed at zero, but the full Go run reached the
-same callable conversion failure. Further G type annotations added reached
-lowering traps and were excluded. The evidence points to a structural
-method-property bridge across the compiler's `any` boundary; allowing the
-prototype-bearing source through the current guard alone does not resolve it.
+advanced to a callable conversion failure; that generated file was restored.
+The newer private G candidate `7e850e5d25a25f74087c00e9b235643f74a1b8d2`
+passes a plain class source with own getter functions, typed returns, and an
+explicit statement-node guard. Its Node output is byte-identical to its
+parent in six sink/cache modes (243 artifacts per mode), the reached trap scan
+is still **0**, and the full Go builds. The Go run passes the class view and
+reaches `frontend-local-constants.mjs:62:141`, where a union child is cast to
+a structure node before an `instanceof` test. It still writes no Go output.
+This is the **one confirmed current runtime barrier**. A diagnostic removal
+of the erased TypeScript cast exposed an abapiti HIR narrowing rejection for
+the child union; the candidate was excluded from the ready G change.
 
 ## Completion gate
 
