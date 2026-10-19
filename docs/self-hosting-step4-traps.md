@@ -7,8 +7,10 @@ execution in `tableRegistry()` in `frontend.mjs` during a checked object
 conversion. Earlier failures in `fieldChainParts()` and final interface
 signature collection have been cleared in later G candidates. The latest private candidate passes the preceding negative-predicate
 conversions in `call()` and the null-array fallback in `defaultValue()`.
-However, an independent runtime oracle finds a null-to-undefined boxing
-regression in that compiler candidate, so **publication is on hold**. A
+An independent runtime oracle found a null-to-undefined boxing regression
+in abapiti `b8074960`, blocking its acceptance. Reviewed abapiti `8b752b51`
+now fixes that regression and is published on the integration branch; the
+next combined generator run is in progress. A
 zero-trap scan establishes that the reached lowering paths compile; execution,
 semantic parity, output equality, and the unit test still need to pass.
 
@@ -388,9 +390,14 @@ failing generated function confirms an attempted cast to the concrete
 `AbstractObject` base pointer. A derived Table/View object cannot satisfy
 that Go pointer assertion. A G follow-up replaces the assertion through
 `unknown` with explicit positive `instanceof Table` / `instanceof View`
-branches assigning a typed union local. TypeScript checking passes; Node
-comparisons and changed-path tests are still running. The self-hosted output
-is still empty. These runs
+branches assigning a typed union local. That diagnostic G `76311812` passes
+Node comparisons but introduces **1 reached lowering trap**: HIR call arity
+mismatch at the uninitialized `Table | View` variable. It is excluded from
+integration. The next private G `b1a49df317ef1435ba38adcb006abae84b70bb2c`
+uses a direct Table/View guard followed by `const o = obj`, removing both the
+unknown assertion and the uninitialized union local. TypeScript and focused
+whole-testdata/refusal checks pass; its exact full run is in progress.
+The self-hosted output is still empty. The preceding completed runs
 use the compiler with the known boxing RED for diagnosis and do not establish
 compiler acceptance. The private compiler changes are not integrated on the
 required main/selfhost branches.
@@ -401,6 +408,26 @@ the measured G source, then passes `ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED`.
 This validates the recipe using reference code; the self-hosted output still
 needs to reach the same gate. The historical target kit pins a different
 reference and must not be substituted for this check.
+
+## Reviewed compiler follow-up
+
+Abapiti source `8b752b5150de3286858a1c9ef6530bdb4ced9df8` fixes the
+RegExp match boxing regression. Published integration
+`b59f47d0c0aa076f454b9cc0973a8595dc72f74a` has the identical source tree
+`dca2eaf618d8afe0d79ef3e578b194cb1cae355c`; both trees were independently
+checked. The measured binary SHA-256 is
+`d53d8d871e5a08a4a349257e86b12310685a3e2e486bc45615b7e3b05fc7660b`.
+The compiler owner reports full short tests, vet, Grace, build, strict fixtures,
+Go/ABAP oracles and M1 passing, with two unchanged assignment traps in the
+separate compiler corpus check. Independent execution of the exact nullable
+boxing reproducer now agrees with Node. GLM approved this bounded compiler
+fix. These checks resolve the discovered boxing RED in the new compiler;
+they do not establish completion of the full self-hosting goal.
+
+The next combined full run uses this reviewed compiler and G `b1a49df3`.
+The earlier b807 binary is no longer used for new full runs. Final published
+G/main and A/selfhost pins, actual generated output equality and target unit,
+and complete M1/M2 plus both 11,060-test runs remain required.
 
 ## Completion gate
 
