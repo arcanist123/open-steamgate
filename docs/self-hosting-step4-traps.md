@@ -174,9 +174,10 @@ reached lowering traps**, `0/35 unknown`, and **322 unreached functions**.
 This clears the previously reported 839-hit `statement` root. The generated
 Go also builds successfully. The full run then panics at
 `src/artifacts_rules.ts:6:3` before writing output, so the byte comparison
-fails at byte one against the nonempty Node reference. These are private
-candidate measurements; the new G commits have not passed review or landed
-on main.
+fails at byte one against the nonempty Node reference. These measurements
+were made on the private incremental candidate; [draft PR #815](https://github.com/oisee/open-steamgate/pull/815)
+has the same source tree, stacked on #812. Its checks and review are pending,
+and the G changes have not landed on main.
 
 A diagnostic build that only printed the current rule key identified
 `SevenBitAsciiConf` immediately before the panic. That exported configuration
