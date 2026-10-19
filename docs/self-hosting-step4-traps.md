@@ -3,8 +3,9 @@
 Snapshot: 2026-10-19. The latest private candidates clear all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution in `frontend.mjs` `fieldChainParts()` on a checked IR-family
-view read. The latest private candidate passes the preceding negative-predicate
+execution while collecting final interface method signatures in
+`frontend.mjs`. A checked IR-family view failure in `fieldChainParts()` has
+been cleared in a later private G candidate. The latest private candidate passes the preceding negative-predicate
 conversions in `call()` and the null-array fallback in `defaultValue()`.
 However, an independent runtime oracle finds a null-to-undefined boxing
 regression in that compiler candidate, so **publication is on hold**. A
@@ -358,9 +359,25 @@ A private G diagnostic `b2876c97679c550927096b6f34cad8866b0d3b37` adds a
 and all six 243-artifact Node comparisons, but the exact full run introduces
 **1 reached lowering trap** at the `ME->` attribute literal: its optional
 `type` has not been validated before constructing the typed IR node. That
-annotation-only candidate is excluded from integration. A follow-up validates
-`type` before construction and remains under test. The private compiler
-changes are not integrated on the required main/selfhost branches.
+annotation-only candidate is excluded from integration. The follow-up
+`772688e7a960a0b2575f5345cc63f9c3871c0942` validates `type` before
+construction. It passes TypeScript checking, all 51 front-end output tests,
+and all six 243-artifact Node comparisons. Its exact full run with unchanged
+abapiti `b8074960` builds Go and passes the former `fieldChainParts()` barrier;
+retained Node coverage confirms **0 reached traps**, `0/11 unknown`, and
+**322 unreached**.
+
+That diagnostic next fails with `live typed array requires array storage`
+inside the final-output callback at `frontend.mjs:202:28`. The failing
+generated operation is the conversion of the dynamic conditional
+`Array.isArray(all) ? all : all.getAll()` into array storage before
+`Array.from` at source line 212. The registry's `getAll()` returns a generator,
+which requires iterator realization. A G follow-up reuses the existing typed
+`methodDefinitions()` adapter to preserve the array/iterator branch types;
+this remains under test. The self-hosted output is still empty. These runs
+use the compiler with the known boxing RED for diagnosis and do not establish
+compiler acceptance. The private compiler changes are not integrated on the
+required main/selfhost branches.
 
 The final target-build recipe has also been checked separately: the exact
 pinned Node reference `b906…` builds in a fresh module and test runner from
