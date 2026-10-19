@@ -1,6 +1,6 @@
 # Self-hosting step 4: remaining lowering traps
 
-Snapshot: 2026-10-18. This report describes the compiler failures still seen
+Snapshot: 2026-10-19. This report describes the compiler failures still seen
 when abapiti compiles gogen's `compileProgram` and `emitGo` for
 `ZCL_GOGEN_T_RUNTIME`. A trap means that the TypeScript-to-Go compiler could
 not lower a reached function body. It does **not** mean the generated Go has
@@ -8,7 +8,7 @@ failed a test: compilation has not yet reached that stage.
 
 ## Measurement and scope
 
-The best measured pair is OSG `75e64181b3b6942103f86692a338e9cd70655081`
+The best measured pair is OSG `574f9d5eb1113a51f32e8b382d403763ec7d38a0`
 (a **private, unmerged** G candidate based on main
 `602822731dda56d5b44ce3ec5e5282e7bbdda7c8`) and unmerged abapiti core5
 source `c53c35518077ac6a8aff0e4dfd8a66043f354da4`. The typed step-4 driver
@@ -18,7 +18,7 @@ The Node-gogen reference Go has SHA-256
 the trap run checked that reference hash. These identifiers pin the **inputs
 to the diagnostic**, not a completed self-hosting result.
 
-The reached-function scan reports **2 root trap locations, 880 hits**,
+The reached-function scan reports **1 root trap location, 839 hits**,
 `0/35 unknown`, and **322 unreached functions**. A hit is
 one occurrence attributed to a trapped root in the lowering/reachability
 report; it is not an independent defect or a count of failed unit tests. The
@@ -29,15 +29,13 @@ the measured OSG commit; line numbers can move on later branches.
 
 | Area | Root function and hits | First reported failure | Nature and next investigation |
 | --- | --- | --- | --- |
-| Front end | `frontend.mjs:874` `classIr` · 41 | `IMethodDefinition` interface passed where a concrete structural class shape is expected by `fn_addSig` | Method-definition typing crosses an abaplint interface/shape boundary. A broader union exposed another failure in `fn_addSig`; this needs a compatible contract or a compiler fix, not only a wider annotation. |
-| Front end | `frontend.mjs:1741` `statement` · 839 | Recursive union literal has no admitted tag or compatible payload | IR statement construction, first reported at the `REFRESH`/`FREE` mapped `clear`/`clear_data` literals, is rejected as a recursive discriminated union. Check the produced tag and payload against the IR type, then the compiler's recursive-union admission. |
+| Front end | `frontend.mjs:1743` `statement` · 839 | Recursive union literal has no admitted tag or compatible payload | IR statement construction, first reported at the `REFRESH`/`FREE` mapped `clear`/`clear_data` literals, is rejected as a recursive discriminated union. Check the produced tag and payload against the IR type, then the compiler's recursive-union admission. |
 
-The largest remaining root, front-end `statement`, accounts for 839 of
-880 hits. Hit count is not an effort estimate: either trapped function can
-still prevent a complete generator build. The `classIr` error crosses a
-structural type boundary; the recursive-union error
-may require abapiti lowering support. That division remains a diagnostic
-hypothesis until a candidate removes the exact root without adding another.
+The remaining `statement` root accounts for all 839 hits. Hit count is not an
+effort estimate: this one trapped function can still prevent a complete
+generator build. Its recursive-union error may require abapiti lowering
+support; that remains a diagnostic hypothesis until a candidate clears the
+exact root without adding another.
 
 On the same abapiti binary and typed driver, private G candidate
 `9299a46fea7274ad9a49662e23e64b8bca2042cf` had **11 roots / 5,214
@@ -154,6 +152,22 @@ On published abapiti integration `964884687c516465688dfebeac49898ffdbdd2ea`,
 the same G candidate reduced **5 / 1,110** to **4 / 901**. The removed root
 was again `method`; `compileProgram` (one hit) and `constructor_function`
 (20 hits) still need core5, while the two front-end roots remain.
+
+The later private G `574f9d5eb1113a51f32e8b382d403763ec7d38a0`
+clears the 41-hit `classIr` root on core5: **1 / 839**, `0/35 unknown`, 322
+unreached. It passes method-signature fields directly, constructs the typed
+signature map explicitly, checks host parameters and returning fields
+separately, derives abstract methods from typed signatures, checks the AMC host
+lookup, passes FIND dependencies directly, and initializes a complete method
+context before helper calls. Intermediate commits moved the first error within
+`classIr`; only the final commit cleared the root. The final candidate passed
+35 focused frontend tests with Bun available and produced 243 byte-identical
+artifacts against its G parent in each of six sink/cache modes. It remains
+private pending independent review and PR checks.
+On published abapiti integration `964884687c516465688dfebeac49898ffdbdd2ea`,
+the same G candidate reduced **4 / 901** to **3 / 860**. The removed root was
+again `classIr`; the one-hit `compileProgram` and 20-hit
+`constructor_function` still depend on the unmerged core5 compiler change.
 
 ## Completion gate
 
