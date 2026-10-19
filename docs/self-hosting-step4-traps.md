@@ -1,14 +1,14 @@
-# Self-hosting step 4: remaining lowering traps
+# Self-hosting step 4: lowering traps and runtime barrier
 
-Snapshot: 2026-10-19. This report describes the compiler failures still seen
-when abapiti compiles gogen's `compileProgram` and `emitGo` for
-`ZCL_GOGEN_T_RUNTIME`. A trap means that the TypeScript-to-Go compiler could
-not lower a reached function body. It does **not** mean the generated Go has
-failed a test: compilation has not yet reached that stage.
+Snapshot: 2026-10-19. The latest private candidate clears all reached
+TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
+`emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
+execution at a dynamic class-to-interface conversion. A zero-trap scan is
+therefore a compiler milestone, not a self-hosting pass.
 
 ## Measurement and scope
 
-The best measured pair is OSG `574f9d5eb1113a51f32e8b382d403763ec7d38a0`
+The preceding measured pair is OSG `574f9d5eb1113a51f32e8b382d403763ec7d38a0`
 (a **private, unmerged** G candidate based on main
 `602822731dda56d5b44ce3ec5e5282e7bbdda7c8`) and unmerged abapiti core5
 source `c53c35518077ac6a8aff0e4dfd8a66043f354da4`. The typed step-4 driver
@@ -18,24 +18,22 @@ The Node-gogen reference Go has SHA-256
 the trap run checked that reference hash. These identifiers pin the **inputs
 to the diagnostic**, not a completed self-hosting result.
 
-The reached-function scan reports **1 root trap location, 839 hits**,
+That reached-function scan reported **1 root trap location, 839 hits**,
 `0/35 unknown`, and **322 unreached functions**. A hit is
 one occurrence attributed to a trapped root in the lowering/reachability
 report; it is not an independent defect or a count of failed unit tests. The
 unreached functions have not been proved compilable. Locations below refer to
 the measured OSG commit; line numbers can move on later branches.
 
-## What is left
+## Last reached lowering trap in the preceding candidate
 
 | Area | Root function and hits | First reported failure | Nature and next investigation |
 | --- | --- | --- | --- |
 | Front end | `frontend.mjs:1743` `statement` · 839 | Recursive union literal has no admitted tag or compatible payload | IR statement construction, first reported at the `REFRESH`/`FREE` mapped `clear`/`clear_data` literals, is rejected as a recursive discriminated union. Check the produced tag and payload against the IR type, then the compiler's recursive-union admission. |
 
-The remaining `statement` root accounts for all 839 hits. Hit count is not an
-effort estimate: this one trapped function can still prevent a complete
-generator build. Its recursive-union error may require abapiti lowering
-support; that remains a diagnostic hypothesis until a candidate clears the
-exact root without adding another.
+The `statement` root accounted for all 839 hits in that candidate. Hit count
+is not an effort estimate. Later G changes cleared this root without adding
+another reached lowering trap.
 
 On the same abapiti binary and typed driver, private G candidate
 `9299a46fea7274ad9a49662e23e64b8bca2042cf` had **11 roots / 5,214
@@ -169,13 +167,39 @@ the same G candidate reduced **4 / 901** to **3 / 860**. The removed root was
 again `classIr`; the one-hit `compileProgram` and 20-hit
 `constructor_function` still depend on the unmerged core5 compiler change.
 
+The next private G candidate, `a082e7099de980a406b2755d5b81ec674646ed0f`,
+uses syntax nodes and explicit IR types in the `statement` builder. On the
+same core5 compiler and pinned driver, the reachability scan reports **0
+reached lowering traps**, `0/35 unknown`, and **322 unreached functions**.
+This clears the previously reported 839-hit `statement` root. The generated
+Go also builds successfully. The full run then panics at
+`src/artifacts_rules.ts:6:3` before writing output, so the byte comparison
+fails at byte one against the nonempty Node reference. These are private
+candidate measurements; the new G commits have not passed review or landed
+on main.
+
+A diagnostic build that only printed the current rule key identified
+`SevenBitAsciiConf` immediately before the panic. That exported configuration
+class extends `BasicRuleConfig`; the source iterates all rule exports through
+an `any` value, constructs each function, and checks `getMetadata` afterward.
+The generated Go instead asserts the constructed object against the `IRule`
+interface before that guard. The configuration object does not implement
+`IRule`, so the assertion fails. Inspection of the generated function also
+shows an unconditional array push: the `getMetadata` existence guard has no
+runtime branch there. The likely defect spans both premature interface
+assertion and loss of the guard across the dynamic `any` boundary; that
+diagnosis still needs a compiler fix and an end-to-end rerun. The diagnostic
+print was removed from the generated Go after inspection.
+
 ## Completion gate
 
 For each candidate, compare the reached trap locations and hit counts on the
 same pinned inputs, type-check gogen, run the tests for the changed path, and
 compare Node output across the sink/cache modes. Moving the first reported
 error inside a function is useful diagnostic progress, but does not clear its
-root. The private G candidates need review before integration into main.
+root. Zero reached traps leaves the runtime behavior and the 322 unreached
+functions unproved. The private G candidates need review before integration
+into main.
 
 Step 4 remains open until a **named OSG main commit** and a **named abapiti
 selfhost commit** produce byte-equal Go for the target test, that Go builds

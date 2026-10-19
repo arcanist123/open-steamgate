@@ -18,10 +18,10 @@ Each release also carries `sqlite.yml`, `duckdb.yml` and `postgres.yml`; start o
 
 ## Engineering report: self-hosting step 4
 
-[**The remaining TypeScript-to-Go lowering traps**](docs/self-hosting-step4-traps.md)
-are documented by failure type, measured frequency and the exact compiler and
-gogen commits used for the 2026-10-18 snapshot. The report also states what
-still has to pass before gogen can be called self-hosted.
+[**The step-4 lowering and runtime report**](docs/self-hosting-step4-traps.md)
+records the compiler and gogen commits, the path from reached lowering traps
+to a building Go program, and the current runtime failure. It also states the
+checks still required before gogen can be called self-hosted.
 
 ## What it is
 
