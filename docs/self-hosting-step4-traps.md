@@ -3,9 +3,9 @@
 Snapshot: 2026-10-19. The latest private candidates clear all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution while collecting final interface method signatures in
-`frontend.mjs`. A checked IR-family view failure in `fieldChainParts()` has
-been cleared in a later private G candidate. The latest private candidate passes the preceding negative-predicate
+execution in `tableRegistry()` in `frontend.mjs` during a checked object
+conversion. Earlier failures in `fieldChainParts()` and final interface
+signature collection have been cleared in later G candidates. The latest private candidate passes the preceding negative-predicate
 conversions in `call()` and the null-array fallback in `defaultValue()`.
 However, an independent runtime oracle finds a null-to-undefined boxing
 regression in that compiler candidate, so **publication is on hold**. A
@@ -374,7 +374,23 @@ generated operation is the conversion of the dynamic conditional
 `Array.from` at source line 212. The registry's `getAll()` returns a generator,
 which requires iterator realization. A G follow-up reuses the existing typed
 `methodDefinitions()` adapter to preserve the array/iterator branch types;
-this remains under test. The self-hosted output is still empty. These runs
+private G `d11f59bfbe25d9dcb8d28fb78236b1f382e278c0` passes TypeScript,
+51 front-end output tests, and all six 243-artifact comparisons. Its exact
+full diagnostic run builds Go, clears that iterator boundary, and retains
+**0 reached traps**, `0/11 unknown`, and **322 unreached**. The compiler's
+production source matches draft PR #815 head
+`cca413e479c39588d8f8f38be62681c2ec1b5a91`; the only comparison difference
+is a test mock. New CI and independent review are required on this head.
+
+The next barrier is `tableRegistry()`, `frontend.mjs:264:176`: a checked
+conversion fails before its `Table | View` assertion. Disassembly of the
+failing generated function confirms an attempted cast to the concrete
+`AbstractObject` base pointer. A derived Table/View object cannot satisfy
+that Go pointer assertion. A G follow-up replaces the assertion through
+`unknown` with explicit positive `instanceof Table` / `instanceof View`
+branches assigning a typed union local. TypeScript checking passes; Node
+comparisons and changed-path tests are still running. The self-hosted output
+is still empty. These runs
 use the compiler with the known boxing RED for diagnosis and do not establish
 compiler acceptance. The private compiler changes are not integrated on the
 required main/selfhost branches.
