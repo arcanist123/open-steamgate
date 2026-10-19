@@ -242,16 +242,19 @@ not run. Neither private compiler candidate is integrated.
 
 A generated-Go-only diagnostic that removed this view's prototype guard
 advanced to a callable conversion failure; that generated file was restored.
-The newer private G candidate `7e850e5d25a25f74087c00e9b235643f74a1b8d2`
-passes a plain class source with own getter functions, typed returns, and an
-explicit statement-node guard. Its Node output is byte-identical to its
-parent in six sink/cache modes (243 artifacts per mode), the reached trap scan
-is still **0**, and the full Go builds. The Go run passes the class view and
-reaches `frontend-local-constants.mjs:62:141`, where a union child is cast to
-a structure node before an `instanceof` test. It still writes no Go output.
-This is the **one confirmed current runtime barrier**. A diagnostic removal
-of the erased TypeScript cast exposed an abapiti HIR narrowing rejection for
-the child union; the candidate was excluded from the ready G change.
+The newer G candidate on draft PR #815, head `6001c08c`, passes a plain class
+source with own typed getter functions and keeps both the local-constant walk
+and flattened structure children behind explicit `instanceof` guards. Its
+Node output is byte-identical to its parent in six sink/cache modes (243
+artifacts per mode); focused frontend-output tests pass **51/51**. With
+abapiti `5f8c204f`, the reached trap scan is still **0**, `0/11 unknown`, and
+**322 unreached**. The generated Go builds and executes past the class view,
+local constants, and `flatChildren`. It next stops in `frontend.mjs:2970:173`
+while lowering an assignable target (`lvalue`). The failure passes through a
+generated union-view read; its precise cause remains under investigation. It
+still writes no Go output, so byte equality and the unit test remain unproved.
+This is the **one confirmed current runtime barrier**. Neither compiler
+candidate is integrated on the required main/selfhost branches.
 
 ## Completion gate
 
