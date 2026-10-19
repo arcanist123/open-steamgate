@@ -5,8 +5,11 @@ TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
 execution in `frontend.mjs` `fieldChainParts()` on a checked IR-family
 view read. The latest private candidate passes the preceding negative-predicate
-conversions in `call()` and the null-array fallback in `defaultValue()`. A zero-trap scan establishes that the reached lowering paths
-compile; execution, output equality, and the unit test still need to pass.
+conversions in `call()` and the null-array fallback in `defaultValue()`.
+However, an independent runtime oracle finds a null-to-undefined boxing
+regression in that compiler candidate, so **publication is on hold**. A
+zero-trap scan establishes that the reached lowering paths compile; execution,
+semantic parity, output equality, and the unit test still need to pass.
 
 ## Measurement and scope
 
@@ -317,16 +320,47 @@ refusal for unsupported mixed conventions. A separate null-array conditional
 join fix preserves the absent array reference instead of requesting live
 storage from `null`; its Node-versus-Go regression covers null comparison,
 original-array identity and empty arrays. Focused combined checks pass.
-Independent review and the full short compiler suite are pending.
+The exact candidate passes the full short compiler suite, ordinary and
+`wasmlegacy` vet, and the required Grace checks. An initial independent GLM
+review approved the delta, but a subsequent runtime oracle found a blocking
+semantic regression; these general checks do not establish acceptance.
 
 The exact `b8074960` + G `50f84f00` run builds Go and passes both preceding
 runtime boundaries. It stops at `frontend.mjs:3416:204`, `fieldChainParts()`,
 during a checked IR-family view read of `.type`. Its precise cause remains
 under investigation. Classification against this run's retained Node V8
 coverage confirms **0 reached traps**, `0/11 unknown`, and **322 unreached**.
-The output remains empty. This family-view read is the **one confirmed current
-runtime barrier**. The private compiler changes are not integrated on the
-required main/selfhost branches.
+The output remains empty. This family-view read is the current full-generator
+runtime barrier. Separately, the following independent compiler semantic RED
+also blocks acceptance:
+
+```js
+const picked = /^(foo)$/.exec("miss") ?? (flag ? ["x"] : null);
+const boxed = /** @type {any} */ (picked);
+String(boxed === null) + "|" + String(boxed === undefined)
+  + "|" + JSON.stringify({value: boxed});
+```
+
+For `flag === false`, Node returns `true|false|{"value":null}`, while exact
+`b8074960` generated Go returns `false|true|{}`. For `flag === true`, both
+return `false|false|{"value":["x"]}`. Strict TypeScript checking succeeds, and
+the compiler emits Go that builds and runs; the failure is silent loss of
+null identity and JSON property presence. The direct typed array/null case
+without the RegExp/coalesce join passes, which narrows the investigation to
+that join and subsequent dynamic boxing. The parent compiler traps instead
+of producing this incorrect result. This is separate from the already fixed
+mixed-variadic dispatch defect. The A compiler owner is investigating the
+boxing semantics; the G owner retains the `fieldChainParts()` investigation.
+No null/undefined collapse or null-to-empty-array substitution is acceptable.
+
+A private G diagnostic `b2876c97679c550927096b6f34cad8866b0d3b37` adds a
+`ValueExpr` annotation to `place`. It passes type checking, front-end tests
+and all six 243-artifact Node comparisons, but the exact full run introduces
+**1 reached lowering trap** at the `ME->` attribute literal: its optional
+`type` has not been validated before constructing the typed IR node. That
+annotation-only candidate is excluded from integration. A follow-up validates
+`type` before construction and remains under test. The private compiler
+changes are not integrated on the required main/selfhost branches.
 
 The final target-build recipe has also been checked separately: the exact
 pinned Node reference `b906…` builds in a fresh module and test runner from
