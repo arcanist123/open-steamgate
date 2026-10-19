@@ -293,7 +293,11 @@ including variadic flags, as the selected method. A Node-versus-Go test
 reproduces the old failure and passes with this change for variables and
 array elements. Focused union, virtual-call, covariant-return, predicate,
 closure-inventory and numeric-conversion checks pass. Independent adversarial
-review and the full compiler suite are pending.
+review found a semantic failure: when one union member has a rest parameter
+and another takes an array, a common call returns `A2|B2` instead of Node's
+`A1|B2`. Matching the selected method against the common slot is insufficient
+when an implementation has a different variadic ABI. This candidate must not
+be integrated unchanged. The full compiler suite remains in progress.
 
 The exact full run of this compiler with G `50f84f00` builds Go and executes
 past `call()` and `concatTokens()`. It next fails in `defaultValue()`,
