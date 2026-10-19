@@ -1,18 +1,43 @@
 # Self-hosting step 4: lowering traps and runtime barrier
 
-Snapshot: 2026-10-19. The latest private candidates clear all reached
-TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
-`emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution in `tableRegistry()` in `frontend.mjs` during a checked object
-conversion. Earlier failures in `fieldChainParts()` and final interface
-signature collection have been cleared in later G candidates. The latest private candidate passes the preceding negative-predicate
-conversions in `call()` and the null-array fallback in `defaultValue()`.
-An independent runtime oracle found a null-to-undefined boxing regression
-in abapiti `b8074960`, blocking its acceptance. Reviewed abapiti `8b752b51`
-now fixes that regression and is published on the integration branch; the
-next combined generator run is in progress. A
-zero-trap scan establishes that the reached lowering paths compile; execution,
-semantic parity, output equality, and the unit test still need to pass.
+Snapshot: 2026-10-19. Earlier pairs cleared all reached lowering traps
+and built the compiled generator. The latest completed pair, reviewed abapiti
+source8b752b51 / published integrationb59f47d0 with private G b1a49df3,
+still builds Go, but reports **2 reached lowering roots** and stops during
+execution at a checked object conversion in tableRegistry(). The target
+output remains empty. The earlier nullable-boxing semantic regression is
+fixed in the reviewed compiler; these additional conversion failures are
+being investigated separately.
+
+## Current reached roots and runtime barrier
+
+Exact pair: A8b752b5150de3286858a1c9ef6530bdb4ced9df8 and
+G b1a49df317ef1435ba38adcb006abae84b70bb2c. Retained Node coverage:
+**2 reached**, **0/11 unknown**, **322 unreached**. Hits are diagnostic
+occurrences, not separate bugs.
+
+| Root | Hits | Nature |
+| --- | ---: | --- |
+| emit-go.mjs:319:268, emitGo | 1 | HIR rejects narrowing optional<dynamic> to array<string>. The failing synthetic node has no original source position; the exact expression is still being reduced. |
+| frontend.mjs:274:30, table callback | 131 | HIR rejects array<dynamic> where the FrontendTable constructor requires array<string>. TypeScript confirms the object at source288:80 has a key inferred through any[], while the declared field requires readonly string[]. |
+
+The A compiler owner investigates these two array conversions. The G owner
+investigates the separate runtime barrier: a Table/View value is cast to a
+concrete AbstractObject base pointer before table metadata extraction.
+A direct guard alone did not remove that generated cast. Private G
+a56fc8e971918df07545ec28fb4cb088d75ffb20 keeps separate concrete Table and
+View receivers, passes TypeScript, all 51 front-end output tests and all six
+243-artifact comparisons, and is now in a full diagnostic run. It is not yet
+published or accepted.
+
+M1 Go and frozen M2 Go pass on published A b59f47d0; M2 output is byte-equal
+to9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa.
+The complete Go corpus run is still executing. OSGO milestones, final output
+equality and its unit test, final published pins and both full corpus results
+are still required.
+
+The sections below retain the earlier measurements and the path to this
+state; their zero-trap results apply only to their named older pairs.
 
 ## Measurement and scope
 
