@@ -268,14 +268,17 @@ export function whereColumns(t) {
   program.currentTypes = undefined;
   try {
     for (const obj of enumerateObjects(reg, "table-inventory", [], "final-output", (o) => o instanceof abaplint.Objects.Table || o instanceof abaplint.Objects.View)) {
-      const view = obj instanceof abaplint.Objects.View;
-      if (!(obj instanceof abaplint.Objects.Table) && !view) continue;
-      /** @type {import("@abaplint/core").Objects.Table | import("@abaplint/core").Objects.View} */ const o = /** @type {import("@abaplint/core").Objects.Table | import("@abaplint/core").Objects.View} */ (/** @type {unknown} */ (obj));
-      withArtifact({reg}, o, () => { const name = upper(o.getName());
+      // Probe fields overlap private core members, so class guards start from unknown.
+      /** @type {unknown} */ const candidate = obj;
+      const viewObject = candidate instanceof abaplint.Objects.View ? candidate : undefined;
+      const table = candidate instanceof abaplint.Objects.Table ? candidate : undefined;
+      if (table === undefined && viewObject === undefined) continue;
+      const view = viewObject !== undefined;
+      withArtifact({reg}, obj, () => { const name = upper(obj.getName());
       let st;
-      try { st = o.parseType(reg); } catch { return; }
+      try { st = table !== undefined ? table.parseType(reg) : viewObject?.parseType(reg); } catch { return; }
       if (!(st instanceof BasicTypes.StructureType)) return;
-      /** @type {import("@abaplint/core").Objects.Table | undefined} */ const table = o instanceof abaplint.Objects.Table ? o : undefined; let key = [];
+      let key = [];
       try { key = view ? [] : (table?.listKeys?.(reg) ?? []).map(upper); } catch { key = []; }
       const columns = st.getComponents().map((c) => {
         const kind = typeKindOf(c.type);
@@ -290,7 +293,7 @@ export function whereColumns(t) {
       // (dbTable refuses it at build time; a read by name at run time does
       // the same, go/abap selectdyn.go)
       if (view && !entry.client) {
-        const hidden = [...new Set(((/** @type {import("@abaplint/core").Objects.View} */ (o)).getFields() ?? []).map((f) => upper(f.TABNAME)))].find((b) => {
+        const hidden = [...new Set((viewObject?.getFields() ?? []).map((f) => upper(f.TABNAME)))].find((b) => {
           try {
             /** @type {import("@abaplint/core").Objects.Table | undefined} */ const baseTable = reg.getObject("TABL", b); const bt = baseTable?.parseType(reg);
             return bt instanceof BasicTypes.StructureType && bt.getComponents().some((c) => upper(c.name) === "MANDT");
