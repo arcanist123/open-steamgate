@@ -81,7 +81,7 @@ export function hoistLocalConstants(body, ctx, h) {
       })));
       return;
     }
-    if (isStmt(node, Statements.Constant) && literalValue(node)) {
+    if (node instanceof Nodes.StatementNode && isStmt(node, Statements.Constant) && literalValue(node)) {
       const name = upper(node.findFirstExpression(Expressions.DefinitionName).concatTokens());
       ctx.localConstantNames.add(name);
       const init = initialValue(node, ctx);

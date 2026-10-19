@@ -184,7 +184,16 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     PROGRAM = ctx.program; // Global type helpers must use the tracked program too.
     try { return classIr(ctx, obj); } finally { PROGRAM = saved; }
   };
-  for (const obj of enumerateObjects(reg, "selected-classes", wanted, "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()))) program.classes.push(compile(ctx0, obj, lowerClass, session));
+  for (const obj of enumerateObjects(reg, "selected-classes", wanted, "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()))) {
+    if (!(obj instanceof abaplint.Objects.Class)) continue;
+    // The session layer accepts a class source with own getter functions.
+    // Keep the core object beside it for syntax analysis and provenance.
+    const source = {obj, getName: /** @returns {string} */ () => obj.getName(),
+      getDefinition: /** @returns {import('@abaplint/core').IClassDefinition | undefined} */ () => obj.getDefinition(),
+      getMainABAPFile: /** @returns {import('@abaplint/core').ABAPFile | undefined} */ () => obj.getMainABAPFile(),
+      getABAPFiles: /** @returns {readonly import('@abaplint/core').ABAPFile[]} */ () => obj.getABAPFiles()};
+    program.classes.push(compile(ctx0, source, lowerClass, session));
+  }
   for (const l of localDefs) program.classes.push(compile(ctx0, l, lowerClass, session));
   for (const g of readable) program.classes.push(withArtifact(ctx0, g, () => functionGroupIr(ctx0, g)));
   // every interface used as a reference type: its methods whose signature
