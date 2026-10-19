@@ -2,6 +2,7 @@
 import {freshRegistry, finishInputs} from "./frontend-inventory.mjs";
 import {createRequire} from "node:module";
 import {beginFrontendRound, finishFrontendRound} from "./frontend-timing.mjs";
+import {cacheDiagnostic} from "./frontend-cache-diagnostics.mjs";
 const require = createRequire(import.meta.url);
 /** @type {typeof import("@abaplint/core")} */ const core = createRequire(require.resolve("@abaplint/transpiler/package.json"))("@abaplint/core");
 /** @type {typeof import('./frontend-provenance-recorder.mjs') | undefined} */ let recorder;
@@ -30,7 +31,6 @@ function loadRecorder() {
     finally {
       const rows = finishFrontendRound();
       if (process.env.GOGEN_CACHE_DIAGNOSTICS && options.cacheDir) {
-        const {cacheDiagnostic} = require("./frontend-cache-diagnostics.mjs");
         for (const row of rows) cacheDiagnostic({event: "phase", ...row});
       }
     }

@@ -1,5 +1,5 @@
 import {Nodes, Expressions, upper, isExpr, charlike, Unsupported, I, S, XS} from "./frontend-base.mjs";
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend.mjs").ByteStatementHelpers} h */ export function replaceStatement(node, ctx, text, h) {
+/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {import("./frontend.mjs").ByteStatementHelpers} h @returns {import("./frontend-types.ts").FrontendStmt} */ export function replaceStatement(node, ctx, text, h) {
   const {source, lvalue, convert} = h;
   const kids = node.getChildren();
   const words = kids.map((k) => (k instanceof Nodes.TokenNode ? upper(k.concatTokens()) : ""));

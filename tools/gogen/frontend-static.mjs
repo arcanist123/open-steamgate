@@ -9,8 +9,7 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
   /** @type {import("@abaplint/core").IRegistry} */ const reg = ctx.reg;
   const intf = reg.getObject("INTF", owner)?.getDefinition();
   const clas = clasDef(ctx.reg, owner);
-  /** @type {Map<string, {def: import("@abaplint/core").IInterfaceDefinition; source: string}>} */ const localInterfaces = /** @type {Map<string, {def: import("@abaplint/core").IInterfaceDefinition; source: string}>} */ (ctx.program.localInterfaces);
-  const local = localInterfaces.get(`${ctx.program.currentOwner}|${owner}`);
+  const local = ctx.program.localInterfaces?.get(`${ctx.program.currentOwner}|${owner}`);
   const def = intf ?? clas ?? local?.def;
   if (def === undefined) throw new Unsupported(`${owner}=>${attr}: ${owner} is not in the program`);
   /** @type {readonly import("@abaplint/core").Types.ClassConstant[]} */ const constants = def.getAttributes().getConstants();
@@ -43,7 +42,9 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
   const alias = aliases.find((x) => upper(x.getName()) === attr);
   const comp = alias === undefined ? [] : upper(alias.getComponent()).split("~");
   if (comp.length === 2 && comp[0] !== owner) return resolveStatic(comp[0], comp[1], ctx, deps, write);
-  for (const at of [owner, ...(clas ? ancestors(ctx.reg, owner) : [])]) {
+  const staticOwners = [owner];
+  if (clas) for (const ancestor of ancestors(ctx.reg, owner)) staticOwners.push(ancestor);
+  for (const at of staticOwners) {
     const a = clasDef(ctx.reg, at)?.getAttributes().getStatic().find((x) => upper(x.getName()) === attr);
     if (!a) continue;
     /** @type {import("@abaplint/core").Objects.Class | undefined} */ const pool = ctx.reg.getObject("CLAS", at.split(":")[0]);

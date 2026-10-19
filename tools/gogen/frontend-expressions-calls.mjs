@@ -215,7 +215,7 @@ import {textLiteral} from "./frontend-literals.ts";
 // output temporaries and IS SUPPLIED flags. No constructor shortcut is used.
 /** @param {import("./ir.ts").Program | import("./frontend-types.ts").FrontendProgram | import("./emit-go-types.ts").ProgramInput} program @param {{name: string}} cls @param {import("./emit-go-types.ts").FactorySignature} method @returns {Extract<import("./frontend-types.ts").ValueExpr, {e: "call"}>} */ function omittedFactoryCall(program, cls, method) {
   /** @type {import("./frontend-types.ts").NamedContext} */ const ctx = /** @type {import("./frontend-types.ts").NamedContext} */ ({program, reg: program.reg, className: cls.name});
-  const args = method.params.map((p) => p.suppliedOf
+  /** @type {import("./ir.ts").Argument[]} */ const args = method.params.map((p) => p.suppliedOf
     ? {dir: "importing", byValue: true, type: p.type, value: {e: "chars", value: "", type: p.type}}
     : p.dir === "importing" ? omittedArgument(p, ctx) : {dir: p.dir, place: null, type: p.type});
   return {e: "call", owner: cls.name, method: method.name, static: true, args,

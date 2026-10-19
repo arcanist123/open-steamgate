@@ -2,19 +2,10 @@ import type {Method, Local, Stmt, SunkLocals} from './emit-go-types.ts';
 import {children as propertyChildren, entries} from './ir-children.ts';
 import type {IRNode, IRValue} from './ir-children.ts';
 
-// Sinking inspects storage uses, so callers may supply partial tagged IR probes
-// (the direct sinking tests do). Keep renderer-only payload fields optional in
-// this inspection view, deriving their names and shapes from the shared IR.
-type InspectionKeys<T> = Extract<keyof T, 'e' | 's' | 'c' | 'k' | (T extends {readonly e: 'var'} ? 'name' : never)>;
-type Inspection<T> = T extends readonly (infer V)[] ? readonly Inspection<V>[]
-  : T extends object ? Pick<T, InspectionKeys<T>> & {
-    readonly [K in Exclude<keyof T, InspectionKeys<T>>]?: Inspection<T[K]>;
-  } : T;
-type Node = Inspection<IRNode>;
-type Value = Inspection<IRValue>;
-type Statement = Inspection<Stmt>;
-type Body = readonly Statement[];
-interface SinkMethod<B extends Body = Body> extends Required<Pick<Method, 'locals'>>, Pick<Method, 'sinkUnsafe'> { readonly body: B }
+type Node = IRNode;
+type Value = IRValue;
+type Statement = Stmt;
+type Body = readonly Stmt[];
 type Tops = ReadonlyMap<Body, Statement>;
 interface Use { readonly path: Body[]; readonly first: Map<Body, Statement | undefined> }
 function isIRArray(value: Value): value is readonly Value[] { return Array.isArray(value); }
@@ -55,11 +46,9 @@ function hasCall(node: Value): boolean {
 }
 
 /** Return Map<body array, local declarations>, without mutating the IR. */
-export function sinkLocals(method: SinkMethod<readonly Stmt[]>, enabled?: boolean): SunkLocals;
-export function sinkLocals(method: SinkMethod, enabled?: boolean): SunkLocals<Body>;
-export function sinkLocals(method: SinkMethod, enabled = process.env.GOGEN_SINK_LOCALS !== '0'): SunkLocals<Body> {
+export function sinkLocals(method: Method, enabled = process.env.GOGEN_SINK_LOCALS !== '0'): SunkLocals<Body> {
   const result = new Map<Body, Local[]>();
-  if (!enabled || method.sinkUnsafe) return result;
+  if (!enabled || method.sinkUnsafe || !method.locals || !method.body) return result;
   const locals = new Map(method.locals.map((local): [string, Local] => [local.name, local]));
   const uses = new Map<string, Use>();
   const rejected = new Set<string>();

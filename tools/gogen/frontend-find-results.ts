@@ -2,7 +2,7 @@ import type * as abaplint from '@abaplint/core';
 import type {Type, Expr, Stmt, Field, FindFields, TypedExpr} from './ir.ts';
 // Inline RESULTS uses the same registry DDIC types as explicit declarations.
 // abaplint's inferred result has an untyped SUBMATCHES table.
-export function inlineFindResultTypes(body: abaplint.Nodes.StructureNode | undefined, ctx: FindContext, h: InlineHelpers): Map<string, Type> {
+export function inlineFindResultTypes(body: abaplint.Nodes.StructureNode | undefined, reg: abaplint.IRegistry, program: import('./frontend-types.ts').FrontendProgram, h: InlineHelpers): Map<string, Type> {
   const {Statements, Expressions, typeOf, Unsupported} = h;
   const types = new Map<string, Type>();
   for (const st of body?.findAllStatementNodes() ?? []) {
@@ -13,9 +13,9 @@ export function inlineFindResultTypes(body: abaplint.Nodes.StructureNode | undef
     if (!inline) continue;
     const name = inline.findFirstExpression(Expressions.TargetField)!.concatTokens().toUpperCase();
     const ddicName = st.findDirectTokenByText("ALL") !== undefined ? "MATCH_RESULT_TAB" : "MATCH_RESULT";
-    const obj = ctx.reg.getObject(ddicName.endsWith("_TAB") ? "TTYP" : "TABL", ddicName);
+    const obj = reg.getObject(ddicName.endsWith("_TAB") ? "TTYP" : "TABL", ddicName);
     if (!obj) throw new Unsupported(`FIND inline RESULTS: missing DDIC type ${ddicName}`);
-    types.set(name, typeOf((obj as abaplint.Objects.Table | abaplint.Objects.TableType).parseType(ctx.reg), name, ctx.program));
+    types.set(name, typeOf((obj as abaplint.Objects.Table | abaplint.Objects.TableType).parseType(reg), name, program));
   }
   return types;
 }

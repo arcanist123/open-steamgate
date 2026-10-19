@@ -249,7 +249,7 @@ const rttiObjects = readdirSync(join(core, "rtti"))
 const appRuntime = join(here, "apps", "runtime");
 const frontendStarted = performance.now();
 const folders = [...libs, appRuntime, join(gui, "framework"), join(gui, "src"), core, generated];
-const runnerCache = prepareRunnerCache(folders, runnerCacheOptions(home));
+const runnerCache = prepareRunnerCache(folders, runnerCacheOptions(home), "osabap-v1:skip-testclasses");
 const program = compileClosedProgram({
   ...runnerCache.options, folders,
   objects: [className.toLowerCase(), ...ownObjects, ...coreObjects, ...hostObjects, ...rttiObjects, "zcl_gg_workbench_utility",
@@ -257,7 +257,7 @@ const program = compileClosedProgram({
   skip: (path) => /\.testclasses\.abap$/i.test(path),
 });
 finishRunnerCache(runnerCache.certificate);
-phase("frontend", frontendStarted, {dependencyRecording: runnerCache.options.dependencyCache ?? false, lowered: program.frontendCounts.lowered, reused: program.frontendCounts.reused});
+phase("frontend", frontendStarted, {closureRounds: program.closureRounds, selectionEvidence: program.selectionEvidence, dependencyRecording: runnerCache.options.dependencyCache ?? false, lowered: program.frontendCounts.lowered, reused: program.frontendCounts.reused});
 const emitStarted = performance.now();
 // (kept after rttiObjects: test/dsl-report.mjs evaluates the selections block alone)
 for (const parameter of [...readParams, ...readLists]) {

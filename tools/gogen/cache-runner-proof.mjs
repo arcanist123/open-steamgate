@@ -42,12 +42,15 @@ function capture(label, enabled, cwd = process.cwd()) {
     throw new Error(`${label}: build failed: ${log}`);
   }
   const phases = {}, phaseRounds = [];
-  let counts;
+  let counts, closureRounds, selectionEvidence;
   for (const line of readFileSync(log, "utf8").split("\n")) if (line.startsWith("OSABAP_TIMING ")) {
     const row = JSON.parse(line.slice("OSABAP_TIMING ".length));
     if (row.round > 0) { phaseRounds.push(row); phases[row.phase] = (phases[row.phase] ?? 0) + row.ms; }
     else phases[row.phase] = row.ms;
-    if (row.phase === "frontend") counts = {lowered: row.lowered, reused: row.reused};
+    if (row.phase === "frontend") {
+      counts = {lowered: row.lowered, reused: row.reused};
+      closureRounds = row.closureRounds; selectionEvidence = row.selectionEvidence;
+    }
   }
   for (const name of ["frontend", "emit", "goBuild", "total"]) assert.ok(Number.isFinite(phases[name]), `missing ${name}`);
   const generated = join(build, "go/cmd/osabap");
@@ -70,7 +73,7 @@ function capture(label, enabled, cwd = process.cwd()) {
   }
   const rounds = [...roundCounts.values()];
   if (enabled) assert.equal(allClasses.size, counts.lowered + counts.reused, "diagnostics must cover the final class universe");
-  results.rows.push({label, enabled, phases, phaseRounds, invalidation, recordingScopes, counts, reasons, loweredClasses, rounds,
+  results.rows.push({label, enabled, closureRounds, selectionEvidence, phases, phaseRounds, invalidation, recordingScopes, counts, reasons, loweredClasses, rounds,
     uniqueClasses: allClasses.size || counts.lowered + counts.reused,
     uniqueLowered: enabled ? [...new Set(loweredClasses)].sort() : undefined,
     manifestHash: createHash("sha256").update(JSON.stringify(hashes)).digest("hex"),
