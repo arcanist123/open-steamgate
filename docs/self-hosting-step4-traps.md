@@ -3,7 +3,7 @@
 Snapshot: 2026-10-19. The latest private candidate clears all reached
 TypeScript-to-Go lowering traps while compiling gogen's `compileProgram` and
 `emitGo` for `ZCL_GOGEN_T_RUNTIME`. The generated Go builds, then fails during
-execution at a dynamic class-to-interface conversion. A zero-trap scan is
+execution at a live class field conversion. A zero-trap scan is
 therefore a compiler milestone, not a self-hosting pass.
 
 ## Measurement and scope
@@ -202,6 +202,21 @@ membership is only a probe and does not establish JavaScript-equivalent
 behavior. The original generated Go was restored after the probe; the
 compiler needs a proper dynamic-boundary fix and then a fresh full run to
 measure what remains.
+
+An independent abapiti candidate `d4baf39cbafbe01326ae2c95a6b5a535aeb24dc1`
+fixes the identity used to select source-pinned overrides for external npm
+packages. The compiler had named those files by their path inside the package
+while looking up overrides, but by their path relative to the gogen project
+when selecting overrides. With the same G candidate and reference, the
+existing rule-filter and JSON5 compatibility overrides now apply. The scan
+reports **0 reached traps**, `0/11 unknown`, and 322 unreached functions, and
+the Go build succeeds. The unmodified full run passes the two preceding
+failures, then panics at `tools/gogen/frontend-boolx.ts:13:1` on an
+**unsupported live class field conversion**: the structural `BoolxParser`
+view reads its `Registry` class descriptor from the supplied core object.
+The generated Go contains an explicit trap for that view read. It still
+writes no Go output, so byte equality and the unit test remain unproved.
+This abapiti candidate is private and awaits review and integration.
 
 ## Completion gate
 
