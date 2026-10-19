@@ -207,9 +207,9 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
       // inside an interface), which are called as COMP~M through it
       /** @type {import("./frontend-types.ts").MethodSignature[]} */ const sigs = [];
       for (const i of [name, ...componentInterfaces(reg, name)]) {
-        const all = reg.getObject("INTF", i)?.getDefinition()?.getMethodDefinitions();
-        if (!all) continue;
-        append(sigs, Array.from(Array.isArray(all) ? all : all.getAll()).map((m) => methodSignature(ictx, i, `${i}~${upper(m.getName())}`)));
+        const def = reg.getObject("INTF", i)?.getDefinition();
+        if (!def) continue;
+        append(sigs, methodDefinitions(def).map((m) => methodSignature(ictx, i, `${i}~${upper(m.getName())}`)));
       }
       // a CLASS-METHODS of an interface is the class's function, not a method of the reference
       /** @type {Map<string, readonly import("./ir.ts").Method[]>} */ (program.interfaceMethods).set(name, /** @type {import("./ir.ts").Method[]} */ (/** @type {unknown} */ (sigs.filter((x) => !x.unsupported && !/** @type {import("./frontend-types.ts").Signature} */ (x).static))));
