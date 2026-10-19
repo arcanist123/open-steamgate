@@ -977,9 +977,10 @@ func TestConcurrentFirstCalls(t *testing.T){var wg sync.WaitGroup;start:=make(ch
 
 test("a remaining generated local-constant collision fails loudly", async () => {
   const {hoistLocalConstants} = await import("./frontend-local-constants.mjs");
-  const node = {findFirstExpression: (kind) => kind === "name" ? {concatTokens: () => "C"} : {getChildren: () => [{}]}};
+  class StatementNode {}
+  const node = Object.assign(new StatementNode(), {findFirstExpression: (kind) => kind === "name" ? {concatTokens: () => "C"} : {getChildren: () => [{}]}});
   const ctx = {className: "OWNER:LOCAL", method: "INTF~METH", locals: new Map([["C", {k: "i"}]]), program: {consts: new Map()}};
-  const h = {Nodes: {}, Structures: {Constants: "struct"}, Statements: {Constant: "constant"}, Expressions: {Value: "value", Constant: "literal", DefinitionName: "name"},
+  const h = {Nodes: {StatementNode}, Structures: {Constants: "struct"}, Statements: {Constant: "constant"}, Expressions: {Value: "value", Constant: "literal", DefinitionName: "name"},
     isTok: () => false, isExpr: () => true, isStruct: () => false, isStmt: () => true, upper: (s) => s, goName: (s) => s.replace(/[^A-Z]/g, "_"),
     initialValue: () => ({target: {type: {k: "i"}}, value: {e: "int", value: 1}})};
   hoistLocalConstants(node, ctx, h);

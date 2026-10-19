@@ -2,7 +2,7 @@ import {append} from "./append.ts";
 import {convert, Unsupported} from "./frontend.mjs";
 
 // Registration and RECEIVING conversion share the identities resolved in lowering.
-/** @param {Pick<import("./emit-go-types.ts").ProgramInput, "classes" | "dynamicDispatch">} program */
+/** @param {Pick<import("./emit-go-types.ts").ProgramInput, "classes" | "dynamicDispatch">} program @returns {Array<NonNullable<import("./emit-go-types.ts").ProgramInput["dynamicDispatch"]>[number] & {cls: import("./emit-go-types.ts").Class; m: import("./emit-go-types.ts").Method}>} */
 export function dynamicAdapters(program) {
   const classes = new Map(), methods = new Map();
   for (const cls of program.classes) if (!classes.has(cls.name)) classes.set(cls.name, cls);

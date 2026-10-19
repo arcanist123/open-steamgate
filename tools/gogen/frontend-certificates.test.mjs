@@ -15,7 +15,7 @@ import {hashV3} from "./frontend-v3-key.mjs";
 import {toolIdentity} from "./frontend-object-cache.mjs";
 import {provenanceGraph, recordProvenance, compilationProvenanceOf, inheritStoredProvenance,
   beginProvenanceCompile, withArtifact, withRole, enumerateObjects, semanticQuery, auditedBookkeeping, auditBuiltArtifacts, scopedProvenance} from "./frontend-provenance.mjs";
-import {rttiProjection, selectionHas} from "./frontend-queries.mjs";
+import {rttiProjection, selectionHas, indexFrozenSelection} from "./frontend-queries.mjs";
 import {core, parseObserved, finishInputs} from "./frontend-inventory.mjs";
 import {readRecordingPlan, writeRecordingPlan} from "./frontend-v3-shadow.mjs";
 
@@ -302,10 +302,11 @@ test("mutable inherited observations keep their ordinary round validation", () =
   assert.deepEqual([...provenanceGraph(reg).lowerings.get("CLAS ZMEMO").queries.values()].filter((q) => q.kind === "getObject").map((q) => q.result), [result, []]);
 });
 
-test("selection membership caches only frozen arrays and preserves order", () => {
+test("selection membership indexes registered frozen arrays and preserves mutable reads", () => {
   const mutable = ["a", "b"]; assert.equal(selectionHas(mutable, "a"), true);
   mutable[0] = "c"; assert.equal(selectionHas(mutable, "a"), false); assert.equal(selectionHas(mutable, "c"), true);
   const frozen = Object.freeze(["b", "a", "b"]);
+  indexFrozenSelection(frozen);
   for (const name of ["a", "b", "c", "A"]) assert.equal(selectionHas(frozen, name), frozen.includes(name));
   assert.deepEqual(frozen, ["b", "a", "b"]);
 });

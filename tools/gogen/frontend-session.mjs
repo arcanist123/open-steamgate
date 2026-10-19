@@ -98,12 +98,12 @@ export const compileClass = artifactLowering(/** @param {import('./frontend-sess
   /** @type {import('./frontend-session-types.ts').SignatureChanges | undefined} */ const sigs = candidate ? ownSignatures(/** @type {import('./frontend-session-types.ts').ProgramSnapshot} */ (before).get("sigs"), program.sigs, key) : undefined;
   if (candidate && sigs && unchanged(before, program) && elementary(ir, key)) {
     session.classes.set(key, {file, structure: file.getStructure(), ir, sigs, supplied: suppliedKey(program, key),
-      current: Object.fromEntries([...current].map((k) => [k, program[k]])),
+      current: {currentClass: program.currentClass, currentOwner: program.currentOwner, currentTypes: program.currentTypes},
       skipped: program.skipped.slice(start.skipped), partial: program.partial.slice(start.partial)});
   }
   if (recorded?.replay) session.classes.set(key, {file, structure: file.getStructure(), ir,
     replay: recorded.replay, supplied: suppliedKey(program, key),
-    current: Object.fromEntries([...current].map((k) => [k, program[k]]))});
+    current: {currentClass: program.currentClass, currentOwner: program.currentOwner, currentTypes: program.currentTypes}});
   /** @type {import('./frontend-session-types.ts').SessionEntry | undefined} */ const entry = session?.classes.get(key);
   /** @type {import('./frontend-session-types.ts').StoredProvenance | undefined} */ const provenance = entry && storedProvenance(program.reg, obj);
   if (provenance) entry.provenance = provenance;

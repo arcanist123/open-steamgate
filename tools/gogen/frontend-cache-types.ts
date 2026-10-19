@@ -12,7 +12,7 @@ export interface SuppliedIndex {
 export interface QueryProgram {
   reg: Registry;
   supplied: Map<string, Set<string>>;
-  caught?: Map<string, boolean>;
+  caught?: import("./frontend-hierarchy.mjs").CaughtIndex;
   lockObjects?: Map<string, LockDescriptor>;
 }
 export interface QueryContext {reg: Registry; program: QueryProgram}

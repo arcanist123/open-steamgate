@@ -33,6 +33,9 @@ class Digests {
     this.errors = new Map();
     this.timings = new Map();
     this.stats = {objects: 0, nodes: 0, milliseconds: 0, inventoryMilliseconds: 0};
+    /** @type {unknown} */ this.closureContext = undefined;
+    /** @type {unknown} */ this.signature = undefined;
+    /** @type {unknown} */ this.config = undefined;
   }
   inventory() {
     if (this.objects) return;
@@ -171,12 +174,14 @@ class Digests {
 // The ordinary uncached path only deletes a possible old table: no inventory,
 // hashing, syntax or type projection takes place.
 export function prepareArtifactDigests(registry, enabled = true, closureContext) {
-  if (!enabled) { tables.delete(registry); return; }
+  if (!enabled) { tables.delete(registry); return undefined; }
   const previous = tables.get(registry), snapshot = inputSnapshot(registry);
   if (closureContext && previous?.closureContext === closureContext
       && previous.signature === snapshot.signature && previous.config === snapshot.configObject) return previous;
   const table = new Digests(registry);
-  Object.assign(table, {closureContext, signature: snapshot.signature, config: snapshot.configObject});
+  table.closureContext = closureContext;
+  table.signature = snapshot.signature;
+  table.config = snapshot.configObject;
   tables.set(registry, table);
   return table;
 }

@@ -1,7 +1,7 @@
 // Shared cold/replay selection preparation. Only current registry answers count.
 import {abaplint} from "./frontend-base.mjs";
 import {syntaxDiagnostics} from "./frontend-diagnostics.ts";
-import {selectionHas} from "./frontend-queries.mjs";
+import {indexFrozenSelection, selectionHas} from "./frontend-queries.mjs";
 import {expandProgramSelection, withRole} from "./frontend-provenance.mjs";
 
 /** @param {import("./frontend-session-types.ts").Registry} reg @param {Pick<import("./frontend-session-types.ts").CompileOptions, "objects" | "tolerant" | "strictRoots">} options @param {import("./frontend-diagnostics.ts").DiagnosticsSession | null} [session] @param {() => void} [prepare] */
@@ -21,7 +21,10 @@ export function prepareSelection(reg, {objects, tolerant = false, strictRoots}, 
   // A literal CALL FUNCTION is a dependency on its function group. The
   // registry already knows each module's group; include it before signatures
   // are built, including calls made by a module in another group.
-  withRole("scheduling", () => expandProgramSelection(reg, wanted, /** @type {import("./frontend-session-types.ts").SelectionCore} */ ({VirtualPosition: abaplint.VirtualPosition, MacroContent: abaplint.MacroContent, Objects: abaplint.Objects, Visibility: abaplint.Visibility, Statements: abaplint.Statements, Expressions: abaplint.Expressions, Tokens: abaplint.Tokens}))); Object.freeze(wanted);
+  withRole("scheduling", () => expandProgramSelection(reg, wanted, /** @type {import("./frontend-session-types.ts").SelectionCore} */ ({VirtualPosition: abaplint.VirtualPosition, MacroContent: abaplint.MacroContent,
+    Objects: {FunctionGroup: abaplint.Objects.FunctionGroup}, Visibility: {Public: abaplint.Visibility.Public},
+    Statements: {CallFunction: abaplint.Statements.CallFunction}, Expressions: {FunctionName: abaplint.Expressions.FunctionName},
+    Tokens: {StringToken: abaplint.Tokens.StringToken, Identifier: abaplint.Tokens.Identifier}}))); Object.freeze(wanted); indexFrozenSelection(wanted);
 
   return {wanted, diagnostics, broken};
 }

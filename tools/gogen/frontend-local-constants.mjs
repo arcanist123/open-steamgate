@@ -81,7 +81,7 @@ export function hoistLocalConstants(body, ctx, h) {
       })));
       return;
     }
-    if (isStmt(node, Statements.Constant) && literalValue(node)) {
+    if (node instanceof Nodes.StatementNode && isStmt(node, Statements.Constant) && literalValue(node)) {
       const name = upper(node.findFirstExpression(Expressions.DefinitionName).concatTokens());
       ctx.localConstantNames.add(name);
       const init = initialValue(node, ctx);
@@ -89,7 +89,10 @@ export function hoistLocalConstants(body, ctx, h) {
       if (value) add(name, init.target.type, {init: value});
       return;
     }
-    if (/** @type {import("@abaplint/core").Nodes.StructureNode | import("@abaplint/core").Nodes.StatementNode} */ (node) instanceof Nodes.StructureNode) for (const child of /** @type {import("@abaplint/core").Nodes.StructureNode} */ (node).getChildren()) walk(child);
+    if (node instanceof Nodes.StructureNode) {
+      const structure = /** @type {import("@abaplint/core").Nodes.StructureNode} */ (node);
+      for (const child of structure.getChildren()) walk(child);
+    }
   };
   walk(body);
 }

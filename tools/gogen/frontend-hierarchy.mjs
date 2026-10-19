@@ -31,56 +31,66 @@ import {semanticQuery, withRole, provenanceGraph} from "./frontend-provenance.mj
   return false;
 }
 
-/** @param {{caught?: Map<string, boolean>}} program @param {readonly string[]} names @returns {boolean} */ export function caughtPresence(program, names) {
+/** @param {{caught?: CaughtIndex}} program @param {readonly string[]} names @returns {boolean} */ export function caughtPresence(program, names) {
   if (!program.caught) throw new Error("caught index unavailable");
   return program.caught.get(JSON.stringify(names)) === true;
 }
 
-const caughtIndexes = new WeakMap();
-/** @param {unknown} value @returns {boolean} */ export const isCaughtIndex = (value) => caughtIndexes.has(value);
+/** @typedef {{lookup: (key: string) => boolean, safe: () => boolean, get: (key: string) => boolean}} CaughtState */
+/** @type {WeakMap<object, CaughtState>} */ const caughtIndexes = new WeakMap();
+/** @param {unknown} value @returns {boolean} */ export const isCaughtIndex = (value) => typeof value === "object" && value !== null && caughtIndexes.has(value);
+// A read-only caught index: its one method is a keyed read, recorded by the
+// replay proxy like Map.get (frontend-replay.mjs). It has no own fields and
+// no set/delete/clear; its state lives in caughtIndexes, keyed by identity.
+export class CaughtIndex {
+  /** @param {string} key @returns {boolean} */ get(key) {
+    const state = caughtIndexes.get(this);
+    if (!state) throw new Error("caught index unavailable");
+    return state.get(key);
+  }
+}
 // Rebuild the current selection's hierarchy before the class seam. A CATCH
 // consumes whether any selected class matches, not the matching names or their
 // implementation bytes. The old walk also tests at most twenty chain members.
-const yes = Object.freeze([true]), no = Object.freeze([false]), noProviders = Object.freeze([]);
-/** @param {import('./frontend-session-types.ts').Registry} reg @param {ReadonlySet<string>} wanted @param {(name: string) => string | null | undefined} step @returns {Map<string, boolean>} */ export function caughtIndex(reg, wanted, step) {
-  const ancestors = new Set(), providers = new Set();
+/** @type {readonly import('./frontend-session-types.ts').QueryScalar[]} */ const yes = Object.freeze([true]), /** @type {readonly import('./frontend-session-types.ts').QueryScalar[]} */ no = Object.freeze([false]), /** @type {readonly string[]} */ noProviders = Object.freeze([]);
+/** @param {import('./frontend-session-types.ts').Registry} reg @param {ReadonlySet<string>} wanted @param {(name: string) => string | null | undefined} step @returns {CaughtIndex} */ export function caughtIndex(reg, wanted, step) {
+  /** @type {Set<string>} */ const ancestors = new Set(), /** @type {Set<string>} */ providers = new Set();
   withRole("scheduling", () => {
     for (const name of wanted) {
-      for (let at = name, i = 0; at && i < 20; i++) {
+      for (let /** @type {string | null | undefined} */ at = name, i = 0; at && i < 20; i++) {
         ancestors.add(at);
         providers.add(`CLAS ${at.split(":")[0]}`);
         at = step(at);
       }
     }
   });
-  let epoch, complete;
-  const safe = () => {
+  const state = {/** @type {number | undefined} */ epoch: undefined, complete: false};
+  /** @returns {boolean} */ const safe = () => {
     const trace = provenanceGraph(reg);
     if (!trace) return true;
-    if (trace.unknownVersion === epoch) return complete;
-    const unknown = (entry) => [...entry?.queries.values() ?? []].some((q) => q.role === "artifact" && q.kind === "unknown-scan");
-    epoch = trace.unknownVersion;
-    return complete = !unknown(trace.global) && ![...providers].some((owner) => unknown(trace.artifacts.get(owner)));
+    if (trace.unknownVersion === state.epoch) return state.complete;
+    /** @param {import('./frontend-session-types.ts').QueryEntry | undefined} entry @returns {boolean} */ const unknown = (entry) => [...entry?.queries.values() ?? []].some((q) => q.role === "artifact" && q.kind === "unknown-scan");
+    state.epoch = trace.unknownVersion;
+    state.complete = !unknown(trace.global) && ![...providers].some((owner) => unknown(trace.artifacts.get(owner)));
+    return state.complete;
   };
-  const values = new Map();
-  const answer = (names) => names.some((name) => ancestors.has(name));
-  const lookup = (key) => {
+  /** @type {Map<string, boolean>} */ const values = new Map();
+  /** @param {readonly string[]} names @returns {boolean} */ const answer = (names) => names.some((name) => ancestors.has(name));
+  /** @param {string} key @returns {boolean} */ const lookup = (key) => {
     if (!values.has(key)) values.set(key, answer(JSON.parse(key)));
-    return values.get(key);
+    return values.get(key) === true;
   };
-  const index = new Map();
-  index.get = (key) => {
+  const index = new CaughtIndex();
+  caughtIndexes.set(index, {lookup, safe, get: (key) => {
     const result = lookup(key);
     semanticQuery(reg, "caught", JSON.parse(key), result ? yes : no, {providers: noProviders, complete: safe(), policy: "selected-subclass-presence"});
     return result;
-  };
-  for (const method of ["set", "delete", "clear"]) Object.defineProperty(index, method, {value: () => { throw new TypeError("read-only caught index"); }});
-  caughtIndexes.set(index, {lookup, safe});
+  }});
   return index;
 }
 
-/** @param {Map<string, boolean> | undefined} index @param {readonly string[]} names @returns {{result: readonly boolean[], providers: readonly string[], complete: boolean}} */ export function currentCaughtAnswer(index, names) {
-  const state = caughtIndexes.get(index);
+/** @param {CaughtIndex | undefined} index @param {readonly string[]} names @returns {{result: readonly boolean[], providers: readonly string[], complete: boolean}} */ export function currentCaughtAnswer(index, names) {
+  const state = index && caughtIndexes.get(index);
   if (!state) throw new Error("caught index unavailable");
   return {result: state.lookup(JSON.stringify(names)) ? yes : no, providers: noProviders, complete: state.safe()};
 }

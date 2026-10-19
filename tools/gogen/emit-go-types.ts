@@ -43,12 +43,16 @@ export interface ConcatBytesTable { readonly s: 'concat_bytes'; readonly target:
 export interface AssignmentStmt { readonly s: 'assign' | 'set_data'; readonly target: Expr; readonly value: Expr }
 type StatementFields<T> = T extends {s: 'assign' | 'set_data'} ? AssignmentStmt : T extends {s: 'native'} ? Omit<T, 'args'> & {readonly args?: readonly NativeArgument[]}
   : T extends {s: 'kernel_loop'} ? Omit<T, 'args' | 'pos'> & {readonly args: readonly NativeArgument[]; readonly pos?: IR.Position}
-  : T extends {s: 'call_enq'} ? Omit<T, 'fields'> & {readonly fields?: readonly LockField[]}
+  : T extends {s: 'raise_event'} ? Omit<T, 'args'> & {readonly args: readonly EventArgument[]}
+  : T extends {s: 'call_fm'} ? Omit<T, 'args'> & {readonly args: readonly EventArgument[]}
+  : T extends {s: 'call_enq'} ? Omit<T, 'args' | 'fields'> & {readonly args: readonly EventArgument[]; readonly fields?: readonly LockField[]}
   : T extends {s: 'concat_bytes'; table: Expr} ? ConcatBytesTable
   : T extends {s: 'concat'} ? Omit<T, 'sep'> & {readonly sep: Expr | null}
   : T extends {s: 'select_dyn'} ? Omit<T, 'fields' | 'where'> & {readonly fields: Expr | null; readonly where: Expr | null}
+  : T extends {s: 'delete_index_data' | 'delete_index'} ? Omit<T, 'tokens'> & {readonly tokens: readonly LoopCursor[]}
+  : T extends {s: 'delete_current'} ? Omit<T, 'token'> & {readonly token: LoopCursor}
   : T extends {s: 'stub'} ? Omit<T, 'pos'> & {readonly pos?: IR.Position}
-  : T extends {s: 'call_dyn_static'} ? Omit<T, 'cls'> & {readonly cls: string | Expr}
+  : T extends {s: 'call_dyn_static'} ? Omit<T, 'cls' | 'args'> & {readonly cls: string | Expr; readonly args: readonly EventArgument[]}
   : T extends {s: 'loop'} ? Omit<T, 'key' | 'dynamicKeys'> & {
     readonly key?: IR.ResolvedKey | null;
     readonly dynamicKeys?: {readonly value: Expr; readonly options: readonly IR.ResolvedKey[]} | null;
@@ -62,11 +66,21 @@ export type Condition = RuntimeFields<Exclude<IR.Condition, {c: 'cmp' | 'initial
   | InitialCondition;
 export type Argument = RuntimeFields<IR.Argument>;
 export interface ImportingArgument { readonly value: Expr; readonly type?: IR.Type; readonly byValue?: boolean }
-export interface EventArgument { readonly name: string; readonly value: Expr }
+export interface EventArgument {
+  readonly name: string;
+  readonly value: Expr;
+  readonly dir?: IR.Argument['dir'];
+  readonly byValue?: boolean;
+  readonly type?: IR.Type;
+  readonly place?: Expr | null;
+  readonly wrap?: Expr;
+  readonly supplied?: boolean;
+  readonly fitc?: number;
+}
 export interface DynamicResultMove { readonly key: string; readonly type: IR.Type; readonly value: Expr }
 export type DynamicSqlStrings = Extract<Expr, {e: 'strlist'}> | (Exclude<Expr, {e: 'strlist'}> & {readonly type: IR.Type});
 // whereOf emits INITIAL only with fx, and comparisons only with a value.
-export type Where = {readonly op: 'initial' | 'notinitial'; readonly fx: Expr}
+export type Where = {readonly op: 'initial' | 'notinitial'; readonly fx: TypedExpr}
   | {readonly op: '=' | '<>' | '<' | '<=' | '>' | '>='; readonly name?: string;
     readonly fx?: Expr; readonly ftype?: IR.Type; readonly value: Expr; readonly calc?: IR.Type};
 export type Catch = RuntimeFields<Omit<IR.Catch, 'into' | 'intoKind' | 'intoType' | 'classes'>> & {
@@ -267,7 +281,7 @@ export interface ExprHelpers {
 export interface StatementHelpers extends ExprHelpers { readonly rowValue: (table: IR.Type, item: string) => string }
 export type OwnedExpression = (e: Expr, ctx: Context, helpers: ExprHelpers) => string | null;
 export type OwnedStatement = (st: Stmt, ctx: Context, indent: string, helpers: StatementHelpers) => string[] | null;
-export type EmitByteConcat = (st: Extract<Stmt, {s: 'concat_bytes'}>, ctx: Context, indent: string, helpers: Pick<StatementHelpers, 'expr' | 'place' | 'rowValue'>) => string[];
+export type EmitByteConcat = (st: Extract<Stmt, {s: 'concat_bytes'}>, ctx: Context, indent: string, expr: StatementHelpers['expr'], place: StatementHelpers['place'], rowValue: StatementHelpers['rowValue']) => string[];
 export type ByteStatement = Extract<Stmt, {s: 'replace_bytes' | 'replace_chars' | 'find_bytes_all' | 'find_bytes'}>;
 export interface ByteContext extends Context { loop: number }
 export type EmitByteStatement = (st: ByteStatement, ctx: ByteContext, indent: string, helpers: Pick<ExprHelpers, 'expr' | 'place'>) => string[];

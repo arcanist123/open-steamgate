@@ -39,7 +39,7 @@ test("the CATCH index preserves the twenty-member walk, cycles and local names",
   const step = (name) => parents.get(name), index = caughtIndex(reg, wanted, step);
   for (const ancestor of ["C0", "C19", "C20", "C21", "A", "B", "OWNER:LOCAL"])
     assert.equal(index.get(JSON.stringify([ancestor])), [...wanted].some((name) => chainHas(owner, reg, name, ancestor, step)));
-  assert.throws(() => index.set("[]", false), /read-only/);
+  for (const method of ["set", "delete", "clear"]) assert.equal(method in index, false, `the caught index has no ${method}`);
   assert.equal(copyReplayProgram({caught: index}).caught, index, "isolated replay shares the immutable derived index");
 });
 

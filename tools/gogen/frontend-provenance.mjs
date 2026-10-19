@@ -2,6 +2,7 @@
 import {freshRegistry, finishInputs} from "./frontend-inventory.mjs";
 import {createRequire} from "node:module";
 import {beginFrontendRound, finishFrontendRound} from "./frontend-timing.mjs";
+import {cacheDiagnostic} from "./frontend-cache-diagnostics.mjs";
 const require = createRequire(import.meta.url);
 /** @type {typeof import("@abaplint/core")} */ const core = createRequire(require.resolve("@abaplint/transpiler/package.json"))("@abaplint/core");
 /** @type {typeof import('./frontend-provenance-recorder.mjs') | undefined} */ let recorder;
@@ -30,7 +31,6 @@ function loadRecorder() {
     finally {
       const rows = finishFrontendRound();
       if (process.env.GOGEN_CACHE_DIAGNOSTICS && options.cacheDir) {
-        const {cacheDiagnostic} = require("./frontend-cache-diagnostics.mjs");
         for (const row of rows) cacheDiagnostic({event: "phase", ...row});
       }
     }
@@ -147,7 +147,7 @@ export function scopedProvenance() { return recorder?.scopedProvenance() ?? fals
   return new Map();
 }
 
-/** @param {import('./frontend-session-types.ts').Registry} reg @param {import('./frontend-session-types.ts').Query['kind']} kind @param {import('./frontend-session-types.ts').QueryScalar[]} args @param {import('./frontend-session-types.ts').Role} role @param {(obj: import('./frontend-session-types.ts').ArtifactObject) => boolean} predicate @returns {import('./frontend-session-types.ts').ArtifactObject[]} */ export function enumerateObjects(reg, kind, args = [], role = "scheduling", predicate = () => true) {
+/** @param {import('./frontend-session-types.ts').Registry} reg @param {import('./frontend-session-types.ts').Query['kind']} kind @param {readonly import('./frontend-session-types.ts').QueryScalar[]} args @param {import('./frontend-session-types.ts').Role} role @param {(obj: import('./frontend-session-types.ts').ArtifactObject) => boolean} predicate @returns {import('./frontend-session-types.ts').ArtifactObject[]} */ export function enumerateObjects(reg, kind, args = [], role = "scheduling", predicate = () => true) {
   return recorder ? recorder.enumerateObjects(reg, kind, args, role, predicate) : [...core.Registry.prototype.getObjects.call(reg)].filter(predicate);
 }
 

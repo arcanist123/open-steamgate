@@ -55,7 +55,7 @@ function byteConcatValue(st: ConcatBytesParts | ConcatBytesTable, ctx: Ownership
 }
 
 // The ordinary byte concatenation path is unchanged, including fixed-x fitting.
-export function emitByteConcat(st: ConcatBytesParts | ConcatBytesTable, ctx: OwnershipContext, t: string, {expr, place, rowValue}: ByteRenderers): string[] {
+export function emitByteConcat(st: ConcatBytesParts | ConcatBytesTable, ctx: OwnershipContext, t: string, expr: ByteRenderers['expr'], place: ByteRenderers['place'], rowValue: ByteRenderers['rowValue']): string[] {
   if (st.table) {
     return [`${t}${place(st.target, ctx)} = func() string { var b []string; for _, ConcatRowStored := range ${expr(st.table, ctx)} { ConcatRow := ${rowValue(st.table.type, "ConcatRowStored")}; b = append(b, ${expr(st.row, ctx)}) }; return strings.Join(b, "") }()`, `${t}s.Sy.Subrc = 0`];
   }

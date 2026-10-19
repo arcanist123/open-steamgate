@@ -11,6 +11,7 @@ const artifactFields = ["syntaxResult", "parsedType", "def", "definition", "pars
 /** @param {import("./frontend-session-types.ts").InputSnapshot} inputs @returns {boolean} */ const hasBuiltArtifacts = (inputs) => [...inputs.objects.values()].some(({obj}) =>
   Boolean(obj.syntaxResult || obj.def || obj.definition || obj.parsedType) || obj.isDirty?.() === false);
 /** @param {string} s @returns {string} */ const hash = (s) => createHash("sha256").update(s).digest("hex");
+/** @param {unknown} value @returns {boolean} */ const isCoreRegistry = (value) => value instanceof core.Registry;
 /** @param {import("./frontend-session-types.ts").InputSource} source @returns {string} */ export function rawHashOf(source) {
   return source._rawHash ??= hash(source.raw);
 }
@@ -27,7 +28,7 @@ const artifactFields = ["syntaxResult", "parsedType", "def", "definition", "pars
   if (!refresh && snapshots.has(reg)) return snapshots.get(reg);
   // AUDITED bookkeeping: enumerate effective inputs, never semantic resolution.
   const /** @type {Map<string, import("./frontend-session-types.ts").InputObject>} */ objects = new Map(), /** @type {Map<string, string>} */ fileOwners = new Map(), /** @type {import("./frontend-session-types.ts").SourceFile[]} */ files = [], /** @type {[string, boolean, [string, string][]][]} */ signature = [];
-  for (const obj of reg instanceof core.Registry ? enumerate.call(reg) : reg.getObjects()) {
+  for (const obj of isCoreRegistry(reg) ? enumerate.call(reg) : reg.getObjects()) {
     const key = objectKey(obj), dependency = reg.isDependency?.(obj) ?? false;
     const sources = obj.getFiles().map((file) => {
       const source = {file, name: file.getFilename(), raw: file.getRaw(), _rawHash: undefined, _artifactHash: undefined};
@@ -37,7 +38,8 @@ const artifactFields = ["syntaxResult", "parsedType", "def", "definition", "pars
     objects.set(key, {obj, dependency, sources});
     signature.push([key, dependency, sources.map((s) => [s.name, s.raw])]);
   }
-  const config = JSON.stringify(reg.getConfig?.().get() ?? {});
+  const configValue = reg.getConfig?.().get();
+  const config = configValue === undefined || configValue === null ? "{}" : JSON.stringify(configValue);
   const snapshot = {objects, fileOwners, files, config, configObject: reg.getConfig?.(),
     signature: JSON.stringify([config, signature])};
   snapshots.set(reg, snapshot);

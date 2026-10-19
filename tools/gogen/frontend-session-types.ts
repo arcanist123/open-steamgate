@@ -22,7 +22,7 @@ type CacheValue<T> = T extends {s: 'call_enq'} ? Omit<T, 'fields'> & {readonly f
   : T extends readonly (infer V)[] ? readonly CacheValue<V>[]
     : T extends ReadonlyMap<infer K, infer V> ? ReadonlyMap<K, CacheValue<V>>
       : T extends object ? {[K in keyof T]: CacheValue<T[K]>} : T;
-export type ClassIR = CacheValue<Class>;
+export type ClassIR = import("./frontend-types.ts").FrontendClass;
 export type Signature = MethodSignature;
 export type Signatures = Map<string, Signature>;
 export type SignatureChanges = [string, Signature][];
@@ -48,7 +48,7 @@ export interface ClassObject {
 }
 export type ArtifactInput = ArtifactObject | {obj: ArtifactObject};
 export interface RegistryContext {reg: Registry}
-export interface LoweringContext extends RegistryContext {program: SessionProgram}
+export type LoweringContext = import("./frontend-types.ts").CompilationContext;
 export type ClassLowering = (ctx: LoweringContext, obj: ClassObject) => ClassIR;
 export interface FunctionModule {
   owner: string;
@@ -60,20 +60,8 @@ export interface FunctionModule {
   spaghetti?: IRFunctionModule['spaghetti'];
   top?: IRFunctionModule['top'];
 }
-export interface SessionProgram {
-  // Explicit lowering subset; snapshot/unchanged still observe all own fields.
-  reg: Registry;
-  sigs: Signatures;
-  wanted: Set<string>;
-  supplied: Map<string, Set<string>>;
-  skipped: string[];
-  partial: string[];
-  currentClass?: string;
-  currentOwner?: string;
-  currentTypes?: Set<string>;
-  functionModules: Map<string, FunctionModule>;
-  frontendCounts: {lowered: number; reused: number; loweredClasses: string[]; reusedClasses: string[]};
-}
+// Explicit lowering subset; retain the frontend's exact container value types.
+export interface SessionProgram extends Pick<import("./frontend-types.ts").FrontendProgram, "reg" | "sigs" | "wanted" | "supplied" | "skipped" | "partial" | "currentClass" | "currentOwner" | "currentTypes" | "functionModules" | "frontendCounts"> {}
 // A replay is an ordered transcript of heterogeneous program observations and
 // effects. Payloads remain opaque until frontend-replay validates/applies them.
 export type ReplayOperation =

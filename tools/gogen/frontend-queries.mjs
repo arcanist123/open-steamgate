@@ -3,14 +3,15 @@ import {currentCaughtAnswer} from "./frontend-hierarchy.mjs";
 // The frontend's explicit query contracts. Discovery indexes are compile-local;
 // consuming a named answer, including an empty answer, belongs to its reader.
 import {enumerateObjects, semanticQuery, withArtifact, withRole, recordingProvenance, exposingProvenance} from "./frontend-provenance.mjs";
-const selections = new WeakMap();
-// The frontend freezes its private selection after expansion. Mutable callers
-// keep Array.includes semantics; membership never changes iteration order.
+/** @type {WeakMap<readonly string[], Set<string>>} */ const selections = new WeakMap();
+// The frontend registers its private selection immediately after freezing it.
+// Other callers keep Array.includes semantics; membership never changes order.
+/** @param {readonly string[]} wanted @returns {void} */
+export function indexFrozenSelection(wanted) { selections.set(wanted, new Set(wanted)); }
 /** @param {readonly string[]} wanted @param {string} name @returns {boolean} */
 export function selectionHas(wanted, name) {
-  if (!Object.isFrozen(wanted)) return wanted.includes(name);
-  if (!selections.has(wanted)) selections.set(wanted, new Set(wanted));
-  return selections.get(wanted).has(name);
+  const index = selections.get(wanted);
+  return index ? index.has(name) : wanted.includes(name);
 }
 /** @type {WeakMap<import("./frontend-session-types.ts").Registry, import("./frontend-cache-types.ts").SuppliedIndex | undefined>} */ const suppliedIndexes = new WeakMap();
 /** @type {WeakMap<import("./frontend-session-types.ts").Registry, Map<string, string[]>>} */ const localAnswers = new WeakMap();

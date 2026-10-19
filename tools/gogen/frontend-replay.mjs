@@ -124,7 +124,7 @@ export function replayGuardKey(op) {
   return JSON.stringify([op.kind, op.method, args]);
 }
 
-export function recordLowering(program, lower) {
+/** @returns {import("./frontend-session-types.ts").RecordedLowering & {refusal?: string}} */ export function recordLowering(program, lower) {
   const ops = [], written = new Set(), borrowed = new Map(), seen = new Map();
   let safe = true, characters = 0, refusal;
   const refuse = (reason = "mutated-borrow") => { refusal ??= reason; safe = false; ops.length = 0; borrowed.clear(); seen.clear(); };
@@ -168,7 +168,7 @@ export function recordLowering(program, lower) {
       if (ignored.has(key) || context.has(key)) return value;
       // Event registration examines previously emitted classes. Retry it.
       if (key === "classes") { refuse("classes-read"); return value; }
-      if (value instanceof Map || value instanceof Set || Array.isArray(value)) {
+      if (value instanceof Map || value instanceof Set || Array.isArray(value) || isCaughtIndex(value)) {
         if (!wrappers.has(value)) wrappers.set(value, new Proxy(value, {
           get(collection, method) {
             if (method === "size" || method === "length") {

@@ -60,12 +60,15 @@ export function dynamicStaticCall(node, ctx, {sourceOperand, source, convert, lv
  */
 export function prepareDynamicStatics(program, {defaultValue, aliasTarget}) {
   program.dynamicDispatch = [];
-  const classes = new Map(), statics = new Map();
+  /** @type {Map<string, import("./frontend-types.ts").FrontendClass>} */ const classes = new Map();
+  /** @type {Map<string, Map<string, import("./frontend-types.ts").FrontendMethod | (import("./frontend-types.ts").MethodSignature & {reason: string})>>} */ const statics = new Map();
   for (const cls of program.classes) {
     if (classes.has(cls.name)) continue;
     classes.set(cls.name, cls);
-    const methods = new Map();
-    for (const method of [...cls.methods, ...cls.stubs])
+    /** @type {Map<string, import("./frontend-types.ts").FrontendMethod | (import("./frontend-types.ts").MethodSignature & {reason: string})>} */ const methods = new Map();
+    for (const method of cls.methods)
+      if (method.static && !methods.has(method.name)) methods.set(method.name, method);
+    for (const method of cls.stubs)
       if (method.static && !methods.has(method.name)) methods.set(method.name, method);
     statics.set(cls.name, methods);
   }

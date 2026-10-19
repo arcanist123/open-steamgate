@@ -17,6 +17,7 @@ type StatementShape<T> = T extends {readonly s: "call_enq"} ? Omit<T, "fields"> 
   : T extends {readonly s: "select_single" | "select_loop" | "select_aggregate"} ? Omit<T, "target"> & {readonly target: Expr | null}
   : T extends {readonly s: "call_dyn_static"} ? Omit<T, "cls"> & {readonly cls: Expr | string} : T;
 type FrontendIR<T> = T extends SqlPredicate ? FrontendSqlPredicate
+  : T extends readonly [unknown, ...unknown[]] ? {readonly [K in keyof T]: FrontendIR<T[K]>}
   : T extends readonly (infer Item)[] ? readonly FrontendIR<Item>[]
   : T extends object ? {readonly [K in keyof StatementShape<T>]: FrontendIR<StatementShape<T>[K]>} : T;
 export type FrontendStmt = FrontendIR<Stmt> & {readonly pos?: import("./ir.ts").Position};
@@ -66,13 +67,13 @@ export interface FrontendProgram extends Omit<Mutable<Program>, "classes" | "str
   dynamicDispatch?: {key: string; owner: string; method: string; defaults: {name: string; value: Expr}[]}[];
   excAttrs: Set<string>; dynStatics: Set<string>; intfOwnAttrs: Map<string, readonly InterfaceAttribute[]>; interfaceAttrs: Map<string, readonly InterfaceAttribute[]>;
   consts: Map<string, FrontendConstant>; skipped: string[]; partial: string[];
-  missing: Set<string>; wanted: Set<string>; caught?: Map<string, boolean>; interfaces: Set<string>; events: Map<string, Event>;
+  missing: Set<string>; wanted: Set<string>; caught?: import("./frontend-hierarchy.mjs").CaughtIndex; interfaces: Set<string>; events: Map<string, Event>;
   diagnostics: readonly Diagnostic[]; broken: string[];
   frontendCounts: {lowered: number; reused: number; loweredClasses: string[]; reusedClasses: string[]};
   localDefs?: Map<string, abaplint.IClassDefinition>; faeN?: number;
   tables?: FrontendTable[]; rtti?: RttiTable; cdsViews?: Record<string, string>;
   lockObjects?: Map<string, LockObject>; exceptionSupers?: Record<string, string>;
-  amcChannels?: readonly import("./emit-go-types.ts").AmcChannel[]; ownershipSafety?: OwnershipSafetyMap;
+  amcChannels?: ReturnType<typeof import("../osd-samc.mjs").parseSamc>; ownershipSafety?: OwnershipSafetyMap;
 }
 export interface CompilationContext { reg: Registry; program: FrontendProgram }
 export interface NativeMe { fn: string; params: [string, "importing" | "exporting", "string" | "xstring" | "i", boolean?][] }

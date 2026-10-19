@@ -277,3 +277,14 @@ test("unsupported guard values refuse caching without invoking user serializatio
   }
   assert.equal(calls, 0);
 });
+
+test("a caught index read is recorded as a keyed read, like Map.get", async () => {
+  const {caughtIndex} = await import("./frontend-hierarchy.mjs");
+  const index = (parents) => caughtIndex({}, new Set(["LEAF"]), (name) => parents[name]);
+  const recorded = recordLowering({reg: null, caught: index({LEAF: "CX_A"})}, (p) => String(p.caught.get(JSON.stringify(["CX_A"]))));
+  assert.equal(recorded.ir, "true");
+  assert.ok(recorded.replay, "the caught index is not fingerprinted whole");
+  assert.deepEqual(recorded.replay.ops.map((op) => [op.kind, op.key, op.method]), [["read", "caught", "get"]]);
+  assert.equal(replayLowering({reg: null, caught: index({LEAF: "CX_A"})}, recorded.replay), true);
+  assert.equal(replayLowering({reg: null, caught: index({LEAF: "CX_B"})}, recorded.replay), false);
+});
