@@ -242,6 +242,18 @@ not run. This is the **one confirmed current runtime barrier**; its cause and
 fix are still under investigation. Neither private compiler candidate is
 integrated.
 
+A generated-Go-only diagnostic that removed this view's prototype guard
+advanced to a second failure at `frontend-session.mjs:66:394`: the view could
+not convert the source's `getMainABAPFile` method into its expected callable
+field. The diagnostic generated file was restored. A private G experiment
+wrapped the core class in a plain object with own getter functions. Its Node
+outputs stayed byte-identical across six sink/cache modes (243 artifacts per
+mode), and the exact trap scan stayed at zero, but the full Go run reached the
+same callable conversion failure. Further G type annotations added reached
+lowering traps and were excluded. The evidence points to a structural
+method-property bridge across the compiler's `any` boundary; allowing the
+prototype-bearing source through the current guard alone does not resolve it.
+
 ## Completion gate
 
 For each candidate, compare the reached trap locations and hit counts on the
