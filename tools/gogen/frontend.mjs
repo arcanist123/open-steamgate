@@ -1299,7 +1299,13 @@ function compiledFunctionCall(node, ctx, text, name) {
 /* ---------------------------------------------------------------- statements */
 
 // the statements and control structures of a body, Normal and Body unwrapped
-/** @param {import("@abaplint/core").Nodes.StructureNode} node @returns {(import("@abaplint/core").Nodes.StatementNode | import("@abaplint/core").Nodes.StructureNode)[]} */ const flatChildren = (node) => node.getChildren().flatMap((c) => (c instanceof Nodes.StructureNode && (isStruct(c, Structures.Normal) || isStruct(c, Structures.Body)) ? flatChildren(c) : [c]));
+/** @param {import("@abaplint/core").Nodes.StructureNode} node @returns {(import("@abaplint/core").Nodes.StatementNode | import("@abaplint/core").Nodes.StructureNode)[]} */ const flatChildren = (node) => node.getChildren().flatMap((c) => {
+  if (c instanceof Nodes.StructureNode) {
+    if (isStruct(c, Structures.Normal) || isStruct(c, Structures.Body)) return flatChildren(c);
+    return [c];
+  }
+  return [c];
+});
 
 /** @param {import("@abaplint/core").Nodes.StructureNode} node @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./frontend-types.ts").FrontendStmt[]} */ function block(node, ctx) {
   return blockList(flatChildren(node), ctx);
