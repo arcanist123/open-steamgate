@@ -20,9 +20,16 @@
       "user": "SOMEBODY",
       "password": "\u2026",
       "client": "001"
+    },
+    "REF": {
+      "type": "http",
+      "mode": "replay",
+      "fixtures": ".local/replay/ref",
+      "onMiss": "error"
     }
   },
   "services": {
-    "ZOSD_006_DEMO_SRV": "A4H"
+    "ZOSD_006_DEMO_SRV": "A4H",
+    "SOME_FOREIGN_SRV": "REF"
   }
 }

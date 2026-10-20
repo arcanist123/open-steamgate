@@ -1,0 +1,4 @@
+{
+  "key": {"method": "GET", "service": "ZOSD_REPLAY_DEMO_SRV", "path": "OrderSet/$count", "query": ""},
+  "response": {"status": 200, "headers": {"content-type": "text/plain"}, "body": "7"}
+}

@@ -14,6 +14,7 @@
     "test/rfc-live.mjs",
     "test/rfc-proxy.mjs",
     "test/rfc-replay.mjs",
+    "test/osd-http-replay.mjs",
     "test/rfc-table-proxy.mjs",
     "test/sapevent.mjs",
     "test/se16.mjs",

@@ -1,0 +1,4 @@
+{
+  "key": {"method": "GET", "service": "ZOSD_REPLAY_DEMO_SRV;v=2", "path": "$metadata", "query": ""},
+  "response": {"status": 200, "headers": {"content-type": "application/xml"}, "body": "<edmx:Edmx Version=\"1.0\"/>"}
+}

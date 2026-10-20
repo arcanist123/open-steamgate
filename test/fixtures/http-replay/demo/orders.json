@@ -1,0 +1,8 @@
+{
+  "key": {"method": "GET", "service": "ZOSD_REPLAY_DEMO_SRV", "path": "OrderSet", "query": "$top=2&$filter=Status%20eq%20'A'&sap-client=001"},
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json", "dataserviceversion": "2.0", "set-cookie": "SAP_SESSIONID=recorded; path=/"},
+    "body": {"d": {"top": "{{param:$top}}", "results": [{"OrderId": "1", "Status": "A"}, {"OrderId": "2", "Status": "A"}]}}
+  }
+}
