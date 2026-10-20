@@ -1,0 +1,8 @@
+{
+  "key": {"method": "GET", "service": "ZOSD_REPLAY_DEMO_SRV;v=0001", "path": "OrderSet(guid'0000000000000000000000000000002A')", "query": ""},
+  "response": {
+    "status": 200,
+    "headers": {"content-type": "application/json", "etag": "W/\"1\""},
+    "body": {"d": {"OrderId": "42", "Fetched": "{{now:YYYYMMDD}}", "Seq": "{{seq:ORDER:4}}"}}
+  }
+}

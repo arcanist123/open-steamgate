@@ -33,7 +33,7 @@ import {cockpitAppsOf} from "./osd-cockpit-apps.mjs";
 import {existsSync, readFileSync, readdirSync} from "node:fs";
 import {join} from "node:path";
 import {channels, services} from "./osd-icf.mjs";
-import {remoteServices} from "./osd-destinations.mjs";
+import {destinationsFile, remoteServices} from "./osd-destinations.mjs";
 import {generatorFoldersOf, packsOf, winningByLayer} from "./osd-packs.mjs";
 import {runsAs} from "./osd-main.mjs";
 
@@ -171,11 +171,11 @@ export function proxyNodes(options = {}) {
     path: `/sap/opu/odata/sap/${r.service}`,
     type: "PROXY",
     handler: r.name,
-    implementedIn: "tools/osd-remote-service.mjs",
+    implementedIn: (r.destination.mode ?? "live") === "live" ? "tools/osd-remote-service.mjs" : "tools/osd-http-replay.mjs",
     needs: "state",
-    text: `answered by the destination ${r.name}`,
+    text: `answered by the destination ${r.name}${(r.destination.mode ?? "live") === "live" ? "" : ` (${r.destination.mode}, from fixtures)`}`,
     travels: false,
-    source: ".local/destinations.json",
+    source: destinationsFile(),
   }));
 }
 

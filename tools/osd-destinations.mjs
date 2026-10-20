@@ -34,6 +34,13 @@ export const FILE = ".local/destinations.json";
 export const LEGACY_RFC = ".local/rfc-destinations.json";
 export const LEGACY_HTTP = ".local/gateway-destinations.json";
 
+/** The file in use: OSD_DESTINATIONS names another one. A compiled binary
+ *  runs in its own home under the user's data folder, not in the folder it
+ *  was unpacked to, so a stand handed to somebody says where its file is
+ *  rather than asking them to copy it into a hidden directory. Read per
+ *  call, because a test sets it after this module is loaded. */
+export const destinationsFile = (env = process.env) => env.OSD_DESTINATIONS || FILE;
+
 const read = (file) => {
   try {
     return JSON.parse(readFileSync(file, "utf8"));
@@ -47,7 +54,12 @@ const read = (file) => {
  *  `rfc` keeps its own `mode` (the old `kind`), `http` carries a url and a
  *  logon. A destination with a url and no type is http, which is inference
  *  and is only applied to the legacy file where the shape is unambiguous. */
-export function destinations({file = FILE, rfcFile = LEGACY_RFC, httpFile = LEGACY_HTTP, say = console.error} = {}) {
+export function destinations({file = destinationsFile(), rfcFile = LEGACY_RFC, httpFile = LEGACY_HTTP, say = console.error} = {}) {
+  if (file === process.env.OSD_DESTINATIONS && !existsSync(file)) {
+    // a file somebody named and is not there is not "no destinations": the
+    // legacy files would answer in its place and nobody would know
+    say(`osd-destinations: ${file} (OSD_DESTINATIONS) does not exist; reading the defaults instead`);
+  }
   const unified = existsSync(file) ? read(file) : undefined;
   if (unified !== undefined) {
     // **`?? unified` was a defect and the first file anybody writes trips
@@ -89,7 +101,7 @@ export function destinations({file = FILE, rfcFile = LEGACY_RFC, httpFile = LEGA
 
 /** A binding says which of this system's paths another system answers.
  *  Today there is one kind of binding: an OData service by name. */
-export function bindings({file = FILE, httpFile = LEGACY_HTTP, say = console.error} = {}) {
+export function bindings({file = destinationsFile(), httpFile = LEGACY_HTTP, say = console.error} = {}) {
   const unified = existsSync(file) ? read(file) : undefined;
   if (unified !== undefined) {
     if (unified.services === undefined && unified.destinations === undefined) {

@@ -600,6 +600,45 @@ which is what a modifying `$batch` needs; without the pair a Create answers
 `packs/travels-a4h` is such a page: the demo app, one line different,
 reading a service on another system.
 
+### The same service, from what it once answered
+
+An http destination takes RFC's `mode` too, so a page can read a foreign
+service with no system behind it
+([`tools/osd-http-replay.mjs`](../tools/osd-http-replay.mjs)):
+
+```json
+{
+  "destinations": {
+    "REF": { "type": "http", "mode": "replay", "fixtures": ".local/replay/ref" }
+  },
+  "services": { "SOME_FOREIGN_SRV": "REF" }
+}
+```
+
+| mode | answers from |
+|---|---|
+| `live` (default) | the system, as above |
+| `replay` | the fixtures, never the network |
+| `fallback` | the system; the fixtures when it cannot be reached. A read waits `timeout` ms (5000); a write is never cut short and falls back only when the system could not be reached at all -- after it went out, a failure is a 504 "may have been applied" |
+| `record` | not yet: refused at start, and said |
+
+A fixture is one JSON file per request, `{key: {method, service, path,
+query}, response: {status, headers, body}}`; the module's header has the
+whole format, the key's normalisation and RFC replay's placeholders it
+reuses. Every answer carries `sap-osd-replay: hit | miss | refused | live | error`.
+`key.bodyHash` is not read yet: stage 1 answers reads, whose key is the URL.
+`$format=json` is part of the key like any option, so record the way the page
+asks (a UI5 model asks with an Accept header and no `$format`).
+**Reads only:** GET, the CSRF fetch and `$batch` of GETs are answered; a
+changeset or any write is a 501. **A miss is loud:** a 404 and a line on
+stderr, unless the destination asks for `"onMiss": "empty"`. A local
+service of the same name still wins.
+
+`OSD_DESTINATIONS` names another destinations file; its relative
+`fixtures` are read beside it, which is how a compiled binary, running in
+its own home, finds a stand's file and fixtures. Fixtures recorded from a
+real system carry its data: keep them under `.local/` or outside the tree.
+
 ## 9. When something is wrong
 
 ```
