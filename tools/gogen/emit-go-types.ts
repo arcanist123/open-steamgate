@@ -18,11 +18,11 @@ type RuntimeValue<T> = T extends IR.Type ? T : T extends IR.Expr ? Expr : T exte
 type RuntimeFields<T> = T extends object ? {readonly [K in keyof T]: K extends 'assign'
   ? readonly (SqlAssignment | null)[] : RuntimeValue<T[K]>} : T;
 type RawCall = Extract<IR.Expr, {e: 'call'}>;
-export type CallExpr = RuntimeFields<Omit<RawCall, 'owner' | 'static' | 'callee'>> & {
+export interface CallExpr extends RuntimeFields<Omit<RawCall, 'owner' | 'static' | 'callee'>> {
   readonly owner?: string | null;
   readonly static?: boolean;
   readonly callee?: string;
-};
+}
 // Ownership probes also synthesize substrings without the renderer's base hint.
 export interface SubstringExpr extends Omit<RuntimeFields<Extract<IR.Expr, {e: 'substr'}>>, 'base'> {
   readonly base?: IR.Type;
@@ -83,12 +83,12 @@ export type DynamicSqlStrings = Extract<Expr, {e: 'strlist'}> | (Exclude<Expr, {
 export type Where = {readonly op: 'initial' | 'notinitial'; readonly fx: TypedExpr}
   | {readonly op: '=' | '<>' | '<' | '<=' | '>' | '>='; readonly name?: string;
     readonly fx?: Expr; readonly ftype?: IR.Type; readonly value: Expr; readonly calc?: IR.Type};
-export type Catch = RuntimeFields<Omit<IR.Catch, 'into' | 'intoKind' | 'intoType' | 'classes'>> & {
+export interface Catch extends RuntimeFields<Omit<IR.Catch, 'into' | 'intoKind' | 'intoType' | 'classes'>> {
   readonly classes?: readonly string[]; readonly into?: string | null;
   readonly intoKind?: 'exc' | 'ref' | null; readonly intoType?: IR.Type | null;
-};
-export type SortKey = Omit<IR.SortKey, 'type'> & {readonly type?: IR.Type};
-export type SqlAssignment = RuntimeFields<IR.SqlAssignment> & {readonly place?: Expr};
+}
+export interface SortKey extends Omit<IR.SortKey, 'type'> {readonly type?: IR.Type}
+export interface SqlAssignment extends RuntimeFields<IR.SqlAssignment> {readonly place?: Expr}
 export type SqlArgument = RuntimeFields<IR.SqlArgument>;
 export type SqlPredicate = Omit<IR.SqlPredicate, 'range' | 'type' | 'kind' | 'lowLen'> & {
   readonly range: Expr; readonly type: IR.WriteType; readonly kind?: string; readonly lowLen?: number;
@@ -101,7 +101,7 @@ export type PackedType = Extract<IR.Type, {k: 'p'}>;
 export type Conversion = Extract<Expr, {e: 'conv'}>;
 export type Builtin = Extract<Expr, {e: 'fn'}>;
 export interface DynamicLoopBranch { readonly name: string; readonly key: IR.ResolvedKey | null }
-export type KeyLoop = Extract<Stmt, {s: 'loop'}> & {readonly key: IR.ResolvedKey};
+export interface KeyLoop extends Extract<Stmt, {s: 'loop'}> {readonly key: IR.ResolvedKey}
 export type KeyRead = Extract<Stmt, {s: 'read_seckey'}>;
 export type Loop = Extract<Stmt, {s: 'loop' | 'loop_data'}>;
 export type KeyValues = Extract<Stmt, {s: 'read_seckey' | 'delete_seckey'}>;
