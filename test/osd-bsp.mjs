@@ -83,6 +83,61 @@ describe("tools/osd-bsp-registry: a BSP application is an object, not a folder",
     }
   });
 
+  it("a page too long for the column gets a digest, and long siblings no longer collide", () => {
+    // the shape of an application downloaded from a system (names
+    // synthetic): 22 pages share their first 40 characters, which the old
+    // cut-to-the-column refused as one collision after another
+    const root = mkdtempSync(join(tmpdir(), "osd-bsp-long-"));
+    const pages = Array.from({length: 22}, (_, i) => `controller/activity/eventconfiguration${i}.controller.js`)
+      .concat(["view/fragment/detectionsection/one.fragment.xml", "view/fragment/detectionsection/two.fragment.xml", "index.html"]);
+    try {
+      mkdirSync(join(root, "packs/demo/webapp"), {recursive: true});
+      writeFileSync(join(root, "packs/demo/osd-pack.json"), JSON.stringify({name: "demo"}));
+      for (const page of pages) {
+        mkdirSync(join(root, "packs/demo/webapp", page, ".."), {recursive: true});
+        writeFileSync(join(root, "packs/demo/webapp", page), page);
+      }
+      const apps = generate([], join(root, "out"), root);
+      const demo = apps.find((app) => app.app === "ZDEMO");
+      expect(demo.pages).to.have.length(pages.length);
+      const names = demo.pages.map((p) => w3miName(demo.app, p.page));
+      expect(new Set(names).size, "one object per page").to.equal(pages.length);
+      for (const name of names) {
+        expect(name.length).to.be.at.most(W3MI_NAME_WIDTH);
+      }
+      // a name that fits is the name it always was
+      expect(w3miName("ZDEMO", "index.html")).to.equal("ZDEMO/INDEX.HTML");
+      expect(w3miName("ZDEMO", pages[0])).to.match(/^ZDEMO\/H[0-9A-F]{33}$/);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("the names do not depend on the order files were written or listed", () => {
+    // a generator that follows readdir order has bitten this repository
+    // before: the same input, written in two orders, must give one registry
+    const pages = Array.from({length: 12}, (_, i) => `controller/activity/eventconfiguration${i}.controller.js`).concat(["a.js", "z/b.js"]);
+    const build = (order) => {
+      const root = mkdtempSync(join(tmpdir(), "osd-bsp-order-"));
+      try {
+        mkdirSync(join(root, "packs/demo/webapp"), {recursive: true});
+        writeFileSync(join(root, "packs/demo/osd-pack.json"), JSON.stringify({name: "demo"}));
+        for (const page of order) {
+          mkdirSync(join(root, "packs/demo/webapp", page, ".."), {recursive: true});
+          writeFileSync(join(root, "packs/demo/webapp", page), page);
+        }
+        generate([], join(root, "out"), root);
+        return {registry: readFileSync(join(root, "out", "zcl_stg_bsp_registry.clas.abap"), "utf8"),
+          objects: readdirSync(join(root, "out")).sort()};
+      } finally {
+        rmSync(root, {recursive: true, force: true});
+      }
+    };
+    const forward = build(pages);
+    expect(build([...pages].reverse())).to.deep.equal(forward);
+    expect(build(pages), "and twice is the same").to.deep.equal(forward);
+  });
+
   it("the file name carries no dot, because abaplint reads the type out of it", () => {
     // `ztravels_a4h_-manifest.json.w3mi.xml` parses as an object of type
     // `json.w3mi` and comes back "Unknown object type" -- 33 of these failed
