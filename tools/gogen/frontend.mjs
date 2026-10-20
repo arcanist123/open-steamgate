@@ -119,8 +119,9 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     auditedBookkeeping("session-prepare", () => prepareSession(session, reg)); // Input guards only.
   }
   if (session) session.cdsInputs = cdsIdentity;
-  /** @type {import("./frontend-session-types.ts").CompileClass} */ let compile = compileClass;
-  if (discoveryProbe) compile = discoveryProbe.compile;
+  // Every arm is an arrow of the one CompileClass type, so the choice joins exactly.
+  /** @type {import("./frontend-session-types.ts").CompileClass} */ let compile = (ctx, obj, lower, session) => compileClass(ctx, obj, lower, session);
+  if (discoveryProbe) { const probe = discoveryProbe; compile = (ctx, obj, lower, session) => probe.compile(ctx, obj, lower, session); }
   else if (diskFrontend) compile = (ctx, obj, lower, session) => diskFrontend.compileDiskClass(ctx, obj, lower, session); // Does not use this.
   const {wanted, diagnostics, broken} = prepareSelection(reg, {objects, tolerant, strictRoots}, session, () => { prepareArtifactDigests(reg, !!session, closureContext); }, discoveryProbe?.selection);
 
