@@ -216,16 +216,35 @@ export function packApplications(root = ".", env = process.env) {
 }
 
 export function packApps(root = ".", env = process.env) {
-  const packs = packsOf(root, env).filter((pack) => pack.webapp !== undefined)
-    .map((pack) => ({pack: pack.name, at: pack.webapp, manifest: join(pack.dir, "osd-pack.json")}));
+  const all = packsOf(root, env);
+  const packs = all.filter((pack) => pack.webapp !== undefined)
+    .map((pack) => ({pack: pack.name, app: packAppName(pack.name), at: pack.webapp, manifest: join(pack.dir, "osd-pack.json"), derived: true}));
+  // the apps a pack names itself (osd-pack.json "bsp"), after the derived
+  // ones so a message about a collision names the derived one first
+  for (const pack of all) {
+    for (const {app, at} of pack.bsp ?? []) {
+      packs.push({pack: pack.name, app, at, manifest: join(pack.dir, "osd-pack.json"), derived: false});
+    }
+  }
+  // a name src/bsp/apps.json declares is this system's own application; a
+  // pack naming it would replace it without anybody having asked, so that
+  // is refused with both files named. (A WAPA in a later layer still
+  // overrides a pack app: that is a layer, and asked for.)
+  const core = systemFile(root, "src/bsp/apps.json");
+  const coreNames = existsSync(core) ? new Set(Object.keys(JSON.parse(readFileSync(core, "utf8"))).map((n) => n.toUpperCase())) : new Set();
   const byName = new Map();
   const apps = [];
-  for (const {pack, at, manifest} of packs) {
-    const app = packAppName(pack);
+  for (const {pack, app, at, manifest, derived} of packs) {
     if (byName.has(app)) {
-      throw new Error(`packs ${byName.get(app)} and ${pack} both derive the BSP application name ${app}: rename one pack`);
+      const first = byName.get(app);
+      throw new Error(derived && first.derived
+        ? `packs ${first.pack} and ${pack} both derive the BSP application name ${app}: rename one pack`
+        : `BSP application ${app} is claimed by pack ${first.pack} (${first.manifest}) and pack ${pack} (${manifest})`);
     }
-    byName.set(app, pack);
+    if (!derived && coreNames.has(app)) {
+      throw new Error(`BSP application ${app} of pack ${pack} (${manifest}) is this system's own, declared in ${core}`);
+    }
+    byName.set(app, {pack, manifest, derived});
     checkAppName(app);
     const pages = walk(at).map((f) => f.slice(at.length + 1).replaceAll("\\", "/")).sort();
     apps.push({
@@ -235,7 +254,11 @@ export function packApps(root = ".", env = process.env) {
       pages: pages.map((page) => ({
         page,
         mime: mimeOf(page),
-        content: page.endsWith("manifest.json")
+        // the derived app is served one level deeper than the folder it was
+        // written for, so its OData sources are re-based; an app the pack
+        // names is served where it was written to be (a downloaded app:
+        // its own system's path), so its bytes are its bytes
+        content: derived && page.endsWith("manifest.json")
           ? Buffer.from(manifestRebased(readFileSync(join(at, page), "utf8")))
           : readFileSync(join(at, page)),
       })),
@@ -398,6 +421,8 @@ export function generate(folders, out = "gen/bsp", root = process.cwd()) {
   const packs = packApps(root);
   const sources = [];
   let declaredAdded = false;
+  // by application, not by manifest: one pack may carry several ("bsp"),
+  // and keying by its osd-pack.json kept the first and dropped the rest
   const usedPacks = new Set();
   for (const folder of folders) {
     sources.push({kind: "folder", folder});
@@ -408,15 +433,15 @@ export function generate(folders, out = "gen/bsp", root = process.cwd()) {
     for (const app of packs) {
       const packDir = resolve(dirname(app.file));
       const rel = relative(packDir, resolve(root, folder));
-      if (!usedPacks.has(app.file) && rel !== "" && !rel.startsWith("..") && !rel.startsWith("/")) {
+      if (!usedPacks.has(app) && rel !== "" && !rel.startsWith("..") && !rel.startsWith("/")) {
         sources.push({kind: "apps", apps: [app]});
-        usedPacks.add(app.file);
+        usedPacks.add(app);
       }
     }
   }
   if (!declaredAdded) sources.unshift({kind: "apps", apps: declared(systemFile(root, "src/bsp/apps.json"), root)});
   // A web-only pack has no ABAP folder; it still precedes explicit user layers.
-  const orphanPacks = packs.filter((app) => !usedPacks.has(app.file));
+  const orphanPacks = packs.filter((app) => !usedPacks.has(app));
   if (orphanPacks.length) {
     const generated = sources.findIndex((source) => source.kind === "folder" && resolve(root, source.folder) === resolve(root, "gen"));
     sources.splice(generated === -1 ? 0 : generated + 1, 0, {kind: "apps", apps: orphanPacks});

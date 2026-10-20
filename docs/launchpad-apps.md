@@ -48,6 +48,29 @@ except one whose semantic object or action is not a plain word (a dash, a
 component id a built-in application already uses or another pack serves
 from another URL.
 
+## Applications under their own names
+
+`webapp` becomes one BSP application with a derived name (`Z<PACK>`). An
+application that already has a name -- one downloaded from a system, whose
+URLs and whose system's data say `/sap/bc/ui5_ui5/sap/<APP>/` -- is named
+by the pack:
+
+```json
+{
+  "name": "example",
+  "bsp": {"ZEXAMPLE_LIB": "apps/lib", "ZEXAMPLE_APP": "apps/app"}
+}
+```
+
+Each folder, inside the pack, is served by the same ABAP path as every other
+BSP application, under that name, with its bytes as they are (its manifest
+is not re-based: it was written for that path). The name is checked like any
+BSP application name (at most 15 characters). Two packs naming one
+application, a pack naming its derived name, or a name `src/bsp/apps.json`
+already declares are refused, with both files named. A page path too long
+for the Web Repository's 40-character name gets a digest name; the
+registry maps the path to it.
+
 ## Availability
 
 A capability may remain visible without pretending it can run:
