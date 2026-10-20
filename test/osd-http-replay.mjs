@@ -10,8 +10,8 @@ import http from "node:http";
 import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {answerBatch, loadFixtures, parseBatch, queryKey, replayer, replayKey, replayService, serviceKey} from "../tools/osd-http-replay.mjs";
-import {mountRemoteServices} from "../tools/osd-remote-service.mjs";
+import {answerBatch, contentTypeOf, loadFixtures, parseBatch, partsOf, queryKey, queryPairs, replayer, replayKey, replayService, serviceKey} from "../tools/osd-http-replay.mjs";
+import {describeRemoteServices, mountRemoteServices} from "../tools/osd-remote-service.mjs";
 import {resetSequences} from "../tools/rfc-replay.mjs";
 
 const FIXTURES = join(import.meta.dirname, "fixtures", "http-replay", "demo");
@@ -253,6 +253,57 @@ describe("tools/osd-http-replay: a foreign service answered from fixtures", () =
       expect([res.status, await res.text()]).to.deep.equal([200, "7"]);
     });
 
+    it("replay never answers a write with a fixture: verbs, X-HTTP-Method, $batch tunnels", async () => {
+      // OrderSet/$count IS recorded: a write aimed at it must still be refused
+      for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+        const res = await fetch(`${stand.url}${BASE}/OrderSet/$count`, {method, body: method === "DELETE" ? undefined : "{}"});
+        expect([method, res.status, res.headers.get("sap-osd-replay")]).to.deep.equal([method, 501, "refused"]);
+      }
+      for (const [method, tunnel] of [["POST", "MERGE"], ["POST", "DELETE"], ["GET", "DELETE"]]) {
+        const res = await fetch(`${stand.url}${BASE}/OrderSet/$count`, {method, headers: {"x-http-method": tunnel}, body: method === "GET" ? undefined : "{}"});
+        expect([tunnel, res.status, res.headers.get("sap-osd-replay")]).to.deep.equal([tunnel, 501, "refused"]);
+      }
+      const batch = await answerBatch(replay, SRV, [
+        "--b", "Content-Type: application/http", "", "GET OrderSet/$count HTTP/1.1", "X-HTTP-Method: DELETE", "", "",
+        "--b", "Content-Type: application/http", "", "MERGE OrderSet/$count HTTP/1.1", "", "{}",
+        "--b--", ""].join("\r\n"), "multipart/mixed; boundary=b");
+      expect(batch.outcomes).to.deep.equal(["refused", "refused"]);
+      expect(batch.body).to.not.match(/HTTP\/1\.1 200/);
+    });
+
+    it("a delimiter is a whole line: --boundary inside a body is body", () => {
+      const body = [
+        "--b", "Content-Type: application/http", "", "POST OrderSet HTTP/1.1", "Content-Type: text/plain", "",
+        "text with --b in the middle", "--bnot-a-delimiter", "  --b",
+        "--b--", ""].join("\r\n");
+      const parts = partsOf(body, "b");
+      expect(parts).to.have.length(1);
+      expect(parts[0].body).to.contain("text with --b in the middle\r\n--bnot-a-delimiter\r\n  --b");
+    });
+
+    it("headers in another case and folded over two lines are read", () => {
+      const items = parseBatch([
+        "--b",
+        "CONTENT-TYPE: multipart/mixed;",
+        "\tBOUNDARY=\"c s;1\"",
+        "",
+        "--c s;1", "content-type: application/http", "", "GET OrderSet/$count HTTP/1.1", "", "",
+        "--c s;1--", "",
+        "--b--", ""].join("\r\n"), "multipart/mixed; boundary=b");
+      expect(items).to.deep.equal([{changeset: [{method: "GET", url: "OrderSet/$count", body: ""}]}]);
+    });
+
+    it("a Content-Type's parameters split at ; outside quotes", () => {
+      expect(contentTypeOf('Multipart/Mixed; Boundary="a;b"; charset=utf-8'))
+        .to.deep.equal({type: "multipart/mixed", params: {boundary: "a;b", charset: "utf-8"}});
+    });
+
+    it("a query splits at & but never inside a quoted literal", () => {
+      expect(queryPairs("$filter=Name eq 'A&B' and X eq 'it''s&'&$top=1"))
+        .to.deep.equal([["$filter", "Name eq 'A&B' and X eq 'it''s&'"], ["$top", "1"]]);
+      expect(queryKey("$top=1&$filter=Name eq 'A&B'")).to.equal(queryKey("$filter=Name%20eq%20'A%26B'&$top=1"));
+    });
+
     it("whether a body has placeholders is decided at load", () => {
       const all = loadFixtures(FIXTURES, {say: () => {}});
       expect(all.get(replayKey({method: "GET", service: SRV, path: "OrderSet/$count"})).dynamic).to.equal(false);
@@ -403,6 +454,31 @@ describe("tools/osd-http-replay: a foreign service answered from fixtures", () =
         stand.close();
         slow.close();
       }
+    });
+
+    it("a mode that is not one is refused at mount, naming the destination, never live", async () => {
+      const file = join(dir, "typo.json");
+      writeFileSync(file, JSON.stringify({destinations: {TYPO: {type: "http", mode: "replya", fixtures: FIXTURES, url: "http://127.0.0.1:9", user: "u", password: "p"}}, services: {[SRV]: "TYPO"}}));
+      let mounted;
+      const stand = await serve((app) => { mounted = mountRemoteServices(app, () => false, {file, root: dir, say}); });
+      try {
+        expect(mounted).to.deep.equal([]);
+        expect(said.join(" ")).to.contain("TYPO has mode replya").and.contain("not mounted");
+        expect((await fetch(`${stand.url}${BASE}/OrderSet/$count`)).status, "nothing answers it, the local fallthrough does").to.equal(418);
+      } finally {
+        stand.close();
+      }
+    });
+
+    it("osd doctor's lines: mode and fixture count, never a host or a logon", () => {
+      const file = join(dir, "doctor.json");
+      writeFileSync(file, JSON.stringify({
+        destinations: {REF: {type: "http", mode: "replay", fixtures: FIXTURES}, SYS: {type: "http", url: "http://secret-host:50000", user: "SOMEONE", password: "p"}},
+        services: {[SRV]: "REF", ZOSD_LIVE_SRV: "SYS"},
+      }));
+      const lines = describeRemoteServices({file, root: dir});
+      expect(lines).to.deep.equal([`${SRV} -> REF (replay, 4 fixtures)`, "ZOSD_LIVE_SRV -> SYS (live)"]);
+      expect(lines.join(" ")).to.not.contain("secret-host").and.not.contain("SOMEONE");
     });
 
     it("fixtures inside the tree and outside .local/ are named at mount", () => {

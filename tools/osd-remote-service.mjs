@@ -161,3 +161,24 @@ export function mountRemoteServices(app, known = () => false, options = {}) {
   }
   return mounted;
 }
+
+/** What `osd doctor` says about the bindings: each service, its
+ *  destination, the mode and, for a replaying one, how many fixtures load.
+ *  No host name and no logon -- a doctor's output gets pasted into chats. */
+export function describeRemoteServices(options = {}) {
+  const say = options.say ?? (() => {});
+  const named = options.file ?? (process.env.OSD_DESTINATIONS || undefined);
+  const root = options.root ?? (named === undefined ? process.cwd() : dirname(resolve(named)));
+  const counts = new Map();
+  return remoteServices({...options, say}).map(({service, name, destination}) => {
+    const mode = destination.mode ?? "live";
+    if (mode !== "replay" && mode !== "fallback") {
+      return `${service} -> ${name} (${mode}${destination.url === undefined ? ", no url" : ""})`;
+    }
+    if (!counts.has(name)) {
+      counts.set(name, loadFixtures(fixtureFolders(destination, {root, tree: options.tree, say}), {say}).size);
+    }
+    const asks = mode === "fallback" && destination.url !== undefined;
+    return `${service} -> ${name} (${asks ? "fallback" : "replay"}, ${counts.get(name)} fixtures)`;
+  });
+}

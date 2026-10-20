@@ -249,6 +249,15 @@ switch (mode) {
       console.log(`system id: invalid -- ${error.message}`);
       process.exitCode = 1;
     }
+    // which foreign services a destination answers, and how: live, replay
+    // or fallback (tools/osd-http-replay.mjs), from which file
+    const {destinationsFile} = await import("../tools/osd-destinations.mjs");
+    const {describeRemoteServices} = await import("../tools/osd-remote-service.mjs");
+    const bound = describeRemoteServices();
+    console.log(`destinations: ${destinationsFile()}, ${bound.length === 0 ? "no service bound" : `${bound.length} service(s) bound`}`);
+    for (const line of bound) {
+      console.log("  " + line);
+    }
     const {doctorWarmPin} = await import("../tools/osd-warm-capabilities.mjs");
     await doctorWarmPin(Transpiler, core);
     // what the bundle did to the runtime: a class the runtime looks up by

@@ -627,6 +627,12 @@ query}, response: {status, headers, body}}`; the module's header has the
 whole format, the key's normalisation and RFC replay's placeholders it
 reuses. Every answer carries `sap-osd-replay: hit | miss | refused | live | error`.
 `key.bodyHash` is not read yet: stage 1 answers reads, whose key is the URL.
+A query is split at `&` outside single-quoted literals, so a hand-written
+`$filter=Name eq 'A&B'` keys like the `%26` a page sends; `+` is a plus.
+A write never gets a fixture: any verb but GET, an `X-HTTP-Method` tunnel on
+the request or inside a `$batch` part, and a changeset are all refused.
+`osd doctor` lists every bound service with its destination, mode and
+fixture count (never a host or a logon).
 `$format=json` is part of the key like any option, so record the way the page
 asks (a UI5 model asks with an Accept header and no `$format`).
 **Reads only:** GET, the CSRF fetch and `$batch` of GETs are answered; a

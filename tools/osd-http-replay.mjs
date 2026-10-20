@@ -96,49 +96,126 @@ const decode = (s) => {
   }
 };
 
+const isHex = (c) => (c >= 48 && c <= 57) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102);
+
 // guid'000D3A06598…' and guid'000d3a06-5988-…' are the same key; a page
-// sends whichever its model happened to hold
-const guids = (text) => text.replace(/guid'([0-9a-fA-F-]{32,36})'/g, (whole, g) => {
-  const hex = g.replace(/-/g, "").toLowerCase();
-  if (hex.length !== 32) {
-    return whole;
+// sends whichever its model happened to hold. Scanned, not matched: each
+// `guid'` literal is read to its closing quote and rewritten only when it
+// is 32 hex digits with or without dashes
+function guids(text) {
+  const lower = text.toLowerCase();
+  let out = "";
+  let from = 0;
+  for (let at = lower.indexOf("guid'"); at >= 0; at = lower.indexOf("guid'", from)) {
+    const start = at + 5;
+    const end = text.indexOf("'", start);
+    if (end < 0) {
+      break;
+    }
+    let hex = "";
+    let ok = true;
+    for (let i = start; i < end && ok; i += 1) {
+      const c = text.charCodeAt(i);
+      if (isHex(c)) {
+        hex += text[i].toLowerCase();
+      } else if (c !== 45) {
+        ok = false;
+      }
+    }
+    out += text.slice(from, at);
+    out += ok && hex.length === 32
+      ? `guid'${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}'`
+      : text.slice(at, end + 1);
+    from = end + 1;
   }
-  return `guid'${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}'`;
-});
+  return out + text.slice(from);
+}
 
 /** `SRV;v=0002;o=SID` -> `SRV;v=0002`; version 1 is the default and is
  *  dropped, the origin is routing and not part of what was asked */
 export function serviceKey(segment) {
   const [name, ...matrix] = decode(segment).split(";");
-  const version = matrix.map((m) => /^v=0*(\d+)$/i.exec(m)?.[1]).find(Boolean);
+  let version;
+  for (const m of matrix) {
+    const [k, v = ""] = m.split("=");
+    const digits = v.trim();
+    if (k.trim().toLowerCase() === "v" && digits !== "" && [...digits].every((c) => c >= "0" && c <= "9")) {
+      version = String(Number(digits));
+    }
+  }
   return version === undefined || version === "1" ? name.toUpperCase() : `${name.toUpperCase()};v=${version.padStart(4, "0")}`;
+}
+
+/** A query string as [name, value] pairs, split at `&` and at the first `=`
+ *  -- but never inside a single-quoted OData literal, where a hand-written
+ *  fixture may well have `$filter=Name eq 'A&B'` (a page sends %26). An
+ *  escaped quote inside a literal is two quotes, which toggles twice. */
+export function queryPairs(query) {
+  const text = query.startsWith("?") ? query.slice(1) : query;
+  const pieces = [];
+  let current = "";
+  let quoted = false;
+  for (const ch of text) {
+    if (ch === "'") {
+      quoted = !quoted;
+    }
+    if (ch === "&" && !quoted) {
+      pieces.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  pieces.push(current);
+  return pieces.filter((p) => p !== "").map((kv) => {
+    const i = kv.indexOf("=");
+    return i < 0 ? [decode(kv), ""] : [decode(kv.slice(0, i)), decode(kv.slice(i + 1))];
+  });
 }
 
 /** The query as a key: decoded, `sap-*` dropped (client, language, cache
  *  buster: routing, not the question), sorted. `$skiptoken` stays -- two
  *  pages are two answers, and dropping it would serve page one for both. */
 export function queryKey(query) {
-  return (query ?? "").replace(/^\?/, "").split("&").filter(Boolean).map((kv) => {
-    const i = kv.indexOf("=");
-    return i < 0 ? [decode(kv), ""] : [decode(kv.slice(0, i)), decode(kv.slice(i + 1))];
-  }).filter(([k]) => !k.toLowerCase().startsWith("sap-"))
+  return queryPairs(query ?? "")
+    .filter(([k]) => !k.toLowerCase().startsWith("sap-"))
     .map(([k, v]) => `${k}=${guids(v)}`)
     .sort()
     .join("&");
 }
 
+/** `/a/b/` -> `a/b` */
+function trimSlashes(path) {
+  let start = 0;
+  let end = path.length;
+  while (start < end && path[start] === "/") {
+    start += 1;
+  }
+  while (end > start && path[end - 1] === "/") {
+    end -= 1;
+  }
+  return path.slice(start, end);
+}
+
 /** One string per request: what a fixture is found by. */
 export function replayKey({method, service, path, query}) {
-  const p = guids(decode(path ?? "").replace(/^\/+|\/+$/g, ""));
+  const p = guids(trimSlashes(decode(path ?? "")));
   return `${method.toUpperCase()} ${serviceKey(service)}/${p}?${queryKey(query)}`;
 }
+
+const ODATA_ROOT = "/sap/opu/odata/sap/";
 
 /** `/sap/opu/odata/sap/SRV;v=2/Set?x` -> {service, path, query}, or undefined */
 export function splitUrl(url) {
   const q = url.indexOf("?");
   const [pathname, query] = q < 0 ? [url, ""] : [url.slice(0, q), url.slice(q + 1)];
-  const m = /^\/sap\/opu\/odata\/sap\/([^/]+)\/?(.*)$/i.exec(pathname);
-  return m === null ? undefined : {service: m[1], path: m[2], query};
+  if (!pathname.toLowerCase().startsWith(ODATA_ROOT)) {
+    return undefined;
+  }
+  const rest = pathname.slice(ODATA_ROOT.length);
+  const slash = rest.indexOf("/");
+  const service = slash < 0 ? rest : rest.slice(0, slash);
+  return service === "" ? undefined : {service, path: slash < 0 ? "" : rest.slice(slash + 1), query};
 }
 
 function* jsonFiles(dir) {
@@ -200,7 +277,7 @@ const errorBody = (code, value) => JSON.stringify({error: {code, message: {lang:
  *  and still a 404 for one entity, because an entity that is not there is
  *  not an empty entity. */
 function emptyAnswer(path) {
-  const last = path.replace(/\/+$/, "").split("/").pop() ?? "";
+  const last = trimSlashes(path).split("/").pop() ?? "";
   if (last === "$count") {
     return {status: 200, headers: {"content-type": "text/plain"}, body: "0"};
   }
@@ -229,10 +306,7 @@ export function replayer(fixtures, {onMiss = "error", say = console.error, name 
     const r = fixture.response;
     let body = r.body ?? "";
     if (fixture.dynamic !== false && (typeof body === "string" ? body.includes("{{") : true)) {
-      const input = Object.fromEntries((query ?? "").split("&").filter(Boolean).map((kv) => {
-        const i = kv.indexOf("=");
-        return i < 0 ? [decode(kv), ""] : [decode(kv.slice(0, i)), decode(kv.slice(i + 1))];
-      }));
+      const input = Object.fromEntries(queryPairs(query ?? ""));
       body = await substitute(body, input);
     }
     const headers = {};
@@ -251,61 +325,197 @@ export function replayer(fixtures, {onMiss = "error", say = console.error, name 
 }
 
 // ---------------------------------------------------------------- $batch
+//
+// **Read by a scanner, not by regular expressions** (Alice's rule for
+// structured input). A $batch is a nested format -- batch, changeset, part,
+// headers, body -- and a delimiter pattern run over the whole text also
+// finds `--boundary` inside a part's body. So it is read line by line: a
+// delimiter is a delimiter only as a whole line, headers are lines up to an
+// empty one (folded continuations joined), and a Content-Type's parameters
+// are split at `;` outside quotes.
 
-const splitParts = (body, boundary) => {
-  const delimiter = new RegExp(`(?:^|\\r?\\n)--${boundary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(--)?[ \\t]*(?:\\r?\\n|$)`);
-  const parts = body.split(delimiter);
-  // split with a capture group interleaves the "--" of the closing delimiter;
-  // what is before the first delimiter is the preamble
+/** the lines of a body; a line ends at LF, and a CR before it is dropped */
+function linesOf(text) {
   const out = [];
-  for (let i = 1; i < parts.length; i += 2) {
-    if (parts[i] === "--") {
-      break;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.charCodeAt(i) === 10) {
+      out.push(text.slice(start, i > start && text.charCodeAt(i - 1) === 13 ? i - 1 : i));
+      start = i + 1;
     }
-    out.push(parts[i + 1] ?? "");
+  }
+  out.push(text.slice(start));
+  return out;
+}
+
+const isBlank = (c) => c === 32 || c === 9;
+
+/** transport padding after a delimiter (RFC 2046) is allowed */
+function trimRight(line) {
+  let end = line.length;
+  while (end > 0 && isBlank(line.charCodeAt(end - 1))) {
+    end -= 1;
+  }
+  return line.slice(0, end);
+}
+
+/** header lines -> {name (lower case): value}; a line beginning with a
+ *  blank continues the one before it */
+function headersOf(lines) {
+  const out = {};
+  let last;
+  for (const line of lines) {
+    if (line.length > 0 && isBlank(line.charCodeAt(0)) && last !== undefined) {
+      out[last] = `${out[last]} ${line.trim()}`;
+      continue;
+    }
+    const colon = line.indexOf(":");
+    if (colon <= 0) {
+      continue;
+    }
+    last = line.slice(0, colon).trim().toLowerCase();
+    out[last] = line.slice(colon + 1).trim();
   }
   return out;
-};
+}
 
-const headAndBody = (text) => {
-  const m = /\r?\n\r?\n/.exec(text);
-  return m === null ? [text, ""] : [text.slice(0, m.index), text.slice(m.index + m[0].length)];
-};
+/** `multipart/mixed; boundary="b 1"; x=y` -> {type, params} */
+export function contentTypeOf(value) {
+  const pieces = [];
+  let current = "";
+  let quoted = false;
+  for (const ch of value ?? "") {
+    if (ch === '"') {
+      quoted = !quoted;
+      current += ch;
+    } else if (ch === ";" && !quoted) {
+      pieces.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  pieces.push(current);
+  const params = {};
+  for (const piece of pieces.slice(1)) {
+    const eq = piece.indexOf("=");
+    if (eq <= 0) {
+      continue;
+    }
+    let v = piece.slice(eq + 1).trim();
+    if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) {
+      v = v.slice(1, -1);
+    }
+    params[piece.slice(0, eq).trim().toLowerCase()] = v;
+  }
+  return {type: pieces[0].trim().toLowerCase(), params};
+}
 
-// quoted, or a token up to `;` or white space: `boundary=b1 ; charset=x` is b1
-const boundaryOf = (contentType) => {
-  const m = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType ?? "");
-  return m === null ? undefined : m[1] ?? m[2];
-};
+/** One multipart body -> [{headers, body}], by states: preamble, headers,
+ *  body, epilogue. A line is a delimiter only when it is exactly `--b` or
+ *  `--b--` (plus padding); the CRLF before it belongs to it, which is what
+ *  joining the body's lines with CRLF gives. */
+export function partsOf(text, boundary) {
+  const open = `--${boundary}`;
+  const close = `--${boundary}--`;
+  const parts = [];
+  let state = "preamble";
+  let part;
+  const finish = () => {
+    if (part !== undefined) {
+      parts.push({headers: headersOf(part.head), headLines: part.head, body: part.body.join("\r\n")});
+    }
+  };
+  for (const raw of linesOf(text)) {
+    const line = trimRight(raw);
+    if (line === close && state !== "epilogue") {
+      finish();
+      part = undefined;
+      state = "epilogue";
+      continue;
+    }
+    if (line === open && state !== "epilogue") {
+      finish();
+      part = {head: [], body: []};
+      state = "headers";
+      continue;
+    }
+    if (state === "headers") {
+      if (raw === "") {
+        state = "body";
+      } else {
+        part.head.push(raw);
+      }
+    } else if (state === "body") {
+      part.body.push(raw);
+    }
+  }
+  // a body that ends without its close delimiter still has its last part
+  if (state === "headers" || state === "body") {
+    finish();
+  }
+  return parts;
+}
 
-const REQUEST_LINE = /^(\w+)\s+(\S+)\s+HTTP\/\d\.\d/;
+/** `GET OrderSet?$top=2 HTTP/1.1` -> {method, url}, or undefined */
+function requestLineOf(line) {
+  const words = line.trim().split(" ").filter((w) => w !== "");
+  if (words.length !== 3 || !words[2].toUpperCase().startsWith("HTTP/")) {
+    return undefined;
+  }
+  return {method: words[0].toUpperCase(), url: words[1]};
+}
+
+/** an HTTP request as a part carries it: request line, headers, empty
+ *  line, body. Leading empty lines are skipped. */
+function requestOf(text) {
+  const lines = linesOf(text);
+  let i = 0;
+  while (i < lines.length && lines[i] === "") {
+    i += 1;
+  }
+  const line = requestLineOf(lines[i] ?? "");
+  if (line === undefined) {
+    return {method: "?", url: "", body: ""};
+  }
+  const head = [];
+  i += 1;
+  while (i < lines.length && lines[i] !== "") {
+    head.push(lines[i]);
+    i += 1;
+  }
+  // a part may tunnel its real method the way a request does; the tunnel
+  // is what the gateway would execute, so it is what is judged
+  const tunnel = headersOf(head)["x-http-method"];
+  return {method: (tunnel ?? line.method).toUpperCase(), url: line.url, body: lines.slice(i + 1).join("\r\n")};
+}
+
+/** a part's request: its body, or -- for a part written without MIME
+ *  headers, whose request line the scanner read as a header line -- the
+ *  whole part */
+function partRequest(part) {
+  if (part.headers["content-type"] === undefined && part.headLines.length > 0 && requestLineOf(part.headLines[0]) !== undefined) {
+    return requestOf([...part.headLines, "", part.body].join("\r\n"));
+  }
+  return requestOf(part.body);
+}
 
 /** A $batch body as a list of requests and changesets:
  *  [{method, url, body} | {changeset: [{method, url, body}]}] */
 export function parseBatch(body, contentType) {
-  const boundary = boundaryOf(contentType);
-  if (boundary === undefined) {
-    throw new Error("Content-Type of a $batch request must carry a boundary");
+  const boundary = contentTypeOf(contentType).params.boundary;
+  if (boundary === undefined || boundary === "") {
+    throw Object.assign(new Error("Content-Type of a $batch request must carry a boundary"), {status: 400});
   }
-  const request = (part) => {
-    // a part normally has its own MIME headers before the request; one
-    // written without them begins with the request line, or a blank line
-    const trimmed = part.replace(/^(?:\r?\n)+/, "");
-    const http = REQUEST_LINE.test(trimmed) ? trimmed : headAndBody(part)[1].replace(/^(?:\r?\n)+/, "");
-    const [head, payload] = headAndBody(http);
-    const m = REQUEST_LINE.exec(head.split(/\r?\n/)[0] ?? "");
-    return m === null ? {method: "?", url: "", body: payload} : {method: m[1].toUpperCase(), url: m[2], body: payload};
-  };
-  return splitParts(body, boundary).map((part) => {
-    const [head, inner] = headAndBody(part);
-    const type = /content-type:\s*([^\r\n]+)/i.exec(head)?.[1] ?? "";
-    if (/^multipart\/mixed/i.test(type)) {
-      const inside = boundaryOf(type);
+  return partsOf(body, boundary).map((part) => {
+    const type = contentTypeOf(part.headers["content-type"]);
+    if (type.type === "multipart/mixed") {
       // a changeset without a boundary cannot be read, and is refused as
-      // one rather than failing the whole batch on a TypeError
-      return {changeset: inside === undefined ? [] : splitParts(inner, inside).map(request)};
+      // one rather than failing the whole batch
+      const inside = type.params.boundary;
+      return {changeset: inside === undefined || inside === "" ? [] : partsOf(part.body, inside).map(partRequest)};
     }
-    return request(part);
+    return partRequest(part);
   });
 }
 
@@ -338,7 +548,7 @@ export async function answerBatch(replay, service, body, contentType) {
   if (items.length === 0) {
     // an empty answer to an unreadable batch would read as "all answered";
     // it is the request that is wrong, and that is said
-    throw Object.assign(new Error(`${service}: a $batch with no readable part (boundary ${boundaryOf(contentType)}, ${body.length} bytes)`), {status: 400});
+    throw Object.assign(new Error(`${service}: a $batch with no readable part (boundary ${contentTypeOf(contentType).params.boundary}, ${body.length} bytes)`), {status: 400});
   }
   counter += 1;
   const boundary = `batchresponse_stg_replay_${counter}`;
@@ -402,7 +612,9 @@ export function replayService(name, replay, known = () => false, {live, token = 
   const prefix = `/sap/opu/odata/sap/${name}`.toUpperCase();
   return async function (req, res, next) {
     const url = req.originalUrl;
-    if (!(url.toUpperCase().startsWith(prefix) && /^[/;?]|^$/.test(url.slice(prefix.length))) || known(name)) {
+    // the name, then the end or one of / ; ? -- not a longer name it begins
+    const after = url.charAt(prefix.length);
+    if (!(url.toUpperCase().startsWith(prefix) && (after === "" || after === "/" || after === ";" || after === "?")) || known(name)) {
       next();
       return;
     }
@@ -449,7 +661,7 @@ export function replayService(name, replay, known = () => false, {live, token = 
       if (req.method === "HEAD") {
         // the service root, and a CSRF fetch anywhere, are what a model asks
         // HEAD for; any other path is the GET it stands for, minus the body
-        const root = target.path.replace(/\/+$/, "") === "";
+        const root = trimSlashes(target.path) === "";
         if (root || String(req.headers["x-csrf-token"] ?? "").toLowerCase() === "fetch") {
           send({status: 200, headers: {"content-type": "application/json"}, body: ""}, "hit");
           return;
@@ -459,15 +671,19 @@ export function replayService(name, replay, known = () => false, {live, token = 
         return;
       }
       const body = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : typeof req.body === "string" ? req.body : "";
-      if (req.method === "POST" && /^\$batch$/i.test(target.path.replace(/\/+$/, ""))) {
+      if (req.method === "POST" && trimSlashes(target.path).toLowerCase() === "$batch") {
         const a = await answerBatch(replay, target.service, body, req.headers["content-type"]);
         send(a, worst(a.outcomes));
         return;
       }
-      if (req.method !== "GET") {
-        console.error(`osd-http-replay: REFUSED ${name} ${req.method} ${url}`);
+      // X-HTTP-Method tunnels MERGE, PUT or DELETE through a POST (or
+      // anything); the tunnelled method is the request, and a GET carrying
+      // one is not a read
+      const method = String(req.headers["x-http-method"] ?? req.method).toUpperCase();
+      if (req.method !== "GET" || method !== "GET") {
+        console.error(`osd-http-replay: REFUSED ${name} ${method} ${url}`);
         send({status: 501, headers: {"content-type": "application/json"},
-          body: errorBody("STG/REPLAY_READ_ONLY", `${name}: ${req.method} is not replayed; a replayed service answers reads`)}, "refused");
+          body: errorBody("STG/REPLAY_READ_ONLY", `${name}: ${method} is not replayed; a replayed service answers reads`)}, "refused");
         return;
       }
       const a = await replay.answer({method: "GET", ...target});
