@@ -201,7 +201,11 @@ export function packAt(root, dir) {
         throw new BadPack(dir, 'bsp must be an object {"<APP>": "<folder>"}');
       }
       // inside the pack, as every folder a manifest names: a path that
-      // climbs out would make the pack depend on where it is unpacked
+      // climbs out would make the pack depend on where it is unpacked. The
+      // path, not its target: a link inside the pack that points elsewhere
+      // is how a private pack serves an app from a working copy without a
+      // second copy of it, and is the pack author's choice (realpath would
+      // refuse exactly that)
       const rel = typeof folder === "string" ? relative(dir, join(dir, folder)) : "";
       const climbs = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
       const at = typeof folder === "string" && folder !== "" && !climbs ? inside(folder) : undefined;
