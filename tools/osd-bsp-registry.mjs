@@ -42,6 +42,7 @@ import {systemFile, logicalSystemPath} from "./osd-system.mjs";
 //     and `/UI5/CL_UI5_HTTP_HANDLER` serves it out of `O2PAGELINE`. W3MI is
 //     the local carrier, not a claim about SAP.
 import {cockpitAppsOf} from "./osd-cockpit-apps.mjs";
+import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from "node:fs";
 import {basename, dirname, join, relative, resolve} from "node:path";
 import {checkAppName, manifestFor, manifestRebased} from "./osd-bsp-app.mjs";
@@ -262,11 +263,26 @@ export const W3MI_NAME_WIDTH = 40;
 export function w3miName(app, page) {
   // A UI5 application's file layout is not ours to shorten --
   // `annotations/annotations.xml` and `controller/App.controller.js` are the
-  // framework's spelling -- so a name that does not fit is cut to the column
-  // rather than refused. That is only safe because it cannot collide in
-  // silence: `generate()` compares every name it produced and throws naming
-  // BOTH pages, which is the check the truncation is paid for with.
-  return `${app}/${page}`.toUpperCase().slice(0, W3MI_NAME_WIDTH);
+  // framework's spelling. A name that fits the column is the name, as it
+  // always was. One that does not is the application and a digest of the
+  // page: `APP/H<sha-256 of the page path, hex, cut to the column>`, the
+  // way SAP's own loader maps a repository path it cannot store.
+  //
+  // **It used to be cut to the column**, which collides as soon as two
+  // long pages share 40 characters: an application downloaded from a
+  // system had 21 such prefixes under `controller/activity/...`, and the
+  // collision check below refused the whole build. The digest depends on
+  // the page alone -- not on which other pages exist or the order a
+  // directory listed them in -- so a name never changes because a
+  // neighbour appeared. The collision check in `generate()` stays: it is
+  // what the 92 bits of a 15-character application's digest are checked
+  // against.
+  const plain = `${app}/${page}`.toUpperCase();
+  if (plain.length <= W3MI_NAME_WIDTH) {
+    return plain;
+  }
+  const prefix = `${app.toUpperCase()}/H`;
+  return prefix + createHash("sha256").update(page).digest("hex").toUpperCase().slice(0, W3MI_NAME_WIDTH - prefix.length);
 }
 
 // The file the pair is written as.
