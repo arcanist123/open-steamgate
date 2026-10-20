@@ -475,6 +475,12 @@ HANA Express: running its image accepts SAP's developer licence, see
 - **A real system is reached with a zip.** `npm run segw:zip` builds an abapGit
   offline repository, and a Fiori app goes as a BSP application with its ICF
   node ([`docs/a4h-deploy.md`](docs/a4h-deploy.md)).
+- **A worked example, as a book**: [osg-demo — The Airship Fleet / Флот
+  дирижаблей](https://github.com/oisee/osg-demo) builds one ABAP application on
+  open-steamgate chapter by chapter, from a first class to OData, Fiori, CDS,
+  jobs, osabap and abaplint in ABAP. Every chapter runs against a pinned
+  open-steamgate tag; EPUB and PDF, English and Russian, are on the
+  [releases page](https://github.com/oisee/osg-demo/releases/latest).
 
 ## Thanks
 
