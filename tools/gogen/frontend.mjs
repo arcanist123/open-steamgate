@@ -119,7 +119,12 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     auditedBookkeeping("session-prepare", () => prepareSession(session, reg)); // Input guards only.
   }
   if (session) session.cdsInputs = cdsIdentity;
-  /** @type {typeof compileClass} */ const compile = discoveryProbe ? discoveryProbe.compile : diskFrontend ? (...args) => diskFrontend.compileDiskClass.call(undefined, ...args) : compileClass;
+  /** @type {import("./frontend-session-types.ts").CompileClass} */ let compile = compileClass;
+  if (discoveryProbe) compile = discoveryProbe.compile;
+  else if (diskFrontend) {
+    const compileDisk = diskFrontend.compileDiskClass; // Called unbound, as before.
+    compile = (ctx, obj, lower, session) => compileDisk(ctx, obj, lower, session);
+  }
   const {wanted, diagnostics, broken} = prepareSelection(reg, {objects, tolerant, strictRoots}, session, () => { prepareArtifactDigests(reg, !!session, closureContext); }, discoveryProbe?.selection);
 
   // Eager collections keep first writes inside the replay proxies. Anonymous
