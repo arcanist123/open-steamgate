@@ -179,6 +179,65 @@ describe("tools/osd-packs: a pack is a directory", () => {
     expect(apps["Vibe-translate"].title, "an i18n placeholder is not a title").to.equal("Vibes");
   });
 
+  it("serves an app a pack names itself under that name, its bytes untouched", () => {
+    // an app downloaded from a system keeps the name its URLs use; the
+    // derived Z<PACK> of webapp is unaffected beside it
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {Zdl_App: "apps/dl", ZDL_LIB: "apps/lib"}}));
+    const manifest = JSON.stringify({"sap.app": {dataSources: {s: {type: "OData", uri: "/sap/opu/odata/sap/X_SRV/"}}}});
+    write("packs/vibes/apps/dl/manifest.json", manifest);
+    write("packs/vibes/apps/dl/controller/deep/Page.controller.js", "page");
+    write("packs/vibes/apps/lib/library.js", "lib");
+    const apps = packApps(root, {});
+    expect(apps.map((app) => app.app)).to.deep.equal(["ZVIBES", "ZDL_APP", "ZDL_LIB"]);
+    const dl = apps.find((app) => app.app === "ZDL_APP");
+    expect(dl.pages.map((p) => p.page)).to.deep.equal(["controller/deep/Page.controller.js", "manifest.json"]);
+    expect(dl.pages[1].content.toString(), "served where it was written to be: not re-based").to.equal(manifest);
+  });
+
+  it("every app of one pack is generated, with and without an ABAP folder in the build", () => {
+    // keyed by the pack's manifest, the generator kept the first of a
+    // pack's applications and silently dropped the others
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {ZONE_APP: "apps/one", ZTWO_APP: "apps/two"}}));
+    write("packs/vibes/apps/one/index.html", "one");
+    write("packs/vibes/apps/two/index.html", "two");
+    for (const folders of [[], generatorFoldersOf(root, {}).map((f) => join(root, f))]) {
+      const apps = generateBsp(folders, join(root, "out"), root).map((app) => app.app);
+      expect(apps, JSON.stringify(folders)).to.include.members(["ZVIBES", "ZONE_APP", "ZTWO_APP"]);
+    }
+  });
+
+  it("an app two packs name is refused with both manifests", () => {
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {ZSHARED_APP: "apps/a"}}));
+    write("packs/vibes/apps/a/index.html", "a");
+    write("packs/other/osd-pack.json", JSON.stringify({bsp: {zshared_app: "apps/b"}}));
+    write("packs/other/apps/b/index.html", "b");
+    expect(() => packApps(root, {})).to.throw(/BSP application ZSHARED_APP is claimed by pack other \(.*other.osd-pack\.json\) and pack vibes \(.*vibes.osd-pack\.json\)/);
+  });
+
+  it("an app named like a derived one, or like this system's own, is refused", () => {
+    write("packs/other/osd-pack.json", JSON.stringify({bsp: {ZVIBES: "apps/v"}}));
+    write("packs/other/apps/v/index.html", "v");
+    expect(() => packApps(root, {})).to.throw(/BSP application ZVIBES is claimed by pack vibes .* and pack other/);
+    rmSync(join(root, "packs/other"), {recursive: true, force: true});
+    write("src/bsp/apps.json", JSON.stringify({ZOSD_STATUS_APP: {folder: "webapp/status"}}));
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {ZOSD_STATUS_APP: "apps/s"}}));
+    write("packs/vibes/apps/s/index.html", "s");
+    expect(() => packApps(root, {})).to.throw(/ZOSD_STATUS_APP of pack vibes .* is this system's own, declared in .*apps\.json/);
+  });
+
+  it("a name longer than a BSP application may be, or a folder that is not there, is the pack's error", () => {
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {ZSIXTEEN_CHARS_X: "apps/x"}}));
+    write("packs/vibes/apps/x/index.html", "x");
+    expect(() => packApps(root, {})).to.throw(/ZSIXTEEN_CHARS_X/);
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {ZGONE: "apps/gone"}}));
+    expect(() => packApps(root, {})).to.throw(/bsp ZGONE: folder "apps\/gone" is not a folder of the pack/);
+    write("outside-the-pack/index.html", "x");
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: {ZOUT: "../../outside-the-pack"}}));
+    expect(() => packApps(root, {})).to.throw(/bsp ZOUT: folder .* is not a folder of the pack/);
+    write("packs/vibes/osd-pack.json", JSON.stringify({bsp: ["apps/x"]}));
+    expect(() => packApps(root, {})).to.throw(/bsp must be an object/);
+  });
+
   it("refuses two webapp packs whose names collide at the BSP 15 character limit", () => {
     write("packs/first/osd-pack.json", JSON.stringify({name: "long-workspace-one"}));
     write("packs/first/webapp/index.html", "first");

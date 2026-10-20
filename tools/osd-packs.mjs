@@ -35,7 +35,7 @@ import {cockpitAppsOf} from "./osd-cockpit-apps.mjs";
 // whole procedure. The generation hash covers the input folders, so a new
 // pack is a new generation, which is what it should be.
 import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
-import {basename, delimiter, isAbsolute, join, relative, resolve} from "node:path";
+import {basename, delimiter, isAbsolute, join, relative, resolve, sep} from "node:path";
 import {runsAs} from "./osd-main.mjs";
 import {parseRef} from "./osd-oci.mjs";
 import {readLock} from "./osd-lock.mjs";
@@ -191,6 +191,29 @@ export function packAt(root, dir) {
     data: inside(declared.data, "data"),
     ddic: inside(declared.ddic, join(relative(dir, abap[0] ?? dir), "ddic")),
     webapp: inside(declared.webapp, "webapp"),
+    // BSP applications the pack carries under their own names -- an app
+    // downloaded from a system keeps the name its URLs and its system's
+    // data use (`/sap/bc/ui5_ui5/sap/<APP>/`), which the derived Z<PACK>
+    // of `webapp` cannot be. `{"<APP>": "<folder>"}`; a folder that is not
+    // there is the pack's error, said here, not an empty application later
+    bsp: Object.entries(declared.bsp === undefined ? {} : declared.bsp).map(([app, folder]) => {
+      if (declared.bsp === null || typeof declared.bsp !== "object" || Array.isArray(declared.bsp)) {
+        throw new BadPack(dir, 'bsp must be an object {"<APP>": "<folder>"}');
+      }
+      // inside the pack, as every folder a manifest names: a path that
+      // climbs out would make the pack depend on where it is unpacked. The
+      // path, not its target: a link inside the pack that points elsewhere
+      // is how a private pack serves an app from a working copy without a
+      // second copy of it, and is the pack author's choice (realpath would
+      // refuse exactly that)
+      const rel = typeof folder === "string" ? relative(dir, join(dir, folder)) : "";
+      const climbs = rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+      const at = typeof folder === "string" && folder !== "" && !climbs ? inside(folder) : undefined;
+      if (at === undefined) {
+        throw new BadPack(dir, `bsp ${app}: folder ${JSON.stringify(folder)} is not a folder of the pack`);
+      }
+      return {app: app.toUpperCase(), at};
+    }),
     // what the launchpad should show for this pack: a tile per entry, each
     // pointing at a URL this system serves (its own page, an app, an ICF
     // path). The launchpad asks for these at start, so a pack appears on it
