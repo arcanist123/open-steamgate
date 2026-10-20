@@ -18,7 +18,7 @@ const definition = (v) => {
   const proto = Object.getPrototypeOf(v);
   if (!proto || isProxy(proto)) return false;
   const ctor = Object.getOwnPropertyDescriptor(proto, "constructor")?.value;
-  return definitions.has(ctor?.name) && typeof v.getName === "function"
+  return ctor != null && definitions.has(ctor.name) && typeof v.getName === "function"
     && typeof v.getFilename === "function" && typeof v.getStart === "function";
 };
 // Cache recording must stay bounded even for a generated class with thousands
