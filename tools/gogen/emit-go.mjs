@@ -1399,7 +1399,7 @@ const LINES = !env("GOGEN_NOLINE");
       if (st.target.e === "var" && ctx.builders?.has(st.target.name) && isAppend(/** @type {import("./emit-go-types.ts").WalkNode} */ (/** @type {unknown} */ (st)), st.target.name)) {
         /** @type {import("./emit-go-types.ts").Expr[]} */ const parts = [];
         for (let e = st.value; e.e === "concat"; e = e.l) parts.unshift(e.r);
-        return parts.map((x) => `${t}${ctx.builders.get(st.target.name)}.WriteString(${expr(x, ctx)})`);
+        const builder = ctx.builders.get(st.target.name); return parts.map((x) => `${t}${builder}.WriteString(${expr(x, ctx)})`);
       }
       return [...(st.target.type.k === "table" ? [`${t}abap.BumpTable(&${place(st.target, ctx)})`] : []), `${t}${place(st.target, ctx)} = ${st.moveTable ? expr(st.value, ctx) : copied(expr(st.value, ctx), st.value.type, st.value)}`];
     case "clear":
