@@ -1346,8 +1346,8 @@ const LINES = !env("GOGEN_NOLINE");
     ctx.sinkSites.push({locals, depth: d});
   }
   for (let i = 0; i < body.length; i++) {
-    const st = body[i], next = body[i + 1];
-    if (movePair(st, next, ctx, body[i - 1])) {
+    const st = body[i], next = i + 1 < body.length ? body[i + 1] : undefined; // Bounds explicit: no read past either end.
+    if (movePair(st, next, ctx, i > 0 ? body[i - 1] : undefined)) {
       // BumpTable keys on the address of the slice HEADER, not its backing
       // array. Preserve both bumps; clearing the source cannot invalidate a.
       /** @type {Extract<import("./emit-go-types.ts").Stmt, {s: "assign" | "set_data"}>} */ const assign = /** @type {Extract<import("./emit-go-types.ts").Stmt, {s: "assign" | "set_data"}>} */ (st); append(lines, stmt({...assign, moveTable: true}, ctx, d), stmt(next, ctx, d));
