@@ -29,7 +29,7 @@ PASS: ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED
 The pull-request head `1dbd12c7` gave the same result first, on i10, and
 abapiti reproduced `cmp=equal` independently on u7.
 
-Also on these pins (abapiti's finals): M1 PASS (`95d37bc6`), M2 PASS (byte-equal), traps 2 PASS, no speed regression (227–228 s against 230 s for the previous pin on a quiet host). The 11,060 × 2 suite (TS-HG@Go and TS-HA@OSGO): PENDING.
+Also on these pins (abapiti's finals): M1 PASS (`95d37bc6`), M2 PASS (byte-equal, `9a271f2a`), abaplint Go traps 2, no speed regression (227–228 s against 230 s for the previous pin on a quiet host). The 11,060 × 2 suite (TS-HG@Go and TS-HA@OSGO): PENDING.
 
 The owner of the cache domain approved it on `0b925177`: two reviewed lines
 differ from the proven `61f25917`, and her re-proof there is 5/5 byte-equal.
