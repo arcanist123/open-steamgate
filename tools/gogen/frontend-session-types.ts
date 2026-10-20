@@ -37,9 +37,11 @@ export interface ArtifactObject {
   isDirty?(): boolean;
   syntaxResult?: unknown;
   parsedType?: unknown;
-  def?: unknown;
   definition?: unknown;
 }
+// The core Class keeps def private, so it is not part of ArtifactObject (a Class
+// must stay assignable to it); the cache domain still reads it through this view.
+export type ArtifactObjectWithDef = ArtifactObject & {def?: unknown};
 // Local class adapters retain the owning core object beside their own getters.
 export interface ClassObject {
   getName(): string;

@@ -9,7 +9,7 @@ const artifactFields = ["syntaxResult", "parsedType", "def", "definition", "pars
 /** @param {import("./frontend-session-types.ts").ArtifactObject} obj @returns {import("./frontend-session-types.ts").ArtifactIdentity} */ export const artifactIdentity = (obj) => artifactFields.map((name) => obj[name]);
 /** @param {import("./frontend-session-types.ts").ArtifactIdentity | undefined} a @param {import("./frontend-session-types.ts").ArtifactIdentity} b @returns {boolean | undefined} */ export const sameArtifactIdentity = (a, b) => a?.every((value, i) => value === b[i]);
 /** @param {import("./frontend-session-types.ts").InputSnapshot} inputs @returns {boolean} */ const hasBuiltArtifacts = (inputs) => [...inputs.objects.values()].some(({obj}) =>
-  Boolean(obj.syntaxResult || obj.def || obj.definition || obj.parsedType) || obj.isDirty?.() === false);
+  Boolean(obj.syntaxResult || /** @type {import("./frontend-session-types.ts").ArtifactObjectWithDef} */ (/** @type {unknown} */ (obj)).def || obj.definition || obj.parsedType) || obj.isDirty?.() === false);
 /** @param {string} s @returns {string} */ const hash = (s) => createHash("sha256").update(s).digest("hex");
 /** @param {unknown} value @returns {boolean} */ const isCoreRegistry = (value) => value instanceof core.Registry;
 /** @param {import("./frontend-session-types.ts").InputSource} source @returns {string} */ export function rawHashOf(source) {

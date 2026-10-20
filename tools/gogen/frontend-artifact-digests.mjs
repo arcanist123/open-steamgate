@@ -154,7 +154,7 @@ class Digests {
         const files = inputSnapshot(this.registry).objects.get(key).sources.map((s) => [portableFilename(s.name), artifactHashOf(s)]);
         const expanded = (obj.getABAPFiles?.() ?? []).map((f) => [portableFilename(f.getFilename()),
           this.syntax(f.getStructure()), f.getStatements().map((s) => this.syntax(s))]);
-        const def = obj.def ?? obj.definition;
+        const def = /** @type {import("./frontend-session-types.ts").ArtifactObjectWithDef} */ (/** @type {unknown} */ (obj)).def ?? obj.definition;
         const scopes = obj.syntaxResult?.spaghetti?.getTop();
         return hash(["gogen-resolved-artifact-2", key, files, expanded, def ? this.definition(def) : null,
           scopes ? this.scope(scopes) : null, type ? this.type(type) : null]);
