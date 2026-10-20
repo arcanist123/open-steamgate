@@ -256,7 +256,7 @@ export interface Context {
 }
 export interface MethodContext extends Context { readonly cls: Class; readonly method: Method; loop: number; sinkSites: SinkSite[] }
 export interface Ownership {
-  readonly declarations: ReadonlySet<IR.Field>;
+  readonly declarations: ReadonlySet<IR.Field | SupportedAttribute>; // What frontend-owned stores: locals and attributes.
   unescaped(p: Expr | null | undefined, ctx: Context): boolean | undefined;
   width(p: Expr | null | undefined, ctx: Context): number | undefined;
   fixed(p: Expr | null | undefined, ctx: Context): number;
