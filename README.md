@@ -16,12 +16,23 @@
 
 Each release also carries `sqlite.yml`, `duckdb.yml` and `postgres.yml`; start one with `docker compose -f sqlite.yml up -d`. `./osd doctor` checks a downloaded binary.
 
-## Engineering report: self-hosting step 4
+## 🎉 gogen compiles itself (self-hosting step 4, 2026-10-20)
 
-[**The step-4 lowering and runtime report**](docs/self-hosting-step4-traps.md)
-records the compiler and gogen commits, the path from reached lowering traps
-to a building Go program, and the current runtime failure. It also states the
-checks still required before gogen can be called self-hosted.
+gogen, the ABAP-to-Go compiler in this tree, is written in JavaScript.
+[abapiti](https://github.com/oisee/abapiti) compiled gogen itself into Go, and
+that Go-built gogen emits **the same Go as gogen on Node, byte for byte**,
+for the reference class. The output builds and passes its unit test:
+
+```
+step4: build=ok run=ok cmp=equal ref=b90648781967b2cf out=b90648781967b2cf
+PASS: ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED
+```
+
+Measured on `0b925177` in `main` with abapiti `e054a615`. Seventeen full
+runs, about fifteen fixes on each side, Node output unchanged by every one:
+[**the story and both SHAs**](docs/history/2026-10-20-self-hosting-step4.md).
+The trap-by-trap log before it is in
+[`docs/self-hosting-step4-traps.md`](docs/self-hosting-step4-traps.md).
 
 ## What it is
 
