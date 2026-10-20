@@ -21,6 +21,7 @@ export function functionDiscoveryReferences(statement, core) {
   } else if (statement.get() instanceof core.Statements.CallFunction && tokens[1]?.getStr().toUpperCase() === "FUNCTION") {
     names.push(statement.findDirectExpression(core.Expressions.FunctionName)?.getFirstToken());
   }
-  return names.filter(name => name instanceof core.Tokens.StringToken).map(name => name.getStr())
-    .filter(name => name.startsWith("'") && name.endsWith("'") && name.length > 2).map(name => name.slice(1, -1).toUpperCase());
+  /** @type {string[]} */ const literals = []; // An explicit loop instead of a narrowing filter.
+  for (const name of names) if (name instanceof core.Tokens.StringToken) literals.push(name.getStr());
+  return literals.filter(name => name.startsWith("'") && name.endsWith("'") && name.length > 2).map(name => name.slice(1, -1).toUpperCase());
 }

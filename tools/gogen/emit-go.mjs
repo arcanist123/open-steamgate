@@ -977,8 +977,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   // replaces an initialized slot, including when another class is initialized.
   /** @type {Map<string, string>} */ const staticStores = new Map();
   /** @param {unknown} node @returns {void} */ const collectStatics = (node) => {
-    if (!node || typeof node !== "object") return;
-    if ((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).e === "static" && !staticStores.has((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).owner)) staticStores.set((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).owner, `static_${typeName((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).owner)}`);
+    if (!node || typeof node !== "object") return; if (Array.isArray(node)) { for (const value of node) collectStatics(value); return; } // A list is not an Expr.
+    if ((/** @type {{e?: unknown}} */ (node)).e === "static") { const st = /** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node); if (!staticStores.has(st.owner)) staticStores.set(st.owner, `static_${typeName(st.owner)}`); }
     for (const value of Object.values(node)) collectStatics(value);
   };
   collectStatics(m.body);
@@ -1346,8 +1346,8 @@ const LINES = !env("GOGEN_NOLINE");
     ctx.sinkSites.push({locals, depth: d});
   }
   for (let i = 0; i < body.length; i++) {
-    const st = body[i], next = body[i + 1];
-    if (movePair(st, next, ctx, body[i - 1])) {
+    const st = body[i], next = i + 1 < body.length ? body[i + 1] : undefined; // Bounds explicit: no read past either end.
+    if (movePair(st, next, ctx, i > 0 ? body[i - 1] : undefined)) {
       // BumpTable keys on the address of the slice HEADER, not its backing
       // array. Preserve both bumps; clearing the source cannot invalidate a.
       /** @type {Extract<import("./emit-go-types.ts").Stmt, {s: "assign" | "set_data"}>} */ const assign = /** @type {Extract<import("./emit-go-types.ts").Stmt, {s: "assign" | "set_data"}>} */ (st); append(lines, stmt({...assign, moveTable: true}, ctx, d), stmt(next, ctx, d));
@@ -1396,10 +1396,10 @@ const LINES = !env("GOGEN_NOLINE");
 
         return [`${t}${place(st.target.base, ctx)} = hSubwrite.X(${expr(st.target.base, ctx)}, ${st.target.off ? expr(st.target.off, ctx) : "0"}, ${expr(st.target.len, ctx)}, ${expr(st.value, ctx)})`];
       }
-      if (ctx.builders?.has((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).name) && isAppend(/** @type {import("./emit-go-types.ts").WalkNode} */ (/** @type {unknown} */ (st)), (/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).name)) {
+      if (st.target.e === "var" && ctx.builders?.has(st.target.name) && isAppend(/** @type {import("./emit-go-types.ts").WalkNode} */ (/** @type {unknown} */ (st)), st.target.name)) {
         /** @type {import("./emit-go-types.ts").Expr[]} */ const parts = [];
         for (let e = st.value; e.e === "concat"; e = e.l) parts.unshift(e.r);
-        return parts.map((x) => `${t}${ctx.builders.get((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).name)}.WriteString(${expr(x, ctx)})`);
+        const builder = ctx.builders.get(st.target.name); return parts.map((x) => `${t}${builder}.WriteString(${expr(x, ctx)})`);
       }
       return [...(st.target.type.k === "table" ? [`${t}abap.BumpTable(&${place(st.target, ctx)})`] : []), `${t}${place(st.target, ctx)} = ${st.moveTable ? expr(st.value, ctx) : copied(expr(st.value, ctx), st.value.type, st.value)}`];
     case "clear":

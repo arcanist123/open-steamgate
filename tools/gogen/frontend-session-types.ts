@@ -37,9 +37,11 @@ export interface ArtifactObject {
   isDirty?(): boolean;
   syntaxResult?: unknown;
   parsedType?: unknown;
-  def?: unknown;
   definition?: unknown;
 }
+// The core Class keeps def private, so it is not part of ArtifactObject (a Class
+// must stay assignable to it); the cache domain still reads it through this view.
+export type ArtifactObjectWithDef = ArtifactObject & {def?: unknown};
 // Local class adapters retain the owning core object beside their own getters.
 export interface ClassObject {
   getName(): string;
@@ -138,7 +140,7 @@ export interface PreparedSelection {wanted: string[]; diagnostics: readonly impo
 export interface CompileOptions {
   // Internal seam for the cache host's discovery-equivalence checker: returns
   // a deliberately partial program. Not a supported compilation mode.
-  discoveryProbe?: {owners: Set<string>; selection?: PreparedSelection; cds?: import("./frontend-cache-types.ts").CdsSource[]; compile: (ctx: LoweringContext, obj: ClassObject, lower: ClassLowering) => ClassIR};
+  discoveryProbe?: {owners: Set<string>; selection?: PreparedSelection; cds?: import("./frontend-cache-types.ts").CdsSource[]; compile: CompileClass};
   closureContext?: {round: number};
   strictRoots?: Set<string>;
   selectionCache?: {
@@ -262,3 +264,5 @@ export interface SelectionCore {
   Expressions: {FunctionName: typeof Core.Expressions.FunctionName};
   Tokens: {StringToken: typeof Core.Tokens.StringToken; Identifier: typeof Core.Tokens.Identifier};
 }
+// One signature for every class compiler compileProgram picks (probe, disk frontend, compileClass).
+export type CompileClass = (ctx: LoweringContext, obj: ClassObject, lower: ClassLowering, session: CacheSession | null | undefined) => ClassIR;

@@ -209,7 +209,7 @@ class Recorder {
     }
     if (previous && !sameArtifactIdentity(previous, now)) {
       this.artifactGap(state, key, "untraced-artifact");
-    } else if (!previous && (obj.syntaxResult || obj.parsedType || obj.def || obj.definition || obj.isDirty?.() === false)) {
+    } else if (!previous && (obj.syntaxResult || obj.parsedType || /** @type {import('./frontend-session-types.ts').ArtifactObjectWithDef} */ (/** @type {unknown} */ (obj)).def || obj.definition || obj.isDirty?.() === false)) {
       this.artifactGap(state, key, "artifact-built-before-recording");
     }
     this.checked.set(obj, now);

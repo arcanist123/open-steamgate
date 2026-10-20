@@ -4,7 +4,7 @@ import type {Registry, ArtifactObject} from "./frontend-session-types.ts";
 import type {ABAPObject} from "@abaplint/core";
 type OwnershipObject = ArtifactObject & Partial<Pick<ABAPObject, "getABAPFiles">>;
 import type {OwnershipSafety, OwnershipSafetyMap} from "./frontend-types.ts";
-import type {ProgramInput, Class, ClassName, Method, Local, Attribute, SupportedAttribute, Expr, Type, Context, Ownership} from "./emit-go-types.ts";
+import type {ProgramInput, Class, ClassName, Method, Local, Attribute, SupportedAttribute, Expr, Type, Context, Ownership, OwnedDeclaration} from "./emit-go-types.ts";
 import type {AttributeProbe} from "./emit-ownership.ts";
 import {enumerateObjects, semanticQuery, withArtifact} from "./frontend-provenance.mjs";
 // Ownership is per declaration, never a change to an ABAP type or ABI.
@@ -41,7 +41,7 @@ const methods = (cls: Class): readonly Method[] => [...cls.methods, ...(cls.cons
 
 export function analyzeOwnership(program: ProgramInput): Ownership {
   const classes = (program.classes ?? program) as readonly Class[];
-  const attrs = new Map<string, Set<string>>(), locals = new Map<string, Set<string>>(), declarations = new Set<Local | SupportedAttribute>();
+  const attrs = new Map<string, Set<string>>(), locals = new Map<string, Set<string>>(), declarations = new Set<OwnedDeclaration>();
   for (const cls of classes) {
     const safety = program.ownershipSafety?.get(sourceOwner(cls));
     const eligible = (v: Local | Attribute): boolean | undefined => safety && (v.type?.k === "xstring" || (v.type?.k === "x" && v.type.len >= 1 && v.type.len <= 8)) && !safety.dynamic && !safety.names.has(v.name);
