@@ -33,7 +33,7 @@ export type ScopeKind = `${ReturnType<Scope["getIdentifier"]>["stype"]}`;
 export type MethodDefinition = abaplint.IMethodDefinition;
 export type MethodParameters = ReturnType<MethodDefinition["getParameters"]>;
 export interface FrontendParam extends Param { readonly defaultOwner?: string; readonly defOwner?: string }
-export type Signature = Omit<FrontendMethod, "params" | "unsupported"> & {readonly params: readonly FrontendParam[]; readonly static: boolean; readonly unsupported?: undefined; readonly none?: boolean};
+export interface Signature extends Omit<FrontendMethod, "params" | "unsupported"> {readonly params: readonly FrontendParam[]; readonly static: boolean; readonly unsupported?: undefined; readonly none?: boolean}
 export type RefusedSignature = {readonly name: string; readonly unsupported: string};
 export type MethodSignature = Signature | RefusedSignature;
 export interface SuppliedMethod { name: string; found: string[] }
