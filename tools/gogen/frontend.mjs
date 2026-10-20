@@ -121,10 +121,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   if (session) session.cdsInputs = cdsIdentity;
   /** @type {import("./frontend-session-types.ts").CompileClass} */ let compile = compileClass;
   if (discoveryProbe) compile = discoveryProbe.compile;
-  else if (diskFrontend) {
-    const compileDisk = diskFrontend.compileDiskClass; // Called unbound, as before.
-    compile = (ctx, obj, lower, session) => compileDisk(ctx, obj, lower, session);
-  }
+  else if (diskFrontend) compile = (ctx, obj, lower, session) => diskFrontend.compileDiskClass(ctx, obj, lower, session); // Does not use this.
   const {wanted, diagnostics, broken} = prepareSelection(reg, {objects, tolerant, strictRoots}, session, () => { prepareArtifactDigests(reg, !!session, closureContext); }, discoveryProbe?.selection);
 
   // Eager collections keep first writes inside the replay proxies. Anonymous
