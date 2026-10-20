@@ -29,7 +29,8 @@ const effects = new Set(["skipped", "partial"]);
   if (!value || typeof value !== "object" || seen.has(value)) return true;
   seen.add(value);
   if (Array.isArray(value)) return value.every((v) => elementary(v, self, seen)); // A list has no kind; check its items.
-  if (value.k && !scalarKinds.has(value.k) && !(value.k === "ref" && !value.intf && value.name === self)) return false;
+  const t = /** @type {{k?: unknown, intf?: unknown, name?: unknown}} */ (value); // A field probe, not an IR claim.
+  if (t.k && !scalarKinds.has(t.k) && !(t.k === "ref" && !t.intf && t.name === self)) return false;
   const children = value instanceof Map ? [...value.values()] : Object.values(value);
   return children.every((v) => elementary(v, self, seen));
 }

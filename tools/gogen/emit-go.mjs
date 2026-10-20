@@ -978,7 +978,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   /** @type {Map<string, string>} */ const staticStores = new Map();
   /** @param {unknown} node @returns {void} */ const collectStatics = (node) => {
     if (!node || typeof node !== "object") return; if (Array.isArray(node)) { for (const value of node) collectStatics(value); return; } // A list is not an Expr.
-    if ((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).e === "static" && !staticStores.has((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).owner)) staticStores.set((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).owner, `static_${typeName((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node)).owner)}`);
+    if ((/** @type {{e?: unknown}} */ (node)).e === "static") { const st = /** @type {Extract<import("./emit-go-types.ts").Expr, {e: "static"}>} */ (node); if (!staticStores.has(st.owner)) staticStores.set(st.owner, `static_${typeName(st.owner)}`); }
     for (const value of Object.values(node)) collectStatics(value);
   };
   collectStatics(m.body);
