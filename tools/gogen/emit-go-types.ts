@@ -255,8 +255,10 @@ export interface Context {
   tryBuilderBlocked?: boolean;
 }
 export interface MethodContext extends Context { readonly cls: Class; readonly method: Method; loop: number; sinkSites: SinkSite[] }
+// What frontend-owned stores in Ownership.declarations: locals and attributes.
+export type OwnedDeclaration = IR.Field | SupportedAttribute;
 export interface Ownership {
-  readonly declarations: ReadonlySet<IR.Field | SupportedAttribute>; // What frontend-owned stores: locals and attributes.
+  readonly declarations: ReadonlySet<OwnedDeclaration>;
   unescaped(p: Expr | null | undefined, ctx: Context): boolean | undefined;
   width(p: Expr | null | undefined, ctx: Context): number | undefined;
   fixed(p: Expr | null | undefined, ctx: Context): number;
