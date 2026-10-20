@@ -216,7 +216,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
         append(sigs, methodDefinitions(def).map((m) => methodSignature(ictx, i, `${i}~${upper(m.getName())}`)));
       }
       // a CLASS-METHODS of an interface is the class's function, not a method of the reference
-      /** @type {Map<string, readonly import("./ir.ts").Method[]>} */ (program.interfaceMethods).set(name, /** @type {import("./ir.ts").Method[]} */ (sigs.filter((x) => !x.unsupported && !/** @type {import("./frontend-types.ts").Signature} */ (x).static)));
+      /** @type {Map<string, readonly import("./ir.ts").Method[]>} */ (program.interfaceMethods).set(name, /** @type {import("./ir.ts").Method[]} */ (/** @type {unknown} */ (sigs.filter((x) => !x.unsupported && !/** @type {import("./frontend-types.ts").Signature} */ (x).static))));
       interfaceAttributes(program, name);
     }
     pending = [...program.interfaces].filter((n) => !program.interfaceMethods.has(n));
