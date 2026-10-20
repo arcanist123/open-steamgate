@@ -69,10 +69,14 @@ describe("webapp/flp.html boots the sandbox with the packs' intents", () => {
     expect(html.indexOf(script), "after the core script").to.be.greaterThan(html.indexOf("sap-ui-core.js"));
     const configured = [];
     const sap = {ui: {loader: {config: (c) => configured.push(c)}}};
-    vm.runInNewContext(script, {window, sap});
+    // the built-in namespaces come from the bootstrap tag itself
+    const tagRoots = /data-sap-ui-resourceroots='([^']*)'/.exec(html)[1];
+    expect(JSON.parse(tagRoots)).to.have.property("stg");
+    const document = {getElementById: (id) => (id === "sap-ui-bootstrap" ? {getAttribute: () => tagRoots} : null)};
+    vm.runInNewContext(script, {window, sap, document});
     expect(configured).to.deep.equal([{paths: {"osd/lib": "../sap/bc/ui5_ui5/sap/zosd_lib/osd/lib"}}]);
     configured.length = 0;
-    vm.runInNewContext(script, {window: bootConfig({applications: {}}), sap});
+    vm.runInNewContext(script, {window: bootConfig({applications: {}}), sap, document});
     expect(configured, "no roots, no call").to.deep.equal([]);
   });
 

@@ -491,11 +491,18 @@
     // take: the bootstrap tag's own resourceroots won and the library was
     // asked of the CDN (measured, 1.120.50). The core script above has run by
     // the time this one does (no async, no defer: in order), so the loader
-    // exists, and no application has started yet. A built-in namespace is
-    // left as the tag says.
+    // exists, and no application has started yet. A namespace the tag
+    // already roots is left as the tag says.
     (function () {
       var roots = window["stg-pack-resource-roots"] || {};
-      var builtIn = {"stg": true, "stg.travel": true, "stg.booking": true, "stg.analytics": true, "stg.segw": true, "stg.status": true};
+      // the built-in namespaces are the bootstrap tag's own resourceroots,
+      // read from the tag rather than listed twice
+      var builtIn = {};
+      try {
+        builtIn = JSON.parse(document.getElementById("sap-ui-bootstrap").getAttribute("data-sap-ui-resourceroots") || "{}");
+      } catch (e) {
+        builtIn = {};
+      }
       var paths = {};
       Object.keys(roots).forEach(function (namespace) {
         if (!builtIn[namespace]) {
