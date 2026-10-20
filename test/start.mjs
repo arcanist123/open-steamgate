@@ -10,7 +10,7 @@ import express from "express";
 import {StoreDestination} from "../tools/osd-store-destination.mjs";
 import {existsSync} from "node:fs";
 import {generatorFoldersOf, tilesOf, webappsOf} from "../tools/osd-packs.mjs";
-import {packApplications} from "../tools/osd-bsp-registry.mjs";
+import {packLaunchpad} from "../tools/osd-bsp-registry.mjs";
 import {mountRemoteServices} from "../tools/osd-remote-service.mjs";
 import {segwRegistrations} from "../tools/segw-registry.mjs";
 import {createServer as createHttpsServer} from "node:https";
@@ -174,8 +174,16 @@ export function startServer(quiet) {
   serveSandboxConfig(app);
   // what the launchpad asks for at start: the tiles the packs declare, so a
   // pack appears on it without anybody editing webapp/flp.html (backlog E.2)
+  // an explicit pack intent that replaces what a manifest declared is said
+  // once, here: the launchpad will run something the manifest did not name
+  try {
+    for (const line of packLaunchpad(process.cwd()).overrides) console.log(line);
+  } catch (error) {
+    console.error(`launchpad: ${error.message}`);
+  }
   hostNodes["pack-tiles"] = (a, node) => a.get(node.path, function (req, res) {
-    res.json({tiles: tilesOf(process.cwd()), applications: packApplications(process.cwd())});
+    const {applications, resourceRoots} = packLaunchpad(process.cwd());
+    res.json({tiles: tilesOf(process.cwd()), applications, resourceRoots});
   });
   // a pack brings its own static files, served under its name (backlog E.2).
   // One handler, many nodes: the nodes are DERIVED from the packs

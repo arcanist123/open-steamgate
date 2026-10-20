@@ -186,7 +186,7 @@ export function packAppName(pack) {
  *  action is not a plain word (a dash, a "*", empty), gives nothing; the
  *  later pack wins an intent two packs declare, as the later layer wins a
  *  name. */
-export function packApplications(root = ".", env = process.env) {
+function manifestApplications(root, env) {
   const applications = {};
   for (const pack of packsOf(root, env).filter((p) => p.webapp !== undefined)) {
     const file = join(pack.webapp, "manifest.json");
@@ -214,6 +214,64 @@ export function packApplications(root = ".", env = process.env) {
     }
   }
   return applications;
+}
+
+/** What a pack's osd-pack.json adds to the launchpad on top of manifests:
+ *  `intents` (an intent that launches another component than the app
+ *  declaring it -- a target mapping) and `resourceRoots` (a library with
+ *  no app index). Returns {applications, resourceRoots, overrides}:
+ *  `overrides` names every manifest intent an explicit one replaced, for
+ *  the host to say at start -- the launchpad then runs something the
+ *  manifest did not declare, and that is said, not discovered.
+ *
+ *  Without an explicit intent nothing changes: the manifest's intents are
+ *  the applications, as before. Two packs declaring one intent, or one
+ *  resource root, is refused with both files named. */
+export function packLaunchpad(root = ".", env = process.env) {
+  const applications = manifestApplications(root, env);
+  const resourceRoots = {};
+  const overrides = [];
+  const claimed = new Map();
+  const rooted = new Map();
+  for (const pack of packsOf(root, env)) {
+    const file = join(pack.dir, "osd-pack.json");
+    for (const {intent, app, component, title} of pack.intents ?? []) {
+      if (claimed.has(intent)) {
+        throw new Error(`intent ${intent} is declared by ${claimed.get(intent)} and by ${file}`);
+      }
+      claimed.set(intent, file);
+      checkAppName(app);
+      const before = applications[intent];
+      if (before !== undefined) {
+        overrides.push(`launchpad: pack ${pack.name} maps ${intent} to ${component} (${app}); the manifest declared ${before.additionalInformation.replace("SAPUI5.Component=", "")} (${before.description})`);
+      }
+      applications[intent] = {
+        title: title ?? before?.title ?? pack.name,
+        description: `pack ${pack.name}`,
+        additionalInformation: `SAPUI5.Component=${component}`,
+        applicationType: "URL",
+        url: `../sap/bc/ui5_ui5/sap/${app.toLowerCase()}/`,
+        navigationMode: "embedded",
+      };
+    }
+    for (const {namespace, app, path} of pack.resourceRoots ?? []) {
+      if (rooted.has(namespace)) {
+        throw new Error(`resource root ${namespace} is declared by ${rooted.get(namespace)} and by ${file}`);
+      }
+      rooted.set(namespace, file);
+      checkAppName(app);
+      // relative to /app/flp.html, the way the applications' urls are
+      const rest = path.split("/").filter((p) => p !== "").join("/");
+      resourceRoots[namespace] = `../sap/bc/ui5_ui5/sap/${app.toLowerCase()}${rest === "" ? "" : "/" + rest}`;
+    }
+  }
+  return {applications, resourceRoots, overrides};
+}
+
+/** The applications the launchpad is booted with: the manifests' intents
+ *  and a pack's explicit ones (packLaunchpad). */
+export function packApplications(root = ".", env = process.env) {
+  return packLaunchpad(root, env).applications;
 }
 
 export function packApps(root = ".", env = process.env) {
@@ -435,6 +493,10 @@ ENDCLASS.
 
 export function generate(folders, out = "gen/bsp", root = process.cwd()) {
   const packs = packApps(root);
+  // the launchpad's pack intents and resource roots are checked with the
+  // build, so two packs claiming one intent fail it, naming both files,
+  // rather than the first page that asks for packs.json
+  packLaunchpad(root);
   const sources = [];
   let declaredAdded = false;
   // by application, not by manifest: one pack may carry several ("bsp"),

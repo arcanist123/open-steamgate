@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {SOURCE, isSourceIdentity, BadPack, contentFoldersOf, dataDirsOf, ddicDirsOf, generatorFoldersOf, inputFoldersOf, packAt, packRootsOf, packsOf, webappsOf} from "../tools/osd-packs.mjs";
 import {ObjectStore, rootsOf} from "../tools/osd-store.mjs";
 import {loadConfig} from "../tools/osd-build.mjs";
-import {generate as generateBsp, packApplications, packApps} from "../tools/osd-bsp-registry.mjs";
+import {generate as generateBsp, packApplications, packApps, packLaunchpad} from "../tools/osd-bsp-registry.mjs";
 import {packNodes} from "../tools/osd-nodes.mjs";
 import {SOURCE as leafSource, isSourceIdentity as leafIdentity} from "../tools/osd-source-identity.mjs";
 
@@ -236,6 +236,48 @@ describe("tools/osd-packs: a pack is a directory", () => {
     expect(() => packApps(root, {})).to.throw(/bsp ZOUT: folder .* is not a folder of the pack/);
     write("packs/vibes/osd-pack.json", JSON.stringify({bsp: ["apps/x"]}));
     expect(() => packApps(root, {})).to.throw(/bsp must be an object/);
+  });
+
+  it("an explicit intent maps to another component, replaces the manifest's, and says so", () => {
+    // the target mapping case: the base app declares the inbound, its
+    // extension (another component, another BSP application) is what runs
+    write("packs/vibes/webapp/manifest.json", JSON.stringify({"sap.app": {id: "osd.vibes", title: "Vibes",
+      crossNavigation: {inbounds: {show: {semanticObject: "Vibe", action: "display"}, other: {semanticObject: "Vibe", action: "list"}}}}}));
+    write("packs/ext/osd-pack.json", JSON.stringify({intents: {
+      "Vibe-display": {app: "zvibes_ext", component: "osd.vibes.ext", title: "Vibes, extended"},
+      "rel_alerts_2-display": {app: "ZPLACEHOLDER", component: "osd.placeholder"},
+    }}));
+    const {applications, overrides} = packLaunchpad(root, {});
+    expect(applications["Vibe-display"]).to.deep.equal({
+      title: "Vibes, extended", description: "pack ext", additionalInformation: "SAPUI5.Component=osd.vibes.ext",
+      applicationType: "URL", url: "../sap/bc/ui5_ui5/sap/zvibes_ext/", navigationMode: "embedded",
+    });
+    expect(applications["Vibe-list"].additionalInformation, "a manifest intent nobody maps stays").to.equal("SAPUI5.Component=osd.vibes");
+    expect(applications["rel_alerts_2-display"].url).to.equal("../sap/bc/ui5_ui5/sap/zplaceholder/");
+    expect(overrides).to.deep.equal(["launchpad: pack ext maps Vibe-display to osd.vibes.ext (ZVIBES_EXT); the manifest declared osd.vibes (pack vibes)"]);
+    expect(packApplications(root, {})).to.deep.equal(applications);
+  });
+
+  it("two packs declaring one intent or one resource root fail the build, naming both", () => {
+    write("packs/one/osd-pack.json", JSON.stringify({intents: {"Vibe-display": {app: "ZONE", component: "osd.one"}}, resourceRoots: {"osd.lib": {app: "ZONE_LIB", path: "/osd/lib/"}}}));
+    expect(packLaunchpad(root, {}).resourceRoots).to.deep.equal({"osd.lib": "../sap/bc/ui5_ui5/sap/zone_lib/osd/lib"});
+    write("packs/two/osd-pack.json", JSON.stringify({intents: {"Vibe-display": {app: "ZTWO", component: "osd.two"}}}));
+    expect(() => packLaunchpad(root, {})).to.throw(/intent Vibe-display is declared by .*one.osd-pack\.json and by .*two.osd-pack\.json/);
+    expect(() => generateBsp([], join(root, "out"), root), "the build, not the first page that asks").to.throw(/intent Vibe-display is declared by/);
+    write("packs/two/osd-pack.json", JSON.stringify({resourceRoots: {"osd.lib": {app: "ZTWO"}}}));
+    expect(() => packLaunchpad(root, {})).to.throw(/resource root osd\.lib is declared by .*one.osd-pack\.json and by .*two.osd-pack\.json/);
+  });
+
+  it("an intent that is not one, or names no app or component, is the pack's error", () => {
+    for (const [intents, error] of [
+      [{"Vibe-dis-play": {app: "ZA", component: "c"}}, /intent Vibe-dis-play is not/],
+      [{"Vibe": {app: "ZA", component: "c"}}, /intent Vibe is not/],
+      [{"Vibe-display": {app: "ZA"}}, /needs "app" .* and "component"/],
+      [["Vibe-display"], /intents must be an object/],
+    ]) {
+      write("packs/bad/osd-pack.json", JSON.stringify({intents}));
+      expect(() => packLaunchpad(root, {}), JSON.stringify(intents)).to.throw(error);
+    }
   });
 
   it("refuses two webapp packs whose names collide at the BSP 15 character limit", () => {

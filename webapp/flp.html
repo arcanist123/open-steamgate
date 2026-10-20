@@ -433,7 +433,12 @@
         var request = new XMLHttpRequest();
         request.open("GET", "./packs.json", false);
         request.send();
-        var fromPacks = request.status === 200 ? (JSON.parse(request.responseText).applications || {}) : {};
+        var answer = request.status === 200 ? JSON.parse(request.responseText) : {};
+        var fromPacks = answer.applications || {};
+        // a library a pack carries without an app index (osd-pack.json
+        // resourceRoots): kept for the loader, which is configured right
+        // after the core script below -- before any application loads
+        window["stg-pack-resource-roots"] = answer.resourceRoots || {};
         Object.keys(fromPacks).forEach(function (intent) {
           var app = fromPacks[intent];
           var component = app.additionalInformation;
@@ -480,6 +485,28 @@
     data-sap-ui-flexibilityServices=""
     data-sap-ui-resourceroots='{"stg": "./", "stg.travel": "./", "stg.booking": "./booking", "stg.analytics": "./analytics", "stg.segw": "./segw", "stg.status": "./status"}'
     data-sap-ui-oninit="module:stg/launchpad"></script>
+  <script>
+    // **The packs' resource roots, given to the loader itself.** Setting
+    // them in sap-ui-config before the bootstrap was tried first and did not
+    // take: the bootstrap tag's own resourceroots won and the library was
+    // asked of the CDN (measured, 1.120.50). The core script above has run by
+    // the time this one does (no async, no defer: in order), so the loader
+    // exists, and no application has started yet. A built-in namespace is
+    // left as the tag says.
+    (function () {
+      var roots = window["stg-pack-resource-roots"] || {};
+      var builtIn = {"stg": true, "stg.travel": true, "stg.booking": true, "stg.analytics": true, "stg.segw": true, "stg.status": true};
+      var paths = {};
+      Object.keys(roots).forEach(function (namespace) {
+        if (!builtIn[namespace]) {
+          paths[namespace.split(".").join("/")] = roots[namespace];
+        }
+      });
+      if (Object.keys(paths).length > 0) {
+        sap.ui.loader.config({paths: paths});
+      }
+    })();
+  </script>
 </head>
 <body class="sapUiBody" id="content">
 </body>
