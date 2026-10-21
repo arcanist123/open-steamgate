@@ -26,6 +26,31 @@ describe("abapiti type-form guard", function () {
       /** prose typeof NS.member */ let x;`;
     expect(counts(lint(source, "x.ts"))[R8]).to.equal(0);
   });
+  it("resolves namespace roots lexically in TS and JSDoc", () => {
+    const tsSource = `import * as NS from './n';
+      type Imported = typeof NS.member;
+      function parameter(NS: any) { type Local = typeof NS.member; }
+      function variable() {
+        type Before = typeof NS.member;
+        const NS = {member: 1};
+        type After = typeof NS.member;
+      }
+      { const NS = {member: 1}; type Local = typeof NS.deep.member; }
+      function sibling() { type Imported = typeof NS.member; }
+      type Outside = typeof NS.member;`;
+    expect(lint(tsSource, "x.ts").filter((h) => h.rule === R8).map((h) => h.line)).to.deep.equal([2, 10, 11]);
+    const jsSource = `import * as NS from './n.mjs';
+      /** @param {typeof NS.member} x */ function imported(x) {}
+      function parameter(NS) { /** @type {typeof NS.member} */ let x; }
+      function variable() {
+        /** @type {typeof NS.member} */ let before;
+        var NS = {member: 1};
+        /** @type {typeof NS.member} */ let after;
+      }
+      { const {NS} = value; /** @type {typeof NS.member} */ let x; }
+      /** @type {typeof NS.member} */ let outside;`;
+    expect(lint(jsSource, "x.mjs").filter((h) => h.rule === R8).map((h) => h.line)).to.deep.equal([2, 10]);
+  });
   it("counts casts once, including nested casts, but excludes declarations and ordinary parentheses", () => {
     expect(counts(lint(`/** @type {string} */ let declared;
       const p = (declared);
@@ -84,6 +109,16 @@ describe("abapiti type-form guard", function () {
       const r = run("--check");
       expect(r.status).to.equal(1);
       expect(r.stderr).to.match(/new.ts: R8 typeof-namespace-member: 1 sites, budget 0/);
+    });
+    it("blocks untracked source debt with --changed, excluding ignored files from touched paths", () => {
+      writeFileSync(join(dir, "tools/gogen/new.ts"), "import * as NS from './n'; type T = typeof NS.member;");
+      const r = run("--check", "--changed", "main");
+      expect(r.status, r.stderr).to.equal(1);
+      expect(r.stderr).to.match(/new.ts: R8 typeof-namespace-member: 1 sites, budget 0/).and.not.match(/does not touch/);
+      writeFileSync(join(dir, ".git/info/exclude"), "tools/gogen/new.ts\n");
+      const ignored = run("--check", "--changed", "main");
+      expect(ignored.status, ignored.stderr).to.equal(0);
+      expect(ignored.stderr).to.match(/does not touch/);
     });
     it("checks the whole tree if the comparison ref cannot be resolved", () => {
       write(source + "const y = /** @type {number} */ (other);\n");

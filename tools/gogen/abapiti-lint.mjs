@@ -65,11 +65,19 @@ export function lint(text, file) {
   const name = file;
   const namespaces = new Set(sf.statements.filter(ts.isImportDeclaration)
     .map((n) => n.importClause?.namedBindings).filter((n) => n && ts.isNamespaceImport(n)).map((n) => n.name.text));
+  let checker;
   function visitTypeQuery(node) {
     if (!ts.isTypeQueryNode(node) || !ts.isQualifiedName(node.exprName)) return;
     let root = node.exprName;
     while (ts.isQualifiedName(root)) root = root.left;
-    if (ts.isIdentifier(root) && namespaces.has(root.text)) report(8, node.getStart(), node);
+    if (!ts.isIdentifier(root) || !namespaces.has(root.text)) return;
+    // Bind this AST without loading dependencies: the nearest value binding,
+    // including parameters and hoisted declarations, decides what NS means.
+    checker ??= ts.createProgram([file], {allowJs: true, noLib: true, noResolve: true}, {
+      ...ts.createCompilerHost({}),
+      getSourceFile: (name) => name === file ? sf : undefined,
+    }).getTypeChecker();
+    if (checker.getSymbolAtLocation(root)?.declarations?.some(ts.isNamespaceImport)) report(8, node.getStart(), node);
   }
   const seen = new Set();
   const report = (n, start, node) => {
@@ -210,7 +218,10 @@ function main() {
     if (changed) {
       let mergeBase;
       try { mergeBase = git("merge-base", "HEAD", changed).trim(); } catch { /* judge the whole tree */ }
-      if (mergeBase) touched = new Set(git("diff", "--name-only", "-z", mergeBase).split("\0").filter(Boolean));
+      if (mergeBase) touched = new Set([
+        ...git("diff", "--name-only", "-z", mergeBase).split("\0"),
+        ...git("ls-files", "--others", "--exclude-standard", "-z", "--", "tools/gogen").split("\0"),
+      ].filter(Boolean));
       else console.error(`abapiti-lint: no merge base with ${changed} -- judging the whole tree against it`);
       // A baseline edit changes the limits even without a source edit.
       if (touched?.has("tools/gogen/abapiti-lint.json")) touched = undefined;
