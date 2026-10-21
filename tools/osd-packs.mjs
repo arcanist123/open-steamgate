@@ -103,6 +103,17 @@ export function placesOf(root, env) {
 }
 
 /** one directory read as a pack, or undefined when it is not one */
+/** a manifest key that must be an object of entries, or absent */
+function objectOf(dir, key, value) {
+  if (value === undefined) {
+    return {};
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new BadPack(dir, `${key} must be an object`);
+  }
+  return value;
+}
+
 export function packAt(root, dir) {
   const manifest = join(dir, MANIFEST);
   if (existsSync(manifest) === false) {
@@ -213,6 +224,28 @@ export function packAt(root, dir) {
         throw new BadPack(dir, `bsp ${app}: folder ${JSON.stringify(folder)} is not a folder of the pack`);
       }
       return {app: app.toUpperCase(), at};
+    }),
+    // what the launchpad sandbox should know that no manifest says: an
+    // intent that launches another component than the app declaring it (a
+    // target mapping: the base app declares the inbound, its extension is
+    // what runs), and where a library with no app index is loaded from.
+    // Checked here, so a typo is the pack's error at load
+    intents: Object.entries(objectOf(dir, "intents", declared.intents)).map(([intent, t]) => {
+      const dash = intent.indexOf("-");
+      const word = (w) => w !== "" && [...w].every((c) => c === "_" || (c >= "0" && c <= "9") || (c.toLowerCase() >= "a" && c.toLowerCase() <= "z"));
+      if (dash <= 0 || !word(intent.slice(0, dash)) || !word(intent.slice(dash + 1))) {
+        throw new BadPack(dir, `intent ${intent} is not <SemanticObject>-<action> in plain words`);
+      }
+      if (t === null || typeof t !== "object" || typeof t.app !== "string" || t.app === "" || typeof t.component !== "string" || t.component === "") {
+        throw new BadPack(dir, `intent ${intent} needs "app" (the BSP application) and "component" (its sap.app.id)`);
+      }
+      return {intent, app: t.app.toUpperCase(), component: t.component, title: t.title === undefined ? undefined : String(t.title)};
+    }),
+    resourceRoots: Object.entries(objectOf(dir, "resourceRoots", declared.resourceRoots)).map(([namespace, r]) => {
+      if (r === null || typeof r !== "object" || typeof r.app !== "string" || r.app === "") {
+        throw new BadPack(dir, `resourceRoots ${namespace} needs "app" (the BSP application) and may name a "path" in it`);
+      }
+      return {namespace, app: r.app.toUpperCase(), path: String(r.path ?? "")};
     }),
     // what the launchpad should show for this pack: a tile per entry, each
     // pointing at a URL this system serves (its own page, an app, an ICF

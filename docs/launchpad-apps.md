@@ -70,6 +70,35 @@ application, a pack naming its derived name, or a name `src/bsp/apps.json`
 already declares are refused, with both files named. A page path too long
 for the Web Repository's 40-character name gets a digest name; the
 registry maps the path to it.
+## Intents and libraries no manifest declares
+
+A manifest's inbounds are the pack's intents, as above. Two things a
+manifest cannot say are said in `osd-pack.json`:
+
+```json
+{
+  "intents": {
+    "Order-manage": {"app": "ZORDER_EXT", "component": "my.orders.ext", "title": "Orders"}
+  },
+  "resourceRoots": {
+    "my.lib": {"app": "ZMY_LIB", "path": "my/lib"}
+  }
+}
+```
+
+- **`intents`** -- a target mapping: the intent launches `component` from
+  the BSP application `app` (`../sap/bc/ui5_ui5/sap/<app>/`). This is
+  for a base app that declares the inbound while its extension is what
+  runs. An explicit intent replaces a manifest's of the same name, and the
+  host says so at start (`launchpad: pack ... maps ... ; the manifest
+  declared ...`). Without one, nothing changes.
+- **`resourceRoots`** -- where the loader finds a library that has no app
+  index here; given to the loader right after the core script, before any
+  application loads. A built-in namespace is never replaced.
+
+Two packs declaring one intent or one resource root fail the build, with
+both files named. An intent is `<SemanticObject>-<action>` in plain words
+(letters, digits, `_`).
 
 ## Availability
 

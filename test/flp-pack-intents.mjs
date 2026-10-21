@@ -55,6 +55,31 @@ describe("webapp/flp.html boots the sandbox with the packs' intents", () => {
     expect(apps["Probe-copy"], "the same component at another URL").to.equal(undefined);
   });
 
+  it("hands the packs' resource roots to the loader after the core, never a built-in one", () => {
+    // sap-ui-config set before the bootstrap did not take (the tag's own
+    // resourceroots won, measured on 1.120.50); the loader is configured by
+    // the script right after the core instead, before any app loads
+    const window = bootConfig({applications: {}, resourceRoots: {
+      "osd.lib": "../sap/bc/ui5_ui5/sap/zosd_lib/osd/lib",
+      "stg": "../somewhere/else",
+    }});
+    const html = readFileSync("webapp/flp.html", "utf8");
+    const script = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+      .find((text) => text.includes("sap.ui.loader.config"));
+    expect(html.indexOf(script), "after the core script").to.be.greaterThan(html.indexOf("sap-ui-core.js"));
+    const configured = [];
+    const sap = {ui: {loader: {config: (c) => configured.push(c)}}};
+    // the built-in namespaces come from the bootstrap tag itself
+    const tagRoots = /data-sap-ui-resourceroots='([^']*)'/.exec(html)[1];
+    expect(JSON.parse(tagRoots)).to.have.property("stg");
+    const document = {getElementById: (id) => (id === "sap-ui-bootstrap" ? {getAttribute: () => tagRoots} : null)};
+    vm.runInNewContext(script, {window, sap, document});
+    expect(configured).to.deep.equal([{paths: {"osd/lib": "../sap/bc/ui5_ui5/sap/zosd_lib/osd/lib"}}]);
+    configured.length = 0;
+    vm.runInNewContext(script, {window: bootConfig({applications: {}}), sap, document});
+    expect(configured, "no roots, no call").to.deep.equal([]);
+  });
+
   it("leaves the built-in list alone without packs.json", () => {
     const before = Object.keys(bootConfig({}, {status: 404})["sap-ushell-config"].applications);
     expect(before).to.include("Travel-manage");
