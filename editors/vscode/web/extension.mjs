@@ -255,7 +255,9 @@ class WebTreeProvider {
         leaf.tooltip = row.Text || row.Path;
         leaf.contextValue = "osd-web-service";
         leaf.iconPath = new vscode.ThemeIcon(row.Kind === "ODATA" ? "database" : row.Kind === "APP" ? "browser" : row.Kind === "APC" ? "broadcast" : "plug");
-        leaf.command = {command: "osd.webServiceDetails", title: "Details", arguments: [row]};
+        leaf.command = row.Kind === "APP" && /^\/app\//.test(row.Path ?? "")
+          ? {command: "osd.webOpenApp", title: "Open app", arguments: [row]}
+          : {command: "osd.webServiceDetails", title: "Details", arguments: [row]};
         return leaf;
       });
     }
@@ -317,53 +319,8 @@ async function verifyLastTravel() {
 function webviewRuntime(service) {
   const vscode = acquireVsCodeApi();
   const origin = "https://osd.invalid";
-  const pending = new Map();
-  let nextId = 1;
   const encode = new TextEncoder();
-  const decode = new TextDecoder();
-  const toBase64 = (bytes) => {
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    return btoa(binary);
-  };
-  const fromBase64 = (value) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
-  window.addEventListener("message", (event) => {
-    const message = event.data;
-    if (message?.type === "fetch-result" && pending.has(message.id)) {
-      pending.get(message.id)(message.response);
-      pending.delete(message.id);
-    }
-  });
-  async function bridgeFetch(input, init = {}) {
-    const source = input instanceof Request ? input : null;
-    const url = new URL(source?.url ?? input, `${origin}${service}/`);
-    if (url.origin !== origin) throw new TypeError("URL outside the virtual gateway");
-    const method = String(init.method ?? source?.method ?? "GET").toUpperCase();
-    const headers = new Headers(init.headers ?? source?.headers ?? {});
-    let body = init.body;
-    if (body === undefined && source && method !== "GET" && method !== "HEAD") body = await source.arrayBuffer();
-    if (body instanceof URLSearchParams) {
-      if (!headers.has("content-type")) headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
-      body = body.toString();
-    } else if (typeof body === "string" && !headers.has("content-type")) {
-      headers.set("content-type", "text/plain;charset=UTF-8");
-    } else if (body instanceof Blob) {
-      if (body.type && !headers.has("content-type")) headers.set("content-type", body.type);
-    }
-    if (body instanceof Blob) body = await body.arrayBuffer();
-    const bytes = body === undefined || body === null ? new Uint8Array(0)
-      : typeof body === "string" ? encode.encode(body)
-      : body instanceof ArrayBuffer ? new Uint8Array(body)
-      : ArrayBuffer.isView(body) ? new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
-      : (() => { throw new TypeError("Unsupported request body"); })();
-    const id = nextId++;
-    const answer = new Promise((resolve) => pending.set(id, resolve));
-    vscode.postMessage({type: "fetch", id, method, path: url.pathname, query: url.search,
-      headers: Array.from(headers.entries()), body: toBase64(bytes)});
-    const response = await answer;
-    return new Response([204, 205, 304].includes(response.status) ? null : fromBase64(response.body), {status: response.status,
-      statusText: response.statusText, headers: response.headers});
-  }
+  const bridgeFetch = webviewBridge(vscode, service);
   // A later UI5 XHR adapter can install a constructor backed by this fetch.
   window.osdBridge = {fetch: bridgeFetch, installXHR: (factory) => { window.XMLHttpRequest = factory(bridgeFetch); }};
   const result = document.getElementById("result");
@@ -456,13 +413,328 @@ function webviewRuntime(service) {
   vscode.postMessage({type: "ready"});
 }
 
+// The postMessage transport of a webview page, shared by the probe view and
+// the Fiori view. Self-contained: it is embedded in the page as source text.
+function webviewBridge(vscode, service) {
+  const origin = "https://osd.invalid";
+  const pending = new Map();
+  let nextId = 1;
+  const encode = new TextEncoder();
+  const toBase64 = (bytes) => {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return btoa(binary);
+  };
+  const fromBase64 = (value) => Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+  window.addEventListener("message", (event) => {
+    const message = event.data;
+    if (message?.type === "fetch-result" && pending.has(message.id)) {
+      pending.get(message.id)(message.response);
+      pending.delete(message.id);
+    }
+  });
+  return async function bridgeFetch(input, init = {}) {
+    const source = input instanceof Request ? input : null;
+    const url = new URL(source?.url ?? input, `${origin}${service}/`);
+    if (url.origin !== origin) throw new TypeError("URL outside the virtual gateway");
+    const method = String(init.method ?? source?.method ?? "GET").toUpperCase();
+    const headers = new Headers(init.headers ?? source?.headers ?? {});
+    let body = init.body;
+    if (body === undefined && source && method !== "GET" && method !== "HEAD") body = await source.arrayBuffer();
+    if (body instanceof URLSearchParams) {
+      if (!headers.has("content-type")) headers.set("content-type", "application/x-www-form-urlencoded;charset=UTF-8");
+      body = body.toString();
+    } else if (typeof body === "string" && !headers.has("content-type")) {
+      headers.set("content-type", "text/plain;charset=UTF-8");
+    } else if (body instanceof Blob) {
+      if (body.type && !headers.has("content-type")) headers.set("content-type", body.type);
+    }
+    if (body instanceof Blob) body = await body.arrayBuffer();
+    const bytes = body === undefined || body === null ? new Uint8Array(0)
+      : typeof body === "string" ? encode.encode(body)
+      : body instanceof ArrayBuffer ? new Uint8Array(body)
+      : ArrayBuffer.isView(body) ? new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+      : (() => { throw new TypeError("Unsupported request body"); })();
+    const id = nextId++;
+    const answer = new Promise((resolve) => pending.set(id, resolve));
+    vscode.postMessage({type: "fetch", id, method, path: url.pathname, query: url.search,
+      headers: Array.from(headers.entries()), body: toBase64(bytes)});
+    const response = await answer;
+    return new Response([204, 205, 304].includes(response.status) ? null : fromBase64(response.body), {status: response.status,
+      statusText: response.statusText, headers: response.headers});
+  };
+}
+
 function webviewHtml(nonce) {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'">
 <style>body{font:14px system-ui;padding:1rem}pre{white-space:pre-wrap}</style></head>
 <body><h1>OSD web gateway</h1><button id="run">Run write and batch probe</button>
 <button id="verify">Verify saved row</button><pre id="result">Waiting</pre>
-<script nonce="${nonce}">(${webviewRuntime.toString()})(${JSON.stringify(SERVICE)});</script></body></html>`;
+<script nonce="${nonce}">${webviewBridge.toString()}
+(${webviewRuntime.toString()})(${JSON.stringify(SERVICE)});</script></body></html>`;
+}
+
+// Runs first in a Fiori page inside a webview, before the UI5 bootstrap. UI5,
+// datajs and launchpad.js reach the gateway through XMLHttpRequest and fetch
+// at app-relative URLs ("../sap/opu/odata/..." from the app folder, or
+// "/sap/bc/..."); those resolve inside the webview's resource origin, which
+// serves files only. Such URLs go to the extension's in-worker gateway over
+// the postMessage bridge; everything else (the UI5 CDN, the app's own files)
+// stays on the browser's own XMLHttpRequest and fetch.
+function fioriRuntime(config) {
+  const vscode = acquireVsCodeApi();
+  const bridgeFetch = webviewBridge(vscode, "/sap/opu/odata/sap");
+  const mount = new URL(config.mount);
+  const stats = {bridged: 0, bridgedSync: [], localSync: [], nativeSync: [], errors: []};
+  // A virtual path of the gateway, or undefined for a URL the browser loads.
+  const virtualOf = (input) => {
+    let url;
+    try { url = new URL(String(input), document.baseURI); } catch { return undefined; }
+    if (url.origin !== mount.origin) return undefined;
+    const path = url.pathname.startsWith(mount.pathname) ? "/" + url.pathname.slice(mount.pathname.length) : url.pathname;
+    return /^\/sap\/(?:opu\/odata|bc)\//i.test(path) || path === config.sandboxConfigPath ? path + url.search : undefined;
+  };
+  // The launchpad sandbox asks for an optional config at an absolute path
+  // with a synchronous request. The answer is a constant (an empty merge, as
+  // tools/osd-sandbox-config.mjs serves it), so it is answered in the page.
+  const localAnswer = (path) => path.split("?")[0] === config.sandboxConfigPath
+    ? {status: 200, statusText: "OK", headers: new Headers({"content-type": "application/json"}), bytes: new TextEncoder().encode(config.sandboxConfigBody)}
+    : undefined;
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const path = virtualOf(input instanceof Request ? input.url : input);
+    if (path === undefined) return nativeFetch(input, init);
+    stats.bridged++;
+    return bridgeFetch(`https://osd.invalid${path}`, input instanceof Request && init === undefined ? input : init ?? {});
+  };
+  const Native = window.XMLHttpRequest;
+  const decoder = new TextDecoder();
+  class OsdXMLHttpRequest extends Native {
+    open(method, url, async = true, user, password) {
+      const path = virtualOf(url);
+      this.osd = undefined;
+      if (path === undefined) {
+        if (async === false) stats.nativeSync.push(String(url));
+        return arguments.length > 2 ? super.open(method, url, async, user, password) : super.open(method, url);
+      }
+      this.osd = {method: String(method).toUpperCase(), path, async: async !== false, headers: new Headers(),
+        readyState: 1, status: 0, statusText: "", responseHeaders: new Headers(), bytes: new Uint8Array(0),
+        url: new URL(String(url), document.baseURI).href, aborted: false, sent: false};
+      this.osdFire("readystatechange");
+    }
+    osdFire(type, progress) {
+      this.dispatchEvent(progress ? new ProgressEvent(type, progress) : new Event(type));
+    }
+    setRequestHeader(name, value) {
+      if (!this.osd) return super.setRequestHeader(name, value);
+      if (this.osd.readyState !== 1 || this.osd.sent) throw new DOMException("The object's state must be OPENED.", "InvalidStateError");
+      this.osd.headers.append(name, value);
+    }
+    send(body) {
+      const state = this.osd;
+      if (!state) return super.send(body);
+      if (state.readyState !== 1 || state.sent) throw new DOMException("The object's state must be OPENED.", "InvalidStateError");
+      state.sent = true;
+      const finish = (answer) => {
+        state.status = answer.status;
+        state.statusText = answer.statusText;
+        state.responseHeaders = answer.headers;
+        state.bytes = answer.bytes;
+        for (const ready of [2, 3, 4]) {
+          state.readyState = ready;
+          this.osdFire("readystatechange");
+        }
+        const progress = {lengthComputable: true, loaded: answer.bytes.length, total: answer.bytes.length};
+        this.osdFire("load", progress);
+        this.osdFire("loadend", progress);
+      };
+      const fail = (error) => {
+        stats.errors.push(`${state.method} ${state.path}: ${error?.message ?? error}`);
+        state.readyState = 4;
+        state.status = 0;
+        this.osdFire("readystatechange");
+        this.osdFire("error", {lengthComputable: false, loaded: 0, total: 0});
+        this.osdFire("loadend", {lengthComputable: false, loaded: 0, total: 0});
+      };
+      if (!state.async) {
+        // A webview's message channel is asynchronous, so a synchronous
+        // gateway request cannot be answered. Record it and fail it the way a
+        // synchronous network error fails, unless the answer is a constant.
+        const local = localAnswer(state.path);
+        if (local) {
+          stats.localSync.push(state.path);
+          finish(local);
+          return;
+        }
+        stats.bridgedSync.push(`${state.method} ${state.path}`);
+        state.readyState = 4;
+        throw new DOMException(`Synchronous request to the in-worker gateway is not supported: ${state.method} ${state.path}`, "NetworkError");
+      }
+      this.osdFire("loadstart", {lengthComputable: false, loaded: 0, total: 0});
+      const local = localAnswer(state.path);
+      if (local) {
+        queueMicrotask(() => { if (!state.aborted) finish(local); });
+        return;
+      }
+      stats.bridged++;
+      const payload = body === undefined || body === null || ["GET", "HEAD"].includes(state.method) ? undefined
+        : body instanceof Document ? new XMLSerializer().serializeToString(body) : body;
+      bridgeFetch(`https://osd.invalid${state.path}`, {method: state.method, headers: state.headers, body: payload})
+        .then(async (response) => {
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (!state.aborted) finish({status: response.status, statusText: response.statusText, headers: response.headers, bytes});
+        }, (error) => { if (!state.aborted) fail(error); });
+    }
+    abort() {
+      const state = this.osd;
+      if (!state) return super.abort();
+      if (state.aborted || state.readyState === 4 && !state.sent) return;
+      state.aborted = true;
+      const active = state.sent && state.readyState !== 4;
+      state.readyState = 4;
+      state.status = 0;
+      if (active) {
+        this.osdFire("readystatechange");
+        this.osdFire("abort", {lengthComputable: false, loaded: 0, total: 0});
+        this.osdFire("loadend", {lengthComputable: false, loaded: 0, total: 0});
+      }
+      state.readyState = 0;
+    }
+    getResponseHeader(name) {
+      if (!this.osd) return super.getResponseHeader(name);
+      return this.osd.readyState >= 2 ? this.osd.responseHeaders.get(name) : null;
+    }
+    getAllResponseHeaders() {
+      if (!this.osd) return super.getAllResponseHeaders();
+      if (this.osd.readyState < 2) return "";
+      return Array.from(this.osd.responseHeaders.entries(), ([name, value]) => `${name}: ${value}\r\n`).join("");
+    }
+    overrideMimeType(mime) {
+      if (!this.osd) return super.overrideMimeType(mime);
+      this.osd.mime = mime;
+    }
+    get readyState() { return this.osd ? this.osd.readyState : super.readyState; }
+    get status() { return this.osd ? this.osd.status : super.status; }
+    get statusText() { return this.osd ? this.osd.statusText : super.statusText; }
+    get responseURL() { return this.osd ? (this.osd.readyState === 4 && this.osd.status ? this.osd.url : "") : super.responseURL; }
+    get responseText() {
+      if (!this.osd) return super.responseText;
+      if (this.responseType !== "" && this.responseType !== "text") throw new DOMException("responseText needs responseType text", "InvalidStateError");
+      return this.osd.readyState >= 3 ? decoder.decode(this.osd.bytes) : "";
+    }
+    get responseXML() {
+      if (!this.osd) return super.responseXML;
+      if (this.osd.readyState !== 4 || !this.osd.status) return null;
+      const type = this.osd.mime ?? this.osd.responseHeaders.get("content-type") ?? "";
+      if (this.responseType === "document" || /[/+]xml\b/i.test(type)) {
+        const document = new DOMParser().parseFromString(decoder.decode(this.osd.bytes), "application/xml");
+        return document.querySelector("parsererror") ? null : document;
+      }
+      return null;
+    }
+    get response() {
+      if (!this.osd) return super.response;
+      const type = this.responseType;
+      if (type === "" || type === "text") return this.responseText;
+      if (this.osd.readyState !== 4) return null;
+      const bytes = this.osd.bytes;
+      if (type === "arraybuffer") return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      if (type === "blob") return new Blob([bytes], {type: this.osd.responseHeaders.get("content-type") ?? ""});
+      if (type === "document") return this.responseXML;
+      if (type === "json") {
+        try { return JSON.parse(decoder.decode(bytes)); } catch { return null; }
+      }
+      return null;
+    }
+  }
+  window.XMLHttpRequest = OsdXMLHttpRequest;
+  window.osdBridge = {fetch: bridgeFetch, stats, virtualOf};
+  // CSP refusals are kept so a test (and a developer) can see what the
+  // policy blocked instead of guessing from a blank page.
+  document.addEventListener("securitypolicyviolation", (event) => {
+    stats.errors.push(`CSP ${event.violatedDirective} ${event.blockedURI}`);
+  });
+  // The component URLs of the launchpad's applications point at the BSP path
+  // the gateway serves on a system (../sap/bc/ui5_ui5/<ns>/<app>/). Script
+  // tags cannot travel over the message bridge, so a UI5 application this
+  // extension ships is loaded from its copy under dist/web/app instead.
+  window.osdRebaseApplications = () => {
+    const applications = window["sap-ushell-config"]?.applications ?? {};
+    for (const intent of Object.keys(applications)) {
+      const app = applications[intent];
+      const component = /^SAPUI5\.Component=(.+)$/.exec(app.additionalInformation ?? "")?.[1];
+      if (component && config.components[component] !== undefined && /\/sap\/bc\/ui5_ui5\//.test(app.url ?? "")) {
+        app.url = config.appBase + config.components[component];
+      }
+    }
+  };
+  if (config.hash && window.location.hash !== config.hash) window.location.hash = config.hash;
+}
+
+function fioriPage(source, {nonce, cspSource, appBase, pageBase, mount, hash, apps}) {
+  // Why each source is allowed:
+  // - 'nonce-…': the page's own inline scripts and this bridge, nothing else inline;
+  // - https://ui5.sap.com: SAPUI5 core, libraries, themes and fonts from SAP's CDN, as the app loads them everywhere;
+  // - cspSource: the app's own files (Component.js, manifest, i18n, annotations, images) copied into dist/web/app;
+  // - style-src 'unsafe-inline': UI5 renderers write style attributes and the pages carry <style> blocks;
+  // - img-src data: blob:: UI5 icons and theme images as data URIs.
+  // connect-src has no gateway origin: the gateway is reached by postMessage only.
+  const csp = [
+    "default-src 'none'",
+    `script-src 'nonce-${nonce}' https://ui5.sap.com ${cspSource}`,
+    `style-src 'unsafe-inline' https://ui5.sap.com ${cspSource}`,
+    `font-src https://ui5.sap.com ${cspSource}`,
+    `img-src https://ui5.sap.com ${cspSource} data: blob:`,
+    `connect-src https://ui5.sap.com ${cspSource}`,
+  ].join("; ");
+  const config = {mount, appBase, hash, components: apps.components, sandboxConfigPath: apps.sandboxConfigPath,
+    sandboxConfigBody: apps.sandboxConfigBody};
+  const head = `<meta http-equiv="Content-Security-Policy" content="${csp}">
+<base href="${pageBase}">
+<script nonce="${nonce}">${webviewBridge.toString()}
+${fioriRuntime.toString()}
+fioriRuntime(${JSON.stringify(config).replace(/</g, "\\u003c")});</script>`;
+  let html = source.replace(/<head>/i, `<head>\n${head}`);
+  html = html.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
+  // The launchpad's own config script ends before the sandbox bootstrap tag.
+  html = html.replace(/<script nonce="[^"]*" src="[^"]*\/sap\/ushell\/bootstrap\/sandbox\.js"/,
+    (tag) => `<script nonce="${nonce}">window.osdRebaseApplications();</script>\n  ${tag}`);
+  return html;
+}
+
+const fioriPanels = new Map();
+
+async function openFioriPage(context, path) {
+  const match = /^\/app\/((?:[\w-]+\/)*[\w-]+\.html)(#[^\s]*)?$/.exec(path ?? "");
+  if (!match) throw new Error(`Not a page of the bundled apps: ${path}`);
+  const [, page, hash = ""] = match;
+  const appRoot = vscode.Uri.joinPath(context.extensionUri, "dist", "web", "app");
+  const source = decoder.decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(appRoot, ...page.split("/"))));
+  const apps = JSON.parse(decoder.decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(appRoot, "osd-web-apps.json"))));
+  const title = page === "flp.html" ? "Fiori Launchpad" : `Fiori: ${page.replace(/\/?index\.html$/, "") || "Travels"}`;
+  let panel = fioriPanels.get(page);
+  if (panel) {
+    panel.reveal();
+  } else {
+    panel = vscode.window.createWebviewPanel("osdWebFiori", title, vscode.ViewColumn.One,
+      {enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [appRoot]});
+    fioriPanels.set(page, panel);
+    panel.onDidDispose(() => fioriPanels.delete(page));
+    panel.webview.onDidReceiveMessage(async (message) => {
+      if (message?.type === "fetch" && Number.isSafeInteger(message.id)) {
+        const response = await bridgeRequest(message);
+        await panel.webview.postMessage({type: "fetch-result", id: message.id, response});
+      }
+    });
+  }
+  const webviewRoot = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "web")).toString().replace(/\/?$/, "/");
+  const appBase = `${webviewRoot}app/`;
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  panel.webview.html = fioriPage(source, {nonce, cspSource: panel.webview.cspSource, appBase,
+    pageBase: appBase + page.slice(0, page.lastIndexOf("/") + 1), mount: webviewRoot,
+    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps});
+  return panel;
 }
 
 export async function activate(context) {
@@ -508,6 +780,8 @@ export async function activate(context) {
   context.subscriptions.push(tree, vscode.window.registerTreeDataProvider("osdTree", tree));
   context.subscriptions.push(vscode.commands.registerCommand("osd.refreshTree", () => tree.refresh()));
   context.subscriptions.push(vscode.commands.registerCommand("osd.webServiceDetails", showServiceDetails));
+  context.subscriptions.push(vscode.commands.registerCommand("osd.webOpenLaunchpad", () => openFioriPage(context, "/app/flp.html#Shell-home")));
+  context.subscriptions.push(vscode.commands.registerCommand("osd.webOpenApp", (row) => openFioriPage(context, row?.Path)));
   try {
     const metadata = await send("GET", METADATA);
     required(metadata, 200, "activation $metadata");
