@@ -2,7 +2,7 @@
 // Playwright drives one persistent Chromium profile through a page reload.
 import {spawn} from "node:child_process";
 import {createHash} from "node:crypto";
-import {mkdtemp, readFile, rm, stat} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rm, stat} from "node:fs/promises";
 import {createServer} from "node:net";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
@@ -10,6 +10,7 @@ import {runInNewContext} from "node:vm";
 import {chromium} from "@playwright/test";
 
 const root = resolve(import.meta.dirname, "..");
+const shots = process.env.OUT_DIR || "/tmp/osd-shots";
 const extension = join(root, "editors/vscode");
 const source = await readFile(join(extension, "web/extension.mjs"), "utf8");
 
@@ -170,6 +171,98 @@ async function webviewResult(frame, marker) {
   return JSON.parse(value.slice(marker.length + 1));
 }
 
+
+// The Fiori webview: the frame whose document is the UI5 page (VS Code nests
+// it inside its own webview host frames).
+async function fioriFrame(page, test, arg, what, timeout = 180000) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      const ok = await frame.evaluate(test, arg).catch(() => false);
+      if (ok) return frame;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+  }
+  const stats = [];
+  for (const frame of page.frames()) {
+    const one = await frame.evaluate(() => window.osdBridge?.stats && JSON.stringify(window.osdBridge.stats)).catch(() => undefined);
+    if (one) stats.push(one);
+  }
+  throw new Error(`${what} did not appear in a webview; bridge stats: ${stats.join(" | ").slice(0, 3000)}`);
+}
+
+const bridgeStats = (frame) => frame.evaluate(() => JSON.parse(JSON.stringify(window.osdBridge.stats)));
+
+async function fioriChecks(page) {
+  await mkdir(shots, {recursive: true});
+  await page.keyboard.press("Control+Shift+P");
+  const input = page.locator(".quick-input-widget input").first();
+  await input.fill(">osd: Open Fiori Launchpad");
+  await page.locator(".quick-input-list .monaco-list-row").filter({hasText: "osd: Open Fiori Launchpad"}).first().click();
+  const tiles = ["Travels", "Bookings", "Flight analytics", "System status"];
+  const launchpad = await fioriFrame(page, (names) => !!window.osdBridge && names.every((name) =>
+    [...document.querySelectorAll(".sapUshellTile, .sapMGT")].some((tile) => tile.textContent.includes(name))), tiles, "Launchpad tiles");
+  for (const name of tiles) {
+    if (!await launchpad.locator(".sapUshellTile, .sapMGT").filter({hasText: name}).first().isVisible()) throw new Error(`Tile ${name} not visible`);
+  }
+  await page.screenshot({path: join(shots, "fiori-launchpad.png")});
+  console.log(`Fiori launchpad in a webview: tiles ${tiles.join(", ")}; ${join(shots, "fiori-launchpad.png")}`);
+  await launchpad.locator(".sapUshellTile, .sapMGT").filter({hasText: "Travels"}).first().click();
+  const hasRow = (wanted) => [...document.querySelectorAll(".sapMListTblRow, tr")].some((row) => row.textContent.includes(wanted));
+  await launchpad.waitForFunction(hasRow, "T0001", {timeout: 180000});
+  if (!(await launchpad.evaluate(() => window.location.hash)).startsWith("#Travel-manage")) throw new Error("Tile click did not navigate to #Travel-manage");
+  await page.screenshot({path: join(shots, "fiori-travels.png")});
+  // A row written through the page's own fetch (the bridge the app's model
+  // uses) must show in the list report after Go, and in other features.
+  const created = await launchpad.evaluate(async () => {
+    const service = "../sap/opu/odata/sap/ZSTG_DEMO_SRV/";
+    const token = (await fetch(service, {headers: {"x-csrf-token": "fetch"}})).headers.get("x-csrf-token");
+    const id = "A" + Array.from(crypto.getRandomValues(new Uint8Array(7)), (byte) => (byte % 36).toString(36).toUpperCase()).join("");
+    const answer = await fetch(`${service}TravelSet`, {method: "POST", headers: {"content-type": "application/json", "x-csrf-token": token},
+      body: JSON.stringify({TravelId: id, Description: `Fiori webview ${id}`})});
+    return {status: answer.status, id};
+  });
+  if (created.status !== 201) throw new Error(`Fiori webview POST: ${created.status}`);
+  const go = launchpad.locator("button").filter({hasText: /^Go$/}).first();
+  await go.click();
+  await launchpad.waitForFunction(hasRow, created.id, {timeout: 60000});
+  await page.screenshot({path: join(shots, "fiori-travels-created.png")});
+  // The app's own Create flow (non-draft object page in create mode): the
+  // POST travels in a $batch through the XMLHttpRequest replacement.
+  const typed = "A" + Array.from(crypto.getRandomValues(new Uint8Array(7)), (byte) => (byte % 36).toString(36).toUpperCase()).join("");
+  await launchpad.getByRole("button", {name: "Create", exact: true}).first().focus();
+  await page.keyboard.press("Enter");
+  const travelField = launchpad.getByRole("textbox", {name: "Travel", exact: true});
+  await travelField.waitFor({timeout: 60000});
+  await travelField.fill(typed);
+  await launchpad.getByRole("textbox", {name: "Description", exact: true}).fill(`Typed in Fiori ${typed}`);
+  await launchpad.getByRole("button", {name: "Create", exact: true}).last().focus();
+  await page.keyboard.press("Enter");
+  await launchpad.getByRole("heading", {name: `Typed in Fiori ${typed}`}).first().waitFor({timeout: 60000});
+  // display mode after the save answered: Edit replaces the footer's Create
+  await launchpad.getByRole("button", {name: "Edit", exact: true}).first().waitFor({timeout: 60000});
+  await page.screenshot({path: join(shots, "fiori-object-created.png")});
+  created.typed = typed;
+  const stats = await bridgeStats(launchpad);
+  if (stats.bridgedSync.length) throw new Error(`Synchronous gateway requests: ${JSON.stringify(stats.bridgedSync)}`);
+  console.log(`Travels list report: T0001 and ${created.id} (page fetch) listed; ${typed} created through the app's Create; bridged ${stats.bridged}, ` +
+    `sync answered locally ${JSON.stringify(stats.localSync)}, sync to CDN/files ${stats.nativeSync.length}, errors ${JSON.stringify(stats.errors)}`);
+  return created;
+}
+
+async function fioriFromTree(page, ids) {
+  const tree = page.locator(".pane-body .monaco-list-row");
+  await tree.filter({hasText: /^Apps \([1-9]/}).first().click();
+  const app = tree.filter({hasText: "stg.travel"}).first();
+  await app.waitFor({timeout: 30000});
+  await app.click();
+  const frame = await fioriFrame(page, (wanted) => !!window.osdBridge && window.location.hash.startsWith("#Travel-manage") &&
+    wanted.every((id) => [...document.querySelectorAll(".sapMListTblRow, tr")].some((row) => row.textContent.includes(id))), ids, "Travels app from the tree");
+  await page.screenshot({path: join(shots, "fiori-tree-app.png")});
+  return frame;
+}
+
 try {
   server = spawn("npx", ["-y", "@vscode/test-web", "--browser", "none",
     "--quality", "stable", "--extensionDevelopmentPath", extension,
@@ -284,13 +377,37 @@ try {
     if (!serviceDetails) await new Promise((resolveWait) => setTimeout(resolveWait, 500));
   }
   if (!serviceDetails) throw new Error("Single click did not open the service details panel");
+  const created = await fioriChecks(page);
+  // The row the app wrote is the extension's: the probe view, another
+  // webview over the same worker gateway, reads it.
+  // Focus is inside the Fiori webview now; switch tabs with the mouse.
+  await page.locator(".tabs-container .tab").filter({hasText: "OSD web gateway"}).first().click();
+  const other = await fioriFrame(page, () => !!document.querySelector("#run") && !!window.osdBridge?.fetch, undefined, "Probe view", 60000);
+  for (const id of [created.id, created.typed]) {
+    const seen = await other.evaluate(async (wanted) => {
+      const response = await window.osdBridge.fetch(`TravelSet('${wanted}')?$format=json`);
+      return {status: response.status, id: response.status === 200 ? (await response.json()).d.TravelId : undefined};
+    }, id);
+    if (seen.status !== 200 || seen.id !== id) throw new Error(`Probe view did not see the Fiori row: ${JSON.stringify(seen)}`);
+  }
+  console.log(`Probe view reads both Fiori rows: ${created.id}, ${created.typed}`);
+  await page.reload({waitUntil: "domcontentloaded"});
+  await page.locator(".monaco-workbench").waitFor({timeout: 120000});
+  // The reload restores the open OSD view; clicking its activity icon would
+  // close it, so focus the view by its command.
+  await page.keyboard.press("Control+Shift+P");
+  await page.locator(".quick-input-widget input").first().fill(">OSD: Focus on System View");
+  await page.locator(".quick-input-list .monaco-list-row").filter({hasText: "OSD: Focus on System View"}).first().click();
+  await tree.filter({hasText: "In-browser gateway"}).first().waitFor({timeout: 120000});
+  await fioriFromTree(page, [created.id, created.typed]);
+  console.log(`After reload, tree App node stg.travel: Travels list shows ${created.id} and ${created.typed}`);
   await page.keyboard.press("Control+Shift+P");
   const palette = page.locator(".quick-input-widget input").first();
   await palette.fill(">osd: Web probe");
   const choices = page.locator(".quick-input-list .monaco-list-row");
   await choices.filter({hasText: "osd: Web probe"}).first().waitFor({timeout: 30000});
   await palette.fill(">osd:");
-  const webCommands = ["osd: Web probe", "osd: Web read probe", "osd: Web verify last Travel", "osd: Web probe view", "osd: Refresh the view (no rebuild)"];
+  const webCommands = ["osd: Web probe", "osd: Web read probe", "osd: Web verify last Travel", "osd: Web probe view", "osd: Open Fiori Launchpad", "osd: Refresh the view (no rebuild)"];
   for (const title of webCommands) await choices.filter({hasText: title}).first().waitFor({timeout: 30000});
   await page.locator(".quick-input-widget .quick-input-progress.done").waitFor({timeout: 30000});
   const paletteRows = await choices.allTextContents();
