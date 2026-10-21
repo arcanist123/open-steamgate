@@ -1,3 +1,4 @@
+// @ts-check
 import {abaplint, BasicTypes, Unsupported, I, F, INT8, S, C, X, XS, upper, goName} from "./frontend-base.mjs";
 import {ddicOutputLength, REG, clasDef} from "./frontend.mjs";
 import {P_GENERIC} from "./frontend-classes-native.mjs";
@@ -134,6 +135,7 @@ import {P_GENERIC} from "./frontend-classes-native.mjs";
       else program.anonStructs.set(t, go);
     }
     const shape = comps.map((c) => upper(c.name)).join(",");
+    // @ts-expect-error -- abapiti form pending
     for (let n = 2; program.structs.has(go) && program.structs.get(go).shape !== undefined && program.structs.get(go).shape !== shape; n += 1) {
       go = `${go.replace(/_V\d+$/, "")}_V${n}`;
     }
@@ -147,6 +149,7 @@ import {P_GENERIC} from "./frontend-classes-native.mjs";
         // a field outside the subset: the structure is not in the program,
         // and every later use of it is refused with the same reason
         program.structs.delete(go);
+        // @ts-expect-error -- abapiti form pending
         program.badStructs.set(go, e.message);
         throw e;
       }
@@ -188,6 +191,7 @@ import {P_GENERIC} from "./frontend-classes-native.mjs";
 /** @param {import("./frontend-types.ts").CompilationContext} ctx @param {Extract<import("./ir.ts").Type, {k: "struct"}>} t @returns {import("./frontend-types.ts").StructType | undefined} */ const structOf = (ctx, t) => ctx.program.structs.get(t.go);
 /** @param {import("./frontend-types.ts").CompilationContext} ctx @param {import("./ir.ts").Type} t @param {string} name @param {string} where @returns {import("./ir.ts").Field} */ const fieldOf = (ctx, t, name, where) => {
   if (t.k !== "struct") throw new Unsupported(`${where}: component ${name} of a non-structure`);
+  // @ts-expect-error -- abapiti form pending
   const f = structOf(ctx, t).fields.find((x) => x.name === upper(name));
   if (f === undefined) throw new Unsupported(`${where}: no component ${name}`);
   return f;
@@ -206,15 +210,19 @@ import {P_GENERIC} from "./frontend-classes-native.mjs";
     OBJECT: {k: "ref", name: "OBJECT", intf: true},
     P: {k: "p", len: 8, dec: 0}, C: C(1), N: {k: "n", len: 1}, X: X(1), ABAP_BOOL: C(1),
   }[t];
+  // @ts-expect-error -- abapiti form pending
   if (builtin) return builtin;
   const pool = t.includes("_") ? ctx.reg.getObject("TYPE", t.split("_")[0]) : undefined;
+  // @ts-expect-error -- abapiti form pending
   const poolType = pool ? new abaplint.SyntaxLogic(ctx.reg, pool).run().spaghetti.getFirstChild()?.getFirstChild()?.findType(t) : undefined;
+  // @ts-expect-error -- abapiti form pending
   const local = ctx.scope.findType?.(t) ?? poolType
     ?? clasDef(ctx.reg, ctx.className)?.getTypeDefinitions().getByName(t);
   if (local !== undefined) return typeOf(local.getType(), text, ctx.program);
   if (ctx.reg.getObject("CLAS", t) || ctx.reg.getObject("INTF", t)) return {k: "ref", name: t, intf: ctx.reg.getObject("INTF", t) !== undefined};
   const m = /^(\w+)=>(\w+)$/.exec(t);
   if (m) {
+    // @ts-expect-error -- abapiti form pending
     /** @type {import("@abaplint/core").IInterfaceDefinition | undefined} */ const owner = ctx.reg.getObject("INTF", m[1])?.getDefinition() ?? clasDef(ctx.reg, m[1]);
     const td = owner?.getTypeDefinitions().getByName(m[2]);
     if (td === undefined) throw new Unsupported(`type ${text}`);

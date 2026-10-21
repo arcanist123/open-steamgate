@@ -1,3 +1,4 @@
+// @ts-check
 // The selected-contributions answer is rebuilt from current parsed methods.
 // It guards provider identities and the complete supplied-parameter set, rather
 // than unrelated bytes in every implementation body.
@@ -6,7 +7,9 @@ import {createHash} from "node:crypto";
 export const projectedQuery = (query) => query.kind === "supplied" && query.policy === "selected-contributions"
   || query.kind === "caught" && query.policy === "selected-subclass-presence";
 const arrayHashes = new WeakMap();
+// @ts-expect-error -- abapiti form pending
 const primitive = (value) => value === null || ["undefined", "string", "number", "boolean"].includes(typeof value);
+// @ts-expect-error -- abapiti form pending
 function setHash(values) {
   if (!Array.isArray(values)) return values;
   if (arrayHashes.has(values)) return arrayHashes.get(values);
@@ -17,6 +20,7 @@ function setHash(values) {
   if (Object.isFrozen(values)) arrayHashes.set(values, hash);
   return hash;
 }
+// @ts-expect-error -- abapiti form pending
 export function projectionAnswer(answer) {
   const value = {...answer, result: setHash(answer.result)};
   if (Object.hasOwn(answer, "providers")) value.providers = setHash(answer.providers);

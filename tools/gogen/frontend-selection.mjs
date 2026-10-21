@@ -1,3 +1,4 @@
+// @ts-check
 // Shared cold/replay selection preparation. Only current registry answers count.
 import {abaplint} from "./frontend-base.mjs";
 import {syntaxDiagnostics} from "./frontend-diagnostics.ts";
@@ -5,6 +6,7 @@ import {indexFrozenSelection, selectionHas} from "./frontend-queries.mjs";
 import {expandProgramSelection, withRole, enumerateObjects} from "./frontend-provenance.mjs";
 
 /** @param {string} fn @returns {string} */
+// @ts-expect-error -- abapiti form pending
 const objectName = fn => fn.split("/").pop().split(".")[0].toLowerCase().replaceAll("#", "/");
 /** @param {import("./frontend-session-types.ts").Registry} reg @param {string[]} objects @param {import("./frontend-diagnostics.ts").DiagnosticsSession | null} [session] */
 export function selectionDiagnostics(reg, objects, session) {
@@ -50,7 +52,9 @@ export function deriveSelectionWanted(reg, options, session, capture, getLocals,
   const selection = prepareSelection(reg, options, session), {wanted} = selection;
   if (capture) capture.selection = selection;
   const result = new Set(wanted.map(n => n.toUpperCase())), includeTests = options.includeTests ?? false;
+  // @ts-expect-error -- abapiti form pending
   for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", o => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (includeTests || localOwners.has(o.getName().toUpperCase())))) {
+    // @ts-expect-error -- abapiti form pending
     for (const local of getLocals(reg, obj, includeTests === true || (includeTests instanceof Set && includeTests.has(obj.getName().toUpperCase())))) result.add(local.name);
   }
   for (const group of enumerateObjects(reg, "selected-groups", wanted, "scheduling", o => o instanceof abaplint.Objects.FunctionGroup && selectionHas(wanted, o.getName().toLowerCase()))) result.add(`FUGR:${group.getName().toUpperCase()}`);

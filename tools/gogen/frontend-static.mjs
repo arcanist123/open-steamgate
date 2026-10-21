@@ -1,12 +1,15 @@
+// @ts-check
 /** @param {string} owner @param {string} name @param {import("./ir.ts").Type} type @param {(name: string) => string} goName @returns {import("./frontend-types.ts").StaticSlotExpr} */
 export const staticSlot = (owner, name, type, goName) => ({e: "static", owner, name, type, go: goName(`${owner}=>${name}`)});
 
 // Static attributes share storage in their declaring class, including inherited names.
 /** @param {import("./frontend.mjs").StaticHelpers} deps @param {import("./frontend.mjs").StaticContext} ctx */
+// @ts-expect-error -- abapiti form pending
 export function resolveStatic(owner, attr, ctx, deps, write = false) {
   const {CHAR_UTILITIES, C, upper, clasDef, registerConst, localInterfaceConstant, Unsupported, ancestors, goName, typeOf, abaplint, notInProgram} = deps;
   if (!write && owner === "CL_ABAP_CHAR_UTILITIES" && CHAR_UTILITIES[attr] !== undefined) return {e: "chars", value: CHAR_UTILITIES[attr], type: C(1)};
   /** @type {import("@abaplint/core").IRegistry} */ const reg = ctx.reg;
+  // @ts-expect-error -- abapiti form pending
   const intf = reg.getObject("INTF", owner)?.getDefinition();
   const clas = clasDef(ctx.reg, owner);
   const local = ctx.program.localInterfaces?.get(`${ctx.program.currentOwner}|${owner}`);
@@ -19,6 +22,7 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
     const go = registerConst(ctx.program, `${ctx.program.currentOwner ?? owner}:${owner}~${attr}`,
       local ? localInterfaceConstant(c, attr, local, ctx.reg) : c, owner);
     if (go === undefined) throw new Unsupported(`constant ${owner}=>${attr} is outside the subset`);
+    // @ts-expect-error -- abapiti form pending
     return {e: "const", go, type: ctx.program.consts.get(go).type};
   }
   // a constant a superclass declares, named through the subclass
@@ -32,6 +36,7 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
       if (write) throw new Unsupported(`${owner}=>${attr}: a write to a constant`);
       const go = registerConst(ctx.program, `${anc}~${attr}`, ac, anc);
       if (go === undefined) throw new Unsupported(`constant ${anc}=>${attr} is outside the subset`);
+      // @ts-expect-error -- abapiti form pending
       return {e: "const", go, type: ctx.program.consts.get(go).type};
     }
   }
@@ -53,6 +58,7 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
     const globalFriend = friends.some((f) => upper(f) === ctx.className);
     const localFriend = ctx.className.startsWith(`${at.split(":")[0]}:`) && (pool?.getABAPFiles() ?? []).some((f) => f.getStatements().some((st) => {
       const text = st.concatTokens().toUpperCase();
+      // @ts-expect-error -- abapiti form pending
       return text.startsWith(`CLASS ${at.split(":").at(-1)} DEFINITION LOCAL FRIENDS `) && text.split(/\bLOCAL FRIENDS\b/)[1].match(/[A-Z_][A-Z0-9_]*/g)?.includes(friendName);
     }));
     const friend = globalFriend || localFriend;
@@ -70,6 +76,7 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
       const declaration = file?.getStatements().find((st) =>
         [Statements.ClassData, Statements.ClassDataBegin, Statements.Data, Statements.DataBegin].some((kind) => st.get() instanceof kind)
         && st.getTokens().some((token) => token.getStart().equals(a.getToken().getStart())));
+      // @ts-expect-error -- abapiti form pending
       const hasReadOnly = (node, trailing = false) => {
         /** @type {readonly import("@abaplint/core").INode[]} */ const children = node?.getChildren() ?? [];
         return children.some((c, i) => (!trailing || i === children.length - 3)

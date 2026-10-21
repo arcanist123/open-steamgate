@@ -1,3 +1,4 @@
+// @ts-check
 import {createRequire} from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -45,11 +46,17 @@ export class Unsupported extends Error {}
 // rows (APPEND, INSERT INDEX, MODIFY INDEX, SORT, SELECT / SPLIT INTO TABLE)
 // refuses one, and a move between a SORTED and another table is not the
 // same type (it would have to sort)
+// @ts-expect-error -- abapiti form pending
 /** @param {import("./frontend-types.ts").ValueExpr | undefined} t @param {string} what @returns {void} */ const refuseSorted = (t, what) => { if (t?.type?.sorted) throw new Unsupported(`${what} a SORTED table`); };
+// @ts-expect-error -- abapiti form pending
 /** @param {import("./frontend-types.ts").TableType} a @param {import("./frontend-types.ts").TableType} b @returns {boolean} */ const sameSort = (a, b) => (a.sorted ?? null) === null ? (b.sorted ?? null) === null : (b.sorted !== undefined && a.sorted.join() === b.sorted.join() && a.unique === b.unique);
+// @ts-expect-error -- abapiti form pending
 /** @param {import("./ir.ts").Type} a @param {import("./ir.ts").Type} b @returns {boolean} */ export const sameType = (a, b) => a.k === b.k && (a.k !== "table" || (sameType(a.row, b.row) && sameSort(a, b)))
+  // @ts-expect-error -- abapiti form pending
   && (a.k !== "struct" || a.go === b.go) && (a.k !== "c" && a.k !== "x" || a.len === b.len)
+  // @ts-expect-error -- abapiti form pending
   && (a.k !== "ref" || a.name === b.name)
+  // @ts-expect-error -- abapiti form pending
   && (a.k !== "p" || (!!a.calc === !!b.calc && (a.calc || (a.len === b.len && a.dec === b.dec))));
 /*
  * An IMPORTING table or structure passed by reference is the caller's own

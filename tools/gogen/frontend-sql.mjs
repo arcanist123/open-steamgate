@@ -1,3 +1,4 @@
+// @ts-check
 // Open SQL value and type lowering.
 import {T, bin, col, lit, param} from "../sqlscript-ir.mjs";
 import {Unsupported, Expressions, charlike, isExpr, isTok, upper} from "./frontend-base.mjs";
@@ -9,11 +10,13 @@ import {source, sourceOperand} from "./frontend-expressions-calls.mjs";
 // a DEC column: its digits (2n-1 for p LENGTH n) and decimals, as the IR
 // counts them (ANORMALIES NOTE packed-length-is-bytes)
 // a RAW(n) column is T.bytes(n), a RAWSTRING T.bytes() (ultra/zvdb)
+// @ts-expect-error -- abapiti form pending
 const sqlIrType = (t) => (t.k === "i" ? T.int : t.k === "int8" ? T.int8 : t.k === "string" ? T.str : t.k === "d" ? T.date
   : t.k === "p" ? T.dec(2 * (t.len ?? 8) - 1, t.dec ?? 0) : t.k === "x" ? T.bytes(t.len ?? 1) : t.k === "xstring" ? T.bytes()
     : T.char(t.len ?? 1));
 /** the IR type a written value binds as (tools/ir-writes.mjs bindValue): a
  * d, t or n is its characters, as the column stores them */
+// @ts-expect-error -- abapiti form pending
 function writeIrType(t, where) {
   if (t.k === "i") return T.int;
   if (t.k === "int8") return T.int8;
@@ -40,13 +43,17 @@ function writeIrType(t, where) {
  * bytes yet (bindValue, initialValue), and the shape it renders does not
  * depend on the type, so a STRING stands in for a RAW column there. What
  * runs is the Go runtime's bindValue with the real type (dbwrite.go) */
+// @ts-expect-error -- abapiti form pending
 const irCheck = (t) => (t.abap === "X" || t.abap === "XSTRING" ? T.str : t);
+// @ts-expect-error -- abapiti form pending
 const lowName = (n) => n.toLowerCase();
 const mandtPred = () => bin("=", col("mandt", T.char(3)), param("SY-MANDT", T.char(3)), T.bool);
+// @ts-expect-error -- abapiti form pending
 const andIr = (a, b) => (a === null ? b : b === null ? a : bin("AND", a, b, T.bool));
 
 /** a host value of Open SQL: [@]name[-comp...], the parser leaving a
  * component after @ as siblings (Dash, SQLFieldName) */
+// @ts-expect-error -- abapiti form pending
 function sqlHost(src, trailing, ctx, text) {
   // FOR ALL ENTRIES IN itab: itab-comp is the component of the driving row
   // the statement is run for (selectStatement, parity-wave1)
@@ -59,6 +66,7 @@ function sqlHost(src, trailing, ctx, text) {
       return {e: "field", base: {e: "fae_row", n: ctx.fae.n, type: ctx.fae.row}, name: f.name, type: f.type};
     }
   }
+  // @ts-expect-error -- abapiti form pending
   const sk = [...src.getChildren().filter((c) => !isTok(c, "@")), ...trailing];
   const simple = sk[0];
   if (isExpr(simple, Expressions.Source)) {
@@ -72,10 +80,12 @@ function sqlHost(src, trailing, ctx, text) {
   if (sk.length === 3 && upper(simple.concatTokens()) === "SY" && !isVariableName("SY", ctx) && isTok(sk[1], "-") && isExpr(sk[2], Expressions.SQLFieldName)) {
     const syText = `SY-${upper(sk[2].concatTokens())}`;
     let v;
+    // @ts-expect-error -- abapiti form pending
     try { v = fieldChain({getChildren: () => [], concatTokens: () => syText}, ctx); } catch { v = undefined; }
     if (v === undefined || v.e === undefined) throw new Unsupported(`SQL value: ${text}`);
     return v;
   }
+  // @ts-expect-error -- abapiti form pending
   let v = sourceOperand(simple.getFirstChild(), ctx);
   for (let i = 1; i < sk.length; i += 2) {
     if (!isTok(sk[i], "-") || !isExpr(sk[i + 1], Expressions.SQLFieldName)) throw new Unsupported(`SQL value: ${text}`);
@@ -88,6 +98,7 @@ function sqlHost(src, trailing, ctx, text) {
 /** a value compared with or written into a column: a literal of the
  * column's own kind is an IR literal, anything else a host value converted
  * to the column's type and bound at run time */
+// @ts-expect-error -- abapiti form pending
 function sqlValue(v, ct, ir, acc, set = false) {
   if (ct.k === "x") return rawValue(v, ct, ir, acc, set);
   if (ct.k === "xstring" && set) {
@@ -123,6 +134,7 @@ function sqlValue(v, ct, ir, acc, set = false) {
  * character value by the move rule (CToX). Bound as the column holds it,
  * upper-case hex of 2n digits.
  */
+// @ts-expect-error -- abapiti form pending
 function rawValue(v, ct, ir, acc, set) {
   const n = ct.len ?? 1;
   const where = set ? "SET" : "WHERE";

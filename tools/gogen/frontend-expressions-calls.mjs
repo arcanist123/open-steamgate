@@ -1,3 +1,4 @@
+// @ts-check
 import {Nodes, Expressions, Unsupported, I, F, INT8, P31, S, C, X, XS, EXC,
   isExpr, upper, numeric, charlike} from "./frontend-base.mjs";
 import {BIT_OPS, call, cond, constructor, convert, defaultValue, descrAttr, fieldChain,
@@ -16,6 +17,7 @@ import {textLiteral} from "./frontend-literals.ts";
   if (!hasArith(node)) return arith(node, ctx, undefined, hint);
   if (outer?.k === "d") {
     const parts = items(node);
+    // @ts-expect-error -- abapiti form pending
     if (parts.length === 3 && ["+", "-"].includes(parts[1].op) && parts[0].node && parts[2].node) {
       const date = sourceOperand(parts[0].node, ctx);
       const days = sourceOperand(parts[2].node, ctx);
@@ -82,6 +84,7 @@ import {textLiteral} from "./frontend-literals.ts";
 /** a ComponentChain (a-b-c) read off a structured value */
 /** @param {import("./frontend-types.ts").ValueExpr} v @param {import("./frontend-types.ts").SyntaxNode} chain @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./frontend-types.ts").ValueExpr} */ function componentsOf(v, chain, ctx) {
   for (const c of chain.getChildren()) {
+    // @ts-expect-error -- abapiti form pending
     if (c.concatTokens() === "-") continue;
     if (isExpr(c, Expressions.ComponentChain) || isExpr(c, Expressions.ComponentChainSimple)) {
       v = componentsOf(v, c, ctx);
@@ -98,18 +101,21 @@ import {textLiteral} from "./frontend-literals.ts";
   const its = items(node);
   let negate = false;
   while (its.length > 0 && its[0].sign !== undefined) {
+    // @ts-expect-error -- abapiti form pending
     if (its.shift().sign === "-") negate = !negate;
   }
   /** @param {import("./frontend-types.ts").ExpressionItem} item @param {import("./ir.ts").Type} [t] @returns {import("./frontend-types.ts").ValueExpr} */ const value = (item, t) => {
     if (item.ctor) { const v = constructor(item.ctor, ctx, item.hint); return t === undefined ? v : convert(v, t); }
     if (item.bool) {
       // xsdbool: a c(1) 'X' or blank; boolc: a string 'X' or ' '
+      // @ts-expect-error -- abapiti form pending
       /** @type {import("./frontend-types.ts").ValueExpr} */ const v = {e: "bool", cond: cond(item.cond, ctx), blank: item.bool === "BOOLC" ? " " : "", type: item.bool === "BOOLC" ? S : C(1)};
       return t === undefined ? v : convert(v, t);
     }
     if (item.descr) { const v = descrAttr(item.descr.call, item.descr.attr, ctx); return t === undefined ? v : convert(v, t); }
     if (item.group !== undefined) return arith(item.group, ctx, t);
     if (isExpr(item.node, Expressions.Source)) return arith(item.node, ctx, t);
+    // @ts-expect-error -- abapiti form pending
     let v = sourceOperand(item.node, ctx, t === undefined ? item.hint : t);
     if (item.comps) v = componentsOf(v, item.comps, ctx);
     // Byte, date and time operands enter arithmetic through their integer
@@ -219,6 +225,7 @@ import {textLiteral} from "./frontend-literals.ts";
     ? {dir: "importing", byValue: true, type: p.type, value: {e: "chars", value: "", type: p.type}}
     : p.dir === "importing" ? omittedArgument(p, ctx) : {dir: p.dir, place: null, type: p.type});
   return {e: "call", owner: cls.name, method: method.name, static: true, args,
+    // @ts-expect-error -- abapiti form pending
     type: method.returning.type, callee: method.name};
 }
 

@@ -1,3 +1,4 @@
+// @ts-check
 import {parseObserved} from "./frontend-inventory.mjs";
 // Source-only analyses, keyed by the immutable parsed/rearranged node.
 import {readText, listEntries, join} from "./host-io.ts";
@@ -31,6 +32,7 @@ const {Expressions, ExpressionsCDS, Nodes, Structures} = abaplint;
     }
     inlineTables.set(body, names);
   }
+  // @ts-expect-error -- abapiti form pending
   return inlineTables.get(body);
 }
 
@@ -64,9 +66,12 @@ export const cdsMappingError = (views, name) => {
   if (observe) observe(name);
   return cdsFailures.get(views)?.get(name);
 };
+// @ts-expect-error -- abapiti form pending
 function sqlViewName(annotations) {
   for (const annotation of annotations) {
+    // @ts-expect-error -- abapiti form pending
     const key = annotation.getChildren().filter(c => c instanceof Nodes.TokenNode)
+      // @ts-expect-error -- abapiti form pending
       .map(c => c.getFirstToken().getStr()).join("").toUpperCase();
     if (key !== "@ABAPCATALOG.SQLVIEWNAME:") continue;
     const value = annotation.findFirstExpression(ExpressionsCDS.CDSString)?.getFirstToken().getStr();
@@ -92,6 +97,7 @@ function sqlViewName(annotations) {
     const obj = reg.getFirstObject();
     // Pinned core's getSQLViewName() searches raw text and includes comments.
     // Its parsed CDS annotations exclude comments and expose the string token.
+    // @ts-expect-error -- abapiti form pending
     /** @type {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const tree = obj?.getTree();
     if (!tree) {
       const message = `${filename}: DDLS view mapping could not be read`;
@@ -101,6 +107,7 @@ function sqlViewName(annotations) {
       continue;
     }
     if (!(tree.get() instanceof ExpressionsCDS.CDSDefineView)) continue;
+    // @ts-expect-error -- abapiti form pending
     const cds = obj.getDefinitionName();
     if (tree.getChildren().some((c) => c instanceof Nodes.TokenNode && c.getFirstToken().getStr().toUpperCase() === "ENTITY")) continue;
     const sql = sqlViewName(tree.findDirectExpressions(ExpressionsCDS.CDSAnnotation));
@@ -140,7 +147,9 @@ export function suppliedMethods(file) {
   if (methods) return methods;
   methods = [];
   for (const method of file.getStructure()?.findAllStructures(Structures.Method) ?? []) {
+    // @ts-expect-error -- abapiti form pending
     const found = method.findAllExpressions(Expressions.Compare).map(suppliedComparison).filter(Boolean).map(c => c.name);
+    // @ts-expect-error -- abapiti form pending
     methods.push({name: method.findFirstExpression(Expressions.MethodName).concatTokens().toUpperCase(), found});
   }
   suppliedOfFile.set(file, methods);

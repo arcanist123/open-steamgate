@@ -1,3 +1,4 @@
+// @ts-check
 // AST observations shared by selection expansion and the host edit proof.
 // Keep spelling and order: discovery's namespace and FM ownership policies
 // are intentionally different from ordinary syntax name resolution.
@@ -7,6 +8,7 @@ export function staticDiscoveryReferences(statement, core) {
   for (let i = 1; i + 1 < tokens.length; i++) {
     if (tokens[i].getStr() !== "=>" || !(tokens[i - 1] instanceof core.Tokens.Identifier)
         || !(tokens[i + 1] instanceof core.Tokens.Identifier)) continue;
+    // @ts-expect-error -- abapiti form pending
     references.push({owner: tokens[i - 1].getStr().split("/").at(-1).toLowerCase(), member: tokens[i + 1].getStr().toUpperCase()});
   }
   return references;
