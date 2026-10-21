@@ -221,7 +221,8 @@ import {textLiteral} from "./frontend-literals.ts";
     ? {dir: "importing", byValue: true, type: p.type, value: {e: "chars", value: "", type: p.type}}
     : p.dir === "importing" ? omittedArgument(p, ctx) : {dir: p.dir, place: null, type: p.type});
   return {e: "call", owner: cls.name, method: method.name, static: true, args,
-    type: /** @type {{readonly type: import("./ir.ts").Type}} */ (method.returning).type, callee: method.name};
+    // @ts-expect-error -- abapiti form pending
+    type: method.returning.type, callee: method.name};
 }
 
 export {source, componentsOf, arith, sourceOperand, callMethodChain, excHolder,

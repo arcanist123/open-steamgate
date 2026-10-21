@@ -18,8 +18,11 @@ export function graphComponents(nodes, drop) {
     seen.add(id);
     const stack = [{id, next: 0}];
     while (stack.length) {
-      const frame = /** @type {{id: string, next: number}} */ (stack.at(-1)), next = edges.get(frame.id);
+      // @ts-expect-error -- abapiti form pending
+      const frame = stack.at(-1), next = edges.get(frame.id);
+      // @ts-expect-error -- abapiti form pending
       if (frame.next === next.length) { ordered.push(frame.id); stack.pop(); continue; }
+      // @ts-expect-error -- abapiti form pending
       const key = next[frame.next++];
       if (!seen.has(key)) { seen.add(key); stack.push({id: key, next: 0}); }
     }

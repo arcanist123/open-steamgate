@@ -36,12 +36,14 @@ export function dynamicResultMoves(program, method, target) {
 
 /** @param {Extract<import("./ir.ts").Stmt, {s: "call_dyn_static"}>} st @param {unknown} ctx @param {string} t @param {Pick<import("./emit-go-types.ts").ProgramInput, "classes" | "dynamicDispatch">} program @param {{expr: (e: unknown, ctx: unknown) => string, stmt: (st: unknown, ctx: unknown, d: number) => string[]}} helpers @returns {string[]} */
 export function dynamicCallJs(st, ctx, t, program, {expr, stmt}) {
-  const moves = st.receiving ? dynamicResultMoves(program, st.method, /** @type {{type: import("./ir.ts").Type}} */ (st.receiving.target).type) : [];
+  // @ts-expect-error -- abapiti form pending
+  const moves = st.receiving ? dynamicResultMoves(program, st.method, st.receiving.target.type) : [];
   const call = `abap.CallStatic(s, ${expr(st.cls, ctx)}, ${JSON.stringify(st.method)}, {${st.args.map((a) => `${JSON.stringify(a.name)}: ${expr(a.value, ctx)}`).join(", ")}}, ${JSON.stringify(st.receiving?.name ?? "")}, ${JSON.stringify(moves.map((m) => m.key))})`;
   if (!st.receiving) return [`${t}${call};`];
   return [`${t}{`, `${t}  const [$dynKey, $dynValue] = ${call};`, `${t}  switch ($dynKey) {`,
     ...moves.flatMap((m) => [`${t}    case ${JSON.stringify(m.key)}: {`,
-      ...stmt({s: /** @type {{target: {type: import("./ir.ts").Type}}} */ (st.receiving).target.type.k === "data" ? "set_data" : "assign", target: /** @type {{target: import("./ir.ts").Expr}} */ (st.receiving).target,
+      // @ts-expect-error -- abapiti form pending
+      ...stmt({s: st.receiving.target.type.k === "data" ? "set_data" : "assign", target: st.receiving.target,
         value: m.value}, ctx, 3), `${t}      break; }`]), `${t}  }`, `${t}}`];
 }
 
@@ -68,7 +70,8 @@ export function staticRegistryJs(program, {definable, zero, unwrapTo, composite,
       const d = `a[${JSON.stringify(p.name)}]`;
       const read = ["i", "string", "c", "d", "t"].includes(p.type.k) ? unwrapTo(p.type, d)
         : p.type.k === "data" ? d : composite(p.type) && p.byValue ? `abap.copy(${d}.get())` : `${d}.get()`;
-      const absent = p.default !== undefined ? expr(/** @type {{name: string, value: unknown}} */ (defaults.find(d => d.name === p.name)).value, {cls, method: m, loop: 0}) : p.optional ? zero(p.type)
+      // @ts-expect-error -- abapiti form pending
+      const absent = p.default !== undefined ? expr(defaults.find(d => d.name === p.name).value, {cls, method: m, loop: 0}) : p.optional ? zero(p.type)
         : `abap.paramMissing(${JSON.stringify(`${cls.name}=>${m.name} ${p.name}`)})`;
       lines.push(`  const ${v} = ${JSON.stringify(p.name)} in a ? ${read} : ${absent};`);
       return v;

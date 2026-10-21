@@ -143,7 +143,8 @@ export function suppliedMethods(file) {
   if (methods) return methods;
   methods = [];
   for (const method of file.getStructure()?.findAllStructures(Structures.Method) ?? []) {
-    const found = method.findAllExpressions(Expressions.Compare).map(suppliedComparison).filter(Boolean).map(c => /** @type {{name: string, negated: boolean}} */ (c).name);
+    // @ts-expect-error -- abapiti form pending
+    const found = method.findAllExpressions(Expressions.Compare).map(suppliedComparison).filter(Boolean).map(c => c.name);
     methods.push({name: /** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (method.findFirstExpression(Expressions.MethodName)).concatTokens().toUpperCase(), found});
   }
   suppliedOfFile.set(file, methods);

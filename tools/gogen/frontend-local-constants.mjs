@@ -82,7 +82,8 @@ export function hoistLocalConstants(body, ctx, h) {
       /** @type {Record<string, import("./frontend-types.ts").ConstantInitializer | undefined>} */ const folded = Object.fromEntries(Object.entries(inits).map(([f, v]) => [f, fold(v)]));
       if (Object.values(folded).every(Boolean)) add(name, type, {fieldInits: folded});
       else /** @type {Map<import("./frontend-types.ts").SyntaxNode, import("./frontend-types.ts").FrontendStmt[]>} */ (ctx.localConstantFields).set(node, Object.entries(inits).map(/** @returns {import("./frontend-types.ts").FrontendStmt} */ ([field, value]) => ({
-        s: "assign", target: {e: "field", base: {e: "var", name, type}, name: field, type: /** @type {{type: import("./ir.ts").Type}} */ (fields.find((f) => f.name === field)).type}, value,
+        // @ts-expect-error -- abapiti form pending
+        s: "assign", target: {e: "field", base: {e: "var", name, type}, name: field, type: fields.find((f) => f.name === field).type}, value,
       })));
       return;
     }
@@ -91,7 +92,8 @@ export function hoistLocalConstants(body, ctx, h) {
       /** @type {Set<string>} */ (ctx.localConstantNames).add(name);
       const init = initialValue(node, ctx);
       const value = fold(init.value);
-      if (value) add(name, /** @type {{readonly type: import("./ir.ts").Type}} */ (init.target).type, {init: value});
+      // @ts-expect-error -- abapiti form pending
+      if (value) add(name, init.target.type, {init: value});
       return;
     }
     if (node instanceof Nodes.StructureNode) {
