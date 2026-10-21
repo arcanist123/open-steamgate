@@ -46,7 +46,12 @@ export type TypedExpr = Exclude<Expr, {e: 'int' | 'float' | 'flag'}> | TypedNumb
 export interface InitialCondition { readonly c: 'initial'; readonly x: TypedExpr }
 export interface ConcatBytesTable { readonly s: 'concat_bytes'; readonly target: Expr; readonly table: TypedExpr; readonly row: Expr }
 export interface AssignmentStmt { readonly s: 'assign' | 'set_data'; readonly target: Expr; readonly value: Expr }
-type StatementFields<T> = T extends {s: 'assign' | 'set_data'} ? AssignmentStmt : T extends {s: 'native'} ? Omit<T, 'args'> & {readonly args?: readonly NativeArgument[]}
+// The frontend builds every field-symbol operand of these statements and of
+// IS ASSIGNED as {e: 'fs'}; ir.ts keeps the wider Expr.
+export type FsExpr = Extract<Expr, {e: 'fs'}>;
+type StatementFields<T> = T extends {s: 'assign' | 'set_data'} ? AssignmentStmt
+  : T extends {s: 'assign_comp' | 'assign_deref' | 'assign_deref_typed' | 'assign_data' | 'unassign'} ? Omit<T, 'fs'> & {readonly fs: FsExpr}
+  : T extends {s: 'native'} ? Omit<T, 'args'> & {readonly args?: readonly NativeArgument[]}
   : T extends {s: 'kernel_loop'} ? Omit<T, 'args' | 'pos'> & {readonly args: readonly NativeArgument[]; readonly pos?: IR.Position}
   : T extends {s: 'raise_event'} ? Omit<T, 'args'> & {readonly args: readonly EventArgument[]}
   : T extends {s: 'call_fm'} ? Omit<T, 'args'> & {readonly args: readonly EventArgument[]}
@@ -66,7 +71,8 @@ type StatementFields<T> = T extends {s: 'assign' | 'set_data'} ? AssignmentStmt 
   } : T extends {s: 'select_loop' | 'select_single' | 'select_aggregate'} ? Omit<T, 'target'> & {readonly target: Expr | null}
     : T;
 export type Stmt = StatementFields<RuntimeFields<IR.Stmt>> & {readonly pos?: IR.Position; readonly moveTable?: boolean};
-export type Condition = RuntimeFields<Exclude<IR.Condition, {c: 'cmp' | 'initial'}>>
+export type Condition = RuntimeFields<Exclude<IR.Condition, {c: 'cmp' | 'initial' | 'assigned'}>>
+  | {readonly c: 'assigned'; readonly fs: FsExpr}
   | (RuntimeFields<Omit<Extract<IR.Condition, {c: 'cmp'}>, 'type'>> & {readonly type?: IR.Type})
   | InitialCondition;
 export type Argument = RuntimeFields<IR.Argument>;

@@ -835,10 +835,9 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   return out;
 }
 
-// An INTF object answers getDefinition; IRegistry returns the IObject base.
-/** @typedef {{getDefinition: () => {getImplementing: () => {name: string}[]}}} IntfObjectShape */
 /** @param {import("./ir.ts").Program["reg"] | undefined} reg @param {string} intf @param {Set<string>} [seen] @returns {string[]} */ function componentInterfaces(reg, intf, seen = new Set()) {
-  for (const c of (/** @type {IntfObjectShape} */ (/** @type {unknown} */ (reg?.getObject("INTF", intf))))?.getDefinition()?.getImplementing?.() ?? []) {
+  // @ts-expect-error -- abapiti form pending
+  for (const c of reg?.getObject("INTF", intf)?.getDefinition()?.getImplementing?.() ?? []) {
     const name = String(c.name).toUpperCase();
     if (!seen.has(name)) { seen.add(name); componentInterfaces(reg, name, seen); }
   }
@@ -1165,15 +1164,17 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
  * strings.Builder for it and writes v back once after the loop.
  */
 /** @param {import("./emit-go-types.ts").Expr} e @returns {import("./emit-go-types.ts").Expr} */ const leftmost = (e) => { while (e?.e === "concat") e = e.l; return e; };
-/** @param {import("./emit-go-types.ts").Stmt | null | undefined} st @param {string} [name] @returns {boolean} */ const isAppend = (st, name) => st?.s === "assign" && (/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).e === "var" && !(/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).ref && (/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).type.k === "string"
-  && (name === undefined || (/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).name === name) && (/** @type {import("./emit-go-types.ts").Expr} */ (st.value)).e === "concat" && leftmost((/** @type {import("./emit-go-types.ts").Expr} */ (st.value))).e === "var" && (/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (leftmost((/** @type {import("./emit-go-types.ts").Expr} */ (st.value))))).name === (/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ (st.target)).name;
+/** @param {import("./emit-go-types.ts").Stmt | null | undefined} st @param {string} [name] @returns {boolean} */ const isAppend = (st, name) => st?.s === "assign" && st.target.e === "var" && !st.target.ref && st.target.type.k === "string"
+  // @ts-expect-error -- abapiti form pending
+  && (name === undefined || st.target.name === name) && st.value.e === "concat" && leftmost(st.value).e === "var" && leftmost(st.value).name === st.target.name;
 
 /** @param {readonly import("./emit-go-types.ts").Stmt[]} body @param {import("./emit-go-types.ts").Context} ctx @param {readonly unknown[]} [outside] @returns {string[]} */ function builders(body, ctx, outside = []) {
   /** @type {Set<string>} */ const names = new Set();
   /** @param {unknown} n @returns {void} */ const walk = (n) => {
     if (Array.isArray(n)) { n.forEach(walk); return; }
     if (!n || typeof n !== "object") return;
-    if (isAppend(/** @type {import("./emit-go-types.ts").Stmt} */ (n))) names.add((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "var"}>} */ ((/** @type {import("./emit-go-types.ts").WalkNode} */ (n)).target)).name);
+    // @ts-expect-error -- abapiti form pending
+    if (isAppend(/** @type {import("./emit-go-types.ts").WalkNode} */ (n))) names.add((/** @type {import("./emit-go-types.ts").WalkNode} */ (n)).target.name);
     for (const k of Object.keys(n)) if (k !== "type") walk((/** @type {import("./emit-go-types.ts").WalkNode} */ (n))[k]);
   };
   walk(body);
@@ -1822,15 +1823,15 @@ ${t}	}`));
     case "assert":
       return [`${t}if !(${cond(st.cond, ctx)}) {`, `${t}\tpanic(abap.ArithmeticError{Class: "ASSERTION_FAILED", Op: ${JSON.stringify(st.text)}})`, `${t}}`];
     case "assign_comp":
-      return [`${t}if c, ok := abap.Component(${expr(st.from, ctx)}, ${expr(st.name, ctx)}); ok {`, `${t}\t${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (st.fs)).name)} = c`, `${t}\ts.Sy.Subrc = 0`,
-        `${t}} else {`, ...(st.name.type.k === "i" ? [`${t}\t${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (st.fs)).name)} = abap.Data{}`] : []), `${t}\ts.Sy.Subrc = 4`, `${t}}`];
+      return [`${t}if c, ok := abap.Component(${expr(st.from, ctx)}, ${expr(st.name, ctx)}); ok {`, `${t}\t${ident(st.fs.name)} = c`, `${t}\ts.Sy.Subrc = 0`,
+        `${t}} else {`, ...(st.name.type.k === "i" ? [`${t}\t${ident(st.fs.name)} = abap.Data{}`] : []), `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     case "assign_deref":
-      return [`${t}if r := ${expr(st.ref, ctx)}; r.P != nil {`, `${t}\t${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (st.fs)).name)} = r`, `${t}\ts.Sy.Subrc = 0`, `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
+      return [`${t}if r := ${expr(st.ref, ctx)}; r.P != nil {`, `${t}\t${ident(st.fs.name)} = r`, `${t}\ts.Sy.Subrc = 0`, `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     case "assign_deref_typed":
-      return [`${t}if r := ${expr(st.ref, ctx)}; r.P != nil {`, `${t}\t${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (st.fs)).name)} = ${st.fs.type.k === "struct" ? `abap.DerefAs[${goType(st.fs.type)}](r, ${JSON.stringify(st.text)})` : `abap.DirectBinding(abap.DerefAs[${goType(st.fs.type)}](r, ${JSON.stringify(st.text)}))`}`,
+      return [`${t}if r := ${expr(st.ref, ctx)}; r.P != nil {`, `${t}\t${ident(st.fs.name)} = ${st.fs.type.k === "struct" ? `abap.DerefAs[${goType(st.fs.type)}](r, ${JSON.stringify(st.text)})` : `abap.DirectBinding(abap.DerefAs[${goType(st.fs.type)}](r, ${JSON.stringify(st.text)}))`}`,
         `${t}\ts.Sy.Subrc = 0`, `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     case "assign_data":
-      return [`${t}${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (st.fs)).name)} = ${expr(st.value, ctx)}`];
+      return [`${t}${ident(st.fs.name)} = ${expr(st.value, ctx)}`];
     // a move into generic data writes into the slot it is bound to
     case "set_data":
       return [`${t}abap.MoveData(${expr(st.target, ctx)}, ${expr(st.value, ctx)})`];
@@ -1983,7 +1984,7 @@ ${t}	}`));
         `${t}\ts.Sy.Subrc, s.Sy.Dbcnt = 0, 1`, `${t}}`];
     }
     case "unassign":
-      return [`${t}${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (st.fs)).name)} = ${st.fs.type.k === "data" ? "abap.Data{}" : "nil"}`];
+      return [`${t}${ident(st.fs.name)} = ${st.fs.type.k === "data" ? "abap.Data{}" : "nil"}`];
     case "select_dyn": {
       // dynamic Open SQL (go/abap selectdyn.go): the parts given at run time
       // as strings, the target as generic data
@@ -2533,7 +2534,8 @@ ${t}	}`));
       const value = expr(c.x, ctx);
       const target = goType(c.type);
       const initial = c.initial ? "true" : "false";
-      if ((/** @type {Extract<import("./emit-go-types.ts").Type, {k: "ref"}>} */ (c.type)).name === "OBJECT" && (/** @type {Extract<import("./emit-go-types.ts").Type, {k: "ref"}>} */ (c.type)).intf) return `func() bool { value := ${value}; if value == nil { return ${initial} }; return true }()`;
+      // @ts-expect-error -- abapiti form pending
+      if (c.type.name === "OBJECT" && c.type.intf) return `func() bool { value := ${value}; if value == nil { return ${initial} }; return true }()`;
       return `func() bool { value := ${value}; if value == nil { return ${initial} }; _, ok := any(value).(${target}); return ok }()`;
     }
     // ultra/events: line_exists( ) (frontend lineExists)
@@ -2542,7 +2544,7 @@ ${t}	}`));
       const keys = c.keys.map((k) => (k.line ? `r${n} == ${expr(k.value, ctx)}` : `r${n}.${ident((/** @type {string} */ (k.name)))} == ${expr(k.value, ctx)}`)).join(" && ");
       return `func() bool { for _, r${n} := range ${expr(c.table, ctx)} { if ${keys} { return true } }; return false }()`;
     }
-    case "assigned": return c.fs.type.k === "data" ? `(${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (c.fs)).name)}.P != nil)` : `(${ident((/** @type {Extract<import("./emit-go-types.ts").Expr, {e: "fs"}>} */ (c.fs)).name)} != nil)`;
+    case "assigned": return c.fs.type.k === "data" ? `(${ident(c.fs.name)}.P != nil)` : `(${ident(c.fs.name)} != nil)`;
     case "data_bound": return `abap.DataBound(${expr(c.x, ctx)})`;
     case "and": return `(${cond(c.l, ctx)} && ${cond(c.r, ctx)})`;
     case "true": return "true";
