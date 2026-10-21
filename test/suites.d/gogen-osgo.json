@@ -10,6 +10,7 @@
     "test/osd-enq.mjs",
     "test/osd-metrics.mjs",
     "test/osd-size-budget.mjs",
+    "test/osd-abapiti-lint.mjs",
     "test/osd-enq-abap.mjs",
     "test/osd-binary.mjs",
     "test/osd-branch.mjs",
