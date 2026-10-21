@@ -1,5 +1,9 @@
 # Self-hosting step 4: lowering traps and runtime barrier
 
+> **Done on 2026-10-20:** `cmp=equal` and the unit test pass; see
+> [`history/2026-10-20-self-hosting-step4.md`](history/2026-10-20-self-hosting-step4.md).
+> What follows is the 2026-10-19 snapshot, kept as the log it was.
+
 Snapshot: 2026-10-19. The latest completed pair, reviewed abapiti source
 `8b752b51` / published integration `b59f47d0` with G `8633d7fd`,
 builds Go and completes `compileProgram()`, including the Table/View
