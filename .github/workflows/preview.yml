@@ -145,6 +145,15 @@ jobs:
         run: OSD_PREVIEW_DB=duckdb npx playwright test --config playwright.preview.config.mjs
       - name: Screenshots
         run: node scripts/capture-screenshots.mjs
+      # The VS Code web extension rides along as a plain directory, so
+      # vscode.dev installs it from <preview>/vscode-web/ ("Install Extension
+      # From Location"; docs/vscode-web.md). It is built after every check and
+      # screenshot of the preview above: web:vscode transpiles its own pack
+      # selection and rewrites web/generated/, never build/preview itself.
+      - name: VS Code web extension
+        run: |
+          npm run web:vscode
+          npm run web:vscode:stage
       - name: Publish to gh-pages
         # This is deliberately after the browser check and screenshots.  The
         # explicit success guard documents the safety property: a failed

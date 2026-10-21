@@ -261,6 +261,14 @@
     ],
     "menus": {
       "commandPalette": [
+        {"command": "osd.openJobsPanel", "when": "!isWeb && !osd.web"},
+        {"command": "osd.refreshJobs", "when": "!isWeb && !osd.web"},
+        {"command": "osd.filterJobs", "when": "!isWeb && !osd.web"},
+        {"command": "osd.openJobLog", "when": "!isWeb && !osd.web"},
+        {"command": "osd.openJobOutput", "when": "!isWeb && !osd.web"},
+        {"command": "osd.copyJobKey", "when": "!isWeb && !osd.web"},
+        {"command": "osd.runTitle", "when": "!isWeb && !osd.web"},
+        {"command": "osd.runUnit", "when": "!isWeb && !osd.web"},
         {"command": "osd.webProbe", "when": "isWeb"},
         {"command": "osd.webReadProbe", "when": "isWeb"},
         {"command": "osd.webVerifyLastTravel", "when": "isWeb"},
