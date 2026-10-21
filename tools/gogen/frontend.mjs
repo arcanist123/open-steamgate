@@ -51,7 +51,7 @@ import {source, componentsOf, arith, sourceOperand, callMethodChain, excHolder,
   omittedArgument, omittedFactoryCall} from "./frontend-expressions-calls.mjs";
 /** @typedef {import("./frontend-types.ts").MethodSignature} ClassSignature */
 /** @typedef {import("@abaplint/core").Nodes.StatementNode} StNode */
-/** @typedef {{hosts: import("./frontend-types.ts").HostMarker[], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} SqlAcc */
+/** @typedef {{hosts: import("./frontend-sql.mjs").SqlAcc["hosts"], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} SqlAcc */
 /** @typedef {typeof byteStatementHelpers} ByteStatementHelpers */ const byteStatementHelpers = {source, lvalue, convert, findResults};
 /** @type {WeakMap<import("./frontend-session-types.ts").Registry, Record<string, string>>} */ const cdsViewsByRegistry = new WeakMap();
 const HOST_REPLACED = new Set(["ZCL_OSD_ENQ_KERNEL"]);
@@ -1162,7 +1162,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // sent from a method that never names the type is this class's call
       // too (the critic on #263). The AMC classes are not callers, as Node's
       // callerProgram skips them
-      if (amcSource(/** @type {import("@abaplint/core").ABAPFile} */ (file).getRaw()) && !/^(CL_AMC_|ZCL_AMC_)/.test(upper(ctx.owner))) ir.amcProgram = amcProgramOf(ctx.owner);
+      if (amcSource(/** @type {import("@abaplint/core").ABAPFile} */ (file).getRaw()) && !/^(CL_AMC_|ZCL_AMC_)/.test(upper(ctx.owner))) ir.amcProgram = amcProgramOf(/** @type {string} */ (ctx.owner));
       if (name === "CONSTRUCTOR") cls.constructor = ir; else cls.methods.push(ir);
     } catch (e) {
       if (!(e instanceof Unsupported)) throw e;
@@ -3849,6 +3849,7 @@ const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N
     const low = /** @type {import("./ir.ts").Field} */ (fields.get("LOW")).type;
     const kind = ct.k === "n" ? "NUMC" : undefined;
     const irT = sqlIrType(ct);
+    // @ts-expect-error -- abapiti form pending
     acc.ranges.push({id, column: lowName(col), type: irT, kind, lowLen: low.k === "c" || low.k === "n" ? low.len ?? 0 : 0, range});
     return rangeHostPred(id, lowName(col), irT, kind === undefined ? {} : {kind});
   }
@@ -3913,6 +3914,7 @@ const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N
 /** @param {import("@abaplint/core").Nodes.StatementNode | import("@abaplint/core").Nodes.ExpressionNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {SqlAcc} acc @returns {import("../sqlscript-types.ts").SqlExpr | null} */ function wherePred(node, ctx, tb, acc) {
   const cond = node.findDirectExpression(Expressions.SQLCond);
   let pred = tb.client ? mandtPred() : null;
+  // @ts-expect-error -- abapiti form pending
   if (cond) pred = andIr(pred, sqlCond(cond, ctx, tb, acc));
   return pred;
 }
@@ -4213,7 +4215,7 @@ const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N
     if (count.type.k !== "i") throw new Unsupported(`UP TO a ${count.type.k} value: ${text}`);
     if (count.e === "int") rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.limit(rel, count.value));
     else {
-      acc.hosts.push(/** @type {import("./frontend-types.ts").HostMarker} */ (/** @type {unknown} */ (count)));
+      acc.hosts.push(count);
       rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.limit(rel, RIR.param(`@@host:${acc.hosts.length - 1}@@`, RIR.T.int)));
     }
   }
@@ -4457,6 +4459,7 @@ function dbWriteStatement(kind, node, ctx, text) {
     if (tb.client && col === "MANDT") throw new Unsupported(`UPDATE SET of the client column: ${text}`);
     const ct = tb.colType(col);
     const ir = writeIrType(ct, `UPDATE ${tb.name}-${col}`);
+    // @ts-expect-error -- abapiti form pending
     set.push({col, expr: sqlValue(sqlHost(src, fk.slice(3), ctx, k.concatTokens()), ct, ir, acc, true)});
   }
   if (set.length === 0) throw new Unsupported(`UPDATE SET form: ${text}`);
@@ -4505,12 +4508,14 @@ function dbWriteStatement(kind, node, ctx, text) {
     const f = fields[i];
     return f.name !== n || f.type.k !== ct.k || ((/** @type {{len?: unknown}} */ (f.type)).len ?? null) !== ((/** @type {{len?: unknown}} */ (ct)).len ?? null);
   })) throw new Unsupported(`${verb} ${tb.name}: a work area not of the table's line type (${row.go})`);
+  // @ts-expect-error -- abapiti form pending
   /** @type {{name: string, kind: import("./ir.ts").Type["k"], ir: import("./ir.ts").WriteType, client: boolean}[]} */ const cols = names.map((n) => {
     const ct = tb.colType(n);
     return {name: n, kind: ct.k, ir: writeIrType(ct, `${verb} ${tb.name}-${n}`), client: tb.client && n === "MANDT"};
   });
   if (tb.key.length === 0 || tb.key.some((k) => !tb.columns.has(k))) throw new Unsupported(`${verb} ${tb.name}: its primary key does not resolve`);
   const schema = Object.fromEntries(cols.map((c) => [c.name, irCheck(c.ir)]));
+  // @ts-expect-error -- abapiti form pending
   const rows = WIR.bindRows(names, schema, [{}]);
   const keyPred = cols.filter((c) => tb.key.includes(c.name)).map((c) => RIR.bin("=", RIR.col(c.name, irCheck(c.ir)), WIR.initialValue(irCheck(c.ir)), RIR.T.bool))
     .reduce((a, b) => RIR.bin("AND", a, b, RIR.T.bool));

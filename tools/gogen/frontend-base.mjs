@@ -1,3 +1,4 @@
+// @ts-check
 import {createRequire} from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -45,12 +46,12 @@ export class Unsupported extends Error {}
 // rows (APPEND, INSERT INDEX, MODIFY INDEX, SORT, SELECT / SPLIT INTO TABLE)
 // refuses one, and a move between a SORTED and another table is not the
 // same type (it would have to sort)
-/** @param {import("./frontend-types.ts").ValueExpr | undefined} t @param {string} what @returns {void} */ const refuseSorted = (t, what) => { if (t?.type?.sorted) throw new Unsupported(`${what} a SORTED table`); };
-/** @param {import("./frontend-types.ts").TableType} a @param {import("./frontend-types.ts").TableType} b @returns {boolean} */ const sameSort = (a, b) => (a.sorted ?? null) === null ? (b.sorted ?? null) === null : (b.sorted !== undefined && a.sorted.join() === b.sorted.join() && a.unique === b.unique);
-/** @param {import("./ir.ts").Type} a @param {import("./ir.ts").Type} b @returns {boolean} */ export const sameType = (a, b) => a.k === b.k && (a.k !== "table" || (sameType(a.row, b.row) && sameSort(a, b)))
-  && (a.k !== "struct" || a.go === b.go) && (a.k !== "c" && a.k !== "x" || a.len === b.len)
-  && (a.k !== "ref" || a.name === b.name)
-  && (a.k !== "p" || (!!a.calc === !!b.calc && (a.calc || (a.len === b.len && a.dec === b.dec))));
+/** @param {import("./frontend-types.ts").ValueExpr | undefined} t @param {string} what @returns {void} */ const refuseSorted = (t, what) => { if (/** @type {{sorted?: readonly string[]}} */ (t?.type)?.sorted) throw new Unsupported(`${what} a SORTED table`); };
+/** @param {import("./frontend-types.ts").TableType} a @param {import("./frontend-types.ts").TableType} b @returns {boolean} */ const sameSort = (a, b) => (a.sorted ?? null) === null ? (b.sorted ?? null) === null : (b.sorted !== undefined && /** @type {readonly string[]} */ (a.sorted).join() === b.sorted.join() && a.unique === b.unique);
+/** @param {import("./ir.ts").Type} a @param {import("./ir.ts").Type} b @returns {boolean} */ export const sameType = (a, b) => a.k === b.k && (a.k !== "table" || (sameType(a.row, /** @type {Extract<import("./ir.ts").Type, {k: "table"}>} */ (b).row) && sameSort(a, /** @type {import("./frontend-types.ts").TableType} */ (b))))
+  && (a.k !== "struct" || a.go === /** @type {Extract<import("./ir.ts").Type, {k: "struct"}>} */ (b).go) && (a.k !== "c" && a.k !== "x" || a.len === /** @type {Extract<import("./ir.ts").Type, {k: "c" | "x"}>} */ (b).len)
+  && (a.k !== "ref" || a.name === /** @type {Extract<import("./ir.ts").Type, {k: "ref"}>} */ (b).name)
+  && (a.k !== "p" || (!!a.calc === !!/** @type {Extract<import("./ir.ts").Type, {k: "p"}>} */ (b).calc && (a.calc || (a.len === /** @type {Extract<import("./ir.ts").Type, {k: "p"}>} */ (b).len && a.dec === /** @type {Extract<import("./ir.ts").Type, {k: "p"}>} */ (b).dec))));
 /*
  * An IMPORTING table or structure passed by reference is the caller's own
  * data: measured on A4H, it sees what a CHANGING of the same table did,

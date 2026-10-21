@@ -1,3 +1,4 @@
+// @ts-check
 import {Nodes, Statements, isStmt, Unsupported, upper, S, XS, I} from "./frontend-base.mjs";
 import {variable, refAttribute, constructorSignature, convert, defaultValue, withSupplied} from "./frontend.mjs";
 import {fieldOf} from "./frontend-types-signatures.mjs";
@@ -19,6 +20,7 @@ const TRANSPILER_MEANING = new Map([
 // ultra/events: the host functions whose TYPE p parameters are read as p(16,7) (typeOf)
 const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSECS"]);
 /** methods whose ABAP is kernel code in the transpiler runtime, and the host function that does their work */
+// @ts-expect-error -- abapiti form pending
 /** @type {Map<string, string | {fn: string; args: string[]}>} */ const NATIVE = new Map([
   // ultra/events (the WEBGUI's transaction sessions, ZCL_OSD_TRAN_SESSION):
   // the seconds from TSTMP2 to TSTMP1, their fractions cut off, as
@@ -130,6 +132,7 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
  *                         statements up to the line {end}
  *   {bound}               a line of that loop whose work the binds do
  */
+// @ts-expect-error -- abapiti form pending
 /** @type {Map<string, import("./frontend-types.ts").KernelSpec>} */ const KERNEL = new Map([
   // ADT capability answers match Node's parent kernel / non-one-runtime host.
   ["ZCL_OSD_ADT_HOST=>ONE_RUNTIME|rv_on.set(abap.context.RFCDestinations.STORE?.localSystem ? \"X\" : \"\");", {fn: "abap.ADTOneRuntime", args: ["&RV_ON:c"]}],
@@ -238,6 +241,7 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
  * the session while it runs (amcProgram below), where Node reads the class
  * off the call stack.
  */
+// @ts-expect-error -- abapiti form pending
 /** @type {Map<string, {op: string, cls?: string, type?: string, args: Record<string, string>}>} */ const AMC_HOST = new Map([
   ["CL_AMC_CHANNEL_MANAGER=>CREATE_MESSAGE_PRODUCER", {op: "create_producer", cls: "ZCL_AMC_PRODUCER",
     args: {APP: "I_APPLICATION_ID", PATH: "I_CHANNEL_ID", EXT: "I_CHANNEL_EXTENSION_ID", COMM: "I_COMMUNICATION_TYPE", ECHO: "I_SUPPRESS_ECHO"}}],
@@ -253,20 +257,24 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
 // a class whose source names one of these calls the AMC API
 const AMC_CALLER = /\b(CL_AMC_CHANNEL_MANAGER|IF_AMC_MESSAGE_PRODUCER\w*|IF_AMC_MESSAGE_CONSUMER)\b/i;
 // the program the SAMC authorities name: a class's class pool
+/** @param {string} cls @returns {string} */
 const amcProgramOf = (cls) => upper(cls).padEnd(30, "=") + "CP";
 
 /** the body of an AMC host method, and CX_AMC_ERROR for its refusals */
-/** @param {{op: string, args: Record<string, string>}} spec @param {import("./frontend-types.ts").NativeContext} ctx @returns {import("./frontend-types.ts").FrontendStmt} */ function amcMethod(spec, ctx) {
+/** @param {import("./frontend-types.ts").NativeContext} ctx @returns {import("./frontend-types.ts").FrontendStmt} */
+// @ts-expect-error -- abapiti form pending
+function amcMethod(spec, ctx) {
   const args = Object.fromEntries(Object.entries(spec.args).map(([k, n]) => [k, variable(n, ctx)]));
-  const err = {e: "var", name: "LV_AMC_ERROR", type: S};
+  /** @type {import("./frontend-types.ts").ValueExpr} */ const err = {e: "var", name: "LV_AMC_ERROR", type: S};
   const sig = constructorSignature(ctx, "CX_AMC_ERROR");
-  const ctorArgs = sig.map((p) => {
+  const ctorArgs = sig.map(/** @returns {import("./ir.ts").Argument} */ (p) => {
     if (p.suppliedOf) return {dir: "importing", byValue: true, type: p.type, value: {e: "chars", value: p.suppliedOf === "IV_REASON" ? "X" : "", type: p.type}};
     if (p.name === "IV_REASON") return {name: p.name, dir: "importing", byValue: p.byValue, type: p.type, value: convert(err, p.type)};
     if (p.default !== undefined) return {name: p.name, supplied: false, dir: "importing", byValue: p.byValue, type: p.type, value: defaultValue(p, ctx)};
     return {name: p.name, supplied: false, dir: "importing", byValue: p.byValue, type: p.type, value: {e: "zero", type: p.type}};
   });
   const raise = {s: "raise", value: {e: "new", cls: "CX_AMC_ERROR", args: ctorArgs, type: {k: "ref", name: "CX_AMC_ERROR"}}, cls: "CX_AMC_ERROR"};
+  // @ts-expect-error -- abapiti form pending
   return {s: "amc", op: spec.op, cls: spec.cls, type: spec.type, args, err, raise};
 }
 
@@ -283,6 +291,7 @@ const amcProgramOf = (cls) => upper(cls).padEnd(30, "=") + "CP";
  * WWWDATA_IMPORT and SCMS_BINARY_TO_XSTRING are SMW0's (go/abap/w3mi.go),
  * their rules measured on A4H 2026-09-23 (ZCL_GOGEN_T_W3MI in semantics.mjs).
  */
+// @ts-expect-error -- abapiti form pending
 /** @type {Map<string, {fn: string, params: Record<string, string>}>} */ const NATIVE_FM = new Map([
   ["F4_FILENAME", {fn: "abap.F4_FILENAME", params: {PROGRAM_NAME: "exporting", DYNPRO_NUMBER: "exporting", FIELD_NAME: "exporting", FILE_NAME: "importing"}}],
   ["KD_GET_FILENAME_ON_F4", {fn: "abap.KD_GET_FILENAME_ON_F4", params: {PROGRAM_NAME: "exporting", DYNPRO_NUMBER: "exporting", FIELD_NAME: "exporting", MASK: "exporting", STATIC: "exporting", FILE_NAME: "changing"}}],
@@ -325,6 +334,7 @@ const amcProgramOf = (cls) => upper(cls).padEnd(30, "=") + "CP";
 /** @param {import("./frontend-types.ts").FrontendProgram} program @param {string} key @param {string} name @returns {import("./frontend-types.ts").Signature} */ const nativeMeSig = (program, key, name) => {
   const n = NATIVE_ME.get(key);
   const T = {string: S, xstring: XS, i: I};
+  // @ts-expect-error -- abapiti form pending
   const own = n.params.map(([pn, dir, t, optional]) => ({name: pn, dir, byValue: false, type: T[t], optional: optional === true}));
   return {name, static: false, private: false, abstract: false, params: withSupplied(program, key, own), returning: null};
 };

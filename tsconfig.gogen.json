@@ -45,6 +45,24 @@
     "tools/gogen/emit-constructors.ts",
     "tools/gogen/frontend-find-results.ts",
     "tools/gogen/frontend.mjs",
-    "tools/osd-samc.mjs"
+    "tools/osd-samc.mjs",
+    "tools/gogen/frontend-discovery-references.mjs",
+    "tools/gogen/frontend-timing.mjs",
+    "tools/gogen/frontend-source.mjs",
+    "tools/gogen/frontend-selection.mjs",
+    "tools/gogen/frontend-query-contract.mjs",
+    "tools/gogen/frontend-expressions-calls.mjs",
+    "tools/gogen/frontend-static.mjs",
+    "tools/gogen/frontend-classes-native.mjs",
+    "tools/gogen/frontend-types-signatures.mjs",
+    "tools/gogen/frontend-analysis.mjs",
+    "tools/gogen/frontend-base.mjs",
+    "tools/gogen/frontend-components.mjs",
+    "tools/gogen/frontend-local-constants.mjs",
+    "tools/gogen/frontend-dynamic-call.mjs",
+    "tools/gogen/frontend-bytes.mjs",
+    "tools/gogen/frontend-builtins.mjs",
+    "tools/gogen/frontend-sql.mjs",
+    "tools/gogen/emit-dynamic-call.mjs"
   ]
 }

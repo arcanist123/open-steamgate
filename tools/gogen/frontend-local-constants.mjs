@@ -1,6 +1,10 @@
+// @ts-check
 import * as abap from "./fold-scalars.ts";
 
 // Refuse unknown conversions; only literal, exception-free values leave entry.
+// Duck-typed on purpose: the e.e guards pick the literal members at run time,
+// and no static union view narrows through them without changing the guards.
+/** @param {any} e @returns {any} */
 function fold(e) {
   // Character converters are only proven backend-equivalent for ASCII.
   // Keep Unicode literals (including structure fields) at their entry site.
@@ -33,6 +37,7 @@ function fold(e) {
   if (value === undefined || Object.is(value, -0)) return undefined;
   return {e: e.type.k === "i" ? "int" : e.type.k === "f" ? "float" : "str", value, type: e.type};
 }
+/** @param {string} s @returns {string} */
 const segment = (s) => `${s.length}_${Array.from(s, (c) => c.charCodeAt(0).toString(16).padStart(4, "0")).join("")}`;
 /**
  * @param {import("@abaplint/core").Nodes.StructureNode | undefined} body
@@ -56,37 +61,37 @@ export function hoistLocalConstants(body, ctx, h) {
     const go = `${owner}_${segment(name)}`;
     if (ctx.program.consts.has(go)) throw new Error(`local constant name collision: ${ctx.className}=>${ctx.method}=>${name} (${go})`);
     ctx.program.consts.set(go, {go, type, ...init});
-    ctx.localConstants.set(name, {e: "const", go, type});
+    /** @type {Map<string, import("./frontend-types.ts").ValueExpr>} */ (ctx.localConstants).set(name, {e: "const", go, type});
     ctx.locals.delete(name);
   };
   /** @param {import("@abaplint/core").Nodes.StructureNode | import("@abaplint/core").Nodes.StatementNode | undefined} node */ const walk = (node) => {
     if (!node) return;
     if (isStruct(node, Structures.Constants)) {
-      const name = upper(node.findFirstExpression(Expressions.DefinitionName).concatTokens());
-      ctx.localConstantNames.add(name);
+      const name = upper(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (node.findFirstExpression(Expressions.DefinitionName)).concatTokens());
+      /** @type {Set<string>} */ (ctx.localConstantNames).add(name);
       const type = ctx.locals.get(name);
       if (type?.k !== "struct") throw new Unsupported(`CONSTANTS BEGIN OF ${name}: not a local structure`);
       const fields = ctx.program.structs.get(type.go)?.fields ?? [];
-      const inits = {};
+      /** @type {Record<string, import("./ir.ts").Expr>} */ const inits = {};
       for (const st of node.findAllStatements(Statements.Constant)) {
-        const field = upper(st.findFirstExpression(Expressions.DefinitionName).concatTokens());
+        const field = upper(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (st.findFirstExpression(Expressions.DefinitionName)).concatTokens());
         const ft = fields.find((f) => f.name === field)?.type;
         if (!ft || !literalValue(st)) throw new Unsupported(`CONSTANTS ${name}-${field}: nonliteral VALUE`);
         inits[field] = initialValue(st, {...ctx, locals: new Map([[field, ft]])}).value;
       }
       /** @type {Record<string, import("./frontend-types.ts").ConstantInitializer | undefined>} */ const folded = Object.fromEntries(Object.entries(inits).map(([f, v]) => [f, fold(v)]));
       if (Object.values(folded).every(Boolean)) add(name, type, {fieldInits: folded});
-      else ctx.localConstantFields.set(node, Object.entries(inits).map(/** @returns {import("./frontend-types.ts").FrontendStmt} */ ([field, value]) => ({
-        s: "assign", target: {e: "field", base: {e: "var", name, type}, name: field, type: fields.find((f) => f.name === field).type}, value,
+      else /** @type {Map<import("./frontend-types.ts").SyntaxNode, import("./frontend-types.ts").FrontendStmt[]>} */ (ctx.localConstantFields).set(node, Object.entries(inits).map(/** @returns {import("./frontend-types.ts").FrontendStmt} */ ([field, value]) => ({
+        s: "assign", target: {e: "field", base: {e: "var", name, type}, name: field, type: /** @type {{type: import("./ir.ts").Type}} */ (fields.find((f) => f.name === field)).type}, value,
       })));
       return;
     }
     if (node instanceof Nodes.StatementNode && isStmt(node, Statements.Constant) && literalValue(node)) {
-      const name = upper(node.findFirstExpression(Expressions.DefinitionName).concatTokens());
-      ctx.localConstantNames.add(name);
+      const name = upper(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (node.findFirstExpression(Expressions.DefinitionName)).concatTokens());
+      /** @type {Set<string>} */ (ctx.localConstantNames).add(name);
       const init = initialValue(node, ctx);
       const value = fold(init.value);
-      if (value) add(name, init.target.type, {init: value});
+      if (value) add(name, /** @type {{readonly type: import("./ir.ts").Type}} */ (init.target).type, {init: value});
       return;
     }
     if (node instanceof Nodes.StructureNode) {

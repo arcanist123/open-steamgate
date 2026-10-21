@@ -1,3 +1,4 @@
+// @ts-check
 // The one source normalization gogen applies to files it loads itself.
 // The folder loader in frontend.mjs and the supplied-registry mirror in
 // cache-oracle-capture.mjs both call it, so a new step cannot reach one only.
@@ -5,5 +6,6 @@
 import {lowerBoolx} from "./frontend-boolx.ts";
 import {lowerNarrowSubmit} from "../osd-narrow-submit.mjs";
 
+/** @param {string} source @param {string} name @param {import("./frontend-boolx.ts").BoolxParser} abaplint @returns {string} */
 export const normalizeSource = (source, name, abaplint) =>
   lowerNarrowSubmit(lowerBoolx(source, name, abaplint), name, abaplint);

@@ -1,3 +1,4 @@
+// @ts-check
 // The selected-contributions answer is rebuilt from current parsed methods.
 // It guards provider identities and the complete supplied-parameter set, rather
 // than unrelated bytes in every implementation body.
@@ -5,9 +6,10 @@ import {createHash} from "node:crypto";
 /** @param {{kind: string, policy?: string}} query @returns {boolean} */
 export const projectedQuery = (query) => query.kind === "supplied" && query.policy === "selected-contributions"
   || query.kind === "caught" && query.policy === "selected-subclass-presence";
-const arrayHashes = new WeakMap();
+/** @type {WeakMap<readonly unknown[], string>} */ const arrayHashes = new WeakMap();
+/** @param {unknown} value @returns {boolean} */
 const primitive = (value) => value === null || ["undefined", "string", "number", "boolean"].includes(typeof value);
-function setHash(values) {
+/** @param {unknown} values @returns {unknown} */ function setHash(values) {
   if (!Array.isArray(values)) return values;
   if (arrayHashes.has(values)) return arrayHashes.get(values);
   // Only frozen scalar arrays may be memoized. Mutable caller data and unknown
@@ -17,6 +19,7 @@ function setHash(values) {
   if (Object.isFrozen(values)) arrayHashes.set(values, hash);
   return hash;
 }
+/** @param {{result: unknown, providers?: unknown, parameters?: readonly string[]}} answer */
 export function projectionAnswer(answer) {
   const value = {...answer, result: setHash(answer.result)};
   if (Object.hasOwn(answer, "providers")) value.providers = setHash(answer.providers);
