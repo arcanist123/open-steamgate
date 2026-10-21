@@ -1176,6 +1176,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     case "dref_field": return `abap.DerefAs[${goType(p.struct)}](${expr(p.base, ctx)}, ${JSON.stringify(`->${p.name}`)}).${ident(p.name)}`;
     case "fs": return p.type.k === "data" ? ident(p.name) : p.type.k === "struct" ? `(*${ident(p.name)})` : `(*abap.CheckedRowPtr(${ident(p.name)}))`;
     case "refattr": {
+      // @ts-expect-error -- abapiti form pending
       const baseType = p.base.type;
       if (baseType?.k !== "ref") throw new TypeError("reference attribute base is not a reference");
       const refName = baseType.name ?? "";
@@ -1187,6 +1188,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     }
     case "row": {
       const b = place(p.base, ctx);
+      // @ts-expect-error -- abapiti form pending
       return rowValue(p.base.type, `${b}[abap.Idx(len(${b}), ${expr(p.index, ctx)})]`);
     }
     case "row_key": {
@@ -1194,6 +1196,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
       const n = Number(ctx.loop); ctx.loop = n + 1;
       // @ts-expect-error -- abapiti form pending
       const keys = p.keys.map((k) => (k.line ? `r${n} == ${expr(k.value, ctx)}` : `r${n}.${ident(k.name)} == ${expr(k.value, ctx)}`)).join(" && ");
+      // @ts-expect-error -- abapiti form pending
       return `(${stable(p.base.type) ? "**" : "*"}abap.RowByKey(&${b}, func(r${n} ${stable(p.base.type) ? "*" : ""}${goType(p.type)}) bool { return ${keys} }))`;
     }
     default: throw new Error(`not a place: ${p.e}`);
@@ -1464,7 +1467,9 @@ const LINES = !env("GOGEN_NOLINE");
     case "assign":
       if (st.target.e === "substr_target") {
         HELPER_IMPORTS.add("subwrite");
+        // @ts-expect-error -- abapiti form pending
         if (st.target.base.type.k !== "x") {
+          // @ts-expect-error -- abapiti form pending
           const limit = st.target.base.type.k === "c" ? st.target.base.type.len : -1;
           return [`${t}${place(st.target.base, ctx)} = hSubwrite.Char(${expr(st.target.base, ctx)}, ${st.target.off ? expr(st.target.off, ctx) : "0"}, ${st.target.len ? expr(st.target.len, ctx) : "-1"}, ${expr(st.value, ctx)}, ${limit})`];
         }
@@ -1477,8 +1482,10 @@ const LINES = !env("GOGEN_NOLINE");
         for (let e = st.value; e.e === "concat"; e = e.l) parts.unshift(e.r);
         const builder = ctx.builders.get(st.target.name); return parts.map((x) => `${t}${builder}.WriteString(${expr(x, ctx)})`);
       }
+      // @ts-expect-error -- abapiti form pending
       return [...(st.target.type.k === "table" ? [`${t}abap.BumpTable(&${place(st.target, ctx)})`] : []), `${t}${place(st.target, ctx)} = ${st.moveTable ? expr(st.value, ctx) : copied(expr(st.value, ctx), st.value.type, st.value)}`];
     case "clear":
+      // @ts-expect-error -- abapiti form pending
       return [...(st.target.type.k === "table" ? [`${t}abap.BumpTable(&${place(st.target, ctx)})`] : []), `${t}${place(st.target, ctx)} = ${zero(st.target.type)}`];
     case "append": {
       const tb = place(st.table, ctx);
@@ -1489,8 +1496,10 @@ const LINES = !env("GOGEN_NOLINE");
         // value is refused, not added -- A4H raises the catchable
         // CX_SY_ITAB_DUPLICATE_KEY (2026-09-24, ZCL_GOGEN_T_SECKEYDUP)
         const n = ctx.loop++;
+        // @ts-expect-error -- abapiti form pending
         return [`${t}{`, `${t}	v${n} := ${copied(expr(st.value, ctx), st.value.type, st.value)}`,
           ...unique.map((k) => `${t}	abap.UniqueKeyCheck(len(${tb}), func(i int) bool { return ${k.comps.map((c) => `${tb}[i].${ident(c)} == v${n}.${ident(c)}`).join(" && ")} }, ${JSON.stringify(k.name)})`),
+          // @ts-expect-error -- abapiti form pending
           `${t}	${tb} = append(${tb}, ${rowStored(st.table.type, `v${n}`)})`, `${t}}`, `${t}abap.BumpTable(&${tb})`, `${t}s.Sy.Tabix = int32(len(${tb}))`,
           // ultra/events: APPEND ... ASSIGNING <fs>
           // @ts-expect-error -- abapiti form pending
@@ -1498,6 +1507,7 @@ const LINES = !env("GOGEN_NOLINE");
           // @ts-expect-error -- abapiti form pending
           ...(st.refInto ? [`${t}${place(st.refInto, ctx)} = ${rowRef(st.table.type, tb, `${tb}[len(${tb})-1]`)}`] : [])];
       }
+      // @ts-expect-error -- abapiti form pending
       return [`${t}${tb} = append(${tb}, ${rowStored(st.table.type, copied(expr(st.value, ctx), st.value.type, st.value))})`, `${t}abap.BumpTable(&${tb})`, `${t}s.Sy.Tabix = int32(len(${tb}))`,
         // ultra/events: APPEND ... ASSIGNING <fs>
         // @ts-expect-error -- abapiti form pending
@@ -1514,7 +1524,9 @@ const LINES = !env("GOGEN_NOLINE");
         ? `func() string { var b []string; for _, ConcatRowStored := range ${expr(st.table, ctx)} { ConcatRow := ${rowValue(st.table.type, "ConcatRowStored")}; b = append(b, ${expr(st.row, ctx)}) }; return strings.Join(b, ${sep}) }()`
         // @ts-expect-error -- abapiti form pending
         : `strings.Join([]string{${st.parts.map((x) => expr(x, ctx)).join(", ")}}, ${sep})`;
+      // @ts-expect-error -- abapiti form pending
       const limit = st.target.type.k === "c" || st.target.type.k === "n" ? st.target.type.len : st.target.type.k === "d" ? 8 : -1;
+      // @ts-expect-error -- abapiti form pending
       const value = st.target.type.k === "n" ? `abap.CToN(v${n}, ${limit})` : st.target.type.k === "d" ? `abap.S2D(v${n})` : `v${n}`;
       return [`${t}{`, `${t}	v${n}, rc${n} := abap.ConcatFit(${joined}, ${limit})`,
         `${t}	${place(st.target, ctx)} = ${value}`, `${t}	s.Sy.Subrc = rc${n}`, `${t}}`];
@@ -1647,6 +1659,7 @@ const LINES = !env("GOGEN_NOLINE");
     }
     case "raise_event": {
       const ev = EVENTS.get(st.event);
+      // @ts-expect-error -- abapiti form pending
       const fields = st.args.map(/** @param {import("./emit-go-types.ts").EventArgument} a */ (a) => `${ident(a.name)}: ${copied(expr(a.value, ctx), a.value.type, a.value)}`).join(", ");
       // @ts-expect-error -- abapiti form pending
       return [`${t}abap.RaiseEvent(s, ${JSON.stringify(st.event)}, ${st.sender ? `any(${expr(st.sender, ctx)})` : "nil"}, ${ev.static}, func() any { return ${evType(st.event)}{${fields}} })`];
@@ -1787,6 +1800,7 @@ const LINES = !env("GOGEN_NOLINE");
       const n = `idx${ctx.loop++}`;
       const tb = place(st.table, ctx);
       return [`${t}if ${n} := ${expr(st.index, ctx)}; ${n} >= 1 && int(${n}) <= len(${tb}) {`,
+        // @ts-expect-error -- abapiti form pending
         `${t}\t${rowValue(st.table.type, `${tb}[${n}-1]`)} = ${copied(expr(st.value, ctx), st.value.type, st.value)}`, `${t}\ts.Sy.Subrc = 0`, `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     }
     case "split": return [`${t}${place(st.table, ctx)} = abap.Split(${expr(st.x, ctx)}, ${expr(st.sep, ctx)})`];
@@ -1867,12 +1881,15 @@ ${t}		hi${n} = b
 ${t}	}`));
       const saved = ctx.lrow;
       ctx.lrow = `r${n}`;
+      // @ts-expect-error -- abapiti form pending
       const v = st.value.e === "lrow" ? copied(rowValue(st.src.type, `r${n}`), st.value.type) : expr(st.value, ctx);
       ctx.lrow = saved;
       // the rows as they are: one append of the section, one growth (abapiti
       // Registry run, Z_RUNTIME_ARRA splice: per-row growth was most of it)
+      // @ts-expect-error -- abapiti form pending
       if (rowStored(st.table.type, v) === `r${n}`) out.push(`${t}	if lo${n} <= hi${n} {`, `${t}		${tb} = append(${tb}, src${n}[lo${n}-1:hi${n}]...)`, `${t}	}`,
         `${t}	if lo${n} <= hi${n} { abap.BumpTable(&${tb}) }`, `${t}	s.Sy.Tabix = int32(len(${tb}))`, `${t}}`);
+      // @ts-expect-error -- abapiti form pending
       else out.push(`${t}	for i${n} := lo${n}; i${n} <= hi${n}; i${n}++ {`, `${t}		r${n} := src${n}[i${n}-1]`, `${t}		${tb} = append(${tb}, ${rowStored(st.table.type, v)})`, `${t}	}`,
         `${t}	if lo${n} <= hi${n} { abap.BumpTable(&${tb}) }`, `${t}	s.Sy.Tabix = int32(len(${tb}))`, `${t}}`);
       return out;
@@ -1884,10 +1901,12 @@ ${t}	}`));
       // @ts-expect-error -- abapiti form pending
       /** @param {string} r @param {import("./emit-go-types.ts").SortKey} k @returns {string} */ const get = (r, k) => (k.line ? r : `${r}.${ident(k.name)}`);
       const cmp = st.keys.map((k) => `if a, b := ${get(`r${n}`, k)}, ${get(`v${n}`, k)}; a != b { if a > b { c${n} = 1 } else { c${n} = -1 }; goto done${n} }`);
+      // @ts-expect-error -- abapiti form pending
       return [`${t}{`, `${t}	v${n} := ${st.value.e === "lrow" && needsCopy(st.value.type) ? `${cloneName(st.value.type)}(${rowValue(st.table.type, expr(st.value, ctx))})` : copied(st.value.e === "lrow" ? rowValue(st.table.type, expr(st.value, ctx)) : expr(st.value, ctx), st.value.type, st.value)}`, `${t}	pos${n} := len(${tb})`, `${t}	s.Sy.Subrc = 0`,
         `${t}	for i${n}, r${n} := range ${tb} {`, `${t}		c${n} := 0`, ...cmp.map((x) => `${t}		${x}`), `${t}	done${n}:`,
         ...(st.unique === false ? [] : [`${t}		if c${n} == 0 {`, `${t}			s.Sy.Subrc = 4`, `${t}			break`, `${t}		}`]),
         `${t}		if c${n} > 0 {`, `${t}			pos${n} = i${n}`, `${t}			break`, `${t}		}`, `${t}	}`,
+        // @ts-expect-error -- abapiti form pending
         `${t}	if s.Sy.Subrc == 0 {`, `${t}		${tb} = append(${tb}, ${rowStored(st.table.type, `v${n}`)})`, `${t}		copy(${tb}[pos${n}+1:], ${tb}[pos${n}:])`, `${t}		${tb}[pos${n}] = ${rowStored(st.table.type, `v${n}`)}`, `${t}		abap.BumpTable(&${tb})`,
         // @ts-expect-error -- abapiti form pending
         ...(st.refInto ? [`${t}		${place(st.refInto, ctx)} = ${rowRef(st.table.type, tb, `${tb}[pos${n}]`)}`] : []), `${t}	}`, `${t}}`];
@@ -1904,24 +1923,32 @@ ${t}	}`));
     case "insert_table": {
       const tb = place(st.table, ctx);
       const v = `ins${ctx.loop++}`;
+      // @ts-expect-error -- abapiti form pending
       if (!st.unique) return [`${t}${tb} = append(${tb}, ${rowStored(st.table.type, copied(expr(st.value, ctx), st.value.type, st.value))})`, `${t}abap.BumpTable(&${tb})`, `${t}s.Sy.Subrc = 0`];
+      // @ts-expect-error -- abapiti form pending
       return [`${t}{`, `${t}\t${v} := ${copied(expr(st.value, ctx), st.value.type, st.value)}`, `${t}\ts.Sy.Subrc = 4`,
         ...(st.keys
           ? [`${t}\tdup${v} := false`, `${t}\tfor _, r := range ${tb} {`, `${t}\t\tif ${st.keys.map((k) => `r.${ident(k)} == ${v}.${ident(k)}`).join(" && ")} {`, `${t}\t\t\tdup${v} = true`, `${t}\t\t\tbreak`, `${t}\t\t}`, `${t}\t}`, `${t}\tif !dup${v} {`]
           : [`${t}\tif !abap.Contains(${tb}, ${v}) {`]),
+        // @ts-expect-error -- abapiti form pending
         `${t}\t\t${tb} = append(${tb}, ${rowStored(st.table.type, v)})`, `${t}\t\tabap.BumpTable(&${tb})`, `${t}\t\ts.Sy.Subrc = 0`, `${t}\t}`, `${t}}`];
     }
     case "assert":
       return [`${t}if !(${cond(st.cond, ctx)}) {`, `${t}\tpanic(abap.ArithmeticError{Class: "ASSERTION_FAILED", Op: ${JSON.stringify(st.text)}})`, `${t}}`];
     case "assign_comp":
+      // @ts-expect-error -- abapiti form pending
       return [`${t}if c, ok := abap.Component(${expr(st.from, ctx)}, ${expr(st.name, ctx)}); ok {`, `${t}\t${ident(st.fs.name)} = c`, `${t}\ts.Sy.Subrc = 0`,
+        // @ts-expect-error -- abapiti form pending
         `${t}} else {`, ...(st.name.type.k === "i" ? [`${t}\t${ident(st.fs.name)} = abap.Data{}`] : []), `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     case "assign_deref":
+      // @ts-expect-error -- abapiti form pending
       return [`${t}if r := ${expr(st.ref, ctx)}; r.P != nil {`, `${t}\t${ident(st.fs.name)} = r`, `${t}\ts.Sy.Subrc = 0`, `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     case "assign_deref_typed":
+      // @ts-expect-error -- abapiti form pending
       return [`${t}if r := ${expr(st.ref, ctx)}; r.P != nil {`, `${t}\t${ident(st.fs.name)} = ${st.fs.type.k === "struct" ? `abap.DerefAs[${goType(st.fs.type)}](r, ${JSON.stringify(st.text)})` : `abap.DirectBinding(abap.DerefAs[${goType(st.fs.type)}](r, ${JSON.stringify(st.text)}))`}`,
         `${t}\ts.Sy.Subrc = 0`, `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     case "assign_data":
+      // @ts-expect-error -- abapiti form pending
       return [`${t}${ident(st.fs.name)} = ${expr(st.value, ctx)}`];
     // a move into generic data writes into the slot it is bound to
     case "set_data":
@@ -1956,6 +1983,7 @@ ${t}	}`));
       return [`${t}abap.MoveCorrespondingData(${expr(st.to, ctx)}, ${expr(st.from, ctx)})`];
     case "shift_places": {
       const p = place(st.target, ctx);
+      // @ts-expect-error -- abapiti form pending
       const limit = st.target.type.k === "c" ? st.target.type.len : -1;
       return [`${t}${p} = abap.ShiftPlaces(${p}, ${st.left}, ${st.circular}, ${expr(st.amount, ctx)}, ${limit})`];
     }
@@ -2008,6 +2036,7 @@ ${t}	}`));
         ...stmtList(st.body, ctx, d + 2), `${t}\t}`, `${t}\ts.Sy.Tabix = save${n}`, `${t}}`];
     });
     case "call_dyn_static": {
+      // @ts-expect-error -- abapiti form pending
       const moves = st.receiving ? dynamicResultMoves({classes: [...CLASSES.values()], dynamicDispatch: DYNAMIC_DISPATCH}, st.method, st.receiving.target.type) : [];
       // @ts-expect-error -- abapiti form pending
       const call = `abap.CallStatic(s, ${expr(st.cls, ctx)}, ${JSON.stringify(st.method)}, map[string]abap.Data{${st.args.map((a) => `${JSON.stringify(a.name)}: ${expr(a.value, ctx)}`).join(", ")}}, ${JSON.stringify(st.receiving?.name ?? "")}, ${goStrings(moves.map((m) => m.key))})`;
@@ -2086,13 +2115,16 @@ ${t}	}`));
         `${t}\ts.Sy.Subrc, s.Sy.Dbcnt = 0, 1`, `${t}}`];
     }
     case "unassign":
+      // @ts-expect-error -- abapiti form pending
       return [`${t}${ident(st.fs.name)} = ${st.fs.type.k === "data" ? "abap.Data{}" : "nil"}`];
     case "select_dyn": {
       // dynamic Open SQL (go/abap selectdyn.go): the parts given at run time
       // as strings, the target as generic data
       /** @param {import("./emit-go-types.ts").DynamicSqlStrings | null} v @returns {string} */ const strs = (v) => (v === null ? "nil" : "e" in v && v.e === "strlist" ? `[]string{${v.values.map((x) => JSON.stringify(x)).join(", ")}}`
         : v.type.k === "table" ? expr(v, ctx) : `[]string{${expr(v, ctx)}}`);
+      // @ts-expect-error -- abapiti form pending
       return [`${t}abap.SelectDyn(s, abap.DynSelect{Table: ${expr(st.table, ctx)}, Fields: ${strs(st.fields)}, Star: ${st.fields === null}, ` +
+        // @ts-expect-error -- abapiti form pending
         `Where: ${st.where === null ? `""` : expr(st.where, ctx)}, HasWhere: ${st.where !== null}, GroupBy: ${strs(st.groupBy)}, OrderBy: ${strs(st.orderBy)}, ` +
         `PrimaryKey: ${st.primaryKey}, Corresponding: ${st.corresponding}, Stmt: ${JSON.stringify(st.text)}}, ${expr(st.target, ctx)})`];
     }
@@ -2175,6 +2207,7 @@ ${t}	}`));
       return [`${t}abap.${call}(s, ${spec}, ${rows}${st.op === "insert" ? `, ${JSON.stringify(st.onDuplicate)}` : ""})`];
     }
     case "create_dyn":
+      // @ts-expect-error -- abapiti form pending
       return [`${t}${place(st.target, ctx)} = abap.CreateAs[${goType(st.target.type)}](s, ${expr(st.name, ctx)})`];
     case "read_seckey": return readSecKey(st, ctx, t);
     case "read_key": {
@@ -2182,6 +2215,7 @@ ${t}	}`));
       const n = ctx.loop++;
       // @ts-expect-error -- abapiti form pending
       const cond = st.keys.map((k) => (k.line ? `${rowValue(st.table.type, `r${n}`)} == ${expr(k.value, ctx)}` : `r${n}.${ident(k.name)} == ${expr(k.value, ctx)}`)).join(" && ");
+      // @ts-expect-error -- abapiti form pending
       if (st.into?.conv) throw new Error("READ TABLE INTO a work area of another type");
       // @ts-expect-error -- abapiti form pending
       const bind = st.fs ? `${ident(st.fs)} = ${boundRow(st.table.type, tb, `i${n}`)}` : st.refInto ? `${place(st.into, ctx)} = ${rowRef(st.table.type, tb, `${tb}[i${n}]`)}` : st.into ? `${place(st.into, ctx)} = ${copied(rowValue(st.table.type, `r${n}`), st.into.type)}` : null;
@@ -2322,6 +2356,7 @@ ${t}	}`));
       const n = `idx${ctx.loop++}`;
       const tb = place(st.table, ctx);
       return [`${t}if ${n} := ${expr(st.index, ctx)}; ${n} >= 1 && int(${n}) <= len(${tb})+1 {`,
+        // @ts-expect-error -- abapiti form pending
         `${t}\t${tb} = abap.InsertAt(${tb}, ${n}, ${rowStored(st.table.type, copied(expr(st.value, ctx), st.value.type, st.value))})`, `${t}\tabap.BumpTable(&${tb})`, `${t}\ts.Sy.Subrc = 0`, `${t}\ts.Sy.Tabix = ${n}`,
         `${t}} else {`, `${t}\ts.Sy.Subrc = 4`, `${t}}`];
     }
@@ -2363,6 +2398,7 @@ ${t}	}`));
     case "var": case "attr": case "field": case "fs": case "row": case "row_key": case "refattr": case "dref_field": return place(e, ctx);
     case "zero": return zero(e.type) === "nil" ? `(${goType(e.type)})(nil)` : zero(e.type);
     case "case_fn": return `abap.${e.upper ? "ToUpper" : "ToLower"}(${expr(e.x, ctx)})`;
+    // @ts-expect-error -- abapiti form pending
     case "table_lit": return `${goType(e.type)}{${e.rows.map((r) => rowStored(e.type, copied(expr(r, ctx), r.type, r))).join(", ")}}`;
     case "bool": return `func() string { if ${cond(e.cond, ctx)} { return "X" }; return ${JSON.stringify(e.blank)} }()`;
     case "cond": {
@@ -2373,7 +2409,6 @@ ${t}	}`));
     case "temp": return e.name;
     case "padc": return `abap.PadC(${expr(e.x, ctx)}, ${e.n})`;
     case "flag": return String(e.value);
-    // @ts-expect-error -- abapiti form pending
     case "str_fn": return `abap.${e.fn}(${e.args.map((a) => expr(a, ctx)).join(", ")})`;
     case "sy": return place(e, ctx);
     case "sy_mandt": return "abap.Mandt";
@@ -2396,6 +2431,7 @@ ${t}	}`));
     case "struct": {
       // VALUE #( ... ): a component it does not name is initial (critic finding 1)
       const rest = zeroFields(e.type, new Set(e.fields.map((f) => String(f.name).toUpperCase())));
+      // @ts-expect-error -- abapiti form pending
       return `${e.type.go}{${[...e.fields.map((f) => `${ident(f.name)}: ${copied(expr(f.value, ctx), f.value.type, f.value)}`), ...rest].join(", ")}}`;
     }
     case "neg": return e.type.k === "int8" ? `abap.SubI8(0, ${expr(e.x, ctx)})` : e.type.k === "i" ? `abap.NegI(${expr(e.x, ctx)})` : e.type.k === "p" ? `abap.NegP(${expr(e.x, ctx)})` : `(-${expr(e.x, ctx)})`;
@@ -2480,6 +2516,7 @@ ${t}	}`));
       // a nil pointer put into an interface is not a nil interface: an unbound
       // reference must stay initial when it is widened
       const x = expr(e.x, ctx);
+      // @ts-expect-error -- abapiti form pending
       const fromPtr = e.x.type.k === "ref" && !e.x.type.intf && !POLY.has(e.x.type.name);
       const toIface = e.type.intf || POLY.has(e.type.name);
       return fromPtr && toIface && e.x.e !== "me" && e.x.e !== "new" ? `abap.Up[${goType(e.type)}](${x})` : x;
@@ -2504,6 +2541,7 @@ ${t}	}`));
       });
       return `func() ${goType(e.type)} { switch ${sel} { ${arms.join("; ")} }; panic(abap.NotCompiled("arithmetic", ${JSON.stringify(`calculation type of ${e.text} with these operands: not measured`)})) }()`;
     }
+    // @ts-expect-error -- abapiti form pending
     case "wrap": return `abap.Data{P: ${addressable(e.x) ? `&${place(e.x, ctx)}` : `abap.Ptr(${expr(e.x, ctx)})`}, T: ${desc(e.x.type)}}`;
     case "unwrap": return unwrapTo(e.type, expr(e.x, ctx));
     case "unwrap_chars": return `abap.DataChars(${expr(e.x, ctx)})`;
@@ -2529,15 +2567,19 @@ ${t}	}`));
 
 /** @param {import("./emit-go-types.ts").Expr} v @param {import("./emit-go-types.ts").Context} ctx @param {import("./emit-go-types.ts").TemplateOptions} opts @returns {string} */ function templateValue(v, ctx, opts) {
   const x = expr(v, ctx);
+  // @ts-expect-error -- abapiti form pending
   if (opts.decimals !== undefined) return v.type.k === "p" ? `abap.FmtPDec(${x}, ${opts.decimals})` : `abap.FmtFDec(${x}, ${opts.decimals})`;
+  // @ts-expect-error -- abapiti form pending
   switch (v.type.k) {
     case "i": return `abap.FmtI(${x})`;
     case "int8": return `abap.FmtI8(${x})`;
     case "f": return `abap.FmtF(${x})`;
+    // @ts-expect-error -- abapiti form pending
     case "p": return `abap.FmtP(${x}, ${opts.pdec ?? v.type.dec ?? 0})`;
     case "string": case "c": case "d": case "t": case "n": return x;
     case "x": case "xstring": return `abap.XToHex(${x})`;
     case "data": return `abap.FmtData(${x})`;
+    // @ts-expect-error -- abapiti form pending
     default: throw new Error(`template part ${v.type.k}`);
   }
 }
@@ -2685,6 +2727,7 @@ ${t}	}`));
       const keys = c.keys.map((k) => (k.line ? `r${n} == ${expr(k.value, ctx)}` : `r${n}.${ident(k.name)} == ${expr(k.value, ctx)}`)).join(" && ");
       return `func() bool { for _, r${n} := range ${expr(c.table, ctx)} { if ${keys} { return true } }; return false }()`;
     }
+    // @ts-expect-error -- abapiti form pending
     case "assigned": return c.fs.type.k === "data" ? `(${ident(c.fs.name)}.P != nil)` : `(${ident(c.fs.name)} != nil)`;
     case "data_bound": return `abap.DataBound(${expr(c.x, ctx)})`;
     case "and": return `(${cond(c.l, ctx)} && ${cond(c.r, ctx)})`;

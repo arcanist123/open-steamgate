@@ -343,8 +343,10 @@ export function whereColumns(t) {
       // DDIC view under each name); the client is the SQL view's, which is
       // where MANDT is (open-steamgate #45)
       const sqlView = view ? program.cdsViews?.[name] : undefined;
+      // @ts-expect-error -- abapiti form pending
       if (sqlView && sqlView !== name) entry.sqlView = sqlView;
       const cds = Object.entries(program.cdsViews ?? {}).find(([, v]) => v === name)?.[0];
+      // @ts-expect-error -- abapiti form pending
       if (cds && cds !== name) entry.cds = cds;
       try {
         entry.row = typeOf(st, name, program);
@@ -637,7 +639,6 @@ function functionGroupSignatures(ctx0, g) {
       // @ts-expect-error -- abapiti form pending
       const scope = findScopeNamed(x.top, "function", name);
       const ctx = {program, reg, className: owner, scopeName: owner, owner, method: name, sig, signatures, scope, file, spaghetti: x.spaghetti, locals: new Map(), temps: 0};
-      // @ts-expect-error -- abapiti form pending
       const known = new Set(sig.params.map((p) => p.name));
       // @ts-expect-error -- abapiti form pending
       ctx.fieldSymbols = new Map();
@@ -1310,6 +1311,7 @@ function compiledFunctionCall(node, ctx, text, name) {
     if (cls.constructor && !cls.constructor.dropped) {
       const bad = cls.constructor.calls?.find((c) => { const sig = signatures.get(c); return sig !== undefined && !("params" in sig) && !!sig.unsupported; });
       if (bad) {
+        // @ts-expect-error -- abapiti form pending
         cls.constructor.dropped = true; changed = true;
         program.skipped.push(`${className}=>CONSTRUCTOR: calls ${bad}, which was skipped`);
       }
@@ -1317,6 +1319,7 @@ function compiledFunctionCall(node, ctx, text, name) {
     for (const m of cls.methods) {
       const bad = m.calls?.find((c) => { const sig = signatures.get(c); return sig !== undefined && !("params" in sig) && !!sig.unsupported; });
       if (bad && !m.dropped) {
+        // @ts-expect-error -- abapiti form pending
         m.dropped = true; changed = true;
         program.skipped.push(`${className}=>${m.name}: calls ${bad}, which was skipped`);
         // @ts-expect-error -- abapiti form pending
@@ -3199,6 +3202,7 @@ const STRING_FNS = {
 }
 
 /** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {string} tw @param {boolean} [bytes] @param {import("@abaplint/core").Nodes.ExpressionNode | null} [resultNode] @returns {Extract<import("./frontend-types.ts").FrontendStmt, {s: "find_results"}>} */ function findResults(node, ctx, text, tw, bytes = false, resultNode = null) {
+  // @ts-expect-error -- abapiti form pending
   return lowerFindResults(node, ctx, text, tw, bytes, resultNode, {Expressions, upper, source, charlike, Unsupported, lvalue, fieldOf, convert, XS, S});
 }
 
