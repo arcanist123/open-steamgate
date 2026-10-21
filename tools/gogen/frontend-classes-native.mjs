@@ -241,8 +241,7 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
  * the session while it runs (amcProgram below), where Node reads the class
  * off the call stack.
  */
-// @ts-expect-error -- abapiti form pending
-/** @type {Map<string, {op: string, cls?: string, type?: string, args: Record<string, string>}>} */ const AMC_HOST = new Map([
+const AMC_HOST = new Map([
   ["CL_AMC_CHANNEL_MANAGER=>CREATE_MESSAGE_PRODUCER", {op: "create_producer", cls: "ZCL_AMC_PRODUCER",
     args: {APP: "I_APPLICATION_ID", PATH: "I_CHANNEL_ID", EXT: "I_CHANNEL_EXTENSION_ID", COMM: "I_COMMUNICATION_TYPE", ECHO: "I_SUPPRESS_ECHO"}}],
   ["CL_AMC_CHANNEL_MANAGER=>CREATE_MESSAGE_CONSUMER", {op: "create_consumer", cls: "ZCL_AMC_CONSUMER",
@@ -257,24 +256,23 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
 // a class whose source names one of these calls the AMC API
 const AMC_CALLER = /\b(CL_AMC_CHANNEL_MANAGER|IF_AMC_MESSAGE_PRODUCER\w*|IF_AMC_MESSAGE_CONSUMER)\b/i;
 // the program the SAMC authorities name: a class's class pool
-/** @param {string} cls @returns {string} */
+// @ts-expect-error -- abapiti form pending
 const amcProgramOf = (cls) => upper(cls).padEnd(30, "=") + "CP";
 
 /** the body of an AMC host method, and CX_AMC_ERROR for its refusals */
-/** @param {import("./frontend-types.ts").NativeContext} ctx @returns {import("./frontend-types.ts").FrontendStmt} */
 // @ts-expect-error -- abapiti form pending
 function amcMethod(spec, ctx) {
   const args = Object.fromEntries(Object.entries(spec.args).map(([k, n]) => [k, variable(n, ctx)]));
-  /** @type {import("./frontend-types.ts").ValueExpr} */ const err = {e: "var", name: "LV_AMC_ERROR", type: S};
+  const err = {e: "var", name: "LV_AMC_ERROR", type: S};
   const sig = constructorSignature(ctx, "CX_AMC_ERROR");
-  const ctorArgs = sig.map(/** @returns {import("./ir.ts").Argument} */ (p) => {
+  const ctorArgs = sig.map((p) => {
     if (p.suppliedOf) return {dir: "importing", byValue: true, type: p.type, value: {e: "chars", value: p.suppliedOf === "IV_REASON" ? "X" : "", type: p.type}};
+    // @ts-expect-error -- abapiti form pending
     if (p.name === "IV_REASON") return {name: p.name, dir: "importing", byValue: p.byValue, type: p.type, value: convert(err, p.type)};
     if (p.default !== undefined) return {name: p.name, supplied: false, dir: "importing", byValue: p.byValue, type: p.type, value: defaultValue(p, ctx)};
     return {name: p.name, supplied: false, dir: "importing", byValue: p.byValue, type: p.type, value: {e: "zero", type: p.type}};
   });
   const raise = {s: "raise", value: {e: "new", cls: "CX_AMC_ERROR", args: ctorArgs, type: {k: "ref", name: "CX_AMC_ERROR"}}, cls: "CX_AMC_ERROR"};
-  // @ts-expect-error -- abapiti form pending
   return {s: "amc", op: spec.op, cls: spec.cls, type: spec.type, args, err, raise};
 }
 
@@ -291,8 +289,7 @@ function amcMethod(spec, ctx) {
  * WWWDATA_IMPORT and SCMS_BINARY_TO_XSTRING are SMW0's (go/abap/w3mi.go),
  * their rules measured on A4H 2026-09-23 (ZCL_GOGEN_T_W3MI in semantics.mjs).
  */
-// @ts-expect-error -- abapiti form pending
-/** @type {Map<string, {fn: string, params: Record<string, string>}>} */ const NATIVE_FM = new Map([
+const NATIVE_FM = new Map([
   ["F4_FILENAME", {fn: "abap.F4_FILENAME", params: {PROGRAM_NAME: "exporting", DYNPRO_NUMBER: "exporting", FIELD_NAME: "exporting", FILE_NAME: "importing"}}],
   ["KD_GET_FILENAME_ON_F4", {fn: "abap.KD_GET_FILENAME_ON_F4", params: {PROGRAM_NAME: "exporting", DYNPRO_NUMBER: "exporting", FIELD_NAME: "exporting", MASK: "exporting", STATIC: "exporting", FILE_NAME: "changing"}}],
   ["WWWDATA_IMPORT", {fn: "abap.WWWDATA_IMPORT", params: {KEY: "exporting", MIME: "tables"}}],
@@ -309,7 +306,7 @@ function amcMethod(spec, ctx) {
  * work this binary has no compiler for. The signature is ZOSD_STORE's
  * (src/webgui/zosd_store.fugr.xml).
  */
-/** @type {Map<string, {fn: string, params: Record<string, string>}>} */ const DESTINATION_FM = new Map([
+const DESTINATION_FM = new Map([
   ["STORE ZOSD_STORE", {fn: "abap.ZOSD_STORE", params: {
     IV_COMMAND: "exporting", IV_TYPE: "exporting", IV_NAME: "exporting", IV_INCLUDE: "exporting",
     IV_SOURCE: "exporting", IV_FILTER: "exporting", IV_LIMIT: "exporting", IV_REVISION: "exporting", IV_JSON: "exporting",

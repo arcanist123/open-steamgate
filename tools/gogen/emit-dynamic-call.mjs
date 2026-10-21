@@ -21,9 +21,10 @@ export function dynamicAdapters(program) {
 }
 
 // A missing MOVE conversion becomes an ABAP dynamic-call type error at dispatch.
-/** @param {Pick<import("./emit-go-types.ts").ProgramInput, "classes" | "dynamicDispatch">} program @param {string} method @param {import("./ir.ts").Type} target @returns {import("./emit-go-types.ts").DynamicResultMove[]} */
+// @ts-expect-error -- abapiti form pending
 export function dynamicResultMoves(program, method, target) {
   /** @type {import("./emit-go-types.ts").DynamicResultMove[]} */ const moves = [];
+  // @ts-expect-error -- abapiti form pending
   const dynamicDispatch = (program.dynamicDispatch ?? []).filter((entry) => entry.key.endsWith(`=>${method}`));
   for (const {key, m} of dynamicAdapters({classes: program.classes, dynamicDispatch})) {
     if (!m.returning) continue;
@@ -36,15 +37,14 @@ export function dynamicResultMoves(program, method, target) {
   return moves;
 }
 
-/** @param {Extract<import("./ir.ts").Stmt, {s: "call_dyn_static"}>} st @param {unknown} ctx @param {string} t @param {Pick<import("./emit-go-types.ts").ProgramInput, "classes" | "dynamicDispatch">} program @param {{expr: (e: unknown, ctx: unknown) => string, stmt: (st: unknown, ctx: unknown, d: number) => string[]}} helpers @returns {string[]} */
+// @ts-expect-error -- abapiti form pending
 export function dynamicCallJs(st, ctx, t, program, {expr, stmt}) {
-  // @ts-expect-error -- abapiti form pending
   const moves = st.receiving ? dynamicResultMoves(program, st.method, st.receiving.target.type) : [];
+  // @ts-expect-error -- abapiti form pending
   const call = `abap.CallStatic(s, ${expr(st.cls, ctx)}, ${JSON.stringify(st.method)}, {${st.args.map((a) => `${JSON.stringify(a.name)}: ${expr(a.value, ctx)}`).join(", ")}}, ${JSON.stringify(st.receiving?.name ?? "")}, ${JSON.stringify(moves.map((m) => m.key))})`;
   if (!st.receiving) return [`${t}${call};`];
   return [`${t}{`, `${t}  const [$dynKey, $dynValue] = ${call};`, `${t}  switch ($dynKey) {`,
     ...moves.flatMap((m) => [`${t}    case ${JSON.stringify(m.key)}: {`,
-      // @ts-expect-error -- abapiti form pending
       ...stmt({s: st.receiving.target.type.k === "data" ? "set_data" : "assign", target: st.receiving.target,
         value: m.value}, ctx, 3), `${t}      break; }`]), `${t}  }`, `${t}}`];
 }
@@ -54,7 +54,7 @@ export function dynamicCallJs(st, ctx, t, program, {expr, stmt}) {
  * known by name, and each static method a dynamic call names gets an adapter
  * that reads its arguments out of generic data by name.
  */
-/** @param {import("./emit-go-types.ts").ProgramInput} program @param {{definable: typeof import("./emit-go.mjs").definable, zero: (t: import("./ir.ts").Type) => string, unwrapTo: (t: import("./ir.ts").Type, d: string) => string, composite: (t: import("./ir.ts").Type) => boolean, expr: (e: unknown, ctx: unknown) => string, typeName: (name: string) => string}} helpers @returns {string[]} */
+// @ts-expect-error -- abapiti form pending
 export function staticRegistryJs(program, {definable, zero, unwrapTo, composite, expr, typeName}) {
   const wanted = program.dynStatics ?? new Set();
   if (wanted.size === 0) return [];
@@ -62,7 +62,8 @@ export function staticRegistryJs(program, {definable, zero, unwrapTo, composite,
   const out = [`abap.knownClasses(${JSON.stringify(program.classes.map((c) => c.name))}, ${JSON.stringify([...(program.rtti?.known ?? [])].filter((n) => !n.includes("=>")))});`];
   for (const {key, cls, m, defaults} of dynamicAdapters(program)) {
     if (!m.static || !m.params || !definable(program, m)) continue;
-    /** @type {string[]} */ const lines = [];
+    // @ts-expect-error -- abapiti form pending
+    const lines = [];
     const args = m.params.map((p, i) => {
       const v = `v${i}`;
       if (p.dir !== "importing") {
@@ -79,6 +80,7 @@ export function staticRegistryJs(program, {definable, zero, unwrapTo, composite,
       lines.push(`  const ${v} = ${JSON.stringify(p.name)} in a ? ${read} : ${absent};`);
       return v;
     });
+    // @ts-expect-error -- abapiti form pending
     append(out, [`abap.registerStatic(${JSON.stringify(key)}, ${JSON.stringify(m.params.filter((p) => p.dir === "importing" && !p.suppliedOf).map((p) => p.name))}, ${JSON.stringify(m.returning?.name ?? "")}, (s, a) => {`], lines, [`  ${m.returning ? "return " : ""}${typeName(cls.name)}.${typeName(m.name)}(${["s", ...args].join(", ")});`, "});"]);
   }
   out.push("");

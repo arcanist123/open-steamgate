@@ -50,9 +50,6 @@ import {sqlIrType, writeIrType, irCheck, lowName, mandtPred, andIr, sqlHost, sql
 import {source, componentsOf, arith, sourceOperand, callMethodChain, excHolder,
   omittedArgument, omittedFactoryCall} from "./frontend-expressions-calls.mjs";
 /** @typedef {import("./frontend-types.ts").MethodSignature} ClassSignature */
-/** @typedef {import("@abaplint/core").Nodes.StatementNode} StNode */
-/** @typedef {{hosts: import("./frontend-sql.mjs").SqlAcc["hosts"], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} SqlAcc */
-/** @typedef {import("../sqlscript-types.ts").SqlExpr | ReturnType<typeof rangeHostPred>} SqlWhere */
 /** @typedef {typeof byteStatementHelpers} ByteStatementHelpers */ const byteStatementHelpers = {source, lvalue, convert, findResults};
 /** @type {WeakMap<import("./frontend-session-types.ts").Registry, Record<string, string>>} */ const cdsViewsByRegistry = new WeakMap();
 const HOST_REPLACED = new Set(["ZCL_OSD_ENQ_KERNEL"]);
@@ -186,16 +183,15 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   // a group the front end cannot even read (an error that is not a refusal)
   // is left out whole, named in skipped, and its modules stay refused
   const readable = groups.filter((g) => {
-    // @ts-expect-error -- abapiti form pending
     try { withArtifact(ctx0, g, () => functionGroupSignatures(ctx0, g), "function-signature"); return true; } catch (e) {
       // @ts-expect-error -- abapiti form pending
       program.skipped.push(`${fugrOwner(g)}: ${e.message}`);
-      // @ts-expect-error -- abapiti form pending
       for (const [k, v] of program.functionModules) if (v.owner === fugrOwner(g)) program.functionModules.delete(k);
       return false;
     }
   });
-  // lock objects must be known before methods compile: their key order is part of every generated ENQUEUE / DEQUEUE argument
+  // lock objects must be known before methods compile: their key order is
+  // part of every generated ENQUEUE / DEQUEUE argument
   program.lockObjects = lockObjectRegistry(reg, program);
   program.caught = caughtIndex(reg, program.wanted,
     // @ts-expect-error -- abapiti form pending
@@ -272,13 +268,16 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
 /** the table registry as the column registry of the dynamic Open SQL
  * condition parser: {NAME: {view, client, key, columns: [{name, kind, len,
  * dec, key, type}]}}, JSON as it stands (README "The table registry") */
-/** @param {import("./frontend-types.ts").FrontendProgram} program */ export function columnRegistry(program) {
+// @ts-expect-error -- abapiti form pending
+export function columnRegistry(program) {
   return {
-    tables: Object.fromEntries((program.tables ?? []).map(/** @param {import("./frontend-types.ts").FrontendTable} t */ (t) => [t.name, {view: t.view, client: t.client, key: t.key,
+    // @ts-expect-error -- abapiti form pending
+    tables: Object.fromEntries((program.tables ?? []).map((t) => [t.name, {view: t.view, client: t.client, key: t.key,
       ...(t.sqlView ? {sqlView: t.sqlView} : {}), ...(t.cds ? {cds: t.cds} : {}),
       // tools/ir-osql-where.mjs osqlWherePredicate(text, columns) as it is
       columns: whereColumns(t),
-      fields: t.columns.map(/** @param {import("./ir.ts").TableColumn} c */ (c) => ({name: c.name, kind: c.kind, len: c.len, dec: c.dec, key: c.key}))}])),
+      // @ts-expect-error -- abapiti form pending
+      fields: t.columns.map((c) => ({name: c.name, kind: c.kind, len: c.len, dec: c.dec, key: c.key}))}])),
     cdsViews: program.cdsViews ?? {},
   };
 }
@@ -286,16 +285,19 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
 /** {COL: {type, kind?}}: the columns argument of osqlWherePredicate
  * (tools/ir-osql-where.mjs), NUMC marked; a column with no IR type is left
  * out, as the parser could not compare it anyway */
-/** @param {import("./frontend-types.ts").FrontendTable} t */ export function whereColumns(t) {
-  return Object.fromEntries(t.columns.filter(/** @param {import("./ir.ts").TableColumn} c */ (c) => c.type !== null).map(/** @param {import("./ir.ts").TableColumn} c */ (c) => [c.name, c.kind === "N" ? {type: c.type, kind: "NUMC"} : {type: c.type}]));
+// @ts-expect-error -- abapiti form pending
+export function whereColumns(t) {
+  // @ts-expect-error -- abapiti form pending
+  return Object.fromEntries(t.columns.filter((c) => c.type !== null).map((c) => [c.name, c.kind === "N" ? {type: c.type, kind: "NUMC"} : {type: c.type}]));
 }
 
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {import("./frontend-types.ts").FrontendTable[]} */ export function tableRegistry(reg, program) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {import("./frontend-types.ts").FrontendTable[]} */ export function tableRegistry(reg, program) {
   /** @type {import("./frontend-types.ts").FrontendTable[]} */ const out = [];
   const saved = [program.currentClass, program.currentTypes];
   program.currentClass = undefined;
   program.currentTypes = undefined;
   try {
+    // @ts-expect-error -- abapiti form pending
     for (const obj of enumerateObjects(reg, "table-inventory", [], "final-output", (o) => o instanceof abaplint.Objects.Table || o instanceof abaplint.Objects.View)) {
       // Probe fields overlap private core members, so class guards start from unknown.
       /** @type {unknown} */ const candidate = obj;
@@ -303,11 +305,13 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
       const table = candidate instanceof abaplint.Objects.Table ? candidate : undefined;
       if (table === undefined && viewObject === undefined) continue;
       const view = viewObject !== undefined;
+      // @ts-expect-error -- abapiti form pending
       withArtifact({reg}, obj, () => { const name = upper(obj.getName());
       let st;
       try { st = table !== undefined ? table.parseType(reg) : viewObject?.parseType(reg); } catch { return; }
       if (!(st instanceof BasicTypes.StructureType)) return;
-      /** @type {string[]} */ let key = [];
+      // @ts-expect-error -- abapiti form pending
+      let key = [];
       try { key = view ? [] : (table?.listKeys?.(reg) ?? []).map(upper); } catch { key = []; }
       const columns = st.getComponents().map((c) => {
         const kind = typeKindOf(c.type);
@@ -317,21 +321,27 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
         const dec = kind === "P" ? c.type.getDecimals() : 0;
         /** @type {Partial<Record<string, import("./ir.ts").WriteType>>} */ const types = {C: {abap: "C", len}, N: {abap: "C", len}, I: {abap: "I"}, "8": {abap: "INT8"}, P: {abap: "P", len: 2 * len - 1, dec},
           g: {abap: "STRING"}, D: {abap: "D"}, X: {abap: "X", len}, y: {abap: "XSTRING"}}; const ir = types[kind] ?? null;
+        // @ts-expect-error -- abapiti form pending
         return {name: upper(c.name), kind, len, dec, key: key.includes(upper(c.name)), type: ir};
       });
+      // @ts-expect-error -- abapiti form pending
       /** @type {import("./frontend-types.ts").FrontendTable} */ const entry = {name, view, client: columns.some((c) => c.name === "MANDT"), key, columns};
-      // a view over a client-dependent table without MANDT hides the client (dbTable refuses it at build time; a read by name at run time does the same, go/abap selectdyn.go)
+      // a view over a client-dependent table without MANDT hides the client
+      // (dbTable refuses it at build time; a read by name at run time does
+      // the same, go/abap selectdyn.go)
       if (view && !entry.client) {
         const hidden = [...new Set((viewObject?.getFields() ?? []).map((f) => upper(f.TABNAME)))].find((b) => {
           try {
             // @ts-expect-error -- abapiti form pending
-            const baseTable = reg.getObject("TABL", b); const bt = baseTable?.parseType(reg);
+            /** @type {import("@abaplint/core").Objects.Table | undefined} */ const baseTable = reg.getObject("TABL", b); const bt = baseTable?.parseType(reg);
             return bt instanceof BasicTypes.StructureType && bt.getComponents().some((c) => upper(c.name) === "MANDT");
           } catch { return false; }
         });
         if (hidden) entry.hidesClient = hidden;
       }
-      // a CDS name and its SQL view (both are views here, gen/cds writes the DDIC view under each name); the client is the SQL view's, which is where MANDT is (open-steamgate #45)
+      // a CDS name and its SQL view (both are views here, gen/cds writes the
+      // DDIC view under each name); the client is the SQL view's, which is
+      // where MANDT is (open-steamgate #45)
       const sqlView = view ? program.cdsViews?.[name] : undefined;
       if (sqlView && sqlView !== name) entry.sqlView = sqlView;
       const cds = Object.entries(program.cdsViews ?? {}).find(([, v]) => v === name)?.[0];
@@ -350,29 +360,30 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     // @ts-expect-error -- abapiti form pending
     [program.currentClass, program.currentTypes] = saved;
   }
-  // the other names of the dictionary: CREATE DATA ... TYPE (name) of one of them is refused by name, an unknown name is CX_SY_CREATE_DATA_ERROR
+  // the other names of the dictionary: CREATE DATA ... TYPE (name) of one
+  // of them is refused by name, an unknown name is CX_SY_CREATE_DATA_ERROR
   // @ts-expect-error -- abapiti form pending
   program.ddicNames = [...program.rtti.known].filter((n) => !/=>/.test(n) && !out.some((t) => t.name === n)).sort();
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** each ENQU object's primary table, keyed by the object name */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-types.ts").FrontendProgram} program @param {import("./frontend-session-types.ts").Role} [role] @returns {Map<string, import("./frontend-types.ts").LockObject>} */ export function lockObjectRegistry(reg, program, role = "scheduling") {
+/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @param {string} [role] @returns {Map<string, import("./frontend-types.ts").LockObject>} */ export function lockObjectRegistry(reg, program, role = "scheduling") {
   /** @type {Map<string, import("./frontend-types.ts").LockObject>} */ const out = new Map();
+  // @ts-expect-error -- abapiti form pending
   for (const obj of enumerateObjects(reg, "lock-inventory", [], role, (o) => o instanceof abaplint.Objects.LockObject)) {
+    // @ts-expect-error -- abapiti form pending
     withArtifact({reg}, obj, () => {
     const name = upper(obj.getName());
     // @ts-expect-error -- abapiti form pending
     const table = upper(obj.getPrimaryTable() ?? "");
-    const tableObject = reg.getObject("TABL", table);
+    // @ts-expect-error -- abapiti form pending
+    /** @type {import("@abaplint/core").Objects.Table | undefined} */ const tableObject = reg.getObject("TABL", table);
     if (tableObject === undefined) return;
     try {
-      // @ts-expect-error -- abapiti form pending
       const key = (tableObject.listKeys?.(reg) ?? []).map(upper);
-      // @ts-expect-error -- abapiti form pending
       const structure = tableObject.parseType(reg); if (!(structure instanceof BasicTypes.StructureType)) return;
       const columns = new Map(structure.getComponents().map((c) => [upper(c.name), c.type]));
-      // @ts-expect-error -- abapiti form pending
       const fields = key.map((field) => {
         const type = columns.get(field), kind = typeKindOf(type);
         // Node request(): getLength() when supplied, otherwise the length
@@ -401,7 +412,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
  * so a name that exists but is not a structure dumps instead of reading as
  * TYPE_NOT_FOUND.
  */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {import("./frontend-types.ts").RttiTable} */ function rttiTable(reg, program) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {import("./frontend-types.ts").RttiTable} */ function rttiTable(reg, program) {
   /** @type {Map<string, {name: string; kind: string}[]>} */ const structs = new Map();
   /** @param {string} name @param {import("@abaplint/core").AbstractType} t @returns {void} */ const add = (name, t) => {
     if (!(t instanceof BasicTypes.StructureType)) return;
@@ -424,6 +435,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
         }
       }
     } catch { /* a type abaplint cannot resolve is simply not described */ }
+    // @ts-expect-error -- abapiti form pending
     rttiProjection(reg, obj, () => [[...known].filter((k) => k === n || k.startsWith(`${n}=>`)), [...structs].filter(([k]) => k === n || k.startsWith(`${n}=>`))]);
   }
   return {structs, known, classSupers: rttiLocalSupers(classSupers, program)};
@@ -431,7 +443,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
 
 
 /** ALIASES a FOR i~m of a class or interface (or a superclass): i~m */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} owner @param {string} name @returns {string | undefined} */ function aliasTarget(reg, owner, name) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} owner @param {string} name @returns {string | undefined} */ function aliasTarget(reg, owner, name) {
   for (const o of [owner, ...ancestors(reg, owner)]) {
     // @ts-expect-error -- abapiti form pending
     const def = reg.getObject("INTF", o)?.getDefinition() ?? clasDef(reg, o);
@@ -489,7 +501,7 @@ const LOCAL_CLASSES = new Set(["CL_EXPRESS_ICF_SHIM", "/UI2/CL_JSON", "CL_SXML_S
 /** @type {Map<string, import("@abaplint/core").IClassDefinition>} */ const LOCAL_DEFS = new Map();
 let PERSIST_LOWERING = false;
 // @ts-expect-error -- abapiti form pending
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} name @returns {import("@abaplint/core").IClassDefinition | undefined} */ const clasDef = (reg, name) => (PERSIST_LOWERING ? PROGRAM.localDefs : LOCAL_DEFS).get(name) ?? reg.getObject("CLAS", name)?.getDefinition();
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} name @returns {import("@abaplint/core").IClassDefinition | undefined} */ const clasDef = (reg, name) => (PERSIST_LOWERING ? PROGRAM.localDefs : LOCAL_DEFS).get(name) ?? reg.getObject("CLAS", name)?.getDefinition();
 
 /** @param {import("@abaplint/core").IRegistry} reg @param {import("@abaplint/core").Objects.Class} obj @param {boolean} [includeTests] @returns {import("./frontend-types.ts").LocalClass[]} */ function localClasses(reg, obj, includeTests = false) {
   const owner = upper(obj.getName());
@@ -537,9 +549,11 @@ export function deriveProgramWanted(reg, options, session, capture) {
  * global data (DATA in its TOP include) or a module with a global
  * interface is not compiled: its modules are stubs that dump.
  */
-/** @param {import("@abaplint/core").Objects.FunctionGroup} g @returns {string} */ function fugrOwner(g) { return `FUGR:${upper(g.getName())}`; }
+// @ts-expect-error -- abapiti form pending
+function fugrOwner(g) { return `FUGR:${upper(g.getName())}`; }
 
-/** @param {import("./frontend-types.ts").CompilationContext} ctx0 @param {import("@abaplint/core").Objects.FunctionGroup} g @returns {void} */ function functionGroupSignatures(ctx0, g) {
+// @ts-expect-error -- abapiti form pending
+function functionGroupSignatures(ctx0, g) {
   const {reg, program} = ctx0;
   const owner = fugrOwner(g);
   program.wanted.add(owner);
@@ -549,7 +563,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
   let spaghetti;
   try { spaghetti = new abaplint.SyntaxLogic(reg, g).run().spaghetti; } catch { spaghetti = undefined; }
   const top = spaghetti?.getTop();
-  const globalData = g.getABAPFiles().some(/** @param {import("@abaplint/core").ABAPFile} f */ (f) => /top\.abap$/i.test(f.getFilename()) && f.getStatements().some(/** @param {import("@abaplint/core").Nodes.StatementNode} st */ (st) => st.get() instanceof Statements.Data || st.get() instanceof Statements.DataBegin || st.get() instanceof Statements.Tables));
+  // @ts-expect-error -- abapiti form pending
+  const globalData = g.getABAPFiles().some((f) => /top\.abap$/i.test(f.getFilename()) && f.getStatements().some((st) => st.get() instanceof Statements.Data || st.get() instanceof Statements.DataBegin || st.get() instanceof Statements.Tables));
   const updateModules = new Set([...(g.getXMLFile()?.getRaw() ?? "").matchAll(/<item>([\s\S]*?)<\/item>/g)]
     .filter((m) => /<UPDATE_TASK>/.test(m[1])).map((m) => upper(/<FUNCNAME>([^<]*)<\/FUNCNAME>/.exec(m[1])?.[1] ?? "")));
   for (const m of g.getModules()) {
@@ -562,7 +577,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
       const scope = top && findScopeNamed(top, "function", name);
       if (!scope) throw new Unsupported(`${name}: no function scope`);
       const vars = scope.getData().vars;
-      const params = m.getParameters().map(/** @param {import("@abaplint/core").Types.IFunctionModuleParameter} p */ (p) => {
+      // @ts-expect-error -- abapiti form pending
+      const params = m.getParameters().map((p) => {
         const pn = upper(p.name);
         const id = vars[pn] ?? vars[pn.toLowerCase()];
         if (!id) throw new Unsupported(`${name}: parameter ${pn} has no type in the function scope`);
@@ -570,7 +586,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
         // types it as a table with a header line and no access kind); the
         // header line itself is not in the subset, a use of it is refused
         const it = id.getType();
-        /** @type {import("./ir.ts").Type} */ let type = p.direction === "tables" && it instanceof BasicTypes.TableType
+        let type = p.direction === "tables" && it instanceof BasicTypes.TableType
           ? {k: "table", row: typeOf(it.getRowType(), `${where} ${pn}`, program), skey: "default"} : typeOf(it, `${where} ${pn}`, program);
         if (p.direction === "tables" && type.k !== "table") throw new Unsupported(`${name}: TABLES ${pn} is a ${type.k}`);
         // Untyped TABLES must retain the caller's row descriptor and storage.
@@ -586,7 +602,6 @@ export function deriveProgramWanted(reg, options, session, capture) {
       if (!(e instanceof Unsupported)) throw e;
       sig = {name, unsupported: e.message};
     }
-    // @ts-expect-error -- abapiti form pending
     program.functionModules.set(name, {owner, group: g, module: m, sig, top, spaghetti, updateTask: updateModules.has(name)});
   }
 }
@@ -610,7 +625,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
       .some((fm) => upper(fm.findFirstExpression(Expressions.Field)?.concatTokens() ?? "") === name));
     const node = file?.getStructure()?.findAllStructures(Structures.FunctionModule)
       .find((fm) => upper(fm.findFirstExpression(Expressions.Field)?.concatTokens() ?? "") === name);
-    /** @param {string} why @returns {void} */ const skip = (why) => {
+    // @ts-expect-error -- abapiti form pending
+    const skip = (why) => {
       program.skipped.push(`${owner}=>${name}: ${why}`);
       // @ts-expect-error -- abapiti form pending
       if (!sig.unsupported) cls.stubs.push({...sig, reason: why, ...(node ? {pos: {file: file.getFilename().split("/").pop(), row: node.getFirstToken().getStart().getRow()}} : {})});
@@ -646,7 +662,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
       hoistLocalConstants(body, ctx, {Nodes, Structures, Statements, Expressions, isTok, isExpr, isStruct, isStmt, upper, goName, initialValue, Unsupported});
       // @ts-expect-error -- abapiti form pending
       const bodyStatements = body === undefined ? [] : block(body, ctx);
-      /** @type {import("./frontend-types.ts").FrontendStmt[]} */ const compiled = [];
+      // @ts-expect-error -- abapiti form pending
+      const compiled = [];
       // @ts-expect-error -- abapiti form pending
       append(compiled, ctx.inits, bodyStatements);
       // an update-task module marks the LUW on entry, after its caller's
@@ -670,7 +687,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
 
 
 /** kept for the numeric bench sample: one folder, every class in it */
-/** @param {string} folder @returns {readonly import("./frontend-types.ts").FrontendClass[]} */ export function readClass(folder) {
+// @ts-expect-error -- abapiti form pending
+export function readClass(folder) {
   const objects = [...new Set(readdirNames(folder).map((f) => f.split(".")[0]))];
   return compileProgram({folders: [folder], objects}).classes;
 }
@@ -701,14 +719,17 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // host function like NATIVE_FM, reached only through its destination
   const viaDest = dest === undefined ? undefined : DESTINATION_FM.get(`${upper(dest)} ${name}`);
   const fm = viaDest ?? (dest === undefined ? NATIVE_FM.get(name) : undefined);
+  // @ts-expect-error -- abapiti form pending
   if (fm === undefined && dest === undefined && resolvedFunctionModule(ctx, name)) return compiledFunctionCall(node, ctx, text, name);
   if (fm === undefined && dest !== undefined) throw new Unsupported(`CALL FUNCTION '${name}' DESTINATION '${dest}': no host implementation of this destination`);
   if (fm === undefined) throw new Unsupported(`CALL FUNCTION '${name}': no host implementation of this function module`);
   if (/\b(IN\s+UPDATE\s+TASK|STARTING\s+NEW\s+TASK|IN\s+BACKGROUND)\b/i.test(text) || (viaDest === undefined && /\bDESTINATION\b/i.test(text))) throw new Unsupported(`CALL FUNCTION '${name}' form: ${text}`);
   const fp = node.findDirectExpression(Expressions.FunctionParameters);
-  /** @type {import("./ir.ts").Argument[]} */ const args = [];
-  /** @type {{map: Record<string, number>, others: number} | null} */ let exceptions = null;
-  /** @param {string} pname @param {string} want @returns {void} */ const side = (pname, want) => {
+  const args = [];
+  let exceptions = null;
+  // @ts-expect-error -- abapiti form pending
+  const side = (pname, want) => {
+    // @ts-expect-error -- abapiti form pending
     const got = fm.params[pname];
     if (got === undefined) throw new Unsupported(`CALL FUNCTION '${name}': parameter ${pname} is not in the host's signature`);
     if (got !== want) throw new Unsupported(`CALL FUNCTION '${name}': ${pname} passed as ${want}, it is ${got}`);
@@ -716,7 +737,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
   if (fp !== undefined) {
     const kids = fp.getChildren();
     for (let i = 0; i < kids.length; i++) {
-      /** @type {import("./frontend-types.ts").TokenText} */ const k = kids[i];
+      const k = kids[i];
       if (isExpr(k, Expressions.FunctionExporting)) {
         for (const p of k.findDirectExpressions(Expressions.FunctionExportingParameter)) {
           // @ts-expect-error -- abapiti form pending
@@ -746,10 +767,12 @@ export function deriveProgramWanted(reg, options, session, capture) {
           const v = x.findDirectExpression(Expressions.Integer);
           if (!v) throw new Unsupported(`EXCEPTIONS with a value that is not a number: ${x.concatTokens()}`);
           const nm = x.findDirectExpression(Expressions.ParameterName);
+          // @ts-expect-error -- abapiti form pending
           if (nm) exceptions.map[upper(nm.concatTokens())] = Number(v.concatTokens());
           else exceptions.others = Number(v.concatTokens());
         }
       } else if (!(k instanceof Nodes.TokenNode)) {
+        // @ts-expect-error -- abapiti form pending
         throw new Unsupported(`CALL FUNCTION '${name}' form: ${k.concatTokens()}`);
       }
     }
@@ -779,7 +802,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
   return {s: "call_enq", kind: name.startsWith("ENQUEUE_") ? "enqueue" : "dequeue", name, table: lock.table, fields: lock.fields, object, args, exceptions};
 }
 
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {string} name @param {Set<string>} params @returns {void} */ function rejectParameters(node, name, params) {
+// @ts-expect-error -- abapiti form pending
+function rejectParameters(node, name, params) {
   const fp = node.findDirectExpression(Expressions.FunctionParameters);
   if (fp === undefined) return;
   for (const k of fp.getChildren()) {
@@ -790,16 +814,18 @@ export function deriveProgramWanted(reg, options, session, capture) {
         if (!params.has(pname)) throw new Unsupported(`CALL FUNCTION '${name}': parameter ${pname} is not in the lock module's signature`);
       }
     } else if (!(k instanceof Nodes.TokenNode) && !isExpr(k, Expressions.ParameterListExceptions)) {
-      // @ts-expect-error -- abapiti form pending
       throw new Unsupported(`CALL FUNCTION '${name}' form: ${k.concatTokens()}`);
     }
   }
 }
 
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} name @param {Set<string>} params @returns {{args: import("./ir.ts").Argument[], exceptions: import("./ir.ts").Exceptions | null}} */ function lockArguments(node, ctx, name, params) {
+// @ts-expect-error -- abapiti form pending
+function lockArguments(node, ctx, name, params) {
   const fp = node.findDirectExpression(Expressions.FunctionParameters);
-  /** @type {import("./ir.ts").Argument[]} */ const args = [];
-  /** @type {{map: Record<string, number>, others: number} | null} */ let exceptions = null;
+  // @ts-expect-error -- abapiti form pending
+  const args = [];
+  let exceptions = null;
+  // @ts-expect-error -- abapiti form pending
   if (fp === undefined) return {args, exceptions};
   for (const k of fp.getChildren()) {
     if (isExpr(k, Expressions.FunctionExporting)) {
@@ -816,11 +842,11 @@ export function deriveProgramWanted(reg, options, session, capture) {
         const value = x.findDirectExpression(Expressions.Integer);
         if (!value) throw new Unsupported(`EXCEPTIONS with a value that is not a number: ${x.concatTokens()}`);
         const exceptionName = x.findDirectExpression(Expressions.ParameterName);
+        // @ts-expect-error -- abapiti form pending
         if (exceptionName) exceptions.map[upper(exceptionName.concatTokens())] = Number(value.concatTokens());
         else exceptions.others = Number(value.concatTokens());
       }
     } else if (!(k instanceof Nodes.TokenNode)) {
-      // @ts-expect-error -- abapiti form pending
       throw new Unsupported(`CALL FUNCTION '${name}' form: ${k.concatTokens()}`);
     }
   }
@@ -835,19 +861,20 @@ export function deriveProgramWanted(reg, options, session, capture) {
  * normally (A4H ZCL_GOGEN_T_FM: after RAISE the caller's fields keep their
  * values, a TABLES table keeps what the module appended). Without
  * EXCEPTIONS sy-subrc is 0 afterwards and a RAISE dumps. */
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {string} name @returns {import("./frontend-types.ts").FrontendStmt} */ function compiledFunctionCall(node, ctx, text, name) {
+// @ts-expect-error -- abapiti form pending
+function compiledFunctionCall(node, ctx, text, name) {
   // @ts-expect-error -- abapiti form pending
   const {owner, sig} = resolvedFunctionModule(ctx, name);
   if (/\b(IN\s+UPDATE\s+TASK|STARTING\s+NEW\s+TASK|IN\s+BACKGROUND|DESTINATION|PARAMETER-TABLE|EXCEPTION-TABLE)\b/i.test(text)) throw new Unsupported(`CALL FUNCTION '${name}' form: ${text}`);
   if (sig.unsupported) throw new Unsupported(`CALL FUNCTION '${name}': ${sig.unsupported}`);
   const fp = node.findDirectExpression(Expressions.FunctionParameters);
-  /** @type {Map<string, import("@abaplint/core").Nodes.ExpressionNode | undefined>} */ const given = new Map();
-  /** @type {Map<string, {kw: string, target: import("./frontend-types.ts").ValueExpr}>} */ const targets = new Map();
-  /** @type {{map: Record<string, number>, others: number} | null} */ let exceptions = null;
+  const given = new Map();
+  const targets = new Map();
+  let exceptions = null;
   if (fp !== undefined) {
     const kids = fp.getChildren();
     for (let i = 0; i < kids.length; i++) {
-      /** @type {import("./frontend-types.ts").TokenText} */ const k = kids[i];
+      const k = kids[i];
       if (isExpr(k, Expressions.FunctionExporting)) {
         for (const p of k.findDirectExpressions(Expressions.FunctionExportingParameter)) {
           // @ts-expect-error -- abapiti form pending
@@ -866,6 +893,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
           const v = x.findDirectExpression(Expressions.Integer);
           if (!v) throw new Unsupported(`EXCEPTIONS with a value that is not a number: ${x.concatTokens()}`);
           const nm = x.findDirectExpression(Expressions.ParameterName);
+          // @ts-expect-error -- abapiti form pending
           if (nm) exceptions.map[upper(nm.concatTokens())] = Number(v.concatTokens());
           else exceptions.others = Number(v.concatTokens());
         }
@@ -877,11 +905,11 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // @ts-expect-error -- abapiti form pending
   const known = new Set(sig.params.map((p) => p.name));
   for (const pn of [...given.keys(), ...targets.keys()]) if (!known.has(pn)) throw new Unsupported(`CALL FUNCTION '${name}': ${pn} is not a parameter of the module`);
-  /** @type {import("./frontend-types.ts").FrontendStmt[]} */ const before = [], /** @type {import("./frontend-types.ts").FrontendStmt[]} */ after = [];
   // @ts-expect-error -- abapiti form pending
-  /** @type {import("./ir.ts").Argument[]} */ const args = sig.params.map((p) => {
+  const before = [], after = [];
+  // @ts-expect-error -- abapiti form pending
+  const args = sig.params.map((p) => {
     if (p.dir === "importing") {
-      // @ts-expect-error -- abapiti form pending
       if (targets.has(p.name)) throw new Unsupported(`CALL FUNCTION '${name}': importing ${p.name} passed as ${targets.get(p.name).kw}`);
       const s = given.get(p.name);
       if (s === undefined) {
@@ -909,18 +937,22 @@ export function deriveProgramWanted(reg, options, session, capture) {
       throw new Unsupported(`CALL FUNCTION '${name}': ${want} ${p.name} into a ${t.type.k}, the parameter is ${p.type.k}`);
     }
     if (!p.byValue && direct) return {dir: p.dir, byValue: false, place: t, type: p.type};
-    /** @type {import("./frontend-types.ts").ValueExpr} */ const tmp = {e: "var", name: `FMV_${ctx.temps++}`, type: p.type};
+    const tmp = {e: "var", name: `FMV_${ctx.temps++}`, type: p.type};
     ctx.locals.set(tmp.name, p.type);
     if (p.dir === "changing") before.push({s: "assign", target: tmp, value: convert(t, p.type)});
     else before.push({s: "clear", target: tmp});
+    // @ts-expect-error -- abapiti form pending
     after.push({s: "assign", target: t, value: convert(tmp, t.type)});
     return {dir: p.dir, byValue: p.byValue, place: tmp, type: p.type};
   });
-  /** @type {import("./frontend-types.ts").FrontendStmt} */ const call = {s: "call", call: {e: "call", method: name, static: true, owner, receiver: null, sup: null, args, type: {k: "void"}, exceptions, receiving: null, callee: name}};
-  /** @type {import("./ir.ts").Expr} */ const subrc = {e: "sy", field: "Subrc", type: I};
-  /** @type {import("./frontend-types.ts").FrontendStmt[]} */ const tail = exceptions
+  const call = {s: "call", call: {e: "call", method: name, static: true, owner, receiver: null, sup: null, args, type: {k: "void"}, exceptions, receiving: null, callee: name}};
+  const subrc = {e: "sy", field: "Subrc", type: I};
+  const tail = exceptions
+    // @ts-expect-error -- abapiti form pending
     ? (after.length ? [{s: "if", branches: [{cond: {c: "cmp", op: "=", l: subrc, r: {e: "int", value: 0, type: I}, type: I}, body: after}], else: null}] : [])
+    // @ts-expect-error -- abapiti form pending
     : [...after, {s: "assign", target: subrc, value: {e: "int", value: 0, type: I}}];
+  // @ts-expect-error -- abapiti form pending
   return {s: "seq", body: [...before, call, ...tail]};
 }
 
@@ -939,8 +971,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
   const map = PROGRAM.ddicOutputLen;
   if (map.has(name) || name.includes("-") || !REG) return;
   // @ts-expect-error -- abapiti form pending
-  /** @param {string | undefined} type @param {string} n @returns {string} */ const xmlOf = (type, n) => REG.getObject(type, n)?.getXMLFile?.()?.getRaw?.() ?? "";
-  /** @param {string} xml @param {string} t @returns {string | undefined} */ const tag = (xml, t) => new RegExp(`<${t}>([^<]*)</${t}>`).exec(xml)?.[1];
+  const xmlOf = (type, n) => REG.getObject(type, n)?.getXMLFile?.()?.getRaw?.() ?? "";
+  // @ts-expect-error -- abapiti form pending
+  const tag = (xml, t) => new RegExp(`<${t}>([^<]*)</${t}>`).exec(xml)?.[1];
   const dtel = xmlOf("DTEL", name);
   if (!dtel) return;
   const dom = tag(dtel, "DOMNAME");
@@ -1179,8 +1212,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // a method with a typed signature still exists as a stub that raises
       // when called, so its callers compile; only an untyped signature
       // cannot be called at all
-      // @ts-expect-error -- abapiti form pending
-      if (typed.has(name)) /** @type {NonNullable<typeof cls.stubs>} */ (cls.stubs).push({.../** @type {import("./frontend-types.ts").Signature} */ (typed.get(name)), reason: why, pos: {file: file.getFilename().split("/").pop(), row: node.getFirstToken().getStart().getRow()}});
+      if (typed.has(name)) /** @type {NonNullable<typeof cls.stubs>} */ (cls.stubs).push({.../** @type {import("./frontend-types.ts").Signature} */ (typed.get(name)), reason: why, pos: {file: /** @type {string} */ (/** @type {NonNullable<typeof file>} */ (file).getFilename().split("/").pop()), row: node.getFirstToken().getStart().getRow()}});
       else signatures.set(name, {name, unsupported: why});
     };
     if (candidate === undefined) { skip("no signature"); continue; }
@@ -1202,8 +1234,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // the host classes the body makes are references, so a closure grown
       // from references (unit.mjs, referencedClasses) compiles them
       /** @type {Readonly<Record<string, string>>} */ const hostRefs = {create_producer: "ZCL_AMC_PRODUCER", create_consumer: "ZCL_AMC_CONSUMER", start: "ZCL_AMC_MESSAGE_CONTEXT"};
+      const locals = [{name: "LV_AMC_ERROR", type: S}, ...(hostRefs[spec.op] ? [{name: "LO_AMC_HOST", type: {k: "ref", name: hostRefs[spec.op], intf: false}}] : [])];
       // @ts-expect-error -- abapiti form pending
-      /** @type {{name: string, type: import("./ir.ts").Type}[]} */ const locals = [{name: "LV_AMC_ERROR", type: S}, ...(hostRefs[spec.op] ? [{name: "LO_AMC_HOST", type: {k: "ref", name: hostRefs[spec.op], intf: false}}] : [])];
       cls.methods.push({...sig, locals, fieldSymbols: [], calls: [], body: [amcMethod(spec, actx)],
         // @ts-expect-error -- abapiti form pending
         pos: {file: file.getFilename().split("/").pop(), row: node.getFirstToken().getStart().getRow()}});
@@ -1226,9 +1258,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
     try {
       // @ts-expect-error -- abapiti form pending
       const scope = spaghetti.lookupPosition(node.getFirstToken().getStart(), file.getFilename());
-      const ctx = {program, reg, className, scopeName, owner: obj.owner ?? className, method: name, sig, signatures, scope, file, spaghetti, locals: new Map(), fieldSymbols: new Map(), inits: [], temps: 0};
-      const body = node.findDirectStructure(Structures.Body);
       // @ts-expect-error -- abapiti form pending
+      /** @type {import("./frontend-types.ts").MethodContext} */ const ctx = {program, reg, className, scopeName, owner: obj.owner ?? className, method: name, sig, signatures, scope, file, spaghetti, locals: new Map(), fieldSymbols: new Map(), inits: [], temps: 0};
+      const body = node.findDirectStructure(Structures.Body);
       ctx.sinkUnsafe = !!body?.findAllExpressionsRecursive(Expressions.Dynamic).length;
       const known = new Set([...sig.params.map((p) => p.name), sig.returning?.name].filter(Boolean));
       const inlineTables = inlineTableLocals(body);
@@ -1252,9 +1284,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
           ctx.locals.set(vname, t);
         }
       }
-      // @ts-expect-error -- abapiti form pending
       hoistLocalConstants(body, ctx, {Nodes, Structures, Statements, Expressions, isTok, isExpr, isStruct, isStmt, upper, goName, initialValue, Unsupported});
-      // @ts-expect-error -- abapiti form pending
       const bodyStatements = body === undefined ? [] : block(body, ctx);
       /** @type {import("./frontend-types.ts").FrontendStmt[]} */ const compiled = [];
       append(compiled, ctx.inits, bodyStatements);
@@ -1374,7 +1404,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
   try { type = typeOf(id.getType(), name, program); } catch (e) { if (e instanceof Unsupported) return undefined; throw e; }
   let value = id.getValue?.();
   const SCALAR = ["i", "int8", "f", "c", "string", "x", "xstring"];
-  // a quote inside a literal is written twice: '#''"' is #'" (the Zork alphabet shifted by one character after it until this was read right)
+  // a quote inside a literal is written twice: '#''"' is #'" (the Zork
+  // alphabet shifted by one character after it until this was read right)
   /** @param {string | number | undefined} v @returns {string} */ const unquote = (v) => {
     v = String(v);
     if (/^'.*'$/s.test(v)) return v.slice(1, -1).replaceAll("''", "'");
@@ -1385,7 +1416,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
   if (value !== null && typeof value === "object" && type.k === "struct") {
     const fields = program.structs.get(type.go)?.fields ?? [];
     const byName = new Map(Object.entries(value).map(([k, v]) => [upper(k), v]));
-    // an n component (MSGNO of a T100 key) whose VALUE is exactly its digits: the characters are the value; any other n VALUE is not measured
+    // an n component (MSGNO of a T100 key) whose VALUE is exactly its digits:
+    // the characters are the value; any other n VALUE is not measured
     /** @param {import("./ir.ts").Field} f @returns {boolean} */ const nDigits = (f) => f.type.k === "n" && byName.has(f.name) && new RegExp(`^[0-9]{${f.type.len}}$`).test(unquote(byName.get(f.name)));
     if (fields.length === 0 || fields.some((f) => (!SCALAR.includes(f.type.k) && !nDigits(f)) || typeof byName.get(f.name) === "object")) return undefined;
     program.consts.set(go, {go, type, value: Object.fromEntries(fields.map((f) => [f.name, byName.has(f.name) ? unquote(byName.get(f.name)) : undefined]))});
@@ -1483,7 +1515,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
 // when an up cast from it to the target is legal (A4H 7.58, 2026-10-08:
 // REF TO zcl_a -> zcl_a true, -> a subclass false; REF TO object -> zcl_a
 // false; REF TO zif_x -> zif_x true)
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-types.ts").RefType} from @param {import("./frontend-types.ts").RefType} to @returns {boolean} */ function upcastable(reg, from, to) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").RefType} from @param {import("./frontend-types.ts").RefType} to @returns {boolean} */ function upcastable(reg, from, to) {
   if (to.name === "OBJECT" || from.name === to.name) return true;
   if (from.name === "OBJECT") return false;
   if (!to.intf) return !from.intf && isSubclass(reg, from.name, to.name);
@@ -1492,7 +1524,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
     .some((i) => upper(i.name) === to.name || componentInterfaces(reg, upper(i.name)).includes(to.name)));
 }
 
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} cls @param {string} ancestor @returns {boolean} */ function isSubclass(reg, cls, ancestor) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} cls @param {string} ancestor @returns {boolean} */ function isSubclass(reg, cls, ancestor) {
   // @ts-expect-error -- abapiti form pending
   return chainHas(PROGRAM ?? reg, reg, cls, ancestor, (c) => clasDef(reg, c)?.getSuperClass()?.toUpperCase() ?? RUNTIME_CX_SUPER[c]);
 }
@@ -1556,14 +1588,13 @@ export function deriveProgramWanted(reg, options, session, capture) {
         if (attr.type.k === "ref" && !attr.type.intf && attr.type.name !== "OBJECT" && !ctx.program.wanted.has(attr.type.name)) throw new Unsupported(`CATCH ... INTO ${nm}: REF TO ${attr.type.name}, which is not compiled`);
         return {classes: names, into: nm, intoPlace: attr, intoKind: covers.length > 0 ? "exc" : "ref", intoType: attr.type, covers, own, body: bodyOf(c, ctx)};
       }
-      const declared = ctx.locals.get(nm);
+      // @ts-expect-error -- abapiti form pending
+      /** @type {import("./ir.ts").Type} */ const declared = ctx.locals.get(nm);
       if (covers.length > 0) {
         ctx.locals.set(nm, EXC);
         intoKind = "exc";
       } else {
-        // @ts-expect-error -- abapiti form pending
         if (declared.k !== "ref") throw new Unsupported(`CATCH ... INTO ${nm}: a ${declared.k} (also the INTO of a CATCH of runtime exceptions)`);
-        // @ts-expect-error -- abapiti form pending
         if (!declared.intf && declared.name !== "OBJECT" && !ctx.program.wanted.has(declared.name)) throw new Unsupported(`CATCH ... INTO ${nm}: REF TO ${declared.name}, which is not compiled`);
         intoKind = "ref";
       }
@@ -1638,6 +1669,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
   if (/** @type {(node: import("@abaplint/core").Nodes.StructureNode, cls: import("./frontend-types.ts").NodeClass) => boolean} */ (isStruct)(node, Structures.While)) {
     return {s: "while", cond: cond(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (/** @type {import("@abaplint/core").Nodes.StatementNode} */ (node.findDirectStatement(Statements.While)).findDirectExpression(Expressions.Cond)), ctx), body: bodyOf(node, ctx)};
   }
+  // @ts-expect-error -- abapiti form pending
   if (/** @type {(node: import("@abaplint/core").Nodes.StructureNode, cls: import("./frontend-types.ts").NodeClass) => boolean} */ (isStruct)(node, Structures.Select)) return selectLoop(node, ctx);
   if (/** @type {(node: import("@abaplint/core").Nodes.StructureNode, cls: import("./frontend-types.ts").NodeClass) => boolean} */ (isStruct)(node, Structures.Loop)) {
     const st = /** @type {import("@abaplint/core").Nodes.StatementNode} */ (node.findDirectStatement(Statements.Loop));
@@ -1695,10 +1727,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
       if (!nm || !fsType || (fsType.k !== "data" && fsType.k !== "struct") || /\b(WHERE|FROM|TO|INTO|USING)\b/i.test(text.replace(/ASSIGNING.*/i, ""))) throw new Unsupported(`LOOP form over a generic table: ${text}`);
       // a typed field symbol (ultra/json): each row must be a value of that
       // structure, checked at run time as ASSIGN ref->* TO <typed> is
-      const loop = {s: "loop_data", table, fs: upper(nm), ...(fsType.k === "struct" ? {fsType, text} : {}), token: {}};
-      // @ts-expect-error -- abapiti form pending
+      /** @type {GenericLoopState} */ const loop = {s: "loop_data", table, fs: upper(nm), ...(fsType.k === "struct" ? {fsType, text} : {}), token: {}};
       (ctx.loopStack ??= []).push(loop);
-      // @ts-expect-error -- abapiti form pending
       try { loop.body = bodyOf(node, ctx); } finally { ctx.loopStack.pop(); }
       // @ts-expect-error -- abapiti form pending
       return loop;
@@ -1748,8 +1778,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // ultra/itab: the loop is known to its body, for DELETE itab (the
     // current row) inside it
     // (a shared token object, not the loop itself, so the IR stays a tree)
-    const loop = {s: "loop", table, into, fs, where, from: bound("FROM"), to: bound("TO"), rowType: table.type.row, ...(key ? {key} : {}), ...(dynamicKeys ? {dynamicKeys} : {}), token: {}};
     // @ts-expect-error -- abapiti form pending
+    /** @type {TableLoopState} */ const loop = {s: "loop", table, into, fs, where, from: bound("FROM"), to: bound("TO"), rowType: table.type.row, ...(key ? {key} : {}), ...(dynamicKeys ? {dynamicKeys} : {}), token: {}};
     (ctx.loopStack ??= []).push(loop);
     // critic fix: inside the body the loop's field symbol is freshly
     // assigned on every pass until a DELETE of the current row makes it
@@ -1804,8 +1834,10 @@ export function deriveProgramWanted(reg, options, session, capture) {
 }
 /** statements that add a row anywhere but the end, or remove one, on a table with a non-unique sorted secondary key */
 /** @param {import("./frontend-types.ts").TableType} tableType @param {string} what @param {import("./frontend-types.ts").MethodContext | null} [ctx] @returns {void} */ function keyGuard(tableType, what, ctx = null) {
-  // AJSON's tree has one node per (path,name). The non-unique secondary declarations order only array children (path,index) or ordered object
-  // children (path,order); those are unique within their respective sets. Removing a node therefore cannot reorder equal keys seen by stringify.
+  // AJSON's tree has one node per (path,name). The non-unique secondary
+  // declarations order only array children (path,index) or ordered object
+  // children (path,order); those are unique within their respective sets.
+  // Removing a node therefore cannot reorder equal keys seen by stringify.
   // @ts-expect-error -- abapiti form pending
   if (what === "DELETE" && ctx?.className === "ZCL_AJSON" && tableType.row?.go === "ZIF_AJSON_TYPES__TY_NODE") return;
   const nonUnique = (tableType?.secondary ?? []).filter((k) => !k.unique);
@@ -1860,7 +1892,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       where.push({fx: compared, op, value: convert(v, calc), calc});
       continue;
     }
-    /** @type {import("./ir.ts").Expr | null} */ let fx = null;
+    let fx = null;
     if (path.length > 1 || initial) {
       fx = {e: "lrow", type: rowType};
       for (const part of path) {
@@ -1879,6 +1911,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
     /** @type {import("./ir.ts").Field} */ const f = fx !== null ? {name: fx.name, type: fx.type} : fieldOf(ctx, rowType, comp.concatTokens(), text);
     const opT = upper(opN.concatTokens());
     const op = OPS[opT] ?? opT;
+    // @ts-expect-error -- abapiti form pending
     const sc = ["CP", "NP", "CA", "NA", "CS", "NS", "CO", "CN"].includes(op) ? stringComparison(op, fx ?? {e: "field", base: {e: "lrow", type: rowType}, name: f.name, type: f.type}, source(src, ctx, f.type)) : null;
     if (sc) { where.push({fx: {e: "bool", cond: sc, blank: "", type: C(1)}, op: "=", value: {e: "chars", value: "X", type: C(1)}, calc: S}); continue; }
     if (!["=", "<>", "<", "<=", ">", ">="].includes(op)) throw new Unsupported(`WHERE operator ${op}`);
@@ -1886,7 +1919,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
     const calc = numeric(f.type) || numeric(v.type) ? whereCalc(f.type, v.type) : S;
     if (calc !== S && (charlike(f.type) || charlike(v.type))) throw new Unsupported("WHERE comparing characters with a number");
     // a component of another numeric type is compared in the calculation type
+    // @ts-expect-error -- abapiti form pending
     const fxc = calc !== S && numeric(f.type) && calc.k !== f.type.k ? convert(fx ?? {e: "field", base: {e: "lrow", type: rowType}, name: f.name, type: f.type}, calc) : fx;
+    // @ts-expect-error -- abapiti form pending
     where.push({name: f.name, ftype: f.type, op, value: convert(v, calc), calc, ...(fxc !== null ? {fx: fxc} : {})});
   }
   return where;
@@ -1955,6 +1990,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // @ts-expect-error -- abapiti form pending
       const target = lvalue(node.findDirectExpression(Expressions.Target), ctx);
       if (!["string", "c"].includes(target.type.k)) throw new Unsupported(`character SHIFT of a ${target.type.k}`);
+      // @ts-expect-error -- abapiti form pending
       const amount = node.findDirectExpression(Expressions.Source);
       return {s: "shift_places", target, amount: amount ? convert(source(amount, ctx), I) : {e: "int", value: 1, type: I}, left: !/\sRIGHT\b/i.test(text), circular: /\sCIRCULAR\b/i.test(text)};
     }
@@ -1998,9 +2034,12 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // stay refused in byte mode; character mode is ultra/events' CONCATENATE
   // further down.
   if (isStmt(node, Statements.Concatenate)) {
+    // @ts-expect-error -- abapiti form pending
     const keywords = node.getChildren().filter((k) => k instanceof Nodes.TokenNode).map((k) => upper(tokenStr(k)));
-    /** @param {...string} words @returns {boolean} */ const hasKeywords = (...words) => keywords.some((_, i) => words.every((word, j) => keywords[i + j] === word));
-    /** @param {...string} words @returns {boolean} */ const endsWithKeywords = (...words) => {
+    // @ts-expect-error -- abapiti form pending
+    const hasKeywords = (...words) => keywords.some((_, i) => words.every((word, j) => keywords[i + j] === word));
+    // @ts-expect-error -- abapiti form pending
+    const endsWithKeywords = (...words) => {
       const end = keywords.at(-1) === "." ? keywords.length - 1 : keywords.length;
       const start = end - words.length;
       return start >= 0 && words.every((word, i) => keywords[start + i] === word);
@@ -2012,6 +2051,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // CONCATENATE LINES OF itab INTO xstr IN BYTE MODE: the rows joined once,
       // the way a reader gathers its pieces without copying the whole each time
       if (hasKeywords("LINES", "OF") && keywords[1] === "LINES" && keywords[2] === "OF") {
+        // @ts-expect-error -- abapiti form pending
         const table = source(node.findDirectExpressions(Expressions.SimpleSource3)[0] ?? node.findDirectExpression(Expressions.Source), ctx);
         if (target.type.k !== "xstring" || table?.type.k !== "table" || table.type.row.k !== "xstring") throw new Unsupported(`CONCATENATE form: ${text}`);
         /** @type {import("./ir.ts").ConcatBytesTable} */ const result = {s: "concat_bytes", target, table, row: {e: "temp", name: "ConcatRow", type: table.type.row}}; return result;
@@ -2021,6 +2061,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // cut to the length and sy-subrc 4 when longer; the operands, the target
       // among them, are read first
       if (target.type.k !== "xstring" && target.type.k !== "x") throw new Unsupported(`CONCATENATE IN BYTE MODE into a ${target.type.k}`);
+      // @ts-expect-error -- abapiti form pending
       /** @type {import("./frontend-types.ts").ValueExpr[]} */ const parts = node.findDirectExpressions(Expressions.SimpleSource3).map((n) => source(n, ctx));
       if (parts.length < 2) throw new Unsupported(`CONCATENATE form: ${text}`);
       for (const p of parts) if (p.type.k !== "x" && p.type.k !== "xstring") throw new Unsupported(`CONCATENATE IN BYTE MODE of a ${p.type.k}`);
@@ -2036,6 +2077,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // ASSERT: a false condition ends the program (ASSERTION_FAILED, a runtime
   // error no CATCH reaches); no checkpoint group, so always active
   if (isStmt(node, Statements.Assert)) {
+    // @ts-expect-error -- abapiti form pending
     if (/\bID\b/i.test(node.concatTokens())) throw new Unsupported(`ASSERT with a checkpoint group: ${node.concatTokens()}`);
     // @ts-expect-error -- abapiti form pending
     return {s: "assert", cond: cond(node.findDirectExpression(Expressions.Cond), ctx), text: node.concatTokens()};
@@ -2062,8 +2104,10 @@ export function deriveProgramWanted(reg, options, session, capture) {
     return {s: "assign", target, value: convert({e: "bin", op, l: left, r: right, type: calc}, target.type)};
   }
   if (isStmt(node, Statements.Move)) {
+    // @ts-expect-error -- abapiti form pending
     const targets = node.findDirectExpressions(Expressions.Target);
     if (targets.length !== 1) throw new Unsupported("chained assignment");
+    // @ts-expect-error -- abapiti form pending
     const src = node.findDirectExpression(Expressions.Source);
     const inline = targets[0].getChildren()[0];
     if (isExpr(inline, Expressions.InlineData)) {
@@ -2074,11 +2118,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
       const name = upper(inline.findFirstExpression(Expressions.TargetField).concatTokens());
       const declared = ctx.locals.get(name);
       // abaplint types DATA(x) = 'ab' & 'cd' as the first literal, c LENGTH 2
-      // @ts-expect-error -- abapiti form pending
       const joined = declared?.k === "c" && src.findFirstExpression(Expressions.ConcatenatedConstant);
       if (declared && (numeric(declared) || joined)) {
         let t;
-        // @ts-expect-error -- abapiti form pending
         try { t = source(src, ctx).type; } catch (e) { if (!(e instanceof Unsupported)) throw e; }
         if (t && ((numeric(t) && declared.k !== t.k) || (joined && t.k === "c" && t.len !== declared.len))) ctx.locals.set(name, t);
       }
@@ -2091,11 +2133,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // (ultra/itab: genericArith reads the target's kind through ctx.genTarget)
     if (target.type.k === "data") {
       ctx.genTarget = target;
-      // @ts-expect-error -- abapiti form pending
       try { return {s: "set_data", target, value: convert(source(src, ctx, target.type), target.type)}; } finally { ctx.genTarget = undefined; }
     }
     // the calculation type of an assignment includes the TARGET
-    // @ts-expect-error -- abapiti form pending
     return {s: "assign", target, value: convert(source(src, ctx, target.type), target.type)};
   }
   // ultra/itab: APPEND LINES OF src [FROM i] [TO j] TO itab (A4H 2026-09-24,
@@ -2110,9 +2150,10 @@ export function deriveProgramWanted(reg, options, session, capture) {
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     // @ts-expect-error -- abapiti form pending
     if (table.type.k !== "table" || table.type.hashed) throw new Unsupported(`APPEND LINES OF into a ${table.type.hashed ? "hashed table" : table.type.k}`);
-    const kids = node.getChildren();
-    const srcNode = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     // @ts-expect-error -- abapiti form pending
+    const kids = node.getChildren();
+    // @ts-expect-error -- abapiti form pending
+    const srcNode = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     const src = source(srcNode, ctx);
     if (src.type.k !== "table") throw new Unsupported(`APPEND LINES OF a ${src.type.k}`);
     let from = null;
@@ -2131,20 +2172,22 @@ export function deriveProgramWanted(reg, options, session, capture) {
   if (isStmt(node, Statements.Append) && /\bREFERENCE\s+INTO\b/i.test(text)) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
+    // @ts-expect-error -- abapiti form pending
     const name = node.findDirectExpressions(Expressions.Target)[1]?.concatTokens();
     if (table.type.k !== "table" || !name) throw new Unsupported(`APPEND REFERENCE INTO form: ${text}`);
     refuseSorted(table, "APPEND to");
     const refInto = variable(name, ctx);
     if (refInto.type.k !== "dref") throw new Unsupported(`APPEND REFERENCE INTO a ${refInto.type.k}`);
     const initial = /\bINITIAL\s+LINE\b/i.test(text);
+    // @ts-expect-error -- abapiti form pending
     const valueNode = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     if (!initial && !valueNode) throw new Unsupported(`APPEND REFERENCE INTO form: ${text}`);
     /** @type {import("./frontend-types.ts").Mutable<import("./frontend-types.ts").TableType>} */ const tableType = table.type; tableType.stable = true;
-    // @ts-expect-error -- abapiti form pending
     return {s: "append", table, value: initial ? {e: "zero", type: table.type.row} : convert(source(valueNode, ctx, table.type.row), table.type.row), refInto};
   }
   // APPEND ASSIGNING gives the field symbol the new row's address.
   if (isStmt(node, Statements.Append) && /\bASSIGNING\b/i.test(text) && !/\b(LINES OF|INITIAL LINE|REFERENCE|SORTED BY)\b/i.test(text)) {
+    // @ts-expect-error -- abapiti form pending
     const fsName = upper(node.findDirectExpression(Expressions.FSTarget)?.concatTokens() ?? "");
     const fsType = ctx.fieldSymbols.get(fsName);
     // @ts-expect-error -- abapiti form pending
@@ -2155,8 +2198,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
     if (!fsType || fsType.k === "data" || !sameType(fsType, table.type.row) || (fsType.k === "struct" && fsType.go !== table.type.row.go)) throw new Unsupported(`APPEND ... ASSIGNING ${fsName}: ${text}`);
     if (table.type.row.k === "struct") {
         /** @type {import("./frontend-types.ts").Mutable<import("./frontend-types.ts").TableType>} */ const tableType = table.type; tableType.stable = true; }
-    const value = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     // @ts-expect-error -- abapiti form pending
+    const value = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     return {s: "append", table, value: convert(source(value, ctx, table.type.row), table.type.row), fs: fsName};
   }
   // ultra/events: CONCATENATE (A4H ZCL_GOGEN_T_WGUI1): a c operand without
@@ -2164,9 +2207,12 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // separator with its blanks; into a c the result is cut (sy-subrc 4),
   // else sy-subrc 0; LINES OF an empty table clears the target
   if (isStmt(node, Statements.Concatenate)) {
+    // @ts-expect-error -- abapiti form pending
     const kids = node.getChildren();
+    // @ts-expect-error -- abapiti form pending
     const keywords = node.getChildren().filter((k) => k instanceof Nodes.TokenNode).map((k) => upper(tokenStr(k)));
-    /** @param {...string} words @returns {boolean} */ const hasKeywords = (...words) => keywords.some((_, i) => words.every((word, j) => keywords[i + j] === word));
+    // @ts-expect-error -- abapiti form pending
+    const hasKeywords = (...words) => keywords.some((_, i) => words.every((word, j) => keywords[i + j] === word));
     const respecting = hasKeywords("RESPECTING", "BLANKS");
     const lines = keywords[1] === "LINES" && keywords[2] === "OF";
     // @ts-expect-error -- abapiti form pending
@@ -2203,6 +2249,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // STRING_TO_TAB, over a generic STANDARD TABLE): a new initial row, <fs>
   // on it, sy-tabix its index
   if (isStmt(node, Statements.Append) && /^APPEND\s+INITIAL\s+LINE\s+TO\s+\S+\s+ASSIGNING\s+<[\w]+>\s*\.?$/i.test(text)) {
+    // @ts-expect-error -- abapiti form pending
     const fsName = upper(node.findDirectExpression(Expressions.FSTarget)?.concatTokens() ?? "");
     const fsType = ctx.fieldSymbols.get(fsName);
     // @ts-expect-error -- abapiti form pending
@@ -2221,14 +2268,14 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // rows of CREATE DATA ... TYPE STANDARD TABLE OF (name)): a new row, the
     // value moved into it as a move into generic data converts it
     if (table.type.k === "data") {
-      const value = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
       // @ts-expect-error -- abapiti form pending
+      const value = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
       return {s: "append_data", table, value: convert(source(value, ctx), {k: "data"})};
     }
     if (table.type.k !== "table") throw new Unsupported("APPEND to a non-table");
+    // @ts-expect-error -- abapiti form pending
     const value = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     refuseSorted(table, "APPEND to");
-    // @ts-expect-error -- abapiti form pending
     return {s: "append", table, value: convert(source(value, ctx, table.type.row), table.type.row)};
   }
   if (isStmt(node, Statements.ReadTable) && /\bWITH\s+(TABLE\s+)?KEY\b/i.test(text)) {
@@ -2239,11 +2286,12 @@ export function deriveProgramWanted(reg, options, session, capture) {
     if (/\b(BINARY|CASTING|COMPARING)\b/i.test(text) || (/\bTRANSPORTING\b/i.test(text) && !/\bTRANSPORTING\s+NO\s+FIELDS\b/i.test(text))) {
       throw new Unsupported(`READ TABLE form: ${text}`);
     }
+    // @ts-expect-error -- abapiti form pending
     const ss2 = node.findDirectExpression(Expressions.SimpleSource2);
     if (!ss2) throw new Unsupported(`READ TABLE table form: ${text}`);
-    // @ts-expect-error -- abapiti form pending
     const table = sourceOperand(ss2.getFirstChild(), ctx);
     if (table.type.k !== "table") throw new Unsupported("READ TABLE of a non-table");
+    // @ts-expect-error -- abapiti form pending
     const cc = node.findDirectExpression(Expressions.ComponentCompareSimple);
     if (!cc) throw new Unsupported(`READ TABLE key form: ${text}`);
     const kids = cc.getChildren();
@@ -2259,6 +2307,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
         keys.push({name: f.name, value: convert(source(kids[i + 2], ctx, f.type), f.type)});
       }
     }
+    // @ts-expect-error -- abapiti form pending
     const rt = node.findFirstExpression(Expressions.ReadTableTarget);
     let into = null;
     let fs = null;
@@ -2346,7 +2395,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       const fsName = upper(/ASSIGNING\s+(?:FIELD-SYMBOL\(\s*)?(<[\w]+>)/i.exec(text)?.[1] ?? "");
       if (!ctx.fieldSymbols.has(fsName)) throw new Unsupported(`READ TABLE ASSIGNING ${fsName}`);
       // @ts-expect-error -- abapiti form pending
-      const fsType = ctx.fieldSymbols.get(fsName); if (fsType.k !== "data" && !sameType(fsType, table.type.row)) throw new Unsupported(`READ TABLE ASSIGNING ${fsName}: typed unlike the rows`);
+      /** @type {import("./ir.ts").Type} */ const fsType = ctx.fieldSymbols.get(fsName); if (fsType.k !== "data" && !sameType(fsType, table.type.row)) throw new Unsupported(`READ TABLE ASSIGNING ${fsName}: typed unlike the rows`);
       if (table.type.row.k === "struct") {
         /** @type {import("./frontend-types.ts").Mutable<import("./frontend-types.ts").TableType>} */ const tableType = table.type; tableType.stable = true; }
       return {s: "read_index", table, index, fs: fsName};
@@ -2363,20 +2412,28 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // left out); the direction after SORT itab is that of every component that
   // names none. AS TEXT (locale collation) is not measured: refused.
   if (isStmt(node, Statements.Sort)) {
+    // @ts-expect-error -- abapiti form pending
     const sortKids = node.getChildren();
+    // @ts-expect-error -- abapiti form pending
     const targetAt = sortKids.findIndex((k) => isExpr(k, Expressions.Target));
+    // @ts-expect-error -- abapiti form pending
     const byAt = sortKids.findIndex((k, i) => i > targetAt && isTok(k, "BY"));
     const modifiers = sortKids.slice(targetAt + 1, byAt < 0 ? -1 : byAt);
+    // @ts-expect-error -- abapiti form pending
     if (targetAt !== 1 || modifiers.some((k) => !isTok(k, "ASCENDING") && !isTok(k, "DESCENDING") && !isTok(k, "STABLE"))
+      // @ts-expect-error -- abapiti form pending
       || sortKids.some((k, i) => isTok(k, "AS") && isTok(sortKids[i + 1], "TEXT"))) throw new Unsupported(`SORT form: ${text}`);
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target) ?? node.findFirstExpression(Expressions.Target), ctx);
     // @ts-expect-error -- abapiti form pending
     if (table.type.k !== "table" || table.type.hashed) throw new Unsupported(`SORT of a ${table.type.hashed ? "hashed table" : table.type.k}`);
+    // @ts-expect-error -- abapiti form pending
     const allDesc = modifiers.some((k) => isTok(k, "DESCENDING"));
+    // @ts-expect-error -- abapiti form pending
     /** @type {string[] | undefined} */ const byWords = byAt < 0 ? undefined : sortKids.slice(byAt + 1, -1).map((k) => k.concatTokens());
     const row = table.type.row;
-    /** @param {import("./ir.ts").Type} t @returns {boolean} */ const sortable = (t) => ["i", "int8", "f", "p", "c", "string", "n", "d", "t", "x", "xstring"].includes(t.k);
+    // @ts-expect-error -- abapiti form pending
+    const sortable = (t) => ["i", "int8", "f", "p", "c", "string", "n", "d", "t", "x", "xstring"].includes(t.k);
     /** @type {import("./ir.ts").SortKey[]} */ const keys = [];
     if (byWords === undefined) {
       if (row.k !== "struct") {
@@ -2436,6 +2493,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     if (table.type.k !== "table") throw new Unsupported("DELETE from a non-table");
+    // @ts-expect-error -- abapiti form pending
     const cc = node.findDirectExpression(Expressions.ComponentCond);
     if (!cc) throw new Unsupported(`DELETE form: ${text}`);
     keyGuard(table.type, "DELETE", ctx);
@@ -2451,6 +2509,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
     if (table.type.k !== "table") throw new Unsupported("DELETE from a non-table");
     const key = secondaryKey(table.type, namedDelete[1], ctx, text, true);
     if (key === null || !key.unique) throw new Unsupported(`DELETE TABLE WITH TABLE KEY ${upper(namedDelete[1])}: not a unique secondary key (${text})`);
+    // @ts-expect-error -- abapiti form pending
     const given = node.findDirectExpressions(Expressions.ComponentCompare).map((cc) => {
       const kids = cc.getChildren();
       if (kids.length !== 3 || kids[1].concatTokens() !== "=") throw new Unsupported(`DELETE TABLE key form: ${cc.concatTokens()}`);
@@ -2458,12 +2517,14 @@ export function deriveProgramWanted(reg, options, session, capture) {
       const f = fieldOf(ctx, table.type.row, kids[0].concatTokens(), text);
       return {name: f.name, value: convert(source(kids[2], ctx, f.type), f.type)};
     });
+    // @ts-expect-error -- abapiti form pending
     const names = given.map((x) => x.name);
     if (names.length !== key.comps.length || new Set(names).size !== names.length || !key.comps.every((c) => names.includes(c.name))) {
       throw new Unsupported(`DELETE TABLE WITH TABLE KEY ${key.name}: not every component of the key once (${text})`);
     }
     keyGuard(table.type, "DELETE TABLE");
-    /** @param {unknown} x @returns {string} */ const bare = (x) => JSON.stringify(x, (k, v) => (k === "type" ? undefined : v));
+    // @ts-expect-error -- abapiti form pending
+    const bare = (x) => JSON.stringify(x, (k, v) => (k === "type" ? undefined : v));
     if (ctx.loopStack?.some((l) => bare(l.table) === bare(table))) throw new Unsupported(`${text.replace(/\s*\.$/, "")} inside a LOOP over the same table: the loop index and its field symbol were not adjusted`);
     // @ts-expect-error -- abapiti form pending
     return {s: "delete_seckey", table, key, values: key.comps.map((c) => given.find((x) => x.name === c.name).value)};
@@ -2471,9 +2532,11 @@ export function deriveProgramWanted(reg, options, session, capture) {
   if (isStmt(node, Statements.DeleteInternal) && /^DELETE\s+TABLE\s+\S+\s+WITH\s+TABLE\s+KEY\s+/i.test(text)) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
+    // @ts-expect-error -- abapiti form pending
     const compares = node.findDirectExpressions(Expressions.ComponentCompare);
     const keyExpr = compares[0];
     const value = keyExpr?.getChildren()[2];
+    // @ts-expect-error -- abapiti form pending
     if (compares.length !== 1 || node.findDirectExpression(Expressions.SimpleName) || !value || table.type.k !== "table" || table.type.row.k !== "struct") throw new Unsupported(`DELETE form: ${text}`);
     const field = fieldOf(ctx, table.type.row, keyExpr.getChildren()[0].concatTokens(), text);
     keyGuard(table.type, "DELETE TABLE");
@@ -2492,8 +2555,10 @@ export function deriveProgramWanted(reg, options, session, capture) {
     keyGuard(type, "DELETE TABLE");
     // critic of #688: inside a LOOP over the same table a system steps the
     // loop back and unassigns its field symbol; neither emitter does
-    /** @param {unknown} x @returns {string} */ const bare = (x) => JSON.stringify(x, (k, v) => (k === "type" ? undefined : v));
+    // @ts-expect-error -- abapiti form pending
+    const bare = (x) => JSON.stringify(x, (k, v) => (k === "type" ? undefined : v));
     if (ctx.loopStack?.some((l) => bare(l.table) === bare(table))) throw new Unsupported(`${text.replace(/\s*\.$/, "")} inside a LOOP over the same table: the loop index and its field symbol were not adjusted`);
+    // @ts-expect-error -- abapiti form pending
     const vNode = node.findDirectExpression(Expressions.Source) ?? node.findDirectExpression(Expressions.SimpleSource2);
     if (!vNode) throw new Unsupported(`DELETE form: ${text}`);
     return {s: "delete_from", table, value: convert(source(vNode, ctx, type.row), type.row), keys: fields.map((f) => f.name)};
@@ -2502,6 +2567,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     if (table.type.k !== "table" || table.type.hashed || table.type.sorted) throw new Unsupported(`DELETE range of a ${table.type.k}`);
+    // @ts-expect-error -- abapiti form pending
     const indices = node.findDirectExpressions(Expressions.Source);
     if (indices.length < 1 || indices.length > 2) throw new Unsupported(`DELETE range form: ${text}`);
     keyGuard(table.type, "DELETE range");
@@ -2515,7 +2581,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     const loop = ctx.loopStack?.[ctx.loopStack.length - 1];
-    /** @param {unknown} a @param {unknown} b @returns {boolean} */ const same = (a, b) => JSON.stringify(a, (k, v) => (k === "type" ? undefined : v)) === JSON.stringify(b, (k, v) => (k === "type" ? undefined : v));
+    // @ts-expect-error -- abapiti form pending
+    const same = (a, b) => JSON.stringify(a, (k, v) => (k === "type" ? undefined : v)) === JSON.stringify(b, (k, v) => (k === "type" ? undefined : v));
     if (!loop || table.type.k !== "table" || !same(loop.table, table)) throw new Unsupported(`DELETE itab outside a LOOP over it: ${text}`);
     // critic fix: LOOP ... TO n with a deletion was not measured (the TO
     // bound would stay absolute while the index steps back)
@@ -2536,14 +2603,17 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     // Like DELETE current, INDEX at or before the cursor steps it back.
-    /** @param {unknown} a @param {unknown} b @returns {boolean} */ const same = (a, b) => JSON.stringify(a, (k, v) => k === "type" ? undefined : v) === JSON.stringify(b, (k, v) => k === "type" ? undefined : v);
+    // @ts-expect-error -- abapiti form pending
+    const same = (a, b) => JSON.stringify(a, (k, v) => k === "type" ? undefined : v) === JSON.stringify(b, (k, v) => k === "type" ? undefined : v);
     const loops = (ctx.loopStack ?? []).filter((loop) => same(loop.table, table));
     // @ts-expect-error -- abapiti form pending
     if (loops.some((loop) => loop.to || loop.key || loop.dynamicKeys)) throw new Unsupported(`DELETE INDEX inside LOOP with TO / USING KEY: not measured: ${text}`);
     const tokens = loops.map((loop) => loop.token);
     // a generic table (ultra/sadl): the same rule through its descriptor
+    // @ts-expect-error -- abapiti form pending
     if (table.type.k === "data" && table.type.table) return {s: "delete_index_data", table, tokens, index: convert(source(node.findDirectExpressions(Expressions.Source).slice(-1)[0], ctx, I), I)};
     if (table.type.k !== "table") throw new Unsupported("DELETE from a non-table");
+    // @ts-expect-error -- abapiti form pending
     const idx = node.findDirectExpressions(Expressions.Source).slice(-1)[0];
     keyGuard(table.type, "DELETE", ctx);
     return {s: "delete_index", table, tokens, index: convert(source(idx, ctx, I), I)};
@@ -2552,8 +2622,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
     if (/^INSERT\s+LINES\s+OF\b/i.test(text)) {
       // @ts-expect-error -- abapiti form pending
       const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
-      const srcNode = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
       // @ts-expect-error -- abapiti form pending
+      const srcNode = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
       const src = source(srcNode, ctx);
       if (table.type.k !== "table" || src.type.k !== "table" || !table.type.sorted || !table.type.unique || !sameType(src.type.row, table.type.row)) throw new Unsupported(`INSERT LINES OF form: ${text}`);
       // @ts-expect-error -- abapiti form pending
@@ -2563,14 +2633,16 @@ export function deriveProgramWanted(reg, options, session, capture) {
     if (/\b(LINES OF|INITIAL LINE|ASSIGNING)\b/i.test(text)) throw new Unsupported(`INSERT form: ${text}`);
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
+    // @ts-expect-error -- abapiti form pending
     const vNode = node.findDirectExpression(Expressions.SimpleSource4) ?? node.findDirectExpression(Expressions.Source);
     // INSERT v INTO TABLE <generic table> (ultra/json, /UI2/CL_JSON): a
     // standard table appends, as INSERT INTO TABLE does to one; any other
     // kind is refused at run time (abap.InsertData)
-    // @ts-expect-error -- abapiti form pending
     if (table.type.k === "data" && table.type.table) return {s: "insert_data", table, value: convert(source(vNode, ctx), {k: "data"})};
     if (table.type.k !== "table") throw new Unsupported("INSERT into a non-table");
+    // @ts-expect-error -- abapiti form pending
     const hasReference = node.findDirectTokenByText("REFERENCE") !== undefined;
+    // @ts-expect-error -- abapiti form pending
     const refName = hasReference ? node.findDirectExpressions(Expressions.Target)[1]?.concatTokens() : undefined;
     if (hasReference && !refName) throw new Unsupported(`INSERT REFERENCE INTO form: ${text}`);
     const refInto = refName ? variable(refName, ctx) : null;
@@ -2591,11 +2663,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
       // @ts-expect-error -- abapiti form pending
       /** @type {import("./ir.ts").SortKey[]} */ const sortKeys = line ? [{line: true, type: table.type.row}] : table.type.sorted.map((k) => ({name: fieldOf(ctx, table.type.row, k, text).name, type: fieldOf(ctx, table.type.row, k, text).type}));
       for (const k of sortKeys) if (!["c", "string", "n", "d", "t", "i", "int8"].includes(k.type.k)) throw new Unsupported(`SORTED table keyed on a ${k.type.k}`);
-      // @ts-expect-error -- abapiti form pending
       return {s: "insert_sorted", table, value: convert(source(vNode, ctx, table.type.row), table.type.row), keys: sortKeys, refInto};
     }
     if (refInto) throw new Unsupported(`INSERT REFERENCE INTO a non-sorted table: ${text}`);
-    // @ts-expect-error -- abapiti form pending
     return {s: "insert_table", table, value: convert(source(vNode, ctx, table.type.row), table.type.row), unique: !!table.type.hashed, keys};
   }
   if (isStmt(node, Statements.InsertInternal)) {
@@ -2604,8 +2674,11 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     if (table.type.k !== "table") throw new Unsupported("INSERT into a non-table");
+    // @ts-expect-error -- abapiti form pending
     const srcs = node.findDirectExpressions(Expressions.Source).concat(node.findDirectExpressions(Expressions.SimpleSource4));
+    // @ts-expect-error -- abapiti form pending
     const vNode = node.findDirectExpression(Expressions.SimpleSource4) ?? srcs[0];
+    // @ts-expect-error -- abapiti form pending
     const idxNode = node.findDirectExpressions(Expressions.Source).slice(-1)[0];
     keyGuard(table.type, "INSERT ... INDEX");
     uniqueGuard(table.type, "INSERT ... INDEX");
@@ -2625,6 +2698,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // messages to this session until c holds (0) or the time is up (8)
   if (isStmt(node, Statements.Wait) && /^WAIT\s+FOR\s+MESSAGING\s+CHANNELS\s+UNTIL\b/i.test(text)) {
     if (/\bPUSH\s+CHANNELS\b|\bASYNCHRONOUS\s+TASKS\b/i.test(text)) throw new Unsupported(`WAIT FOR more than MESSAGING CHANNELS: ${text}`);
+    // @ts-expect-error -- abapiti form pending
     const up = node.findDirectExpression(Expressions.Source);
     if (!up) throw new Unsupported(`WAIT FOR MESSAGING CHANNELS without UP TO: ${text}`);
     // @ts-expect-error -- abapiti form pending
@@ -2645,6 +2719,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
     return {s: "get_runtime", target};
   }
   if (isStmt(node, Statements.Convert)) {
+    // @ts-expect-error -- abapiti form pending
     const kids = node.getChildren();
     const inputs = new Map(), outputs = new Map();
     for (let i = 0; i < kids.length; i++) {
@@ -2671,7 +2746,8 @@ export function deriveProgramWanted(reg, options, session, capture) {
       convert(source(inputs.get("DATE"), ctx), S), convert(source(inputs.get("TIME"), ctx), S), zone,
       convert(stamp, {k: "data"})].map((value) => ({value}))};
   }
-  // ultra/events: GET TIME STAMP FIELD ts into a TIMESTAMP p(8,0) or a TIMESTAMPL p(11,7): UTC, as sy-datum and sy-uzeit are here
+  // ultra/events: GET TIME STAMP FIELD ts into a TIMESTAMP p(8,0) or a
+  // TIMESTAMPL p(11,7): UTC, as sy-datum and sy-uzeit are here
   if (isStmt(node, Statements.GetTime)) {
     if (!/^GET\s+TIME\s+STAMP\s+FIELD\s+\S+\s*\.?$/i.test(text)) throw new Unsupported(`GET TIME form: ${text}`);
     // @ts-expect-error -- abapiti form pending
@@ -2686,10 +2762,12 @@ export function deriveProgramWanted(reg, options, session, capture) {
   // RAISE EXCEPTION TYPE cls [EXPORTING ...] / RAISE EXCEPTION obj
   if (isStmt(node, Statements.Raise) && /^RAISE\s+(EXCEPTION|RESUMABLE|SHORTDUMP)\b/i.test(text)) return raiseException(node, ctx, text);
   if (isStmt(node, Statements.Message)) {
+    // @ts-expect-error -- abapiti form pending
     const raising = node.findDirectExpression(Expressions.ExceptionName);
+    // @ts-expect-error -- abapiti form pending
     const msg = node.findDirectExpression(Expressions.MessageSource);
     if (!raising || !msg || /DISPLAY LIKE|INTO/i.test(text)) throw new Unsupported(`MESSAGE form: ${text}`);
-    /** @type {import("./ir.ts").Expr | undefined} */ let id, ty, no;
+    let id, ty, no;
     const short = msg.findDirectExpression(Expressions.MessageTypeAndNumber);
     if (short) {
       const m = /^([a-z])(\d{3})$/i.exec(short.concatTokens());
@@ -2700,7 +2778,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
       no = {e: "str", value: m[2], type: S};
     } else {
       const kids = msg.getChildren();
-      /** @param {string} key @returns {import("./frontend-types.ts").ValueExpr} */ const read = (key) => {
+      // @ts-expect-error -- abapiti form pending
+      const read = (key) => {
+        // @ts-expect-error -- abapiti form pending
         const i = kids.findIndex((k) => isTok(k, key));
         if (i < 0) throw new Unsupported(`MESSAGE missing ${key}`);
         return source(kids[i + 1], ctx);
@@ -2709,10 +2789,11 @@ export function deriveProgramWanted(reg, options, session, capture) {
       ty = convert(read("TYPE"), S);
       no = convert(read("NUMBER"), {k: "n", len: 3});
     }
+    // @ts-expect-error -- abapiti form pending
     const values = node.findDirectExpressions(Expressions.MessageSourceSource).map((x) => convert(source(x, ctx), C(50)));
     if (values.length > 4) throw new Unsupported(`MESSAGE WITH more than four values: ${text}`);
-    /** @type {import("./ir.ts").Expr} */ const name = {e: "str", value: upper(raising.concatTokens()), type: S};
-    /** @type {import("./ir.ts").Expr} */ const method = {e: "str", value: ctx.method, type: S};
+    const name = {e: "str", value: upper(raising.concatTokens()), type: S};
+    const method = {e: "str", value: ctx.method, type: S};
     // @ts-expect-error -- abapiti form pending
     /** @type {import("./ir.ts").Argument[]} */ const args = [{value: id}, {value: ty}, {value: no}, {value: name}, {value: method}];
     for (const value of values) args.push({value});
@@ -2720,17 +2801,20 @@ export function deriveProgramWanted(reg, options, session, capture) {
   }
   // RAISE name: a classic exception, for the caller's EXCEPTIONS list
   if (isStmt(node, Statements.Raise) && !/^RAISE\s+(EXCEPTION|RESUMABLE)\b/i.test(text)) {
+    // @ts-expect-error -- abapiti form pending
     const n = node.findDirectExpression(Expressions.ExceptionName);
     if (!n) throw new Unsupported(`RAISE form: ${text}`);
     return {s: "raise_classic", name: upper(n.concatTokens()), method: ctx.method};
   }
   // CALL METHOD (class)=>m EXPORTING ...: a static method by class name,
   // through the program's registry of static methods
+  // @ts-expect-error -- abapiti form pending
   if (isStmt(node, Statements.Call) && node.findDirectExpression(Expressions.MethodSource)?.findDirectExpression(Expressions.Dynamic)) {
     return dynamicStaticCall(node, ctx, {sourceOperand, source, convert, lvalue});
   }
   if (isStmt(node, Statements.CallFunction)) return callFunction(node, ctx, text);
   if (isStmt(node, Statements.Call)) {
+    // @ts-expect-error -- abapiti form pending
     const chain = node.findDirectExpression(Expressions.MethodCallChain) ?? callMethodChain(node);
     if (chain === undefined) throw new Unsupported(`CALL form: ${text}`);
     return {s: "call", call: call(chain, ctx, true)};
@@ -2739,6 +2823,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
   if (isStmt(node, Statements.Continue)) return {s: "continue"};
   if (isStmt(node, Statements.Return)) return {s: "return"};
   if (isStmt(node, Statements.Check)) {
+    // @ts-expect-error -- abapiti form pending
     const condition = node.findDirectExpression(Expressions.Cond);
     if (!condition) throw new Unsupported(`CHECK form: ${text}`);
     return {s: "check", cond: cond(condition, ctx)};
@@ -2754,11 +2839,13 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // @ts-expect-error -- abapiti form pending
     const table = lvalue(node.findDirectExpression(Expressions.Target), ctx);
     if (table.type.k !== "table") throw new Unsupported("MODIFY of a non-table");
+    // @ts-expect-error -- abapiti form pending
     const kids = node.getChildren();
     // @ts-expect-error -- abapiti form pending
-    /** @param {string} kw @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const after = (kw) => { const at = kids.findIndex((c) => isTok(c, kw)); return at < 0 || !isExpr(kids[at + 1], Expressions.Source) ? undefined : kids[at + 1]; };
+    const after = (kw) => { const at = kids.findIndex((c) => isTok(c, kw)); return at < 0 || !isExpr(kids[at + 1], Expressions.Source) ? undefined : kids[at + 1]; };
     const idx = after("INDEX");
     const val = after("FROM");
+    // @ts-expect-error -- abapiti form pending
     if (!idx || !val || node.findDirectExpressions(Expressions.Source).length !== 2) throw new Unsupported(`MODIFY form: ${text}`);
     refuseSorted(table, "MODIFY ... INDEX of");
     return {s: "modify_index", table, index: convert(source(idx, ctx, I), I), value: convert(source(val, ctx, table.type.row), table.type.row)};
@@ -2776,18 +2863,26 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // the start of s, not of the section), and IN TABLE itab of strings
     // [MATCH LINE n] (row by row, the first row with a match). REGEX IN
     // SECTION stays refused: what ^ and $ see there is not measured.
+    // @ts-expect-error -- abapiti form pending
     const kids = node.getChildren();
+    // @ts-expect-error -- abapiti form pending
     const words = kids.map((k) => (k instanceof Nodes.TokenNode ? upper(k.concatTokens()) : ""));
     // ultra/events: FIND ALL OCCURRENCES OF [REGEX] p IN s [IGNORING CASE]
     // MATCH COUNT n and nothing else (A4H ZCL_GOGEN_T_WGUI1): matches do not
     // overlap, n is 0 and sy-subrc 4 when there is none; REGEX may be a
     // CL_ABAP_REGEX object (open-abap-core's: its PATTERN and MV_IGNORE_CASE)
+    // @ts-expect-error -- abapiti form pending
     const tw = words.filter((w) => w !== "" && w !== ".").join(" ");
-    /** @param {...(string | readonly string[])} parts @returns {boolean} */ const matches = (...parts) => parts.reduce(/** @param {string[]} forms */ (forms, part) => forms.flatMap((form) =>
+    // @ts-expect-error -- abapiti form pending
+    const matches = (...parts) => parts.reduce(/** @param {string[]} forms */ (forms, part) => forms.flatMap((form) =>
       (Array.isArray(part) ? part : [part]).map((p) => [form, p].filter(Boolean).join(" "))), [""]).includes(tw);
-    /** @param {...string} seq @returns {boolean} */ const hasKeywords = (...seq) => words.some((_, i) => seq.every((w, j) => words[i + j] === w));
+    // @ts-expect-error -- abapiti form pending
+    const hasKeywords = (...seq) => words.some((_, i) => seq.every((w, j) => words[i + j] === w));
+    // @ts-expect-error -- abapiti form pending
     if (matches("FIND ALL OCCURRENCES OF IN", ["", "IGNORING CASE"], "MATCH COUNT") && node.findDirectExpressions(Expressions.Source).length === 2) {
+      // @ts-expect-error -- abapiti form pending
       const [pat, subj] = node.findDirectExpressions(Expressions.Source);
+      // @ts-expect-error -- abapiti form pending
       const kind = upper(node.findDirectExpression(Expressions.FindType)?.concatTokens() ?? "");
       if (kind && kind !== "SUBSTRING" && kind !== "REGEX" && kind !== "PCRE") throw new Unsupported(`FIND ${kind}`);
       const regex = kind === "REGEX" || kind === "PCRE";
@@ -2810,13 +2905,17 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // match_result_tab (open-abap-core's CL_ABAP_MATCHER, CL_IXML). A4H
     // 2026-09-25 (ZCL_GOGEN_T_FINDRES, _FINDPCRE): see abap.FindResults
     if (matches("FIND", ["", "FIRST OCCURRENCE OF", "ALL OCCURRENCES OF"], "IN", ["", "IGNORING CASE", "RESPECTING CASE"], "RESULTS")
+      // @ts-expect-error -- abapiti form pending
       && node.findDirectExpressions(Expressions.Source).length === 2) return findResults(node, ctx, text, tw);
     const byteFind = lowerByteFind(node, ctx, text, kids, words, tw, byteStatementHelpers);
+    // @ts-expect-error -- abapiti form pending
     if (byteFind) return byteFind;
     if (words.includes("ALL") || words.includes("RESULTS") || words.includes("RESPECTING") || hasKeywords("MATCH", "COUNT") || hasKeywords("IN", "BYTE", "MODE")) throw new Unsupported(`FIND form: ${text}`);
+    // @ts-expect-error -- abapiti form pending
     const ft = node.findDirectExpression(Expressions.FindType);
     const kind = ft ? upper(ft.concatTokens()) : "";
     if (kind && kind !== "SUBSTRING" && kind !== "REGEX" && kind !== "PCRE") throw new Unsupported(`FIND ${kind}`);
+    // @ts-expect-error -- abapiti form pending
     const inTable = words.some((w, i) => w === "IN" && words[i + 1] === "TABLE");
     const section = words.includes("SECTION");
     if (section && (!["", "SUBSTRING"].includes(kind) || inTable)) throw new Unsupported(`FIND form: ${text}`);
@@ -2851,7 +2950,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       out.secOff = so ? convert(source(so, ctx, I), I) : null;
       out.secLen = sl ? convert(source(sl, ctx, I), I) : null;
     } else out.subject = convert(source(subj, ctx), S);
-    /** @type {"sub" | "off" | "len" | "line" | null} */ let mode = null;
+    let mode = null;
     for (let i = 0; i < kids.length; i += 1) {
       const w = words[i];
       if (w === "SUBMATCHES") { mode = "sub"; continue; }
@@ -2867,6 +2966,7 @@ export function deriveProgramWanted(reg, options, session, capture) {
       } else {
         if (t.type.k !== "i") throw new Unsupported(`MATCH ${mode.toUpperCase()} into a ${t.type.k}`);
         if (mode === "line" && !inTable) throw new Unsupported(`MATCH LINE without IN TABLE: ${text}`);
+        // @ts-expect-error -- abapiti form pending
         out[mode] = t;
       }
     }
@@ -2883,7 +2983,9 @@ export function deriveProgramWanted(reg, options, session, capture) {
     return {s: "clear", target};
   }
   // FREE is CLEAR that also gives the memory back, which a GC does anyway
+  // @ts-expect-error -- abapiti form pending
   if (isStmt(node, Statements.Refresh)) return {s: "seq", body: node.findDirectExpressions(Expressions.Target).map((t) => lvalue(t, ctx)).map(/** @param {import("./frontend-types.ts").ValueExpr} target @returns {import("./frontend-types.ts").FrontendStmt} */ (target) => target.type.k === "data" ? {s: "clear_data", target} : {s: "clear", target})};
+  // @ts-expect-error -- abapiti form pending
   if (isStmt(node, Statements.Free)) return {s: "seq", body: node.findDirectExpressions(Expressions.Target).map((t) => lvalue(t, ctx)).map(/** @param {import("./frontend-types.ts").ValueExpr} target @returns {import("./frontend-types.ts").FrontendStmt} */ (target) => target.type.k === "data" ? {s: "clear_data", target} : {s: "clear", target})};
   // WRITE goes to a list; in an APC or HTTP handler nobody ever displays it
   // WRITE is a no-op here, except the transpiler runtime's host code: open-abap-core
@@ -2899,10 +3001,12 @@ export function deriveProgramWanted(reg, options, session, capture) {
     // a line whose work the host does elsewhere (a JavaScript declaration the
     // host function of a later line does not need)
     if (k?.nop === true) return {s: "nop"};
+    // @ts-expect-error -- abapiti form pending
     if (/'@KERNEL/i.test(node.concatTokens())) throw new Unsupported(`@KERNEL: host code of the transpiler runtime`);
     return {s: "nop"};
   }
   if (isStmt(node, Statements.GenerateSubroutine)) return generateSubroutine(node, ctx);
+  // @ts-expect-error -- abapiti form pending
   throw new Unsupported(`statement ${node.get().constructor.name}: ${text}`);
 }
 
@@ -3010,12 +3114,12 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
   // attribute, a field symbol or a component of one (a table expression, a
   // dereference or a call would run once per component where ABAP runs it once)
   // @ts-expect-error -- abapiti form pending
-  /** @param {import("./frontend-types.ts").ValueExpr} x @returns {boolean} */ const plain = (x) => ["var", "attr", "static", "fs"].includes(x.e) || (x.e === "field" && plain(x.base));
+  const plain = (x) => ["var", "attr", "static", "fs"].includes(x.e) || (x.e === "field" && plain(x.base));
   if (!plain(from) || !plain(to)) throw new Unsupported(`MOVE-CORRESPONDING of something other than a variable or its component: ${text}`);
   const src = structOf(ctx, from.type);
   const dst = structOf(ctx, to.type);
   if (!src || !dst) throw new Unsupported(`MOVE-CORRESPONDING: a structure not in the program`);
-  /** @type {import("./frontend-types.ts").FrontendStmt[]} */ const body = [];
+  const body = [];
   // @ts-expect-error -- abapiti form pending
   for (const f of dst.fields) {
     // @ts-expect-error -- abapiti form pending
@@ -3024,13 +3128,15 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
     if (["struct", "table"].includes(f.type.k) || ["struct", "table"].includes(g.type.k)) throw new Unsupported(`MOVE-CORRESPONDING with a deep component ${f.name}`);
     body.push({s: "assign", target: {e: "field", base: to, name: f.name, type: f.type}, value: convert({e: "field", base: from, name: g.name, type: g.type}, f.type)});
   }
+  // @ts-expect-error -- abapiti form pending
   return {s: "seq", body};
 }
 
 // the built-in string functions: repeat( ) replace( ) condense( )
 // shift_left( ) shift_right( ) to_mixed( ), measured on A4H 2026-09-23. A c
-// argument loses its trailing blanks (replace( ) with sub = ' ' raises for an empty sub), which is how a c value is stored here already.
-/** @type {Record<string, string[]>} */ const STRING_FNS = {
+// argument loses its trailing blanks (replace( ) with sub = ' ' raises for
+// an empty sub), which is how a c value is stored here already.
+const STRING_FNS = {
   REPEAT: ["VAL", "OCC"], REPLACE: ["VAL", "SUB", "REGEX", "WITH", "OCC"], CONDENSE: ["VAL", "DEL", "FROM", "TO"],
   SHIFT_LEFT: ["VAL", "PLACES", "CIRCULAR", "SUB"], SHIFT_RIGHT: ["VAL", "PLACES", "CIRCULAR", "SUB"], TO_MIXED: ["VAL", "SEP", "CASE", "MIN"],
   // ultra/events: substring_before / _after( val sub ), abapGit's parse_fields
@@ -3041,16 +3147,18 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
   // @ts-expect-error -- abapiti form pending
   const given = new Map(ps.map((p) => [upper(p.findDirectExpression(Expressions.ParameterName).concatTokens()), p.findDirectExpression(Expressions.Source)]));
   if (direct) given.set("VAL", direct);
+  // @ts-expect-error -- abapiti form pending
   for (const k of given.keys()) if (!STRING_FNS[name].includes(k)) throw new Unsupported(`${name.toLowerCase()}( ) with ${k.toLowerCase()}: ${text}`);
   if (!given.has("VAL")) throw new Unsupported(`${name.toLowerCase()}( ) without val: ${text}`);
-  /** @param {string} k @returns {import("./frontend-types.ts").ValueExpr} */ const chars = (k) => {
+  // @ts-expect-error -- abapiti form pending
+  const chars = (k) => {
     // @ts-expect-error -- abapiti form pending
     const x = source(given.get(k), ctx);
     if (!charlike(x.type)) throw new Unsupported(`${name.toLowerCase()}( ) ${k.toLowerCase()} of a ${x.type.k}`);
     return convert(x, S);
   };
   // @ts-expect-error -- abapiti form pending
-  /** @param {string} k @returns {import("./frontend-types.ts").ValueExpr} */ const int = (k) => convert(source(given.get(k), ctx, I), I);
+  const int = (k) => convert(source(given.get(k), ctx, I), I);
   const val = chars("VAL");
   // the text before / after the first occurrence of sub, empty when there is
   // none (A4H ZCL_GOGEN_T_WGUI2)
@@ -3073,7 +3181,9 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
     // ZCL_GOGEN_T_STRCR: del = space, del = ' ', del = a c(1) field holding
     // a blank and from = space all strip or match nothing; to = space
     // replaces a run with nothing), which is how a c value is stored here
-    /** @param {string} k @returns {import("./frontend-types.ts").ValueExpr} */ const set = (k) => (given.has(k) ? chars(k) : {e: "str", value: " ", type: S});
+    // @ts-expect-error -- abapiti form pending
+    const set = (k) => (given.has(k) ? chars(k) : {e: "str", value: " ", type: S});
+    // @ts-expect-error -- abapiti form pending
     return {e: "str_fn", fn: "CondenseFn", args: [val, set("DEL"), set("FROM"), set("TO")], type: S};
   }
   if (name === "SHIFT_LEFT" || name === "SHIFT_RIGHT") {
@@ -3231,6 +3341,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
     // @ts-expect-error -- abapiti form pending
     const key = `SY-${upper(kids[2].concatTokens())}`;
     if (SY_MESSAGES[key]) return {e: "sy", ...SY_MESSAGES[key]};
+    // @ts-expect-error -- abapiti form pending
     if (SY[key]) return {e: "sy", field: SY[key], type: I};
     throw new Unsupported(`write to ${key}: system field outside the subset`);
   } else if (isExpr(first, Expressions.TargetField) || isExpr(first, Expressions.TargetFieldSymbol)) {
@@ -3374,15 +3485,14 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
   /** @param {import("@abaplint/core").Nodes.StructureNode} node @returns {void} */ const walk = (node) => {
     for (const c of node.getChildren()) {
       if (isStmt(c, Statements.Data) || isStmt(c, Statements.DataBegin)) {
-        // @ts-expect-error -- abapiti form pending
         const n = c.findDirectExpression(Expressions.DefinitionName) ?? c.findFirstExpression(Expressions.DefinitionName);
-        // @ts-expect-error -- abapiti form pending
         if (n && !stmts.has(upper(n.concatTokens()))) stmts.set(upper(n.concatTokens()), c);
       } else if (isStruct(c, Structures.Data)) {
         const begin = c.findDirectStatement(Statements.DataBegin);
         const n = begin?.findDirectExpression(Expressions.DefinitionName);
         // @ts-expect-error -- abapiti form pending
         if (n && !stmts.has(upper(n.concatTokens()))) stmts.set(upper(n.concatTokens()), begin);
+      // @ts-expect-error -- abapiti form pending
       } else if (c instanceof Nodes.StructureNode) walk(c);
     }
   };
@@ -3429,7 +3539,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
 /** @param {import("./frontend-types.ts").FrontendProgram} program @param {readonly string[]} implemented @returns {import("./frontend-types.ts").FrontendAttribute[]} */ function implementedAttributes(program, implemented) {
   // @ts-expect-error -- abapiti form pending
   return implemented.flatMap((i) => ownInterfaceAttributes(program, i)).filter((a) => !a.static)
-    .map((a) => a.unsupported ? {name: a.name, unsupported: a.unsupported} : {name: a.name, type: a.type, static: false, fromIntf: a.intf, readOnly: a.readOnly});
+    .map((a) => (a.unsupported ? {name: a.name, unsupported: a.unsupported} : {name: a.name, type: a.type, static: false, fromIntf: a.intf, readOnly: a.readOnly}));
 }
 
 /** INTF~ATTR inside a class that implements INTF (or inherits it) */
@@ -3470,7 +3580,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
   if (a.unsupported) throw new Unsupported(a.unsupported);
   if (write && a.readOnly) throw new Unsupported(`${intf}->${name}: a write to a READ-ONLY attribute through an interface reference (a syntax error on A4H)`);
   // @ts-expect-error -- abapiti form pending
-  const type = a.type; return {e: "refattr", base, name: full, type};
+  /** @type {import("./ir.ts").Type} */ const type = a.type; return {e: "refattr", base, name: full, type};
 }
 
 /** ref->intf~attr through a reference to a class that implements intf */
@@ -3498,7 +3608,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "dref_field", "fs", "r
 
 /* --------------------------------------------------------------- expressions */
 
-/** @type {Record<string, string>} */ const SY = {"SY-INDEX": "Index", "SY-TABIX": "Tabix", "SY-SUBRC": "Subrc", "SY-DBCNT": "Dbcnt", "SY-FDPOS": "Fdpos"};
+const SY = {"SY-INDEX": "Index", "SY-TABIX": "Tabix", "SY-SUBRC": "Subrc", "SY-DBCNT": "Dbcnt", "SY-FDPOS": "Fdpos"};
 /** @type {Record<string, {field: string; type: import("./ir.ts").Type}>} */ const SY_MESSAGES = {
   "SY-MSGID": {field: "Msgid", type: C(20)}, "SY-MSGNO": {field: "Msgno", type: {k: "n", len: 3}},
   "SY-MSGTY": {field: "Msgty", type: C(1)},
@@ -3625,7 +3735,7 @@ const BIT_OPS = new Set(["BIT-AND", "BIT-OR", "BIT-XOR"]);
  * twice (kind, then value), so only a place is taken.
  */
 let GEN_CALC = false;
-/** @type {Record<string, string>} */ const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N", d: "D", t: "T", x: "X", xstring: "y"};
+const CALC_CODE = {i: "I", int8: "8", f: "F", p: "P", c: "C", string: "g", n: "N", d: "D", t: "T", x: "X", xstring: "y"};
 /** @param {import("./frontend-types.ts").SyntaxNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./ir.ts").Type} [outer] @returns {import("./frontend-types.ts").ValueExpr} */ function genericArith(node, ctx, outer) {
   const text = node.concatTokens();
   if (outer === undefined) throw new Unsupported(`arithmetic with a generic operand outside an assignment: ${text}`);
@@ -3633,7 +3743,9 @@ let GEN_CALC = false;
   /** @type {string[]} */ const statics = [];
   for (const t of leafTypes(node, ctx)) {
     if (t.k === "data") continue;
+    // @ts-expect-error -- abapiti form pending
     if (CALC_CODE[t.k] === undefined) throw new Unsupported(`calculation type with a ${t.k} operand: ${text}`);
+    // @ts-expect-error -- abapiti form pending
     statics.push(CALC_CODE[t.k]);
   }
   // ** computes in f (the static rule)
@@ -3642,6 +3754,7 @@ let GEN_CALC = false;
   if (outer.k !== "data") {
     if (charlike(outer)) charTarget = true;
     else if (outer.k === "x") statics.push("I");
+    // @ts-expect-error -- abapiti form pending
     else if (["i", "int8", "f", "p"].includes(outer.k)) statics.push(CALC_CODE[outer.k]);
     else throw new Unsupported(`calculation type of ${text} into a ${outer.k}`);
   }
@@ -3689,6 +3802,7 @@ let GEN_CALC = false;
 /** @param {readonly import("@abaplint/core").INode[]} kids @param {() => string} tokenText @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./frontend-types.ts").ValueExpr} */ function fieldChainParts(kids, tokenText, ctx) {
   const text = upper(tokenText());
   if (SY_MESSAGES[text]) return {e: "sy", ...SY_MESSAGES[text]};
+  // @ts-expect-error -- abapiti form pending
   if (SY[text] !== undefined) return {e: "sy", field: SY[text], type: I};
   // the logon client: the transpiler runtime's constant (abap.Mandt)
   if (text === "SY-MANDT") return {e: "sy_mandt", type: C(3)};
@@ -3815,20 +3929,21 @@ let GEN_CALC = false;
 // that refer to a class constant undefined. Recover only declared VALUEs;
 // an unresolved expression remains a refusal in registerConst.
 // @ts-expect-error -- abapiti form pending
-/** @param {string} attr @param {{source: string}} local @param {import("./frontend-session-types.ts").Registry} reg */ function localInterfaceConstant(id, attr, local, reg) {
-  /** @param {string} name @param {string} source @returns {string | Record<string, string | undefined> | undefined} */ const resolve = (name, source) => {
+function localInterfaceConstant(id, attr, local, reg) {
+  // @ts-expect-error -- abapiti form pending
+  const resolve = (name, source) => {
     const m = new RegExp(`\\b${name}\\s+TYPE\\s+[^\\n,.]+?\\s+VALUE\\s+([^,\\n.]+)`, "i").exec(source);
     if (!m) return undefined;
     const value = m[1].split('"')[0].trim();
     const ref = /^([\w/]+)=>([\w]+)$/i.exec(value);
     if (!ref) return value;
     return reg.getObject("CLAS", upper(ref[1]))?.getDefinition()?.getAttributes().getConstants()
+      // @ts-expect-error -- abapiti form pending
       .find((c) => upper(c.getName()) === upper(ref[2]))?.getValue();
   };
-  /** @type {string | Record<string, string | undefined> | undefined} */ let value = id.getValue?.();
+  let value = id.getValue?.();
   if (value && typeof value === "object") {
     const begin = new RegExp(`\\bBEGIN\\s+OF\\s+${attr}\\s*,([\\s\\S]*?)\\bEND\\s+OF\\s+${attr}\\s*[,.]`, "i").exec(local.source)?.[1];
-    // @ts-expect-error -- abapiti form pending
     if (begin) value = Object.fromEntries(Object.keys(value).map((k) => [k, resolve(k, begin)]));
   } else if (value === undefined) value = resolve(attr, local.source);
   return {...id, getType: () => id.getType(), getValue: () => value};
@@ -3836,6 +3951,7 @@ let GEN_CALC = false;
 
 /** @typedef {Parameters<typeof resolveStatic>[2]} StaticContext */ /** @typedef {Pick<typeof import("./frontend-base.mjs"), "C" | "upper" | "Unsupported" | "goName" | "abaplint" | "notInProgram"> & { CHAR_UTILITIES: typeof CHAR_UTILITIES, clasDef: typeof clasDef, registerConst: typeof registerConst, localInterfaceConstant: typeof localInterfaceConstant, ancestors: typeof ancestors, typeOf: typeof typeOf }} StaticHelpers */ /** zif_x=>c_y or zcl_x=>attr */
 /** @param {string} owner @param {string} attr @param {import("./frontend-types.ts").NamedContext} ctx @param {boolean} [write] @returns {import("./frontend-types.ts").ValueExpr} */ function resolveStatic(owner, attr, ctx, write = false) {
+  // @ts-expect-error -- abapiti form pending
   return lowerStatic(owner, attr, ctx, {CHAR_UTILITIES, C, upper, clasDef, registerConst, localInterfaceConstant, Unsupported, ancestors, goName, typeOf, abaplint, notInProgram}, write);
 }
 
@@ -3939,14 +4055,14 @@ let GEN_CALC = false;
     if (to.k !== "ref") throw new Unsupported(`NEW of a ${to.k}: ${c.text}`);
     if (!ctx.program.wanted.has(to.name)) throw notInProgram(ctx, to.name, `NEW ${to.name}: the class is not compiled in this program`);
     const sig = constructorSignature(ctx, to.name); const given = new Map();
-    const body = c.body;
+    // @ts-expect-error -- abapiti form pending
+    /** @type {import("@abaplint/core").Nodes.ExpressionNode | null} */ const body = c.body;
     if (body !== null) {
       let positional = isExpr(body, Expressions.Source); // Keep other expression kinds in the false branch.
       if (positional) {
         const imp = sig.filter((p) => p.dir === "importing");
         given.set(imp.find((p) => p.default === undefined)?.name ?? imp[0]?.name, body);
       } else {
-        // @ts-expect-error -- abapiti form pending
         for (const p of body.findAllExpressions(Expressions.ParameterS)) {
           // @ts-expect-error -- abapiti form pending
           given.set(upper(p.findDirectExpression(Expressions.ParameterName).concatTokens()), p.findDirectExpression(Expressions.Source));
@@ -4021,7 +4137,7 @@ let GEN_CALC = false;
 }
 
 /** the superclasses of a class, nearest first, as far as the registry has them */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} cls @returns {string[]} */ export function ancestors(reg, cls) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} cls @returns {string[]} */ export function ancestors(reg, cls) {
   const out = [];
   for (let c = clasDef(reg, cls)?.getSuperClass(), g = 0; c && g < 30; g += 1) {
     out.push(upper(c));
@@ -4032,7 +4148,7 @@ let GEN_CALC = false;
 
 /** the definition of a method as a class has it: its own, else the nearest
  * superclass's; a REDEFINITION declares no parameters, so its origin's */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} cls @param {string} meth @returns {import("./frontend-types.ts").MethodDefinition | undefined} */ function declaredMethod(reg, cls, meth) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} cls @param {string} meth @returns {import("./frontend-types.ts").MethodDefinition | undefined} */ function declaredMethod(reg, cls, meth) {
   for (const c of [cls, ...ancestors(reg, cls)]) {
     const m = clasDef(reg, c)?.getMethodDefinitions().getByName(meth);
     if (m && !m.isRedefinition()) return m;
@@ -4042,7 +4158,7 @@ let GEN_CALC = false;
 
 /** the class in cls's chain, itself first, that declares a method or attribute */
 /** the class of cls and its ancestors that lists intf in its INTERFACES */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} cls @param {string} intf @returns {string | undefined} */ function implementingClass(reg, cls, intf) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} cls @param {string} intf @returns {string | undefined} */ function implementingClass(reg, cls, intf) {
   for (const c of [cls, ...ancestors(reg, cls)]) {
     const def = clasDef(reg, c);
     if (!def) return undefined;
@@ -4051,7 +4167,7 @@ let GEN_CALC = false;
   return undefined;
 }
 
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {string} cls @param {string} name @param {"method" | "attr"} kind @returns {string | undefined} */ function declaringClass(reg, cls, name, kind) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} cls @param {string} name @param {"method" | "attr"} kind @returns {string | undefined} */ function declaringClass(reg, cls, name, kind) {
   for (const c of [cls, ...ancestors(reg, cls)]) {
     const def = clasDef(reg, c);
     if (!def) return undefined;
@@ -4080,7 +4196,8 @@ let GEN_CALC = false;
  */
 
 /** a table of the dictionary: its columns (typed on demand), its key, whether it has a client */
-/** @param {import("./frontend-types.ts").CompilationContext} ctx @param {string} tableName @param {string} verb @returns {import("./frontend-types.ts").DbTableShape} */ function dbTable(ctx, tableName, verb) {
+// @ts-expect-error -- abapiti form pending
+function dbTable(ctx, tableName, verb) {
   const mappings = cdsViewsByRegistry.get(ctx.reg) ?? cdsViewsByRegistry.get(inputOrigin(ctx.reg));
   // @ts-expect-error -- abapiti form pending
   const mappingError = cdsMappingError(mappings, tableName);
@@ -4093,7 +4210,6 @@ let GEN_CALC = false;
   const tabl = ctx.reg.getObject("TABL", tableName) ?? view;
   if (!tabl) throw new Unsupported(`${verb} ${tableName}: not a table of the dictionary in this program`);
   let tType;
-  // @ts-expect-error -- abapiti form pending
   try { tType = tabl.parseType(ctx.reg); } catch { throw new Unsupported(`${verb} ${tableName}: its type does not resolve`); }
   if (!(tType instanceof BasicTypes.StructureType)) throw new Unsupported(`${verb} ${tableName}: its type does not resolve`);
   const columns = new Map(tType.getComponents().map((c) => [upper(c.name), c]));
@@ -4105,27 +4221,27 @@ let GEN_CALC = false;
     // @ts-expect-error -- abapiti form pending
     const hidden = [...new Set((view.getFields() ?? []).map((f) => upper(f.TABNAME)))].find((t) => {
       try {
-        // @ts-expect-error -- abapiti form pending
         const bt = ctx.reg.getObject("TABL", t)?.parseType(ctx.reg);
         return bt instanceof BasicTypes.StructureType && bt.getComponents().some((c) => upper(c.name) === "MANDT");
       } catch { return false; }
     });
     if (hidden) throw new Unsupported(`${verb} ${tableName}: a view over the client-dependent ${hidden} without MANDT`);
   }
-  /** @param {string} n @returns {import("./ir.ts").Type} */ const colType = (n) => {
+  // @ts-expect-error -- abapiti form pending
+  const colType = (n) => {
     const c = columns.get(n);
     if (!c) throw new Unsupported(`${verb}: ${tableName} has no column ${n}`);
     return typeOf(c.type, `${tableName}-${n}`, ctx.program);
   };
-  /** @type {string[]} */ let key = [];
-  // @ts-expect-error -- abapiti form pending
+  let key = [];
   try { key = tabl.listKeys?.(ctx.reg)?.map(upper) ?? []; } catch { key = []; }
   return {name: tableName, columns, colType, key, client: columns.has("MANDT")};
 }
 
 
 /** one comparison of a WHERE: col op value, or col IN range (a hostPred) */
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} p @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {SqlAcc} acc @returns {SqlWhere} */ function sqlCompare(p, ctx, tb, acc) {
+// @ts-expect-error -- abapiti form pending
+function sqlCompare(p, ctx, tb, acc) {
   const kids = p.getChildren();
   const text = p.concatTokens();
   if (!isExpr(kids[0], Expressions.SQLFieldName) || kids[0].concatTokens().includes("~")) throw new Unsupported(`WHERE compare: ${text}`);
@@ -4146,21 +4262,19 @@ let GEN_CALC = false;
     if (srcs.length !== 1 || inn.getChildren().length !== 2) throw new Unsupported(`WHERE IN form: ${text}`);
     const range = sqlHost(srcs[0], [], ctx, text);
     if (range.type.k !== "table" || range.type.row.k !== "struct") throw new Unsupported(`IN of a ${range.type.k}`);
+    // @ts-expect-error -- abapiti form pending
     const fields = new Map((ctx.program.structs.get(range.type.row.go)?.fields ?? []).map((x) => [String(x.name).toUpperCase(), x]));
     if (!["SIGN", "OPTION", "LOW", "HIGH"].every((x) => fields.has(x))) throw new Unsupported(`IN of a table that is not a ranges table`);
     for (const f of ["LOW", "HIGH"]) {
-      // @ts-expect-error -- abapiti form pending
       if (!["c", "string", "i", "n", "d", "t"].includes(fields.get(f).type.k)) throw new Unsupported(`IN: a range whose ${f} is a ${fields.get(f).type.k}`);
     }
     if (!["c", "string", "i", "n", "t"].includes(ct.k)) throw new Unsupported(`IN on a ${ct.k} column: ${text}`);
     // a d column: tools/ir-ranges.mjs refuses dates, so every range with a
     // row would be NOT_COMPILED at run time; refused here until it does
     const id = String(acc.ranges.length);
-    // @ts-expect-error -- abapiti form pending
     const low = fields.get("LOW").type;
     const kind = ct.k === "n" ? "NUMC" : undefined;
     const irT = sqlIrType(ct);
-    // @ts-expect-error -- abapiti form pending
     acc.ranges.push({id, column: lowName(col), type: irT, kind, lowLen: low.k === "c" || low.k === "n" ? low.len ?? 0 : 0, range});
     return rangeHostPred(id, lowName(col), irT, kind === undefined ? {} : {kind});
   }
@@ -4174,7 +4288,8 @@ let GEN_CALC = false;
         || kids.length !== between + 4) throw new Unsupported(`WHERE BETWEEN form: ${text}`);
     if (!["c", "string", "i", "n", "d", "t", "int8", "p"].includes(ct.k)) throw new Unsupported(`WHERE BETWEEN on a ${ct.k} column: ${text}`);
     const colIr = RIR.col(lowName(col), sqlIrType(ct));
-    /** @param {import("@abaplint/core").Nodes.ExpressionNode} node */ const bound = (node) => sqlValue(sqlHost(node, [], ctx, text), ct, sqlIrType(ct), acc);
+    // @ts-expect-error -- abapiti form pending
+    const bound = (node) => sqlValue(sqlHost(node, [], ctx, text), ct, sqlIrType(ct), acc);
     const both = RIR.bin("AND", RIR.bin(">=", colIr, bound(lowSrc), RIR.T.bool),
       RIR.bin("<=", colIr, bound(highSrc), RIR.T.bool), RIR.T.bool);
     return between === 2 ? RIR.not(both) : both;
@@ -4192,10 +4307,12 @@ let GEN_CALC = false;
 
 /** a WHERE (SQLCond) as an IR predicate: comparisons, IN range, AND, OR,
  * NOT and parentheses, with ABAP's precedence (NOT, AND, OR) */
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {SqlAcc} acc @returns {SqlWhere} */ function sqlCond(node, ctx, tb, acc) {
+// @ts-expect-error -- abapiti form pending
+function sqlCond(node, ctx, tb, acc) {
   const items = node.getChildren();
   let i = 0;
   const text = node.concatTokens();
+  // @ts-expect-error -- abapiti form pending
   const primary = () => {
     const n = items[i++];
     if (isTok(n, "(")) {
@@ -4207,15 +4324,19 @@ let GEN_CALC = false;
     if (isExpr(n, Expressions.SQLCompare)) return sqlCompare(n, ctx, tb, acc);
     throw new Unsupported(`WHERE form: ${text}`);
   };
-  /** @returns {SqlWhere} */ const notExpr = () => {
+  // @ts-expect-error -- abapiti form pending
+  const notExpr = () => {
     if (isTok(items[i], "NOT")) { i += 1; return RIR.not(notExpr()); }
     return primary();
   };
-  /** @returns {SqlWhere} */ const andExpr = () => {
+  // @ts-expect-error -- abapiti form pending
+  const andExpr = () => {
+    // @ts-expect-error -- abapiti form pending
     let l = notExpr();
     while (isTok(items[i], "AND")) { i += 1; l = RIR.bin("AND", l, notExpr(), RIR.T.bool); }
     return l;
   };
+  // @ts-expect-error -- abapiti form pending
   let l = andExpr();
   while (isTok(items[i], "OR")) { i += 1; l = RIR.bin("OR", l, andExpr(), RIR.T.bool); }
   if (i !== items.length) throw new Unsupported(`WHERE form: ${text}`);
@@ -4223,35 +4344,35 @@ let GEN_CALC = false;
 }
 
 /** the client and the WHERE of a statement, AND'ed */
-/** @param {import("@abaplint/core").Nodes.StatementNode | import("@abaplint/core").Nodes.ExpressionNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {SqlAcc} acc @returns {import("../sqlscript-types.ts").SqlExpr | null} */ function wherePred(node, ctx, tb, acc) {
+// @ts-expect-error -- abapiti form pending
+function wherePred(node, ctx, tb, acc) {
   const cond = node.findDirectExpression(Expressions.SQLCond);
   let pred = tb.client ? mandtPred() : null;
-  // @ts-expect-error -- abapiti form pending
   if (cond) pred = andIr(pred, sqlCond(cond, ctx, tb, acc));
   return pred;
 }
 
 /** a lowered statement's parameters as the emitter binds them, and its ranges */
-/** @param {{params: readonly {name?: string, value?: string | number | null}[], hostPreds?: readonly {id: unknown, after: unknown}[]}} lowered @param {SqlAcc} acc @returns {{args: import("./ir.ts").SqlArgument[], preds: import("./frontend-types.ts").FrontendSqlPredicate[]}} */ function loweredArgs(lowered, acc) {
+// @ts-expect-error -- abapiti form pending
+function loweredArgs(lowered, acc) {
   // @ts-expect-error -- abapiti form pending
-  /** @type {import("./ir.ts").SqlArgument[]} */ const args = lowered.params.map((p) => {
+  const args = lowered.params.map((p) => {
     const m = /^@@host:(\d+)@@$/.exec(String(p.name ?? ""));
     if (m) {
       const h = acc.hosts[Number(m[1])];
-      // @ts-expect-error -- abapiti form pending
       return h.fit !== undefined ? {host: h.v, fit: h.fit} : h.xstring ? {host: h.v, xstring: true} : h.xhex !== undefined ? {host: h.v, xhex: h.xhex}
-        // @ts-expect-error -- abapiti form pending
         : h.xexact !== undefined ? {host: h.v, xexact: h.xexact} : {host: h};
     }
     if (p.name === "SY-MANDT") return {mandt: true};
     return {value: p.value};
   });
-  const preds = (lowered.hostPreds ?? []).map((h) => ({...acc.ranges[Number(h.id)], after: h.after}));
   // @ts-expect-error -- abapiti form pending
+  const preds = (lowered.hostPreds ?? []).map((h) => ({...acc.ranges[Number(h.id)], after: h.after}));
   return {args, preds};
 }
 
-/** @param {string} verb @param {unknown} rel @returns {{sql: string, params: readonly {name?: string, value?: string | number | null}[], hostPreds?: readonly {id: unknown, after: unknown}[]}} */ function lowerOrRefuse(verb, rel) {
+// @ts-expect-error -- abapiti form pending
+function lowerOrRefuse(verb, rel) {
   // @ts-expect-error -- abapiti form pending
   try { return lowerRelation(rel, "sqlite"); } catch (e) { throw new Unsupported(`${verb}: the relational IR refused it: ${e.message}`); }
 }
@@ -4334,11 +4455,13 @@ let GEN_CALC = false;
 }
 
 /** ORDER BY f [ASCENDING|DESCENDING] ..., by columns of the table */
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} sel @param {import("./frontend-types.ts").DbTableShape} tb @returns {{col: string, desc: boolean}[]} */ function orderByOf(sel, tb) {
+// @ts-expect-error -- abapiti form pending
+function orderByOf(sel, tb) {
   const order = [];
   const ob = sel.findDirectExpression(Expressions.SQLOrderBy);
   if (ob) {
     if (/PRIMARY\s+KEY/i.test(ob.concatTokens())) throw new Unsupported("ORDER BY PRIMARY KEY");
+    // @ts-expect-error -- abapiti form pending
     const kids = ob.getChildren().filter((c) => !isTok(c, "ORDER") && !isTok(c, "BY") && !isTok(c, ","));
     for (let i = 0; i < kids.length; i += 1) {
       if (!isExpr(kids[i], Expressions.SQLField)) throw new Unsupported(`ORDER BY form: ${ob.concatTokens()}`);
@@ -4367,7 +4490,8 @@ let GEN_CALC = false;
  * transpiler does the same); what a system's cursor shows of a write to the
  * same table inside the loop is not measured, so such a body is refused.
  */
-/** @param {import("@abaplint/core").Nodes.StructureNode} node @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./frontend-types.ts").FrontendStmt} */ function selectLoop(node, ctx) {
+// @ts-expect-error -- abapiti form pending
+function selectLoop(node, ctx) {
   const st = node.findDirectStatement(Statements.SelectLoop);
   const text = st?.concatTokens() ?? "";
   const sel = st?.findDirectExpression(Expressions.Select);
@@ -4377,10 +4501,11 @@ let GEN_CALC = false;
   const grouped = !!sel.findDirectExpression(Expressions.SQLGroupBy);
   const cols = grouped ? groupedColumns(sel, tb, text) : selectColumns(sel, tb, text);
   const {assign, target} = intoWorkArea(sel, ctx, text, cols, "SELECT loop");
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  const acc = {hosts: [], ranges: []};
   const pred = wherePred(sel, ctx, tb, acc);
   const order = orderByOf(sel, tb);
-  /** @type {import("../sqlscript-ir.mjs").Rel} */ let rel = RIR.scan(lowName(tb.name));
+  let rel = RIR.scan(lowName(tb.name));
+  // @ts-expect-error -- abapiti form pending
   if (pred !== null) rel = RIR.filter(rel, pred);
   if (grouped) {
     // @ts-expect-error -- abapiti form pending
@@ -4388,18 +4513,19 @@ let GEN_CALC = false;
       // @ts-expect-error -- abapiti form pending
       ? {...RIR.call("COUNT", [], RIR.T.int), star: true} : RIR.call(c.agg.fn, [RIR.col(lowName(c.agg.col), sqlIrType(c.type))], sqlIrType(c.type))})));
   }
+  // @ts-expect-error -- abapiti form pending
   rel = RIR.project(rel, cols.map((c) => ({as: lowName(c.name), expr: RIR.col(lowName(c.name), sqlIrType(c.type))})));
+  // @ts-expect-error -- abapiti form pending
   if (order.length > 0) rel = RIR.order(rel, order.map((o) => ({col: lowName(o.col), desc: o.desc})));
   const lowered = lowerOrRefuse("SELECT", rel);
   const body = bodyOf(node, ctx);
   // a write to the table being read, inside the loop: refused (see above)
   const writes = [];
-  /** @param {unknown} n @returns {void} */ const walk = (n) => {
+  // @ts-expect-error -- abapiti form pending
+  const walk = (n) => {
     if (Array.isArray(n)) { n.forEach(walk); return; }
     if (!n || typeof n !== "object") return;
-    // @ts-expect-error -- abapiti form pending
     if ((n.s === "db_write" || n.s === "db_write_sql") && n.table === tb.name) writes.push(n);
-    // @ts-expect-error -- abapiti form pending
     for (const k of Object.keys(n)) if (k !== "type") walk(n[k]);
   };
   walk(body);
@@ -4409,22 +4535,23 @@ let GEN_CALC = false;
 
 // Clause checks must inspect the parsed SELECT, not its source text: a WHERE
 // string can contain any of these keywords without adding a SQL clause.
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} sel @returns {string} */ function selectShape(sel) {
+// @ts-expect-error -- abapiti form pending
+function selectShape(sel) {
+  // @ts-expect-error -- abapiti form pending
   return sel.getChildren().map((child) => {
     if (isTok(child)) return tokenStr(child);
     if (isExpr(child, Expressions.SQLIntoTable)) return isTok(child.getFirstChild(), "APPENDING") ? "APPENDING TABLE" : "INTO TABLE";
-    // @ts-expect-error -- abapiti form pending
     if (isExpr(child, Expressions.SQLFrom)) return /\bJOIN\b/i.test(child.concatTokens()) ? "JOIN" : "FROM";
     if (isExpr(child, Expressions.SQLSetOp)) return "UNION";
-    // @ts-expect-error -- abapiti form pending
     if (isExpr(child, Expressions.SQLOptions)) return child.concatTokens();
-    /** @type {[import("./frontend-types.ts").NodeClass, string][]} */ const clauses = [
+    const clauses = [
       [Expressions.SQLUpTo, "UP TO"], [Expressions.SQLGroupBy, "GROUP BY"],
       [Expressions.SQLOrderBy, "ORDER BY"], [Expressions.SQLForAllEntries, "FOR ALL"],
       [Expressions.SQLHaving, "HAVING"], [Expressions.SQLPackageSize, "PACKAGE"],
       [Expressions.SQLBypassingBuffer, "BYPASSING"], [Expressions.SQLClient, "CLIENT"],
       [Expressions.DatabaseConnection, "CONNECTION"], [Expressions.SQLOffset, "OFFSET"],
     ];
+    // @ts-expect-error -- abapiti form pending
     return clauses.find(([kind]) => isExpr(child, kind))?.[1] ?? "";
   }).join(" ");
 }
@@ -4516,7 +4643,7 @@ let GEN_CALC = false;
     if ((c.type.k === "i") !== (f.type.k === "i")) throw new Unsupported(`SELECT: column ${c.name} (${c.type.k}) into ${f.name} (${f.type.k})`);
     return {field: f.name, type: f.type};
   });
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  /** @type {{hosts: import("./ir.ts").Expr[], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} */ const acc = {hosts: [], ranges: []};
   const pred = (() => {
     const saved = ctx.fae;
     ctx.fae = fae ?? undefined;
@@ -4533,7 +4660,7 @@ let GEN_CALC = false;
       // @ts-expect-error -- abapiti form pending
       ? {...RIR.call("COUNT", [], RIR.T.int), star: true} : RIR.call(c.agg.fn, [RIR.col(lowName(c.agg.col), sqlIrType(c.type))], sqlIrType(c.type))}));
     // @ts-expect-error -- abapiti form pending
-    rel = RIR.aggregate(rel, cols.groupBy.map(lowName), aggs);
+    rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.aggregate(rel, cols.groupBy.map(lowName), aggs));
     rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.project(rel, cols.map((c) => ({as: lowName(c.name), expr: RIR.col(lowName(c.name), sqlIrType(c.type))}))));
   } else {
     rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.project(rel, cols.map((c) => ({as: lowName(c.name), expr: RIR.col(lowName(c.name), sqlIrType(c.type))}))));
@@ -4561,7 +4688,7 @@ let GEN_CALC = false;
       throw new Unsupported(`FOR ALL ENTRIES with ${appending ? "APPENDING" : up ? "UP TO" : "ORDER BY"}: ${text}`);
     }
     // the same columns without the WHERE, for an empty driving table
-    /** @type {SqlAcc} */ const accAll = {hosts: [], ranges: []};
+    const accAll = {hosts: [], ranges: []};
     /** @type {import("../sqlscript-types.ts").SqlRelation} */ let relAll = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.scan(lowName(tb.name)));
     if (tb.client) relAll = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.filter(relAll, mandtPred()));
     relAll = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.project(relAll, cols.map((c) => ({as: lowName(c.name), expr: RIR.col(lowName(c.name), sqlIrType(c.type))}))));
@@ -4573,7 +4700,7 @@ let GEN_CALC = false;
 }
 /** @param {import("@abaplint/core").Nodes.ExpressionNode} sel @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {ReturnType<typeof selectTable>} tb @param {import("./frontend-types.ts").FrontendSelectColumn} col @returns {import("./frontend-types.ts").FrontendStmt} */ function selectAggregateScalar(sel, ctx, text, tb, col) {
   const {assign, target} = intoWorkArea(sel, ctx, text, [col], "SELECT aggregate");
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  /** @type {{hosts: import("./ir.ts").Expr[], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} */ const acc = {hosts: [], ranges: []};
   /** @type {import("../sqlscript-types.ts").SqlRelation} */ let rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.scan(lowName(tb.name)));
   const pred = wherePred(sel, ctx, tb, acc);
   if (pred !== null) rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.filter(rel, pred));
@@ -4589,8 +4716,10 @@ let FAE_N = 0;
 
 /** a SELECT with a part given at run time: FROM (name), a field list,
  * WHERE, GROUP BY or ORDER BY in parentheses */
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} sel @returns {boolean} */ function isDynamicSelect(sel) {
-  /** @param {import("@abaplint/core").Nodes.ExpressionNode | undefined} n @returns {boolean} */ const dyn = (n) => n?.findDirectExpression(Expressions.Dynamic) !== undefined && n?.findDirectExpression(Expressions.Dynamic) !== null;
+// @ts-expect-error -- abapiti form pending
+function isDynamicSelect(sel) {
+  // @ts-expect-error -- abapiti form pending
+  const dyn = (n) => n?.findDirectExpression(Expressions.Dynamic) !== undefined && n?.findDirectExpression(Expressions.Dynamic) !== null;
   const tables = sel.findDirectExpression(Expressions.SQLFrom)?.findAllExpressions(Expressions.DatabaseTable) ?? [];
   const cond = sel.findDirectExpression(Expressions.SQLCond);
   return tables.some(dyn) || dyn(sel.findDirectExpression(Expressions.SQLFieldList))
@@ -4600,7 +4729,8 @@ let FAE_N = 0;
 
 /** the operand of a dynamic token, (x): a string or c (one line of tokens)
  * or a table of them (the lines, one after the other) */
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} dyn @param {import("./frontend-types.ts").MethodContext} ctx @param {string} what @param {string} text @returns {import("./frontend-types.ts").ValueExpr} */ function dynamicTokens(dyn, ctx, what, text) {
+// @ts-expect-error -- abapiti form pending
+function dynamicTokens(dyn, ctx, what, text) {
   const fc = dyn.findFirstExpression(Expressions.FieldChain);
   if (!fc || dyn.getChildren().length !== 3) throw new Unsupported(`dynamic ${what}: ${text}`);
   const v = fieldChain(fc, ctx);
@@ -4661,7 +4791,6 @@ let FAE_N = 0;
     const cmp = kids.length === 1 && isExpr(kids[0], Expressions.SQLCompare) ? kids[0] : undefined;
     const wdyn = cmp && cmp.getChildren().length === 1 && isExpr(cmp.getFirstChild(), Expressions.Dynamic) ? cmp.getFirstChild() : undefined;
     if (!wdyn) throw new Unsupported(`a WHERE that is not one (condition) in a dynamic SELECT: ${text}`);
-    // @ts-expect-error -- abapiti form pending
     where = dynamicTokens(wdyn, ctx, "WHERE", text);
     if (where.type.k === "table") throw new Unsupported(`WHERE of a table of lines (how the lines join is not measured): ${text}`);
     where = convert(where, S);
@@ -4708,7 +4837,7 @@ let FAE_N = 0;
   if (!into || !tnode || into.findDirectExpressions(Expressions.SQLTarget).length !== 1) throw new Unsupported(`SELECT COUNT INTO form: ${text}`);
   const target = lvalue(tnode, ctx);
   if (target.type.k !== "i") throw new Unsupported(`SELECT COUNT INTO a ${target.type.k}: ${text}`);
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  /** @type {{hosts: import("./ir.ts").Expr[], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} */ const acc = {hosts: [], ranges: []};
   const pred = wherePred(sel, ctx, tb, acc);
   /** @type {import("../sqlscript-types.ts").SqlRelation} */ let rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.scan(lowName(tb.name)));
   if (pred !== null) rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.filter(rel, pred));
@@ -4731,7 +4860,7 @@ let FAE_N = 0;
   if (!tnode || into.findDirectExpressions(Expressions.SQLTarget).length !== 1) throw new Unsupported(`SELECT SUM INTO form: ${text}`);
   const target = lvalue(tnode, ctx);
   if (target.type.k !== "i") throw new Unsupported(`SELECT SUM INTO a ${target.type.k}: ${text}`);
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  /** @type {{hosts: import("./ir.ts").Expr[], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} */ const acc = {hosts: [], ranges: []};
   const pred = wherePred(sel, ctx, tb, acc);
   /** @type {import("../sqlscript-types.ts").SqlRelation} */ let rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.scan(lowName(tb.name)));
   if (pred !== null) rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.filter(rel, pred));
@@ -4774,16 +4903,21 @@ function dbWriteStatement(kind, node, ctx, text) {
   // a name that is a variable is the internal table's, as ABAP resolves it
   if (isVariableName(name, ctx)) throw new Unsupported(`${verb} ${name}: an internal table named like a table of the dictionary`);
   const tb = dbTable(ctx, name, verb);
+  // @ts-expect-error -- abapiti form pending
   if (kind === "update" && isStmt(node, Statements.UpdateDatabase) && /^UPDATE\s+\S+\s+SET\b/i.test(text)) return updateSet(node, ctx, tb, text);
+  // @ts-expect-error -- abapiti form pending
   if (kind === "delete" && /^DELETE\s+FROM\b/i.test(text)) return deleteWhere(node, ctx, tb, text);
+  // @ts-expect-error -- abapiti form pending
   return writeRows(kind, node, ctx, tb, text, verb);
 }
 
 /** UPDATE dbtab SET col = value ... [WHERE ...], lowered here */
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {string} text @returns {import("./frontend-types.ts").FrontendStmt} */ function updateSet(node, ctx, tb, text) {
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
-  /** @type {{col: string, expr: import("../sqlscript-types.ts").SqlExpr}[]} */ const set = [];
+// @ts-expect-error -- abapiti form pending
+function updateSet(node, ctx, tb, text) {
+  const acc = {hosts: [], ranges: []};
+  const set = [];
   const kids = node.getChildren();
+  // @ts-expect-error -- abapiti form pending
   const at = kids.findIndex((k) => isTok(k, "SET"));
   for (let i = at + 1; i < kids.length && !isTok(kids[i], "WHERE") && !isTok(kids[i], "."); i += 1) {
     const k = kids[i];
@@ -4796,7 +4930,6 @@ function dbWriteStatement(kind, node, ctx, text) {
     if (tb.client && col === "MANDT") throw new Unsupported(`UPDATE SET of the client column: ${text}`);
     const ct = tb.colType(col);
     const ir = writeIrType(ct, `UPDATE ${tb.name}-${col}`);
-    // @ts-expect-error -- abapiti form pending
     set.push({col, expr: sqlValue(sqlHost(src, fk.slice(3), ctx, k.concatTokens()), ct, ir, acc, true)});
   }
   if (set.length === 0) throw new Unsupported(`UPDATE SET form: ${text}`);
@@ -4809,20 +4942,22 @@ function dbWriteStatement(kind, node, ctx, text) {
 }
 
 /** DELETE FROM dbtab [WHERE ...], lowered here */
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {string} text @returns {import("./frontend-types.ts").FrontendStmt} */ function deleteWhere(node, ctx, tb, text) {
+// @ts-expect-error -- abapiti form pending
+function deleteWhere(node, ctx, tb, text) {
   if (!isStmt(node, Statements.DeleteDatabase)) throw new Unsupported(`DELETE form: ${text}`);
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  const acc = {hosts: [], ranges: []};
   const pred = wherePred(node, ctx, tb, acc);
   const lowered = lowerOrRefuse(`DELETE ${tb.name}`, WIR.remove(tb.name, pred ?? undefined));
   return {s: "db_write_sql", verb: "DELETE", table: tb.name, sql: lowered.sql, ...loweredArgs(lowered, acc)};
 }
 
 /** INSERT / UPDATE / MODIFY / DELETE dbtab FROM wa | FROM TABLE itab, INSERT INTO dbtab VALUES wa */
-/** @param {string} kind @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./frontend-types.ts").DbTableShape} tb @param {string} text @param {string} verb @returns {import("./frontend-types.ts").FrontendStmt} */ function writeRows(kind, node, ctx, tb, text, verb) {
+// @ts-expect-error -- abapiti form pending
+function writeRows(kind, node, ctx, tb, text, verb) {
   const fromTable = /\bFROM\s+TABLE\b/i.test(text);
   const accepting = /\bACCEPTING\s+DUPLICATE\s+KEYS\b/i.test(text);
   if (accepting && (kind !== "insert" || !fromTable)) throw new Unsupported(`${verb} form: ${text}`);
-  /** @type {import("./frontend-types.ts").ValueExpr} */ let value;
+  let value;
   if (isStmt(node, Statements.DeleteInternal)) {
     const src = node.findDirectExpression(Expressions.Source);
     if (!src || !/^DELETE\s+\S+\s+FROM\s+[^\s.]+\s*\.?$/i.test(text)) throw new Unsupported(`DELETE form: ${text}`);
@@ -4844,17 +4979,15 @@ function dbWriteStatement(kind, node, ctx, text) {
   if (fields.length !== names.length || names.some((n, i) => {
     const ct = tb.colType(n);
     const f = fields[i];
-    // @ts-expect-error -- abapiti form pending
     return f.name !== n || f.type.k !== ct.k || (f.type.len ?? null) !== (ct.len ?? null);
   })) throw new Unsupported(`${verb} ${tb.name}: a work area not of the table's line type (${row.go})`);
-  // @ts-expect-error -- abapiti form pending
-  /** @type {{name: string, kind: import("./ir.ts").Type["k"], ir: import("./ir.ts").WriteType, client: boolean}[]} */ const cols = names.map((n) => {
+  const cols = names.map((n) => {
     const ct = tb.colType(n);
     return {name: n, kind: ct.k, ir: writeIrType(ct, `${verb} ${tb.name}-${n}`), client: tb.client && n === "MANDT"};
   });
+  // @ts-expect-error -- abapiti form pending
   if (tb.key.length === 0 || tb.key.some((k) => !tb.columns.has(k))) throw new Unsupported(`${verb} ${tb.name}: its primary key does not resolve`);
   const schema = Object.fromEntries(cols.map((c) => [c.name, irCheck(c.ir)]));
-  // @ts-expect-error -- abapiti form pending
   const rows = WIR.bindRows(names, schema, [{}]);
   const keyPred = cols.filter((c) => tb.key.includes(c.name)).map((c) => RIR.bin("=", RIR.col(c.name, irCheck(c.ir)), WIR.initialValue(irCheck(c.ir)), RIR.T.bool))
     .reduce((a, b) => RIR.bin("AND", a, b, RIR.T.bool));
@@ -4867,6 +5000,7 @@ function dbWriteStatement(kind, node, ctx, text) {
   const onDuplicate = op !== "insert" ? undefined : accepting ? "ignore" : fromTable ? "raise" : "error";
   try {
     const stmt = op === "insert" ? WIR.insertRows(tb.name, names, rows, {onDuplicate})
+      // @ts-expect-error -- abapiti form pending
       : op === "update" ? WIR.update(tb.name, rest.map((c) => ({col: c.name, expr: WIR.initialValue(irCheck(c.ir))})), keyPred)
         : op === "delete" ? WIR.remove(tb.name, keyPred)
           : WIR.upsert(tb.name, names, rows, tb.key);
@@ -4883,7 +5017,8 @@ function dbWriteStatement(kind, node, ctx, text) {
  * elementary field for one column. Only the fields the columns go to are
  * written (by name with CORRESPONDING, else by position).
  */
-/** @param {import("@abaplint/core").Nodes.ExpressionNode} sel @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {import("./frontend-types.ts").FrontendSelectColumns} cols @param {string} verb @returns {{assign: readonly (import("./ir.ts").SqlAssignment | null)[], target: import("./ir.ts").Expr | null}} */ function intoWorkArea(sel, ctx, text, cols, verb) {
+// @ts-expect-error -- abapiti form pending
+function intoWorkArea(sel, ctx, text, cols, verb) {
   const into = sel.findDirectExpression(Expressions.SQLIntoStructure) ?? sel.findDirectExpression(Expressions.SQLIntoList);
   const targets = into?.findDirectExpressions(Expressions.SQLTarget) ?? [];
   const tnode = targets[0]?.findDirectExpression(Expressions.Target);
@@ -4891,7 +5026,8 @@ function dbWriteStatement(kind, node, ctx, text) {
   // storage: it goes into an xstring field only; a RAW(n) column into an x
   // (cut or 00-padded) or an xstring (its n bytes) (ultra/zvdb, A4H
   // ZCL_GOGEN_T_RAWRD)
-  /** @param {import("./frontend-types.ts").FrontendSelectColumn} c @param {{type: import("./ir.ts").Type}} f @returns {boolean} */ const okCol = (c, f) => (c.type.k === "xstring" && f.type.k === "xstring") || (c.type.k === "p" && f.type.k === "p")
+  // @ts-expect-error -- abapiti form pending
+  const okCol = (c, f) => (c.type.k === "xstring" && f.type.k === "xstring") || (c.type.k === "p" && f.type.k === "p")
     || (c.type.k === "x" && (f.type.k === "x" || f.type.k === "xstring"))
     || (["c", "string", "i", "d", "t", "n"].includes(c.type.k) && ["c", "string", "i", "d", "t"].includes(f.type.k) && (c.type.k === "i") === (f.type.k === "i"))
     // a NUMC column into an n field of its length (ultra/demodata)
@@ -4901,14 +5037,17 @@ function dbWriteStatement(kind, node, ctx, text) {
   // targets as they were, sy-subrc 4; @DATA( ) is typed as its column)
   if (into && targets.length > 1) {
     if (/\bCORRESPONDING\b/i.test(into.concatTokens()) || targets.length !== cols.length) throw new Unsupported(`${verb} INTO list form: ${text}`);
+    // @ts-expect-error -- abapiti form pending
     const places = targets.map((t) => {
       const tn = t.findDirectExpression(Expressions.Target);
       if (!tn) throw new Unsupported(`${verb} INTO list form: ${text}`);
       return lvalue(tn, ctx);
     });
+    // @ts-expect-error -- abapiti form pending
     places.forEach((p, i) => {
       if (!okCol(cols[i], p) || ["struct", "table"].includes(p.type.k)) throw new Unsupported(`SELECT: column ${cols[i].name} (${cols[i].type.k}) into a ${p.type.k}`);
     });
+    // @ts-expect-error -- abapiti form pending
     return {assign: places.map((p) => ({place: p, type: p.type})), target: null};
   }
   if (!into || !tnode || targets.length !== 1) throw new Unsupported(`${verb} INTO form: ${text}`);
@@ -4917,7 +5056,9 @@ function dbWriteStatement(kind, node, ctx, text) {
   let assign;
   if (target.type.k === "struct") {
     const fields = ctx.program.structs.get(target.type.go)?.fields ?? [];
+    // @ts-expect-error -- abapiti form pending
     const byName = new Map(fields.map((f) => [String(f.name).toUpperCase(), f]));
+    // @ts-expect-error -- abapiti form pending
     assign = cols.map((c, i) => {
       const f = corresponding ? byName.get(c.name) : fields[i];
       // @ts-expect-error -- abapiti form pending
@@ -4926,9 +5067,7 @@ function dbWriteStatement(kind, node, ctx, text) {
       if (!okCol(c, f)) throw new Unsupported(`SELECT: column ${c.name} (${c.type.k}) into ${f.name} (${f.type.k})`);
       // by position the move is by flat layout on a system: equal only while
       // each column has its field's type and length
-      // @ts-expect-error -- abapiti form pending
       if (!corresponding && (c.type.k !== f.type.k || (c.type.len ?? null) !== (f.type.len ?? null) || (c.type.dec ?? null) !== (f.type.dec ?? null))) {
-        // @ts-expect-error -- abapiti form pending
         throw new Unsupported(`SELECT without CORRESPONDING: column ${c.name} (${c.type.k}${c.type.len ?? ""}) into ${f.name} (${f.type.k}${f.type.len ?? ""}) is a layout move`);
       }
       return {field: f.name, type: f.type};
@@ -4953,7 +5092,7 @@ function dbWriteStatement(kind, node, ctx, text) {
   const tb = selectTable(sel, ctx, text);
   const cols = selectColumns(sel, tb, text);
   const {assign, target} = intoWorkArea(sel, ctx, text, cols, "SELECT SINGLE");
-  /** @type {SqlAcc} */ const acc = {hosts: [], ranges: []};
+  /** @type {{hosts: import("./ir.ts").Expr[], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} */ const acc = {hosts: [], ranges: []};
   const pred = wherePred(sel, ctx, tb, acc);
   /** @type {import("../sqlscript-types.ts").SqlRelation} */ let rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.scan(lowName(tb.name)));
   if (pred !== null) rel = /** @type {import("../sqlscript-types.ts").SqlRelation} */ (RIR.filter(rel, pred));
@@ -5190,35 +5329,34 @@ function dbWriteStatement(kind, node, ctx, text) {
  * the declaring class's event. program.events collects the events used,
  * for the backends' parameter types.
  */
-/** @param {import("./frontend-types.ts").MethodContext} ctx @param {string} owner @param {string} evName @returns {{key: string, decl: string | null, name: string, static: boolean, params: {name: string, type: import("./ir.ts").Type}[]}} */ function eventInfo(ctx, owner, evName) {
+// @ts-expect-error -- abapiti form pending
+function eventInfo(ctx, owner, evName) {
   let decl = null;
   let def = null;
   let name = upper(evName);
   if (name.includes("~")) {
     const [intf, ev] = name.split("~");
-    // @ts-expect-error -- abapiti form pending
     const idef = ctx.reg.getObject("INTF", intf)?.getDefinition();
-    const found = idef?.getEvents?.().find(/** @param {{getName: () => string}} e */ (e) => upper(e.getName()) === ev);
+    // @ts-expect-error -- abapiti form pending
+    const found = idef?.getEvents?.().find((e) => upper(e.getName()) === ev);
     if (found) { decl = intf; def = found; name = ev; }
   } else if (ctx.reg.getObject("INTF", owner)) {
     // @ts-expect-error -- abapiti form pending
-    const found = ctx.reg.getObject("INTF", owner).getDefinition()?.getEvents?.().find(/** @param {{getName: () => string}} e */ (e) => upper(e.getName()) === name);
+    const found = ctx.reg.getObject("INTF", owner).getDefinition()?.getEvents?.().find((e) => upper(e.getName()) === name);
     if (found) { decl = owner; def = found; }
   } else {
     for (const c of [owner, ...ancestors(ctx.reg, owner)]) {
-      const found = ctx.reg.getObject("CLAS", c)?.getDefinition()?.getEvents?.().find(/** @param {{getName: () => string}} e */ (e) => upper(e.getName()) === name);
+      // @ts-expect-error -- abapiti form pending
+      const found = ctx.reg.getObject("CLAS", c)?.getDefinition()?.getEvents?.().find((e) => upper(e.getName()) === name);
       if (found) { decl = c; def = found; break; }
     }
   }
   if (!def) throw new Unsupported(`event ${evName} of ${owner} is not in the program`);
   const key = `${decl}~${name}`;
-  // @ts-expect-error -- abapiti form pending
   if (ctx.program.events.has(key)) return ctx.program.events.get(key);
   // DEFAULT of an event parameter is not read off the definition (abaplint
   // keeps no default for it): an event that has one is refused
-  // @ts-expect-error -- abapiti form pending
   const obj = ctx.reg.getObject("INTF", decl) ?? ctx.reg.getObject("CLAS", decl);
-  // @ts-expect-error -- abapiti form pending
   for (const f of obj.getABAPFiles()) {
     for (const st of f.getStatements()) {
       if (!(st.get() instanceof Statements.Events)) continue;
@@ -5226,9 +5364,9 @@ function dbWriteStatement(kind, node, ctx, text) {
       if (/\bDEFAULT\b/i.test(st.concatTokens())) throw new Unsupported(`event ${key}: a parameter with DEFAULT`);
     }
   }
-  const params = def.getParameters().map(/** @param {import("@abaplint/core").TypedIdentifier} p */ (p) => ({name: upper(p.getName()), type: typeOf(p.getType(), `event ${key}`, ctx.program)}));
-  /** @type {{key: string, decl: string | null, name: string, static: boolean, params: {name: string, type: import("./ir.ts").Type}[]}} */ const info = {key, decl, name, static: def.isStatic(), params};
   // @ts-expect-error -- abapiti form pending
+  const params = def.getParameters().map((p) => ({name: upper(p.getName()), type: typeOf(p.getType(), `event ${key}`, ctx.program)}));
+  const info = {key, decl, name, static: def.isStatic(), params};
   ctx.program.events.set(key, info);
   return info;
 }
@@ -5281,7 +5419,6 @@ function dbWriteStatement(kind, node, ctx, text) {
     if (!ctx.program.wanted.has(at)) throw notInProgram(ctx, at, `SET HANDLER: ${at} is not compiled in this program`);
     const mdef = declaredMethod(ctx.reg, at, mname);
     if (!mdef?.isEventHandler?.()) throw new Unsupported(`SET HANDLER: ${at}=>${mname} is not an event handler`);
-    // @ts-expect-error -- abapiti form pending
     const ev = eventInfo(ctx, upper(mdef.getEventClass()), mdef.getEventName());
     const sig = methodSignature(ctx, at, mname);
     if (sig.unsupported) throw new Unsupported(`SET HANDLER: ${at}=>${mname} was skipped: ${sig.unsupported}`);
@@ -5291,9 +5428,10 @@ function dbWriteStatement(kind, node, ctx, text) {
     if (!sig.static && (staticRef || ctx.sig.static) && !obj) throw new Unsupported(`SET HANDLER of an instance method without an object: ${ms.concatTokens()}`);
     if (ev.static && (forObj || forAll)) throw new Unsupported(`SET HANDLER ... FOR of a static event: ${text}`);
     if (!ev.static && !forObj && !forAll) throw new Unsupported(`SET HANDLER of an instance event without FOR: ${text}`);
+    // @ts-expect-error -- abapiti form pending
     const byName = new Map(ev.params.map((p) => [p.name, p]));
     // @ts-expect-error -- abapiti form pending
-    const args = sig.params.map(/** @returns {import("./ir.ts").Argument} */ (p) => {
+    const args = sig.params.map((p) => {
       if (p.dir !== "importing") throw new Unsupported(`handler ${at}=>${mname}: ${p.dir} parameter ${p.name}`);
       if (p.name === "SENDER") {
         if (ev.static) throw new Unsupported(`handler ${at}=>${mname}: SENDER of a static event`);
@@ -5305,7 +5443,7 @@ function dbWriteStatement(kind, node, ctx, text) {
       return {dir: "importing", byValue: p.byValue, type: p.type, value: {e: "ev_arg", name: p.name, type: p.type}};
     });
     // @ts-expect-error -- abapiti form pending
-    /** @type {import("./ir.ts").Expr} */ const call = {e: "call", method: mname, static: sig.static, owner: sig.static ? at : null,
+    const call = {e: "call", method: mname, static: sig.static, owner: sig.static ? at : null,
       receiver: obj ? {e: "ev_handler", type: obj.type} : null, sup: null, args, type: {k: "void"}, exceptions: null, receiving: null, callee: mname};
     // FOR EVENT e OF a subclass of the declaring class: FOR ALL INSTANCES
     // only takes senders of that class
@@ -5336,8 +5474,10 @@ function dbWriteStatement(kind, node, ctx, text) {
     // @ts-expect-error -- abapiti form pending
     given.set(upper(p.findDirectExpression(Expressions.ParameterName).concatTokens()), p.findDirectExpression(Expressions.Source));
   }
+  // @ts-expect-error -- abapiti form pending
   for (const n of given.keys()) if (!ev.params.some((p) => p.name === n)) throw new Unsupported(`RAISE EVENT ${ev.key}: no parameter ${n}`);
-  const args = ev.params.map(/** @returns {import("./ir.ts").Argument} */ (p) => ({name: p.name, type: p.type,
+  // @ts-expect-error -- abapiti form pending
+  const args = ev.params.map((p) => ({name: p.name, type: p.type,
     value: given.has(p.name) ? convert(source(given.get(p.name), ctx, p.type), p.type) : {e: "zero", type: p.type}}));
   return {s: "raise_event", event: ev.key, static: ev.static, sender: ev.static ? null : {e: "me", type: {k: "ref", name: ctx.className}}, args};
 }
@@ -5347,7 +5487,7 @@ function dbWriteStatement(kind, node, ctx, text) {
  * compiled or not), for a CATCH to walk at run time: the object raised is
  * told by its class, which a RAISE EXCEPTION obj only knows then.
  */
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {Record<string, string>} */ function exceptionSupers(reg, program) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {Record<string, string>} */ function exceptionSupers(reg, program) {
   /** @type {Record<string, string>} */ const out = {};
   for (const c of program.classes) {
     const chain = [c.name, ...ancestors(reg, c.name)];
@@ -5363,7 +5503,7 @@ function dbWriteStatement(kind, node, ctx, text) {
   // nearest superclass's
   // a local class (LOCAL_CLASSES) has its definition by its compiled name
   // @ts-expect-error -- abapiti form pending
-  const def = (PERSIST_LOWERING ? ctx.program.localDefs : LOCAL_DEFS).get(clsName) ?? ctx.reg.getObject("CLAS", declaringClass(ctx.reg, clsName, "CONSTRUCTOR", "method") ?? clsName)?.getDefinition();
+  /** @type {import("@abaplint/core").IClassDefinition | undefined} */ const def = (PERSIST_LOWERING ? ctx.program.localDefs : LOCAL_DEFS).get(clsName) ?? ctx.reg.getObject("CLAS", declaringClass(ctx.reg, clsName, "CONSTRUCTOR", "method") ?? clsName)?.getDefinition();
   const m = def?.getMethodDefinitions().getByName("CONSTRUCTOR");
   if (m === undefined) return [];
   const p = m.getParameters();
@@ -5540,7 +5680,7 @@ const FUNCTIONS = {
     // @ts-expect-error -- abapiti form pending
     const ps = create.findFirstExpression(Expressions.ParameterListS)?.findDirectExpressions(Expressions.ParameterS) ?? [];
     // @ts-expect-error -- abapiti form pending
-    /** @param {string} p @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
+    const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
     if (arg("SEED") || !arg("MIN") || !arg("MAX") || ps.length !== 2) throw new Unsupported(`cl_abap_random_int form: ${chainText}`);
     // @ts-expect-error -- abapiti form pending
     return {e: "random", min: convert(source(arg("MIN"), ctx, I), I), max: convert(source(arg("MAX"), ctx, I), I), type: I};
@@ -5609,7 +5749,8 @@ const FUNCTIONS = {
   const direct = param?.findDirectExpression(Expressions.Source);
   const named = param?.findDirectExpression(Expressions.ParameterListS);
   const full = param?.findDirectExpression(Expressions.MethodParameters);
-  // ultra/events (fix round): CL_ABAP_RANDOM->INT is a host function that ignores a seed (as open-abap-core's @KERNEL line does), so a seeded
+  // ultra/events (fix round): CL_ABAP_RANDOM->INT is a host function that
+  // ignores a seed (as open-abap-core's @KERNEL line does), so a seeded
   // generator, whose sequence would be the contract, is refused
   if (owner === "CL_ABAP_RANDOM" && name === "CREATE" && (direct || named || full)) throw new Unsupported(`CL_ABAP_RANDOM=>CREATE with a SEED: the host generator ignores it`);
 
@@ -5627,7 +5768,7 @@ const FUNCTIONS = {
   if (receiver === null && owner === null && name === "ESCAPE" && !ctx.signatures.has(name)) {
     const ps = named?.findDirectExpressions(Expressions.ParameterS) ?? [];
     // @ts-expect-error -- abapiti form pending
-    /** @param {string} p @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
+    const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
     // parity-wave1: e_json_string (A4H ZCL_GOGEN_T_JSESC: \\ and " escaped,
     // \b \t \n \f \r, every other control character \u00XX, the rest as
     // it is; a c loses its trailing blanks, a generic operand is read as a
@@ -5639,6 +5780,7 @@ const FUNCTIONS = {
     if (!charlike(v.type) && !(fmt === "e_json_string" && v.type.k === "data" && !v.type.table)) throw new Unsupported(`escape( ) of a ${v.type.k}`);
     return {e: "str_fn", fn: fmt === "e_html_attr" ? "EscapeHTMLAttr" : "EscapeJSONString", args: [convert(v, S)], type: S};
   }
+  // @ts-expect-error -- abapiti form pending
   if (receiver === null && owner === null && STRING_FNS[name] && !ctx.signatures.has(name)) return stringFn(name, direct, named, ctx, chainText);
   // ultra/httpc: concat_lines_of( table = t sep = s ) over a table of
   // strings (cl_http_utility=>fields_to_string): the rows joined by sep. A
@@ -5648,7 +5790,7 @@ const FUNCTIONS = {
   if (receiver === null && owner === null && name === "CONCAT_LINES_OF" && !ctx.signatures.has(name)) {
     const ps = named?.findDirectExpressions(Expressions.ParameterS) ?? [];
     // @ts-expect-error -- abapiti form pending
-    /** @param {string} p @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
+    const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
     const tabNode = direct ?? arg("TABLE");
     // @ts-expect-error -- abapiti form pending
     if (tabNode === undefined || ps.some((x) => !["TABLE", "SEP"].includes(upper(x.findDirectExpression(Expressions.ParameterName).concatTokens())))) throw new Unsupported(`concat_lines_of( ) form: ${chainText}`);
@@ -5687,7 +5829,7 @@ const FUNCTIONS = {
   if (receiver === null && owner === null && name === "FIND" && !ctx.signatures.has(name)) {
     // find( val = s sub = x [off = n] ): measured on A4H, see abap.Find
     // @ts-expect-error -- abapiti form pending
-    /** @param {string} p @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const arg = (p) => named?.findDirectExpressions(Expressions.ParameterS).find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
+    const arg = (p) => named?.findDirectExpressions(Expressions.ParameterS).find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
     // @ts-expect-error -- abapiti form pending
     const given = (named?.findDirectExpressions(Expressions.ParameterS) ?? []).map((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()));
     if (!named || given.some((p) => !["VAL", "SUB", "OFF", "OCC"].includes(p)) || !arg("VAL") || !arg("SUB") || (arg("OCC") && arg("OFF"))) throw new Unsupported(`find( ) form: ${chainText}`);
@@ -5713,7 +5855,7 @@ const FUNCTIONS = {
   if (receiver === null && owner === null && name === "SUBSTRING" && !ctx.signatures.has(name)) {
     const ps = named?.findDirectExpressions(Expressions.ParameterS) ?? [];
     // @ts-expect-error -- abapiti form pending
-    /** @param {string} p @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */ const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
+    const arg = (p) => ps.find((x) => upper(x.findDirectExpression(Expressions.ParameterName).concatTokens()) === p)?.findDirectExpression(Expressions.Source);
     // @ts-expect-error -- abapiti form pending
     if (!arg("VAL") || ps.some((x) => !["VAL", "OFF", "LEN"].includes(upper(x.findDirectExpression(Expressions.ParameterName).concatTokens())))) {
       throw new Unsupported(`substring( ) form: ${chainText}`);
@@ -5862,6 +6004,7 @@ const FUNCTIONS = {
   // A system field in a signature default is read when the call is made.
   // ASSERT_SUBRC's ACT defaults to sy-subrc.
   if (SY_MESSAGES[upper(t)]) return convert({e: "sy", ...SY_MESSAGES[upper(t)]}, p.type);
+  // @ts-expect-error -- abapiti form pending
   if (SY[upper(t)] !== undefined) return convert({e: "sy", field: SY[upper(t)], type: I}, p.type);
   // SPACE is a built-in value, not an attribute of the class which declares
   // the method. GUI_UPLOAD's optional CODEPAGE uses exactly this default.
@@ -5870,9 +6013,9 @@ const FUNCTIONS = {
   // plain name: its VALUE, a literal
   if (/^[a-z_][\w]*$/i.test(t) && !/^abap_(true|false)$/i.test(t) && p.defaultOwner !== undefined) {
     // @ts-expect-error -- abapiti form pending
-    const def = ctx.reg.getObject("INTF", p.defaultOwner)?.getDefinition() ?? clasDef(ctx.reg, p.defaultOwner);
-    // @ts-expect-error -- abapiti form pending
+    /** @type {import("@abaplint/core").IInterfaceDefinition | import("@abaplint/core").IClassDefinition | undefined} */ const def = ctx.reg.getObject("INTF", p.defaultOwner)?.getDefinition() ?? clasDef(ctx.reg, p.defaultOwner);
     const c = def?.getAttributes().getConstants().find((x) => upper(x.getName()) === upper(t));
+    // @ts-expect-error -- abapiti form pending
     if (c !== undefined && typeof c.getValue() === "string") t = c.getValue();
     else {
       const aliased = aliasTarget(ctx.reg, p.defaultOwner, upper(t));
@@ -5941,8 +6084,9 @@ const FUNCTIONS = {
  * addition the runtime does not do is refused by name.
  */
 /** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @returns {import("./frontend-types.ts").FrontendStmt} */ function datasetStatement(node, ctx, text) {
-  /** @type {{keywords: string[], node: import("./frontend-types.ts").SyntaxNode}[]} */ const operands = [];
-  /** @type {string[]} */ const words = [];
+  // @ts-expect-error -- abapiti form pending
+  const operands = [];
+  const words = [];
   let keywords = [];
   for (const c of node.getChildren()) {
     if (c instanceof Nodes.TokenNode) {
@@ -5956,19 +6100,25 @@ const FUNCTIONS = {
   }
   // abaplint splits UTF-8, NON-UNICODE and BYTE-ORDER into three tokens
   const joined = ` ${words.join(" ").replace(/ - /g, "-")} `;
-  /** @param {string} w @returns {boolean} */ const has = (w) => joined.includes(` ${w} `);
-  /** @param {string} w @param {readonly string[]} [notAfter] @returns {import("./frontend-types.ts").SyntaxNode | undefined} */ const after = (w, notAfter = []) => {
+  // @ts-expect-error -- abapiti form pending
+  const has = (w) => joined.includes(` ${w} `);
+  // @ts-expect-error -- abapiti form pending
+  const after = (w, notAfter = []) => {
     const want = w.split(" ");
+    // @ts-expect-error -- abapiti form pending
     return operands.slice(1).find((o) => o.keywords.slice(-want.length).join(" ") === w
       && !notAfter.includes(o.keywords[o.keywords.length - want.length - 1]))?.node;
   };
   // GET DATASET's name is a Target in the grammar, read here like a source
-  /** @param {import("./frontend-types.ts").SyntaxNode} n @param {import("./ir.ts").Type} to @returns {import("./frontend-types.ts").ValueExpr} */ const source = (n, to) => convert(isExpr(n, Expressions.Target) ? lvalue(n, ctx) : sourceOperand(n, ctx), to);
-  /** @param {import("./frontend-types.ts").SyntaxNode} n @returns {import("./frontend-types.ts").ValueExpr} */ const target = (n) => convert(lvalue(n, ctx), {k: "data"});
+  // @ts-expect-error -- abapiti form pending
+  const source = (n, to) => convert(isExpr(n, Expressions.Target) ? lvalue(n, ctx) : sourceOperand(n, ctx), to);
+  // @ts-expect-error -- abapiti form pending
+  const target = (n) => convert(lvalue(n, ctx), {k: "data"});
   // a position or length from a number; a character operand would need a
   // conversion the Go emitter has no rule for (c/n/string -> int8), and an
   // Error there fails the whole program, so it is refused here, in one method
-  /** @param {import("./frontend-types.ts").SyntaxNode} n @param {import("./ir.ts").Type} to @param {string} what @returns {import("./frontend-types.ts").ValueExpr} */ const number = (n, to, what) => {
+  // @ts-expect-error -- abapiti form pending
+  const number = (n, to, what) => {
     const v = isExpr(n, Expressions.Target) ? lvalue(n, ctx) : sourceOperand(n, ctx);
     if (!["i", "int8", "p", "f"].includes(v.type.k)) throw new Unsupported(`${what} of type ${v.type.k}`);
     return convert(v, to);
@@ -5989,14 +6139,12 @@ const FUNCTIONS = {
   if (isStmt(node, Statements.DeleteDataset)) return {s: "dataset_delete", name: source(operands[0].node, S)};
   if (isStmt(node, Statements.Transfer)) {
     const length = after("LENGTH");
-    // @ts-expect-error -- abapiti form pending
     return {s: "dataset_transfer", src: source(operands[0].node, {k: "data"}), name: source(after("TO"), S),
       length: length ? number(length, I, "TRANSFER ... LENGTH") : null, noEndOfLine: has("NO END OF LINE")};
   }
   if (isStmt(node, Statements.ReadDataset)) {
     const max = after("MAXIMUM LENGTH");
     const actual = after("ACTUAL LENGTH") ?? after("LENGTH", ["MAXIMUM", "ACTUAL"]);
-    // @ts-expect-error -- abapiti form pending
     return {s: "dataset_read", name: source(operands[0].node, S), target: target(after("INTO")),
       max: max ? number(max, I, "READ DATASET ... MAXIMUM LENGTH") : null, actual: actual ? target(actual) : null};
   }
@@ -6203,7 +6351,6 @@ const FUNCTIONS = {
     // up-cast: a class into an interface it implements, or any reference into
     // the same interface; a down-cast needs CAST and is refused
     if (to.intf && (to.name === "OBJECT" || implementsIntf(expr, from.name, to.name))) return {e: "upcast", x: expr, type: to};
-    // @ts-expect-error -- abapiti form pending
     if (!to.intf && !from.intf && REG && ancestors(REG, from.name).includes(to.name)) return {e: "upcast", x: expr, type: to};
     throw new Unsupported(`reference ${from.name} -> ${to.name}`);
   }
@@ -6230,11 +6377,9 @@ const FUNCTIONS = {
 /** @type {import("./frontend-types.ts").FrontendProgram | null} */ let PROGRAM = null;
 /** @param {import("./ir.ts").Expr} expr @param {string} cls @param {string} intf @returns {boolean} */ function implementsIntf(expr, cls, intf) {
   if (cls === intf) return true;
-  // @ts-expect-error -- abapiti form pending
   for (const c of [cls, ...(REG ? ancestors(REG, cls) : [])]) {
     // @ts-expect-error -- abapiti form pending
-    const def = REG?.getObject("CLAS", c)?.getDefinition() ?? REG?.getObject("INTF", c)?.getDefinition() ?? (PERSIST_LOWERING ? PROGRAM.localDefs : LOCAL_DEFS).get(c);
-    // @ts-expect-error -- abapiti form pending
+    /** @type {import("@abaplint/core").IInterfaceDefinition | undefined} */ const def = REG?.getObject("CLAS", c)?.getDefinition() ?? REG?.getObject("INTF", c)?.getDefinition() ?? (PERSIST_LOWERING ? PROGRAM.localDefs : LOCAL_DEFS).get(c);
     if ((def?.getImplementing?.() ?? []).some((i) => upper(i.name) === intf || (REG && componentInterfaces(REG, upper(i.name)).includes(intf)))) return true;
   }
   return false;
@@ -6305,8 +6450,8 @@ const FUNCTIONS = {
     const nm = /<[\w]+>/.exec(text)?.[0];
     if (!nm || !ctx.fieldSymbols.has(nm)) throw new Unsupported(`IS ASSIGNED: ${text}`);
     fsCheck(nm, ctx);
-    const type = ctx.fieldSymbols.get(nm);
     // @ts-expect-error -- abapiti form pending
+    /** @type {import("./ir.ts").Type} */ const type = ctx.fieldSymbols.get(nm);
     /** @type {import("./ir.ts").Condition} */ const r = {c: "assigned", fs: {e: "fs", name: nm, type}};
     return /\bIS\s+NOT\s+ASSIGNED\b/.test(text) !== not ? {c: "not", x: r} : r;
   }

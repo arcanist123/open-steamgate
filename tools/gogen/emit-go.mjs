@@ -35,10 +35,8 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
   + "uint32 uint64 uintptr true false nil iota me s math abap").split(" "));
 
 /** @type {boolean} */ let exportedFields = false, /** @type {import("./emit-go-types.ts").Ownership | undefined} */ OWNERSHIP, /** @type {import("./emit-go-types.ts").SymbolCollector | null | undefined} */ SYMBOLS;
-// WriteType and Type lengths/decimals read through the inspection view: the
-// ABAP kind decides which member is really there, not a narrowed switch.
 // @ts-expect-error -- abapiti form pending
-/** @param {import("./emit-go-types.ts").Field | import("./emit-go-types.ts").SupportedAttribute} v @returns {string} */ const ownedType = (v) => (OWNERSHIP).declarations.has(v) ? (HELPER_IMPORTS.add("xbuf"), (v.type.k === "x" ? `[${v.type.len}]byte` : "hXbuf.Buffer")) : goType(v.type);
+/** @param {import("./emit-go-types.ts").Field | import("./emit-go-types.ts").SupportedAttribute} v @returns {string} */ const ownedType = (v) => OWNERSHIP.declarations.has(v) ? (HELPER_IMPORTS.add("xbuf"), (v.type.k === "x" ? `[${v.type.len}]byte` : "hXbuf.Buffer")) : goType(v.type);
 /** @param {string} name @returns {string} */ export const ident = (name) => {
   // A single leading underscore is reserved for compiler-only supplied flags.
   if (name.startsWith("\0")) return `_sup_${ident(name.slice(1))}`;
@@ -259,8 +257,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
 /** @param {import("./emit-go-types.ts").ProgramInput} program @returns {string[]} */ function tableRegistry(program) {
   const tables = program.tables ?? [];
   if (tables.length === 0) return [];
-// @ts-expect-error -- abapiti form pending
-/** @param {import("./emit-go-types.ts").WriteType | null} t @returns {string} */ const irType = (t) => (t === null ? "nil" : `&abap.IRType{Abap: ${JSON.stringify(t.abap)}${t.len ? `, Len: ${t.len}` : ""}${t.dec ? `, Dec: ${t.dec}` : ""}}`);
+  // @ts-expect-error -- abapiti form pending
+  /** @param {import("./emit-go-types.ts").WriteType | null} t @returns {string} */ const irType = (t) => (t === null ? "nil" : `&abap.IRType{Abap: ${JSON.stringify(t.abap)}${t.len ? `, Len: ${t.len}` : ""}${t.dec ? `, Dec: ${t.dec}` : ""}}`);
   const lines = tables.map((t) => {
     const cols = t.columns.map((c) => `{Name: ${JSON.stringify(c.name)}, Kind: '${c.kind}', Len: ${c.len}, Dec: ${c.dec}, Key: ${c.key}, IR: ${irType(c.type)}}`);
     const types = t.row ? `Row: ${desc(t.row)}, Rows: ${desc({k: "table", row: t.row})}` : `Why: ${JSON.stringify(t.why)}`;
@@ -334,7 +332,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     if (Array.isArray(v)) { for (const x of v) collectStable(x); return; }
     if (!v || typeof v !== "object") return;
     // @ts-expect-error -- abapiti form pending
-    const table = (v).table?.type;
+    const table = (/** @type {import("./emit-go-types.ts").WalkNode} */ (v)).table?.type;
     if (table?.stable && table.row.go) STABLE_ROWS.add(table.row.go);
     for (const key of ["body", "branches", "cases", "catches", "else", "then", "cleanup"]) collectStable((/** @type {import("./emit-go-types.ts").WalkNode} */ (v))[key]);
   };
@@ -377,7 +375,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     append(out, intfAccessors(program, name));
     out.push("}", "");
   }
-  // ultra/events: the parameters of each event used, as one struct a RAISE EVENT builds per handler call
+  // ultra/events: the parameters of each event used, as one struct a
+  // RAISE EVENT builds per handler call
   for (const ev of (layers?.events ?? EVENTS).values()) {
     out.push(`type ${evType(ev.key)} struct {`);
     for (const p of ev.params) out.push(`\t${ident(p.name)} ${goType(p.type)}`);
@@ -389,16 +388,21 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     const inst = (cls.attributes ?? []).filter(/** @returns {a is import("./emit-go-types.ts").SupportedAttribute} */ (a) => !a.static && a.unsupported === undefined);
     const statics = (cls.attributes ?? []).filter(/** @returns {a is import("./emit-go-types.ts").SupportedAttribute} */ (a) => !!a.static && a.unsupported === undefined);
     out.push(`type ${typeName(cls.name)} struct {`);
-    // the superclass's part of the object, embedded: its attributes and methods are promoted, and a redefinition shadows the method
+    // the superclass's part of the object, embedded: its attributes and
+    // methods are promoted, and a redefinition shadows the method
     if (cls.super) out.push(`\t${typeName(cls.super)}`);
     // the most-derived object, for the calls a method makes on me
     if (POLY.has(cls.name)) out.push(`\t${selfField(cls.name)} I_${typeName(cls.name)}`);
-    // ultra/events: an object that raises instance events carries the handlers registered FOR it (go/abap/events.go); once per chain, the subclasses get it through the embedding
+    // ultra/events: an object that raises instance events carries the
+    // handlers registered FOR it (go/abap/events.go); once per chain, the
+    // subclasses get it through the embedding
     if (cls.instanceEvents && !(cls.super && CLASSES.get(cls.super)?.instanceEvents)) out.push("\tabap.Events");
     if (cls.name === "CX_ROOT") out.push("\tKernelException *abap.Exception");
     if (cls.name === "CL_ABAP_OBJECTDESCR") out.push("\tKernelRtti bool");
     for (const a of inst) out.push(`\t${ident(a.name)} ${ownedType(a)}`);
-    // ultra/events: an object of a class without fields would be zero-sized, and Go may give two of them one address: ref <> ref and the handler registry need each object to be itself
+    // ultra/events: an object of a class without fields would be zero-sized,
+    // and Go may give two of them one address: ref <> ref and the handler
+    // registry need each object to be itself
     if (out.at(-1) === `type ${typeName(cls.name)} struct {`) out.push("\t_ byte");
     out.push("}", "");
     if (cls.name === "CX_ROOT") out.push(`func (me *CX_ROOT) ExceptionPrevious() any { return abap.ExceptionRead(me, "PREVIOUS").${ident("PREVIOUS")} }`, `func (me *CX_ROOT) SetKernelException(e *abap.Exception) { me.KernelException = e }`, `func (me *CX_ROOT) GetKernelException() *abap.Exception { return me.KernelException }`, "");
@@ -462,7 +466,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   }
   append(out, exceptionSupers(program));
   // @ts-expect-error -- abapiti form pending
-  if (classes.some(c => c.methods.some(m => m.body?.[0]?.fn === "Native_GET_SUPER_CLASS_TYPE"))) append(out, superClassGo((program), {goType, ident}));
+  if (classes.some(c => c.methods.some(m => m.body?.[0]?.fn === "Native_GET_SUPER_CLASS_TYPE"))) append(out, superClassGo(program, {goType, ident}));
   // @ts-expect-error -- abapiti form pending
   if (classes.some(c => c.methods.some(m => m.body?.[0]?.fn === "Native_DESCRIBE_BY_OBJECT_REF" || m.body?.[0]?.fn === "Native_GET_SUPER_CLASS_TYPE"))) append(out, (/** @type {import("./emit-go-types.ts").ObjectRttiGo} */ (objectRttiGo))(program, {goType, ident}));
   append(out, hostRaiseGlue(program, classes, layers));
@@ -496,7 +500,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   out[out.indexOf("\u0000helper-imports")] = [...HELPER_IMPORTS].sort()
     .map((name) => `\t${helperAlias(name)} "osg/gogen/${name}"`).join("\n");
   const generated = out.join("\n") + "\n";
-  // ident() is also used by the JS emitter in this process. A layered Go emission must not change its spelling for the next consumer.
+  // ident() is also used by the JS emitter in this process. A layered Go
+  // emission must not change its spelling for the next consumer.
   exportedFields = false;
   return generated;
 }
@@ -971,7 +976,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     const msgType = goType(m.params.find((p) => p.name === "I_MESSAGE").type);
     cases.push(`\t\tcase ${JSON.stringify(type)}:`,
       // @ts-expect-error -- abapiti form pending
-      `\t\t\tr, ok := receiver.(interface{ ${signature({}, (({...m, name: `${intf}~RECEIVE`})), true)} })`,
+      `\t\t\tr, ok := receiver.(interface{ ${signature({}, {...m, name: `${intf}~RECEIVE`}, true)} })`,
       `\t\t\tmsg, okMsg := m.Payload.(${msgType})`,
       // a receiver or a message of another shape is a host error, never a
       // message that quietly does not arrive
@@ -1084,7 +1089,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
       if (!(program.exceptionSupers ?? {})[cls.name] || !method.static || method.returning?.type.k !== "ref"
         || !method.params.every((p) => p.suppliedOf || p.optional || p.default !== undefined)) continue;
       // @ts-expect-error -- abapiti form pending
-      cases.push([`${cls.name}=>${method.name}`, expr((((omittedFactoryCall))(program, cls, method)), {cls})]);
+      cases.push([`${cls.name}=>${method.name}`, expr(((omittedFactoryCall))(program, cls, method), {cls})]);
     }
   }
   const lines = ["// hostRaise turns a host's factory request into an ABAP exception.",
@@ -1202,7 +1207,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
  * strings.Builder for it and writes v back once after the loop.
  */
 /** @param {import("./emit-go-types.ts").Expr} e @returns {import("./emit-go-types.ts").Expr} */ const leftmost = (e) => { while (e?.e === "concat") e = e.l; return e; };
-/** @param {import("./emit-go-types.ts").Stmt | null | undefined} st @param {string} [name] @returns {boolean} */ const isAppend = (st, name) => st?.s === "assign" && st.target.e === "var" && !st.target.ref && st.target.type.k === "string"
+// @ts-expect-error -- abapiti form pending
+/** @param {import("./emit-go-types.ts").WalkNode | null | undefined} st @param {string} [name] @returns {boolean} */ const isAppend = (st, name) => st?.s === "assign" && st.target.e === "var" && !st.target.ref && st.target.type.k === "string"
   // @ts-expect-error -- abapiti form pending
   && (name === undefined || st.target.name === name) && st.value.e === "concat" && leftmost(st.value).e === "var" && leftmost(st.value).name === st.target.name;
 
@@ -1238,8 +1244,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     if (Array.isArray(n)) { n.forEach(walk); return; }
     if (!n || typeof n !== "object") return;
     if ((/** @type {import("./emit-go-types.ts").WalkNode} */ (n)).e === "var" && (/** @type {import("./emit-go-types.ts").WalkNode} */ (n)).name === name) refs += 1;
-    // @ts-expect-error -- abapiti form pending
-    if (isAppend(n, name)) appends += 1;
+    if (isAppend(/** @type {import("./emit-go-types.ts").WalkNode} */ (n), name)) appends += 1;
     for (const k of Object.keys(n)) if (k !== "type") walk((/** @type {import("./emit-go-types.ts").WalkNode} */ (n))[k]);
   };
   walk(body);
@@ -1263,7 +1268,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   const tb = expr(st.table, ctx);
   const i = `ord${n}[k${n}]`;
   // @ts-expect-error -- abapiti form pending
-  const bind = st.fs ? `${ident(st.fs)} = ${boundRow((st.table.type), tb, i)}` : `${place((st.into), ctx)} = ${copied(rowValue(st.table.type, `${tb}[${i}]`), (st.into).type)}`;
+  const bind = st.fs ? `${ident(st.fs)} = ${boundRow(st.table.type, tb, i)}` : `${place(st.into, ctx)} = ${copied(rowValue(st.table.type, `${tb}[${i}]`), st.into.type)}`;
   // @ts-expect-error -- abapiti form pending
   const skip = st.where ? `${t}\t\tif !(${st.where.map((w) => `${tb}[${i}].${ident(w.name)} ${w.op === "=" ? "==" : w.op === "<>" ? "!=" : w.op} ${expr(w.value, ctx)}`).join(" && ")}) { continue }` : null;
   return [
@@ -1302,7 +1307,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
  * position; not found, sy-tabix is where it would go and sy-subrc 4, or 8
  * past the last row, and the target is left alone (A4H 2026-09-24).
  */
-/** @param {import("./emit-go-types.ts").KeyRead} st @param {import("./emit-go-types.ts").MethodContext} ctx @param {string} t @returns {string[]} */ function readSecKey(st, ctx, t) {
+/** @param {import("./emit-go-types.ts").KeyRead} st @param {import("./emit-go-types.ts").Context} ctx @param {string} t @returns {string[]} */ function readSecKey(st, ctx, t) {
+  // @ts-expect-error -- abapiti form pending
   const n = ctx.loop++;
   const tb = expr(st.table, ctx);
   const vals = st.values.map((v, j) => `${t}\tv${n}_${j} := ${expr(v, ctx)}`);
@@ -1368,9 +1374,9 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     // @ts-expect-error -- abapiti form pending
     : a.xstring ? `abap.DBXString(${expr(a.host, ctx)})`
     // @ts-expect-error -- abapiti form pending
-    : (a).xhex !== undefined ? `abap.DBXHex(${expr(((a).host), ctx)}, ${((a).xhex)})` : (a).xexact !== undefined ? `abap.DBXSHex(${expr(((a).host), ctx)}, ${((a).xexact)})`
+    : a.xhex !== undefined ? `abap.DBXHex(${expr(a.host, ctx)}, ${a.xhex})` : a.xexact !== undefined ? `abap.DBXSHex(${expr(a.host, ctx)}, ${a.xexact})`
     // @ts-expect-error -- abapiti form pending
-    : (a).host ? (((a).host).type.k === "c" ? `abap.DBC(${expr(((a).host), ctx)})` : expr(((a).host), ctx))
+    : a.host ? (a.host.type.k === "c" ? `abap.DBC(${expr(a.host, ctx)})` : expr(a.host, ctx))
     // @ts-expect-error -- abapiti form pending
     : a.mandt ? "abap.Mandt" : typeof a.value === "number" ? String(a.value) : JSON.stringify(String(a.value)))).join(", ")}}`;
 }
@@ -1466,7 +1472,7 @@ const LINES = !env("GOGEN_NOLINE");
         // @ts-expect-error -- abapiti form pending
         return [`${t}${place(st.target.base, ctx)} = hSubwrite.X(${expr(st.target.base, ctx)}, ${st.target.off ? expr(st.target.off, ctx) : "0"}, ${expr(st.target.len, ctx)}, ${expr(st.value, ctx)})`];
       }
-      if (st.target.e === "var" && ctx.builders?.has(st.target.name) && isAppend(st, st.target.name)) {
+      if (st.target.e === "var" && ctx.builders?.has(st.target.name) && isAppend(/** @type {import("./emit-go-types.ts").WalkNode} */ (/** @type {unknown} */ (st)), st.target.name)) {
         /** @type {import("./emit-go-types.ts").Expr[]} */ const parts = [];
         for (let e = st.value; e.e === "concat"; e = e.l) parts.unshift(e.r);
         const builder = ctx.builders.get(st.target.name); return parts.map((x) => `${t}${builder}.WriteString(${expr(x, ctx)})`);
@@ -1762,7 +1768,7 @@ const LINES = !env("GOGEN_NOLINE");
       const start = st.from ? `int(${expr(st.from, ctx)}) - 1` : "0";
       const limit = st.to ? ` && i${n} < int(${expr(st.to, ctx)})` : "";
       // @ts-expect-error -- abapiti form pending
-      const bind = st.fs ? `${ident(st.fs)} = ${boundRow((st.table.type), tb, `i${n}`)}` : `${place((st.into), ctx)} = ${copied(rowValue(st.table.type, `${tb}[i${n}]`), (st.into).type)}`;
+      const bind = st.fs ? `${ident(st.fs)} = ${boundRow(st.table.type, tb, `i${n}`)}` : `${place(st.into, ctx)} = ${copied(rowValue(st.table.type, `${tb}[i${n}]`), st.into.type)}`;
       // @ts-expect-error -- abapiti form pending
       const skip = st.where ? `${t}\t\tif !(${st.where.map((w) => whereItem(w, `${tb}[i${n}]`, ctx)).join(" && ")}) { continue }` : null;
       return [
@@ -2287,7 +2293,8 @@ ${t}	}`));
         `${t}\t\t\t${tb} = append(${tb}[:i${n}], ${tb}[i${n}+1:]...)`, `${t}\t\t\tclear(${tb}[len(${tb}):len(${tb})+1])`, `${t}\t\t\tabap.BumpTable(&${tb})`,
         `${t}\t\t\ts.Sy.Subrc = 0`, `${t}\t\t\tbreak`, `${t}\t\t}`, `${t}\t}`, `${t}}`];
     }
-    // ultra/itab: DELETE itab inside LOOP AT itab: the current row goes and the loop index steps back, so the next pass reads the row after it
+    // ultra/itab: DELETE itab inside LOOP AT itab: the current row goes and
+    // the loop index steps back, so the next pass reads the row after it
     case "delete_current": {
       const tb = place(st.table, ctx);
       /** @type {import("./emit-go-types.ts").LoopCursor} */ const token = st.token; const i = token.idxVar;
@@ -2324,9 +2331,13 @@ ${t}	}`));
     case "rollback_work": return [`${t}abap.GeneratedRollbackWork(s)`];
     case "exit": return [`${t}${leave(ctx, 2)}`];
     case "continue": return [`${t}${leave(ctx, 3)}`];
-    // CHECK continues the innermost loop, or leaves the processing block when it stands outside one.
+    // CHECK continues the innermost loop, or leaves the processing block
+    // when it stands outside one.
     case "check": return [`${t}if !(${cond(st.cond, ctx)}) { ${leave(ctx, 3)} }`];
-    // a RETURN inside a loop that appends through builders writes the strings back first (parity-wave1: ZCL_STG_JSON=>READ_STRING appended a 750 KB value a character at a time and returned from inside the loop, which kept it off the builder and made the append quadratic)
+    // a RETURN inside a loop that appends through builders writes the
+    // strings back first (parity-wave1: ZCL_STG_JSON=>READ_STRING appended a
+    // 750 KB value a character at a time and returned from inside the loop,
+    // which kept it off the builder and made the append quadratic)
     case "return": return [...[...(ctx.builders ?? new Map())].map(([n, sb]) => `${t}${ident(n)} = abap.Canon(${sb}.String())`), `${t}${leave(ctx, 1)}`];
     // @ts-expect-error -- abapiti form pending
     default: throw new Error(`no Go for statement ${st.s}`);
@@ -2466,7 +2477,8 @@ ${t}	}`));
     case "ev_handler": return "EvH";
     case "me": return self(ctx, null);
     case "upcast": {
-      // a nil pointer put into an interface is not a nil interface: an unbound reference must stay initial when it is widened
+      // a nil pointer put into an interface is not a nil interface: an unbound
+      // reference must stay initial when it is widened
       const x = expr(e.x, ctx);
       const fromPtr = e.x.type.k === "ref" && !e.x.type.intf && !POLY.has(e.x.type.name);
       const toIface = e.type.intf || POLY.has(e.type.name);
@@ -2488,7 +2500,7 @@ ${t}	}`));
         return branch.reason !== undefined
           ? `case '${code}': panic(abap.NotCompiled("arithmetic", ${JSON.stringify(branch.reason)}))`
           // @ts-expect-error -- abapiti form pending
-          : `case '${code}': return ${expr((b), ctx)}`;
+          : `case '${code}': return ${expr(b, ctx)}`;
       });
       return `func() ${goType(e.type)} { switch ${sel} { ${arms.join("; ")} }; panic(abap.NotCompiled("arithmetic", ${JSON.stringify(`calculation type of ${e.text} with these operands: not measured`)})) }()`;
     }
@@ -2614,7 +2626,8 @@ ${t}	}`));
   return emitBuiltinGo(e, e.args.map((a) => expr(a, ctx)), FN_F, HELPER_IMPORTS);
 }
 
-// an initial reference: the frontend decided it from the static type (frontend.mjs upcastable)
+// an initial reference: the frontend decided it from the static type
+// (frontend.mjs upcastable)
 
 /** @param {import("./emit-go-types.ts").Condition} c @param {import("./emit-go-types.ts").Context} ctx @returns {string} */ function cond(c, ctx) {
   const fast = emitPackedComparison(c, (n) => expr(n, ctx));
@@ -2631,7 +2644,8 @@ ${t}	}`));
     case "cp": return `abap.CP(${expr(c.l, ctx)}, ${expr(c.r, ctx)}, ${!!c.cpat}, ${!!c.csubject})`;
     case "ca": HELPER_IMPORTS.add("charsearch"); return `hCharsearch.AnyWithPos(s, ${expr(c.l, ctx)}, ${expr(c.r, ctx)})`;
     case "cmp":
-      // a generic operand (frontend compareValues, unwrap_chars): the pair decides the comparison type, so both go to abap.CmpData as data
+      // a generic operand (frontend compareValues, unwrap_chars): the pair
+      // decides the comparison type, so both go to abap.CmpData as data
       if (c.l.e === "unwrap_chars" || c.r.e === "unwrap_chars") {
         /** @param {import("./emit-go-types.ts").Expr} x @returns {string} */ const side = (x) => (x.e === "unwrap_chars" ? expr(x.x, ctx) : `abap.StrData(${expr(x, ctx)})`);
         if (c.op === "=" || c.op === "<>") return `${c.op === "=" ? "" : "!"}abap.DataEq(${side(c.l)}, ${side(c.r)})`;
@@ -2645,14 +2659,17 @@ ${t}	}`));
     case "initial":
       if (c.x.type.k === "data") return `abap.IsInitialData(${expr(c.x, ctx)})`;
       if (c.x.type.k === "dref") return `(${expr(c.x, ctx)}.P == nil)`;
-      // a table is initial when it has no rows, whether its slice is nil or an empty one (ultra/events: a converted table, make(T, 0))
+      // a table is initial when it has no rows, whether its slice is nil or
+      // an empty one (ultra/events: a converted table, make(T, 0))
       if (c.x.type.k === "table") return `(len(${expr(c.x, ctx)}) == 0)`;
-      // a d, t or n field of a structure starts as "" (Go's zero), a variable as its typed zero: both are initial
+      // a d, t or n field of a structure starts as "" (Go's zero), a
+      // variable as its typed zero: both are initial
       if (["d", "t", "n"].includes(c.x.type.k)) return `abap.InitialCh(${expr(c.x, ctx)}, ${zero(c.x.type)})`;
       // a structure holding such a field: component by component
       if (c.x.type.k === "struct" && typedZeroInside(c.x.type)) return `abap.IsInitialOf(${expr(c.x, ctx)}, ${desc(c.x.type)})`;
       return `(${expr(c.x, ctx)} == ${zero(c.x.type)})`;
-    // IS INSTANCE OF uses the same fit as ?= / CAST, but reports false instead of raising CX_SY_MOVE_CAST_ERROR.
+    // IS INSTANCE OF uses the same fit as ?= / CAST, but reports false
+    // instead of raising CX_SY_MOVE_CAST_ERROR.
     case "instance_of": {
       const value = expr(c.x, ctx);
       const target = goType(c.type);

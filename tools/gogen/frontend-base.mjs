@@ -31,7 +31,7 @@ export class Unsupported extends Error {}
 /** @type {Extract<import("./ir.ts").Type, {k: "exc"}>} */ const EXC = {k: "exc"};
 
 /** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {n is import("@abaplint/core").Nodes.ExpressionNode} */ const isExpr = (n, cls) => n instanceof Nodes.ExpressionNode && n.get() instanceof cls;
-/** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {boolean} */ const isStmt = (n, cls) => n instanceof Nodes.StatementNode && n.get() instanceof cls;
+/** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {n is import("@abaplint/core").Nodes.StatementNode} */ const isStmt = (n, cls) => n instanceof Nodes.StatementNode && n.get() instanceof cls;
 /** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {n is import("@abaplint/core").Nodes.StructureNode} */ const isStruct = (n, cls) => n instanceof Nodes.StructureNode && n.get() instanceof cls;
 /** @param {unknown} n @param {string} [s] @returns {n is import("@abaplint/core").Nodes.TokenNode} */ const isTok = (n, s) => n instanceof Nodes.TokenNode && (s === undefined || upper(n.getFirstToken().getStr()) === s);
 /** @param {import("@abaplint/core").INode} n @returns {string} */ const tokenStr = (n) => n.getFirstToken().getStr();

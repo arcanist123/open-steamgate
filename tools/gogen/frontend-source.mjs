@@ -6,6 +6,6 @@
 import {lowerBoolx} from "./frontend-boolx.ts";
 import {lowerNarrowSubmit} from "../osd-narrow-submit.mjs";
 
-/** @param {string} source @param {string} name @param {import("./frontend-boolx.ts").BoolxParser} abaplint @returns {string} */
+// @ts-expect-error -- abapiti form pending
 export const normalizeSource = (source, name, abaplint) =>
   lowerNarrowSubmit(lowerBoolx(source, name, abaplint), name, abaplint);

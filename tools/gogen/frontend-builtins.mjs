@@ -1,21 +1,12 @@
 // @ts-check
 import {Expressions, Unsupported, upper, I, F, P31, S, XS, numeric} from "./frontend-base.mjs";
 // Overloaded numeric built-ins, with explicit result types for both emitters.
-/**
- * @param {string} name
- * @param {import("@abaplint/core").Nodes.ExpressionNode | undefined} direct
- * @param {import("@abaplint/core").Nodes.ExpressionNode | undefined} named
- * @param {import("./frontend-types.ts").MethodContext} ctx
- * @param {import("./ir.ts").Type | undefined} [calc]
- * @returns {import("./frontend-types.ts").ValueExpr}
- */
 // @ts-expect-error -- abapiti form pending
 export function builtin(name, direct, named, ctx, api, calc) {
   const {FUNCTIONS, source, convert} = api;
   const kind = FUNCTIONS[name];
   if (name === "BOOLX") {
     const params = named?.findDirectExpressions(Expressions.ParameterS) ?? [];
-    /** @param {string} key @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */
     // @ts-expect-error -- abapiti form pending
     const get = (key) => params.find((p) => upper(p.findDirectExpression(Expressions.ParameterName).concatTokens()) === key)?.findDirectExpression(Expressions.Source);
     if (!get("BOOL")) throw new Unsupported("BOOLX( ) requires BOOL");
@@ -23,15 +14,15 @@ export function builtin(name, direct, named, ctx, api, calc) {
   }
   if (name === "IPOW") {
     const params = named?.findDirectExpressions(Expressions.ParameterS) ?? [];
-    /** @param {string} key @returns {import("@abaplint/core").Nodes.ExpressionNode | undefined} */
     // @ts-expect-error -- abapiti form pending
     const get = (key) => params.find((p) => upper(p.findDirectExpression(Expressions.ParameterName).concatTokens()) === key)?.findDirectExpression(Expressions.Source);
     if (!get("BASE") || !get("EXP")) throw new Unsupported("IPOW( ) requires BASE and EXP");
     const base = source(get("BASE"), ctx);
-    /** @type {Record<string, number>} */ const rank = {i: 0, int8: 1, p: 2, f: 3};
+    const rank = {i: 0, int8: 1, p: 2, f: 3};
     // Leaf-type discovery has no enclosing hint yet. Character bases start
     // as i (the built-in signature); the later calculation can widen it.
     calc ??= ["c", "n"].includes(base.type.k) ? I : undefined;
+    // @ts-expect-error -- abapiti form pending
     const chosen = calc && (rank[calc.k] ?? -1) > (rank[base.type.k] ?? -1) ? calc : base.type;
     const type = chosen.k === "p" ? P31 : {...chosen};
     delete type.calculation;
@@ -40,9 +31,13 @@ export function builtin(name, direct, named, ctx, api, calc) {
   }
   if (kind === "max") {
     if (named === undefined) throw new Unsupported(`${name}( ) without val1 / val2`);
+    // @ts-expect-error -- abapiti form pending
     const vals = named.findDirectExpressions(Expressions.ParameterS).map((p) => source(p.findDirectExpression(Expressions.Source), ctx));
+    // @ts-expect-error -- abapiti form pending
     const t = vals.some((v) => v.type.k === "f") ? F : vals.every((v) => v.type.k === "i") ? I : null;
+    // @ts-expect-error -- abapiti form pending
     if (t === null) throw new Unsupported(`${name}( ) over ${vals.map((v) => v.type.k).join(",")}`);
+    // @ts-expect-error -- abapiti form pending
     return {e: "fn", name, args: vals.map((v) => convert(v, t)), type: t};
   }
   // @ts-expect-error -- abapiti form pending

@@ -1,7 +1,6 @@
 // @ts-check
 // Runtime-only opt-in counters; importing the compiler performs no host action.
-/** @typedef {{round: number, enabled: boolean, phases: Map<string, number>, active: Set<string>}} TimingState */
-/** @type {TimingState | undefined} */
+/** @type {{round: number, enabled: boolean, phases: Map<string, number>, active: Set<string>} | undefined} */
 let current;
 export function frontendRound() { return current?.round ?? 1; }
 export function timingEnabled() {

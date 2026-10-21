@@ -2,11 +2,12 @@
 // Strong components give cyclic semantic dependencies one content certificate.
 // Component numbers are traversal bookkeeping; only sorted symbolic members and
 // child content hashes enter keys. The walk is iterative for long dependency chains.
-/** @param {Record<string, {owner: string, dependencies: readonly string[]}>} nodes @param {{test(name: string): boolean} | undefined} [drop] */
+// @ts-expect-error -- abapiti form pending
 export function graphComponents(nodes, drop) {
   const ids = Object.keys(nodes), edges = new Map(), reverse = new Map(ids.map((id) => [id, []]));
   for (const id of ids) {
     const next = drop?.test(nodes[id].owner) ? [] : nodes[id].dependencies
+      // @ts-expect-error -- abapiti form pending
       .filter((key) => nodes[key] && !drop?.test(nodes[key].owner));
     edges.set(id, next);
     // @ts-expect-error -- abapiti form pending

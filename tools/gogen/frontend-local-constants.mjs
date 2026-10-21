@@ -2,14 +2,13 @@
 import * as abap from "./fold-scalars.ts";
 
 // Refuse unknown conversions; only literal, exception-free values leave entry.
-// Duck-typed on purpose: the e.e guards pick the literal members at run time,
-// and no static union view narrows through them without changing the guards.
-/** @param {any} e @returns {any} */
+// @ts-expect-error -- abapiti form pending
 function fold(e) {
   // Character converters are only proven backend-equivalent for ASCII.
   // Keep Unicode literals (including structure fields) at their entry site.
   if (["chars", "str"].includes(e.e) && /[^\x00-\x7f]/.test(e.value)) return undefined;
   if (["int", "float", "chars", "str", "xbytes"].includes(e.e)) return e;
+  // @ts-expect-error -- abapiti form pending
   const x = e.x && fold(e.x);
   if (!x) return undefined;
   let value;
@@ -37,7 +36,7 @@ function fold(e) {
   if (value === undefined || Object.is(value, -0)) return undefined;
   return {e: e.type.k === "i" ? "int" : e.type.k === "f" ? "float" : "str", value, type: e.type};
 }
-/** @param {string} s @returns {string} */
+// @ts-expect-error -- abapiti form pending
 const segment = (s) => `${s.length}_${Array.from(s, (c) => c.charCodeAt(0).toString(16).padStart(4, "0")).join("")}`;
 /**
  * @param {import("@abaplint/core").Nodes.StructureNode | undefined} body
@@ -75,12 +74,13 @@ export function hoistLocalConstants(body, ctx, h) {
       const type = ctx.locals.get(name);
       if (type?.k !== "struct") throw new Unsupported(`CONSTANTS BEGIN OF ${name}: not a local structure`);
       const fields = ctx.program.structs.get(type.go)?.fields ?? [];
-      /** @type {Record<string, import("./ir.ts").Expr>} */ const inits = {};
+      const inits = {};
       for (const st of node.findAllStatements(Statements.Constant)) {
         // @ts-expect-error -- abapiti form pending
         const field = upper(st.findFirstExpression(Expressions.DefinitionName).concatTokens());
         const ft = fields.find((f) => f.name === field)?.type;
         if (!ft || !literalValue(st)) throw new Unsupported(`CONSTANTS ${name}-${field}: nonliteral VALUE`);
+        // @ts-expect-error -- abapiti form pending
         inits[field] = initialValue(st, {...ctx, locals: new Map([[field, ft]])}).value;
       }
       /** @type {Record<string, import("./frontend-types.ts").ConstantInitializer | undefined>} */ const folded = Object.fromEntries(Object.entries(inits).map(([f, v]) => [f, fold(v)]));

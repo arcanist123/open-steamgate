@@ -5,11 +5,11 @@ import {Nodes, Expressions, upper, isExpr, charlike, Unsupported, I, S, XS} from
   const kids = node.getChildren();
   const words = kids.map((k) => (k instanceof Nodes.TokenNode ? upper(k.concatTokens()) : ""));
   const tw = words.filter((w) => w !== "" && w !== ".").join(" ");
-  /** @param {...(string | string[])} parts @returns {boolean} */
+  // @ts-expect-error -- abapiti form pending
   const matches = (...parts) => keywordForm(tw, ...parts);
   const section = matches("REPLACE SECTION", ["", "OFFSET"], ["", "LENGTH"], "OF WITH", ["", "IN BYTE MODE", "IN CHARACTER MODE"]);
   const bytes = matches("REPLACE SECTION", ["", "OFFSET"], ["", "LENGTH"], "OF WITH IN BYTE MODE");
-  /** @param {...string} seq @returns {boolean} */
+  // @ts-expect-error -- abapiti form pending
   const hasKeywords = (...seq) => words.some((_, i) => seq.every((w, j) => words[i + j] === w));
   if (!bytes && (words.some((w) => ["RESPECTING", "REPLACEMENT", "RESULTS", "INTO"].includes(w)) || hasKeywords("IN", "BYTE", "MODE"))) throw new Unsupported(`REPLACE form: ${text}`);
   if (!section && words.includes("SECTION") && !words.includes("OCCURRENCE") && !words.includes("OCCURRENCES")) throw new Unsupported(`REPLACE SECTION form: ${text}`);
@@ -58,7 +58,8 @@ import {Nodes, Expressions, upper, isExpr, charlike, Unsupported, I, S, XS} from
 }
 
 // ABAPiti f1-f5: LENGTH bounds the section; MATCH OFFSET counts from xs.
-/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {readonly import("@abaplint/core").INode[]} kids @param {readonly string[]} words @param {string} tw @param {import("./frontend.mjs").ByteStatementHelpers} h @returns {import("./frontend-types.ts").FrontendStmt | null} */
+/** @param {import("./frontend.mjs").ByteStatementHelpers} h */
+// @ts-expect-error -- abapiti form pending
 export function lowerByteFind(node, ctx, text, kids, words, tw, h) {
   const {source, lvalue, convert} = h;
   // A4H oracle P2 ALL C3: non-overlapping byte results, with optional count.
@@ -66,13 +67,12 @@ export function lowerByteFind(node, ctx, text, kids, words, tw, h) {
     && ["", "SUBSTRING"].includes(upper(node.findDirectExpression(Expressions.FindType)?.concatTokens() ?? ""))) {
     let count = null, resultNode = null;
     for (let i = 0; i < kids.length; i++) {
-      // @ts-expect-error -- abapiti form pending
       if (words[i] === "COUNT") count = lvalue(kids[i + 1], ctx);
       if (words[i] === "RESULTS") resultNode = kids[i + 1];
     }
     if (count && count.type.k !== "i") throw new Unsupported(`MATCH COUNT into a ${count.type.k}`);
-    // @ts-expect-error -- abapiti form pending
     if (resultNode) return {...h.findResults(node, ctx, text, tw, true, resultNode), count};
+    // @ts-expect-error -- abapiti form pending
     const [p, s] = node.findDirectExpressions(Expressions.Source).map((n) => source(n, ctx));
     if (![p, s].every((x) => ["x", "xstring"].includes(x.type.k))) throw new Unsupported(`FIND IN BYTE MODE operands: ${text}`);
     return {s: "find_bytes_all", pattern: convert(p, XS), subject: convert(s, XS), count};
@@ -80,19 +80,18 @@ export function lowerByteFind(node, ctx, text, kids, words, tw, h) {
   if (!keywordForm(tw, "FIND", ["", "FIRST OCCURRENCE OF"], "IN", ["", "SECTION OF", "SECTION OFFSET OF", "SECTION LENGTH OF", "SECTION OFFSET LENGTH OF"], "IN BYTE MODE", ["", "MATCH OFFSET"], ["", "MATCH LENGTH"])
     || ["REGEX", "PCRE"].includes(upper(node.findDirectExpression(Expressions.FindType)?.concatTokens() ?? ""))) return null;
   const srcs = node.findDirectExpressions(Expressions.Source);
-  // @ts-expect-error -- abapiti form pending
   const pat = source(srcs[0], ctx), subject = source(srcs.at(-1), ctx);
   for (const x of [pat, subject]) if (x.type.k !== "x" && x.type.k !== "xstring") throw new Unsupported(`FIND IN BYTE MODE of a ${x.type.k}`);
-  /** @type {{s: "find_bytes", pattern: import("./frontend-types.ts").ValueExpr, subject: import("./frontend-types.ts").ValueExpr, secOff: import("./frontend-types.ts").ValueExpr | null, secLen: import("./frontend-types.ts").ValueExpr | null, off: import("./frontend-types.ts").ValueExpr | null, len: import("./frontend-types.ts").ValueExpr | null}} */ const out = {s: "find_bytes", pattern: convert(pat, XS), subject: convert(subject, XS), secOff: null, secLen: null, off: null, len: null};
+  const out = {s: "find_bytes", pattern: convert(pat, XS), subject: convert(subject, XS), secOff: null, secLen: null, off: null, len: null};
   for (let i = 0; i < kids.length; i++) {
     const w = words[i];
     if (w !== "OFFSET" && w !== "LENGTH") continue;
     // @ts-expect-error -- abapiti form pending
     if (isExpr(kids[i + 1], Expressions.Source)) out[w === "OFFSET" ? "secOff" : "secLen"] = convert(source(kids[i + 1], ctx, I), I);
     else if (isExpr(kids[i + 1], Expressions.Target)) {
-      // @ts-expect-error -- abapiti form pending
       const target = lvalue(kids[i + 1], ctx);
       if (target.type.k !== "i") throw new Unsupported(`MATCH ${w} into a ${target.type.k}`);
+      // @ts-expect-error -- abapiti form pending
       out[w === "OFFSET" ? "off" : "len"] = target;
     }
   }

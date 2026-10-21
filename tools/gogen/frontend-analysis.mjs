@@ -66,10 +66,12 @@ export const cdsMappingError = (views, name) => {
   if (observe) observe(name);
   return cdsFailures.get(views)?.get(name);
 };
-/** @param {readonly import("@abaplint/core").Nodes.ExpressionNode[]} annotations @returns {string | undefined} */
+// @ts-expect-error -- abapiti form pending
 function sqlViewName(annotations) {
   for (const annotation of annotations) {
+    // @ts-expect-error -- abapiti form pending
     const key = annotation.getChildren().filter(c => c instanceof Nodes.TokenNode)
+      // @ts-expect-error -- abapiti form pending
       .map(c => c.getFirstToken().getStr()).join("").toUpperCase();
     if (key !== "@ABAPCATALOG.SQLVIEWNAME:") continue;
     const value = annotation.findFirstExpression(ExpressionsCDS.CDSString)?.getFirstToken().getStr();

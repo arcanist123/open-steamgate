@@ -220,8 +220,7 @@ import {textLiteral} from "./frontend-literals.ts";
 // Host exceptions use the ordinary call IR, including defaults, references,
 // output temporaries and IS SUPPLIED flags. No constructor shortcut is used.
 /** @param {import("./ir.ts").Program | import("./frontend-types.ts").FrontendProgram | import("./emit-go-types.ts").ProgramInput} program @param {{name: string}} cls @param {import("./emit-go-types.ts").FactorySignature} method @returns {Extract<import("./frontend-types.ts").ValueExpr, {e: "call"}>} */ function omittedFactoryCall(program, cls, method) {
-  // @ts-expect-error -- abapiti form pending
-  /** @type {import("./frontend-types.ts").NamedContext} */ const ctx = {program, reg: program.reg, className: cls.name};
+  /** @type {import("./frontend-types.ts").NamedContext} */ const ctx = /** @type {import("./frontend-types.ts").NamedContext} */ ({program, reg: program.reg, className: cls.name});
   /** @type {import("./ir.ts").Argument[]} */ const args = method.params.map((p) => p.suppliedOf
     ? {dir: "importing", byValue: true, type: p.type, value: {e: "chars", value: "", type: p.type}}
     : p.dir === "importing" ? omittedArgument(p, ctx) : {dir: p.dir, place: null, type: p.type});
