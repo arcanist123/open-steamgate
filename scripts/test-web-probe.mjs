@@ -294,7 +294,8 @@ try {
   for (const title of webCommands) await choices.filter({hasText: title}).first().waitFor({timeout: 30000});
   await page.locator(".quick-input-widget .quick-input-progress.done").waitFor({timeout: 30000});
   const paletteRows = await choices.allTextContents();
-  const allowed = [...webCommands, "OSD: Focus on System View"];
+  // prepareAbapgitZip is registered by the browser entry too (it builds the zip in memory).
+  const allowed = [...webCommands, "OSD: Focus on System View", "osd: Prepare abapGit zip"];
   const unexpected = paletteRows.filter((row) => !allowed.some((title) => row.includes(title)));
   if (unexpected.length || paletteRows.length !== allowed.length) {
     throw new Error(`Desktop-only or missing OSD commands in the web palette: ${JSON.stringify(paletteRows)}`);
