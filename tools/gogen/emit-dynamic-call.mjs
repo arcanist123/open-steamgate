@@ -6,7 +6,8 @@ import {convert, Unsupported} from "./frontend.mjs";
 /** @param {Pick<import("./emit-go-types.ts").ProgramInput, "classes" | "dynamicDispatch">} program @returns {Array<NonNullable<import("./emit-go-types.ts").ProgramInput["dynamicDispatch"]>[number] & {cls: import("./emit-go-types.ts").Class; m: import("./emit-go-types.ts").Method}>} */
 export function dynamicAdapters(program) {
   const classes = new Map(), methods = new Map();
-  for (const cls of /** @type {NonNullable<import("./emit-go-types.ts").ProgramInput["classes"]>} */ (program.classes)) if (!classes.has(cls.name)) classes.set(cls.name, cls);
+  // @ts-expect-error -- abapiti form pending
+  for (const cls of program.classes) if (!classes.has(cls.name)) classes.set(cls.name, cls);
   return (program.dynamicDispatch ?? []).map((entry) => {
     const cls = classes.get(entry.owner);
     if (!methods.has(cls)) {
@@ -27,7 +28,8 @@ export function dynamicResultMoves(program, method, target) {
   for (const {key, m} of dynamicAdapters({classes: program.classes, dynamicDispatch})) {
     if (!m.returning) continue;
     try {
-      const value = /** @type {import("./emit-go-types.ts").Expr} */ (convert({e: "dyn_result", type: m.returning.type}, target));
+      const value = convert({e: "dyn_result", type: m.returning.type}, target);
+      // @ts-expect-error -- abapiti form pending
       moves.push({key, type: m.returning.type, value});
     } catch (e) { if (!(e instanceof Unsupported)) throw e; }
   }
@@ -56,7 +58,8 @@ export function dynamicCallJs(st, ctx, t, program, {expr, stmt}) {
 export function staticRegistryJs(program, {definable, zero, unwrapTo, composite, expr, typeName}) {
   const wanted = program.dynStatics ?? new Set();
   if (wanted.size === 0) return [];
-  const out = [`abap.knownClasses(${JSON.stringify(/** @type {NonNullable<import("./emit-go-types.ts").ProgramInput["classes"]>} */ (program.classes).map((c) => c.name))}, ${JSON.stringify([...(program.rtti?.known ?? [])].filter((n) => !n.includes("=>")))});`];
+  // @ts-expect-error -- abapiti form pending
+  const out = [`abap.knownClasses(${JSON.stringify(program.classes.map((c) => c.name))}, ${JSON.stringify([...(program.rtti?.known ?? [])].filter((n) => !n.includes("=>")))});`];
   for (const {key, cls, m, defaults} of dynamicAdapters(program)) {
     if (!m.static || !m.params || !definable(program, m)) continue;
     /** @type {string[]} */ const lines = [];
