@@ -40,11 +40,11 @@ export const T = {
 // ---------------------------------------------------------------- expressions
 
 /** @param {string} [source] */
-export const col = (name, type, source) => source === undefined
+/** @param {string} name @param {object} [type] @param {string} [source] @returns {import("./sqlscript-types.ts").SqlExpr} */ export const col = (name, type, source) => source === undefined
   ? ({node: "col", name, type}) : ({node: "col", name, type, source});
 export const lit = (value, type) => ({node: "lit", value, type});
 /** a host value: bound by the driver, never rendered into the text */
-export const param = (name, type, isNull = false) => ({node: "param", name, type, isNull});
+/** @param {string} name @param {object} type @param {boolean} [isNull] @returns {import("./sqlscript-types.ts").SqlExpr} */ export const param = (name, type, isNull = false) => ({node: "param", name, type, isNull});
 /** A value owned by the AMDP execution context rather than by the database
  *  connection chosen to execute a relational plan. It must be captured into
  *  a bound parameter before lowering; no backend is allowed to substitute
@@ -56,12 +56,12 @@ export const sessionValue = (kind, name, type = T.str) => ({node: "session", kin
  * and it is required: integer division and decimal division are different
  * operations that look identical in the source.
  */
-export const bin = (op, left, right, type) => ({node: "bin", op, left, right, type});
-export const call = (fn, args, type) => ({node: "call", fn, args, type});
+/** @param {string} op @param {object} left @param {object} right @param {object} type @returns {import("./sqlscript-types.ts").SqlExpr} */ export const bin = (op, left, right, type) => ({node: "bin", op, left, right, type});
+/** @param {string} fn @param {readonly unknown[]} args @param {object} type @returns {import("./sqlscript-types.ts").SqlExpr} */ export const call = (fn, args, type) => ({node: "call", fn, args, type});
 export const cast = (expr, type) => ({node: "cast", expr, type});
 export const isNull = (expr) => ({node: "isnull", expr, type: T.bool});
 /** NOT, as its own node rather than a `bin` with one side missing */
-export const not = (expr) => ({node: "not", expr, type: T.bool});
+/** @param {object} expr @returns {import("./sqlscript-types.ts").SqlExpr} */ export const not = (expr) => ({node: "not", expr, type: T.bool});
 /** `x [NOT] LIKE p [ESCAPE e]` -- three operands, so it is not a `bin` */
 export const like = (expr, pattern, escape, negated = false) =>
   ({node: "like", expr, pattern, escape, negated, type: T.bool});
@@ -88,9 +88,10 @@ export const subquery = (kind, rel, expr, negated = false) =>
 export const caseWhen = (whens, otherwise, type) =>
   ({node: "case", whens, otherwise, type});
 
+/** @typedef {{rel: string, [key: string]: unknown}} Rel */
 // ------------------------------------------------------------------ relations
 
-export const scan = (table) => ({rel: "scan", table});
+/** @param {string} table @returns {Rel} */ export const scan = (table) => ({rel: "scan", table});
 /** A source alias is semantic: qualified columns and correlated subqueries
  * must keep the author's scope name until SQL rendering. */
 export const alias = (input, name) => ({rel: "alias", input, name});
@@ -131,13 +132,13 @@ export const refTo = (handle, schema) => ({rel: "ref", handle, schema});
  *  declaration promises -- carried, like a ref's, because nothing below it
  *  can derive it */
 export const tableFunctionCall = (name, args, schema) => ({rel: "tfcall", name, args, schema});
-export const filter = (input, pred) => ({rel: "filter", input, pred});
-export const project = (input, items) => ({rel: "project", input, items});
+/** @param {Rel} input @param {object} pred @returns {Rel} */ export const filter = (input, pred) => ({rel: "filter", input, pred});
+/** @param {Rel} input @param {readonly unknown[]} items @returns {Rel} */ export const project = (input, items) => ({rel: "project", input, items});
 export const join = (left, right, on, kind = "inner") => ({rel: "join", left, right, on, kind});
 export const union = (inputs, all = true) => ({rel: "union", inputs, all});
 export const except = (left, right) => ({rel: "except", inputs: [left, right]});
-export const aggregate = (input, groupBy, aggs) => ({rel: "aggregate", input, groupBy, aggs});
-export const order = (input, keys) => ({rel: "order", input, keys});
+/** @param {Rel} input @param {readonly string[]} groupBy @param {readonly unknown[]} aggs @returns {Rel} */ export const aggregate = (input, groupBy, aggs) => ({rel: "aggregate", input, groupBy, aggs});
+/** @param {Rel} input @param {readonly unknown[]} keys @returns {Rel} */ export const order = (input, keys) => ({rel: "order", input, keys});
 export const limit = (input, n) => ({rel: "limit", input,
   n: typeof n === "number" ? lit(n, T.int) : n});
 

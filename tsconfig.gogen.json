@@ -44,6 +44,7 @@
     "tools/gogen/emit-go.mjs",
     "tools/gogen/emit-constructors.ts",
     "tools/gogen/frontend-find-results.ts",
+    "tools/gogen/frontend.mjs",
     "tools/osd-samc.mjs"
   ]
 }

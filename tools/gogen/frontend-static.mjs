@@ -2,7 +2,7 @@
 export const staticSlot = (owner, name, type, goName) => ({e: "static", owner, name, type, go: goName(`${owner}=>${name}`)});
 
 // Static attributes share storage in their declaring class, including inherited names.
-/** @param {import("./frontend.mjs").StaticHelpers} deps @param {import("./frontend.mjs").StaticContext} ctx */
+/** @param {string} owner @param {string} attr @param {import("./frontend.mjs").StaticContext} ctx @param {import("./frontend.mjs").StaticHelpers} deps @param {boolean} [write] @returns {import("./frontend-types.ts").ValueExpr} */
 export function resolveStatic(owner, attr, ctx, deps, write = false) {
   const {CHAR_UTILITIES, C, upper, clasDef, registerConst, localInterfaceConstant, Unsupported, ancestors, goName, typeOf, abaplint, notInProgram} = deps;
   if (!write && owner === "CL_ABAP_CHAR_UTILITIES" && CHAR_UTILITIES[attr] !== undefined) return {e: "chars", value: CHAR_UTILITIES[attr], type: C(1)};

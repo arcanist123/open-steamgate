@@ -53,6 +53,7 @@ import {Nodes, Expressions, upper, isExpr, charlike, Unsupported, I, S, XS} from
 
 // ABAPiti f1-f5: LENGTH bounds the section; MATCH OFFSET counts from xs.
 /** @param {import("./frontend.mjs").ByteStatementHelpers} h */
+/** @param {import("@abaplint/core").Nodes.StatementNode} node @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @param {readonly import("@abaplint/core").INode[]} kids @param {string[]} words @param {string} tw @param {import("./frontend.mjs").ByteStatementHelpers} h @returns {import("./frontend-types.ts").FrontendStmt | undefined} */
 export function lowerByteFind(node, ctx, text, kids, words, tw, h) {
   const {source, lvalue, convert} = h;
   // A4H oracle P2 ALL C3: non-overlapping byte results, with optional count.

@@ -56,7 +56,7 @@ export function dynamicStaticCall(node, ctx, {sourceOperand, source, convert, lv
 // before either emitter writes program.consts.
 /**
  * @param {import("./frontend-types.ts").FrontendProgram} program
- * @param {{defaultValue: typeof import("./frontend.mjs").defaultValue, aliasTarget: (reg: import("@abaplint/core").IRegistry, owner: string, name: string) => string | undefined}} helpers
+ * @param {{defaultValue: typeof import("./frontend.mjs").defaultValue, aliasTarget: (reg: import("./frontend-session-types.ts").Registry, owner: string, name: string) => string | undefined}} helpers
  */
 export function prepareDynamicStatics(program, {defaultValue, aliasTarget}) {
   program.dynamicDispatch = [];

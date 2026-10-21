@@ -238,7 +238,7 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
  * the session while it runs (amcProgram below), where Node reads the class
  * off the call stack.
  */
-const AMC_HOST = new Map([
+/** @type {Map<string, {op: string, cls?: string, type?: string, args: Record<string, string>}>} */ const AMC_HOST = new Map([
   ["CL_AMC_CHANNEL_MANAGER=>CREATE_MESSAGE_PRODUCER", {op: "create_producer", cls: "ZCL_AMC_PRODUCER",
     args: {APP: "I_APPLICATION_ID", PATH: "I_CHANNEL_ID", EXT: "I_CHANNEL_EXTENSION_ID", COMM: "I_COMMUNICATION_TYPE", ECHO: "I_SUPPRESS_ECHO"}}],
   ["CL_AMC_CHANNEL_MANAGER=>CREATE_MESSAGE_CONSUMER", {op: "create_consumer", cls: "ZCL_AMC_CONSUMER",
@@ -256,7 +256,7 @@ const AMC_CALLER = /\b(CL_AMC_CHANNEL_MANAGER|IF_AMC_MESSAGE_PRODUCER\w*|IF_AMC_
 const amcProgramOf = (cls) => upper(cls).padEnd(30, "=") + "CP";
 
 /** the body of an AMC host method, and CX_AMC_ERROR for its refusals */
-function amcMethod(spec, ctx) {
+/** @param {{op: string, args: Record<string, string>}} spec @param {import("./frontend-types.ts").NativeContext} ctx @returns {import("./frontend-types.ts").FrontendStmt} */ function amcMethod(spec, ctx) {
   const args = Object.fromEntries(Object.entries(spec.args).map(([k, n]) => [k, variable(n, ctx)]));
   const err = {e: "var", name: "LV_AMC_ERROR", type: S};
   const sig = constructorSignature(ctx, "CX_AMC_ERROR");
@@ -283,7 +283,7 @@ function amcMethod(spec, ctx) {
  * WWWDATA_IMPORT and SCMS_BINARY_TO_XSTRING are SMW0's (go/abap/w3mi.go),
  * their rules measured on A4H 2026-09-23 (ZCL_GOGEN_T_W3MI in semantics.mjs).
  */
-const NATIVE_FM = new Map([
+/** @type {Map<string, {fn: string, params: Record<string, string>}>} */ const NATIVE_FM = new Map([
   ["F4_FILENAME", {fn: "abap.F4_FILENAME", params: {PROGRAM_NAME: "exporting", DYNPRO_NUMBER: "exporting", FIELD_NAME: "exporting", FILE_NAME: "importing"}}],
   ["KD_GET_FILENAME_ON_F4", {fn: "abap.KD_GET_FILENAME_ON_F4", params: {PROGRAM_NAME: "exporting", DYNPRO_NUMBER: "exporting", FIELD_NAME: "exporting", MASK: "exporting", STATIC: "exporting", FILE_NAME: "changing"}}],
   ["WWWDATA_IMPORT", {fn: "abap.WWWDATA_IMPORT", params: {KEY: "exporting", MIME: "tables"}}],
@@ -300,7 +300,7 @@ const NATIVE_FM = new Map([
  * work this binary has no compiler for. The signature is ZOSD_STORE's
  * (src/webgui/zosd_store.fugr.xml).
  */
-const DESTINATION_FM = new Map([
+/** @type {Map<string, {fn: string, params: Record<string, string>}>} */ const DESTINATION_FM = new Map([
   ["STORE ZOSD_STORE", {fn: "abap.ZOSD_STORE", params: {
     IV_COMMAND: "exporting", IV_TYPE: "exporting", IV_NAME: "exporting", IV_INCLUDE: "exporting",
     IV_SOURCE: "exporting", IV_FILTER: "exporting", IV_LIMIT: "exporting", IV_REVISION: "exporting", IV_JSON: "exporting",

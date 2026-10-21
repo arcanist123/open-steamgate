@@ -10,7 +10,8 @@ export type RefType = Extract<Type, {k: "ref"}>;
 export type PackedType = Extract<Type, {k: "p"}>;
 export type ValueExpr = (TypedExpr | {readonly e: "nop_call"; readonly type: Extract<Type, {k: "void"}>}) & {readonly arith?: boolean; readonly fromP?: PackedType};
 // Shapes still emitted by the JavaScript frontend, including explicit absence values.
-export interface FrontendSqlPredicate extends Omit<SqlPredicate, "type" | "kind"> { readonly type: WriteType; readonly kind?: string }
+// `after` is filled in when the host pred is bound (loweredArgs), not at push time.
+export interface FrontendSqlPredicate extends Omit<SqlPredicate, "type" | "kind" | "after"> { readonly type: WriteType; readonly kind?: string; readonly after?: number }
 type StatementShape<T> = T extends {readonly s: "call_enq"} ? Omit<T, "fields"> & {readonly fields?: readonly LockObject["fields"][number][]}
   : T extends {readonly s: "concat"} ? Omit<T, "sep"> & {readonly sep: Expr | null}
   : T extends {readonly s: "select_dyn"} ? Omit<T, "fields" | "where"> & {readonly fields: Expr | null; readonly where: Expr | null}
@@ -22,7 +23,10 @@ type FrontendIR<T> = T extends SqlPredicate ? FrontendSqlPredicate
   : T extends object ? {readonly [K in keyof StatementShape<T>]: FrontendIR<StatementShape<T>[K]>} : T;
 export type FrontendStmt = FrontendIR<Stmt> & {readonly pos?: import("./ir.ts").Position};
 export type FrontendCatch = FrontendIR<Catch>;
-export interface FrontendMethod extends Omit<Method, "body"> { readonly body?: readonly FrontendStmt[] }
+// dropped/amcProgram are decided after the method is built, so the frontend's
+// method-in-progress is writable where the finished IR (Method) is readonly.
+type WritableMethodBase = Omit<Method, "body" | "dropped" | "amcProgram">;
+export interface FrontendMethod extends WritableMethodBase { readonly body?: readonly FrontendStmt[]; dropped?: boolean; amcProgram?: string }
 export interface FrontendConstant { go: string; type: Type; value?: string | Record<string, string | undefined>; init?: ConstantInitializer; fieldInits?: Record<string, ConstantInitializer | undefined> }
 export type FrontendAttribute = (Omit<Attribute, "value"> & {readonly value?: string; readonly unsupported?: undefined})
   | {readonly name: string; readonly unsupported: string; readonly type?: undefined; readonly value?: undefined; readonly static?: boolean; readonly private?: boolean};
@@ -39,7 +43,10 @@ export type MethodSignature = Signature | RefusedSignature;
 export interface SuppliedMethod { name: string; found: string[] }
 export interface RttiTable { classSupers: Map<string, string | null>; structs: Map<string, {name: string; kind: string}[]>; known: Set<string> }
 export type LockObject = import("./frontend-session-types.ts").LockDescriptor;
-export interface FrontendTable extends DatabaseTable { row?: Type; hidesClient?: string; why?: string }
+// sqlView/cds are discovered after the entry is built, so the frontend's view
+// of a table is writable where the finished IR (DatabaseTable) is readonly.
+type WritableTableBase = Omit<DatabaseTable, "sqlView" | "cds">;
+export interface FrontendTable extends WritableTableBase { sqlView?: string; cds?: string; row?: Type; hidesClient?: string; why?: string }
 export interface LocalClass {
   name: string; owner: string; local: string; obj: abaplint.Objects.Class;
   def: abaplint.IClassDefinition; file: abaplint.ABAPFile;
@@ -57,11 +64,11 @@ export interface FrontendClass extends Omit<Mutable<Class>, "methods" | "attribu
   stubs?: (MethodSignature & {reason: string; pos?: {file: string; row: number}})[];
   ctorBroken?: string;
 }
-export interface FrontendProgram extends Omit<Mutable<Program>, "classes" | "structs" | "sigs" | "skipped" | "partial" | "frontendCounts" | "tables" | "consts" | "intfOwnAttrs" | "interfaceAttrs" | "exceptionSupers"> {
+export interface FrontendProgram extends Omit<Mutable<Program>, "classes" | "structs" | "sigs" | "skipped" | "partial" | "frontendCounts" | "tables" | "consts" | "intfOwnAttrs" | "interfaceAttrs" | "exceptionSupers" | "functionModules"> {
   reg: Registry;
   locals?: Map<string, string>;
   localInterfaces?: Map<string, {def: abaplint.IInterfaceDefinition; source: string}>;
-  supplied: Map<string, Set<string>>; functionModules: Map<string, FunctionModule>;
+  supplied: Map<string, Set<string>>; functionModules: Map<string, import("./frontend-session-types.ts").FunctionModule>;
   classes: FrontendClass[]; structs: Map<string, StructType>; sigs: Map<string, MethodSignature>;
   anonStructs: Map<abaplint.AbstractType, string>; badStructs: Map<string, string>; ddicOutputLen: Map<string, number>;
   dynamicDispatch?: {key: string; owner: string; method: string; defaults: {name: string; value: Expr}[]}[];
@@ -79,6 +86,8 @@ export interface CompilationContext { reg: Registry; program: FrontendProgram }
 export interface NativeMe { fn: string; params: [string, "importing" | "exporting", "string" | "xstring" | "i", boolean?][] }
 export interface NativeArgument { ref: boolean; value: ValueExpr }
 export interface KernelSpec { fn?: string; args?: string[]; loop?: string; binds?: string[]; end?: boolean; bound?: string; nop?: boolean }
+// A kernel loop with a bound name always carries its binds.
+export interface BoundKernelSpec extends KernelSpec { binds: string[] }
 export type LoopState = (Omit<Mutable<Extract<FrontendStmt, {s: "loop"}>>, "body"> | Omit<Mutable<Extract<FrontendStmt, {s: "loop_data"}>>, "body">) & {body?: FrontendStmt[]};
 export interface MethodContext extends CompilationContext {
   className: string; scopeName?: string; owner?: string; method: string; sig: Signature;
@@ -147,4 +156,30 @@ export interface FrontendSelectStar { readonly star: true; readonly fn?: undefin
 export interface FrontendSelectField { readonly fn: string; readonly col: string; readonly star?: undefined }
 export interface FrontendSelectColumn { readonly name: string; readonly type: Type; readonly sql?: string; readonly named?: boolean; readonly agg?: FrontendSelectStar | FrontendSelectField }
 export interface FrontendSelectColumns extends Array<FrontendSelectColumn> { grouped?: boolean; groupBy?: string[] }
+
+// Object walkers inspect a few fields and recurse over the remaining values;
+// emit-go's WalkNode is the precedent for this view.
+export interface FrontendWalkNode {
+  readonly s?: string;
+  readonly branches?: readonly {readonly body?: readonly unknown[]}[];
+  readonly cases?: readonly {readonly body?: readonly unknown[]}[];
+  readonly elseifs?: readonly {readonly body?: readonly unknown[]}[];
+  readonly catches?: readonly {readonly body?: readonly unknown[]}[];
+  readonly [key: string]: unknown;
+}
+
+// The SELECT path's working view of a table (dbTable): its columns by name
+// and their IR types computed on demand, not the finished FrontendTable.
+export interface DbTableShape {
+  readonly name: string; readonly client: boolean; readonly key: readonly string[];
+  readonly columns: ReadonlyMap<string, import("@abaplint/core").BasicTypes.IStructureComponent>;
+  colType: (n: string) => import("./ir.ts").Type;
+}
+
+// A host value the SELECT path binds: the expression alone or wrapped with
+// the fit markers the emitter's binding forms read (sqlValue, loweredArgs).
+export interface HostMarker {
+  v?: import("./ir.ts").Expr; fit?: number; xstring?: boolean; xhex?: number; xexact?: number;
+  [key: string]: unknown;
+}
 export interface FrontendSelectFae { name: string; row: StructType; n: number; table: TypedExpr }

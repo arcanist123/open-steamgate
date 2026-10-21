@@ -35,7 +35,7 @@ const upper = (v) => String(v ?? "").toUpperCase();
 /** @param {readonly string[]} columns @returns {string[]} */ const names = (columns) => columns.map(upper);
 
 /** ABAP's initial value of a column type: what a work-area field holds untouched */
-export function initialValue(type) {
+/** @param {import("./ir.ts").WriteType} type @returns {import("./sqlscript-types.ts").SqlExpr} */ export function initialValue(type) {
   if (type?.abap === "I" || type?.abap === "INT8") return lit(0, type);
   if (type?.abap === "C" || type?.abap === "STRING") return lit("", type);
   if (type?.abap === "D") return lit("00000000", type);
@@ -170,7 +170,7 @@ export function bindValue(value, type) {
 }
 
 /** rows of plain values into rows of IR values, by the table's column types */
-export function bindRows(columns, schema, rows) {
+/** @param {readonly string[]} columns @param {Record<string, import("./sqlscript-types.ts").SqlType>} schema @param {readonly Record<string, unknown>[]} rows @returns {readonly (readonly import("./sqlscript-types.ts").SqlExpr[])[]} */ export function bindRows(columns, schema, rows) {
   return rows.map((row) => columns.map((column) => {
     const key = Object.keys(row).find((k) => upper(k) === upper(column));
     const type = schema[upper(column)];
@@ -221,7 +221,7 @@ const checkDuplicates = (onDuplicate) => {
 };
 /** UPDATE dbtab [AS alias] SET ... WHERE ...; `pred` undefined updates every
  *  row. The alias is the name a correlated subquery in the condition uses. */
-/** @param {readonly import("./sqlscript-types.ts").SqlSet[]} set */ export const update = (table, set, pred, alias) => {
+/** @param {string} table @param {readonly import("./sqlscript-types.ts").SqlSet[]} set @param {import("./sqlscript-types.ts").SqlExpr | undefined} [pred] @param {string} [alias] */ export const update = (table, set, pred, alias) => {
   if (set.length === 0) throw new WriteError("an UPDATE that sets nothing");
   checkWritten(set.map((one) => one.expr));
   /** @type {import("./sqlscript-types.ts").SqlUpdate} */ const write = {write: "update", table: upper(table), ...(alias === undefined ? {} : {alias: upper(alias)}),
@@ -229,7 +229,7 @@ const checkDuplicates = (onDuplicate) => {
       /** @type {import("./sqlscript-types.ts").SqlSet} */ const assignment = {col: upper(one.col), expr: one.expr}; return assignment; }), ...(pred === undefined ? {} : {pred})}; return write;
 };
 /** DELETE FROM dbtab [AS alias] WHERE ...; `pred` undefined deletes every row */
-export const remove = (table, pred, alias) => ({write: "delete", table: upper(table),
+/** @param {string} table @param {import("./sqlscript-types.ts").SqlExpr | undefined} [pred] @param {string} [alias] */ export const remove = (table, pred, alias) => ({write: "delete", table: upper(table),
   ...(alias === undefined ? {} : {alias: upper(alias)}), ...(pred === undefined ? {} : {pred})});
 /** UPSERT dbtab [(cols)] SELECT ...: by the primary key, the keys the query
  *  brings updated and the others inserted (measured on HXE) */

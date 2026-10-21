@@ -9,12 +9,12 @@ import {source, sourceOperand} from "./frontend-expressions-calls.mjs";
 // a DEC column: its digits (2n-1 for p LENGTH n) and decimals, as the IR
 // counts them (ANORMALIES NOTE packed-length-is-bytes)
 // a RAW(n) column is T.bytes(n), a RAWSTRING T.bytes() (ultra/zvdb)
-const sqlIrType = (t) => (t.k === "i" ? T.int : t.k === "int8" ? T.int8 : t.k === "string" ? T.str : t.k === "d" ? T.date
+/** @param {import("./ir.ts").Type} t @returns {import("./ir.ts").WriteType} */ const sqlIrType = (t) => (t.k === "i" ? T.int : t.k === "int8" ? T.int8 : t.k === "string" ? T.str : t.k === "d" ? T.date
   : t.k === "p" ? T.dec(2 * (t.len ?? 8) - 1, t.dec ?? 0) : t.k === "x" ? T.bytes(t.len ?? 1) : t.k === "xstring" ? T.bytes()
     : T.char(t.len ?? 1));
 /** the IR type a written value binds as (tools/ir-writes.mjs bindValue): a
  * d, t or n is its characters, as the column stores them */
-function writeIrType(t, where) {
+/** @param {import("./ir.ts").Type} t @param {string} where @returns {import("./ir.ts").WriteType} */ function writeIrType(t, where) {
   if (t.k === "i") return T.int;
   if (t.k === "int8") return T.int8;
   if (t.k === "string") return T.str;
@@ -47,7 +47,7 @@ const andIr = (a, b) => (a === null ? b : b === null ? a : bin("AND", a, b, T.bo
 
 /** a host value of Open SQL: [@]name[-comp...], the parser leaving a
  * component after @ as siblings (Dash, SQLFieldName) */
-function sqlHost(src, trailing, ctx, text) {
+/** @param {import("./frontend-types.ts").SyntaxNode} src @param {readonly unknown[]} trailing @param {import("./frontend-types.ts").MethodContext} ctx @param {string} text @returns {import("./frontend-types.ts").ValueExpr} */ function sqlHost(src, trailing, ctx, text) {
   // FOR ALL ENTRIES IN itab: itab-comp is the component of the driving row
   // the statement is run for (selectStatement, parity-wave1)
   if (ctx.fae) {
@@ -88,7 +88,7 @@ function sqlHost(src, trailing, ctx, text) {
 /** a value compared with or written into a column: a literal of the
  * column's own kind is an IR literal, anything else a host value converted
  * to the column's type and bound at run time */
-function sqlValue(v, ct, ir, acc, set = false) {
+/** @param {import("./frontend-types.ts").ValueExpr} v @param {import("./ir.ts").Type} ct @param {import("./ir.ts").WriteType} ir @param {Record<string, unknown>} acc @param {boolean} [set] @returns {import("./sqlscript-types.ts").SqlExpr} */ function sqlValue(v, ct, ir, acc, set = false) {
   if (ct.k === "x") return rawValue(v, ct, ir, acc, set);
   if (ct.k === "xstring" && set) {
     if (v.type.k !== "xstring" && v.type.k !== "x") throw new Unsupported(`UPDATE of an xstring column from a ${v.type.k}`);
