@@ -33,7 +33,20 @@ directions (an integer-range proof in TS-HG, readonly views without an ABAP
 emitter in TS-HA); core24 and core25 fixed them, and the run above was
 repeated on each new pin with the same result.
 
-Also on these pins (abapiti's finals): M1 PASS (`95d37bc6`), M2 PASS (byte-equal, `9a271f2a`), abaplint Go traps 2, no speed regression (227–228 s against 230 s for the previous pin on a quiet host). The 11,060 × 2 suite (TS-HG@Go and TS-HA@OSGO): PENDING.
+abapiti's finals on `3115e569` (OSGo runtime pin `0171e92b`):
+
+| gate | result |
+| --- | --- |
+| M1 | PASS, byte-equal `95d37bc6`, 27.0 s |
+| M2 (4,676 files, 716 deps) | PASS, byte-equal `9a271f2a`, 264.5 s (270.4 s on the previous pin), peak 10.7 GB |
+| abaplint Go traps | 2 (the two known ones) |
+| TS-HG@Go | 11,060 / 11,060, 0 failed, 0 trapped, strict audit PASS |
+| TS-HA@OSGO | 11,060 / 11,060, 0 failed, 0 trapped |
+
+TS-HA@OSGO ran as one full run of 17 shards, where 16 passed (7,911 tests)
+and the Node runner of the `rules` shard ran out of an 8 GiB heap before
+registering its tests; `rules` was rerun alone with a 12 GiB heap: 3,149 /
+3,149, registration parity, peak 10.8 GB. The heavier heap is a follow-up.
 
 The owner of the cache domain approved it on `0b925177`: two reviewed lines
 differ from the proven `61f25917`, and her re-proof there is 5/5 byte-equal.
