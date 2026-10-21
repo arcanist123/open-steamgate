@@ -48,6 +48,19 @@ and the Node runner of the `rules` shard ran out of an 8 GiB heap before
 registering its tests; `rules` was rerun alone with a 12 GiB heap: 3,149 /
 3,149, registration parity, peak 10.8 GB. The heavier heap is a follow-up.
 
+The next abapiti pin, `c2f41e69` (core26), fixes two CI failures outside
+this path (ABAP named regexp groups now need the dynamic runtime only where
+it exists, and a Grace golden) and emits the same output: abapiti found the
+gogen Go, the abaplint Go and the 5,662 TS-HA ABAP files of the
+`abap/syntax` + `rules` closure byte-identical to `3115e569`, so the finals
+carry over. Rerun here on `0b925177`, the same lines:
+
+```
+step4-traps: 0 reached (0/11 unknown) 322 unreached
+step4: build=ok run=ok cmp=equal ref=b90648781967b2cf out=b90648781967b2cf
+PASS: ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED
+```
+
 The owner of the cache domain approved it on `0b925177`: two reviewed lines
 differ from the proven `61f25917`, and her re-proof there is 5/5 byte-equal.
 
