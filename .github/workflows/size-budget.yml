@@ -42,3 +42,8 @@ jobs:
           else git fetch --no-tags --depth=1 origin "$BEFORE"; fi
       - name: Size budget
         run: node tools/osd-size-budget.mjs --base FETCH_HEAD --warn
+      - name: abapiti type forms (advisory)
+        continue-on-error: true
+        run: |
+          npm ci --ignore-scripts
+          node tools/gogen/abapiti-lint.mjs --check --warn

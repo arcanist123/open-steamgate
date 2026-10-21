@@ -37,4 +37,13 @@ if [ -f "$root/tools/osd-size-budget.mjs" ] && [ -f "$root/tools/osd-size-budget
       printf '\033[33m%s\033[0m\n' "osd-size-budget: только предупреждение — коммит пройдёт, pre-push остановит." >&2 ;;
   esac
 fi
+# Type forms abapiti cannot lower: the same yellow advisory as the size budget.
+if [ -f "$root/tools/gogen/abapiti-lint.mjs" ] && [ -f "$root/tools/gogen/abapiti-lint.json" ]; then
+  out=$(node "$root/tools/gogen/abapiti-lint.mjs" --check --changed origin/main --warn 2>&1)
+  case "$out" in
+    *"breach(es)"*" (advisory)"*)
+      printf '\033[33m%s\033[0m\n' "$out" >&2
+      printf '\033[33m%s\033[0m\n' "abapiti-lint: только предупреждение — коммит пройдёт, pre-push остановит." >&2 ;;
+  esac
+fi
 exit 0
