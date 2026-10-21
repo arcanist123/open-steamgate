@@ -16,7 +16,7 @@ On an OSG commit that is wholly in `main`, with the published abapiti pin:
 | | |
 | --- | --- |
 | OSG (gogen, G) | `0b925177a19574a5f127da9c9ba355e344515b5c` (`main`, merge of #817) |
-| abapiti (A) | `e054a6157470546e58bd7db1c66a7e8f0352dccb` (`integ/step4-abapiti`, core23) |
+| abapiti (A) | `3115e569b2e05e469f0a1a650f7a2101ea029f19` (`integ/step4-abapiti`, core25) |
 | harness | `tools/selfhost-step4.py` with the body-trap classifier (3cb7e0d7) |
 | reference | Node-gogen `ref.go`, recomputed on the same commit: `b90648781967b2cf…5261` |
 
@@ -26,8 +26,12 @@ step4: build=ok run=ok cmp=equal ref=b90648781967b2cf out=b90648781967b2cf
 PASS: ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED
 ```
 
-The pull-request head `1dbd12c7` gave the same result first, on i10, and
-abapiti reproduced `cmp=equal` independently on u7.
+The pull-request head `1dbd12c7` with abapiti `e054a615` (core23) gave the
+same result first, on i10, and abapiti reproduced `cmp=equal` independently
+on u7. abapiti's finals then caught two regressions of its own in the other
+directions (an integer-range proof in TS-HG, readonly views without an ABAP
+emitter in TS-HA); core24 and core25 fixed them, and the run above was
+repeated on each new pin with the same result.
 
 Also on these pins (abapiti's finals): M1 PASS (`95d37bc6`), M2 PASS (byte-equal, `9a271f2a`), abaplint Go traps 2, no speed regression (227–228 s against 230 s for the previous pin on a quiet host). The 11,060 × 2 suite (TS-HG@Go and TS-HA@OSGO): PENDING.
 
@@ -36,7 +40,7 @@ differ from the proven `61f25917`, and her re-proof there is 5/5 byte-equal.
 
 ## How it got there
 
-Seventeen full runs on 19 and 20 October. Each run either stopped at a
+About twenty full runs from 19 to 21 October. Each run either stopped at a
 lowering trap (abapiti refusing to translate a construct) or at a run-time
 trap in the generated Go; each one was diagnosed, with an instrumented
 build of the generated Go where the location alone was not enough, and
@@ -50,7 +54,7 @@ assigned to one side:
   no shape where an `interface … extends` does. Every G change kept the Node
   output byte-identical: the reference was recomputed on every commit and
   never moved.
-- **A, abapiti (core14 to core23):** ordinary JavaScript it did not yet
+- **A, abapiti (core14 to core25):** ordinary JavaScript it did not yet
   lower faithfully. Capture groups of `RegExp.exec` that did not match are
   `undefined`; readonly containers are covariant; `{}` as an identity token
   of type `object`; a read past the end of an array is `undefined`; a cast
