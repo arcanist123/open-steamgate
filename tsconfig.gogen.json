@@ -41,6 +41,7 @@
     "tools/gogen/frontend-boolx.ts",
     "tools/gogen/symbols.ts",
     "tools/gogen/go-symbols.mjs",
+    "tools/gogen/emit-go.mjs",
     "tools/gogen/emit-constructors.ts",
     "tools/gogen/frontend-find-results.ts",
     "tools/osd-samc.mjs"
