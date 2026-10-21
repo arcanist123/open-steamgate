@@ -63,7 +63,7 @@ export const isNull = (expr) => ({node: "isnull", expr, type: T.bool});
 /** NOT, as its own node rather than a `bin` with one side missing */
 /** @param {object} expr @returns {import("./sqlscript-types.ts").SqlExpr} */ export const not = (expr) => ({node: "not", expr, type: T.bool});
 /** `x [NOT] LIKE p [ESCAPE e]` -- three operands, so it is not a `bin` */
-export const like = (expr, pattern, escape, negated = false) =>
+/** @param {object} expr @param {object} pattern @param {object} [escape] @param {boolean} [negated] @returns {import("./sqlscript-types.ts").SqlExpr} */ export const like = (expr, pattern, escape, negated = false) =>
   ({node: "like", expr, pattern, escape, negated, type: T.bool});
 /** `x [NOT] IN (a, b, c)` -- the list form only; a subquery is a relation and
  *  belongs in the relational half, which this IR keeps separate on purpose */

@@ -52,7 +52,7 @@ import {source, componentsOf, arith, sourceOperand, callMethodChain, excHolder,
 /** @typedef {import("./frontend-types.ts").MethodSignature} ClassSignature */
 /** @typedef {import("@abaplint/core").Nodes.StatementNode} StNode */
 /** @typedef {{hosts: import("./frontend-sql.mjs").SqlAcc["hosts"], ranges: import("./frontend-types.ts").FrontendSqlPredicate[]}} SqlAcc */
-/** @typedef {import("../sqlscript-types.ts").SqlExpr | ReturnType<typeof RIR.like> | ReturnType<typeof rangeHostPred>} SqlWhere */
+/** @typedef {import("../sqlscript-types.ts").SqlExpr | ReturnType<typeof rangeHostPred>} SqlWhere */
 /** @typedef {typeof byteStatementHelpers} ByteStatementHelpers */ const byteStatementHelpers = {source, lvalue, convert, findResults};
 /** @type {WeakMap<import("./frontend-session-types.ts").Registry, Record<string, string>>} */ const cdsViewsByRegistry = new WeakMap();
 const HOST_REPLACED = new Set(["ZCL_OSD_ENQ_KERNEL"]);
