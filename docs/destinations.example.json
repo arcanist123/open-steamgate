@@ -25,7 +25,8 @@
       "type": "http",
       "mode": "replay",
       "fixtures": ".local/replay/ref",
-      "onMiss": "error"
+      "onMiss": "error",
+      "match": {"ignore": ["$top", "$select", "$orderby"]}
     }
   },
   "services": {

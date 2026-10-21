@@ -5,6 +5,7 @@
 //   osd serve         the serving runtime, as the supervisor starts it
 //   osd build [...]   tools/osd-build.mjs
 //   osd fetch         the folders the packs declare as sources
+//   osd replay-promote  a replay miss made a fixture (tools/osd-replay-promote.mjs)
 //   osd gen <tool>    one generator, as the builder starts it
 //   osd unit ...      a detached ABAP Unit run, as the façade starts it
 //   osd run <prog>    a report built by osabap, run with its arguments
@@ -64,7 +65,7 @@ Environment: OSD_WARM=1 enables warm activation; STG_PORT sets the HTTP port.`);
 const {folders: userLayers, rest} = mode === "run" ? {folders: [], rest: rawArgs} : layerList(rawArgs);
 if (userLayers.length > 0) process.env.OSD_LAYERS = userLayers.join(process.platform === "win32" ? ";" : ":");
 if (compiled && !isCheckout(process.cwd()) && process.env.OSD_BINARY_HOME !== process.cwd()
-    && mode !== "ready" && mode !== "doctor" && mode !== "compiler" && !(mode === "unit" && rest.includes("--go"))) {
+    && mode !== "ready" && mode !== "doctor" && mode !== "compiler" && mode !== "replay-promote" && !(mode === "unit" && rest.includes("--go"))) {
   if (!embeddedSeed) throw new Error("checkout-mode binary requires an open-steamgate checkout; build with --seed for standalone use");
   const home = await ensureBinaryHome(resolve(import.meta.dir, "osd-seed.tar.gz"), dataDirOf());
   process.chdir(home);
@@ -189,6 +190,13 @@ switch (mode) {
     process.argv = [process.argv[0], "osd-fetch", ...rest];
     const {main} = await import("../tools/osd-fetch.mjs");
     process.exit(await main(rest));
+    break;
+  }
+  case "replay-promote": {
+    // a replay miss made a fixture, in the stand's own folder: no home, so
+    // relative --out and OSD_DESTINATIONS read where the person stands
+    const {main} = await import("../tools/osd-replay-promote.mjs");
+    process.exit(main(rest));
     break;
   }
   case "run": {

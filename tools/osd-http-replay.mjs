@@ -62,6 +62,27 @@
 // the same code (tools/rfc-replay.mjs `substitute`), so nothing is invented
 // twice.
 //
+// **Matching is exact, unless a destination or a fixture says otherwise.**
+// A Fiori list asks for `$top` by the height of the window and for the
+// `$select`/`$orderby` of the variant, so one recording is asked for in many
+// spellings. `"match": {"ignore": ["$top", "$select", "$orderby"]}` on a
+// destination (or on one fixture, which then overrides it) lets a request
+// that differs from a recording only in those options be answered by it.
+// An exact key always wins. `$skip` and `$skiptoken` are never ignored --
+// page two answered with page one is the wrong answer that looks right --
+// and `$skip=0` is the same request as no `$skip`; parentheses around a
+// whole `$filter` are dropped from every key. When `$top` was ignored,
+// the recorded rows are cut to the `$top` asked for, so a page never gets
+// more rows than it asked for; among several recordings that differ only in
+// `$top`, the smallest one that holds enough rows answers.
+//
+// **A miss names what was nearest.** The line on stderr carries the
+// recording at the same path whose query differs in the fewest options, and
+// the options themselves; inside a `$batch` it carries the part's number and
+// request line. The misses of a run are kept (`misses()`), served as
+// `/sap/bc/osd/replay/misses` by the host, and `osd replay-promote` turns one
+// into a fixture from its nearest recording (tools/osd-replay-misses.mjs).
+//
 // Fixtures recorded from a real system carry its data. They live under
 // `.local/` or a gitignored folder of a private pack and never in a tracked
 // path; a fixtures folder outside `.local/` is named at mount so nobody
@@ -176,12 +197,55 @@ export function queryPairs(query) {
 /** The query as a key: decoded, `sap-*` dropped (client, language, cache
  *  buster: routing, not the question), sorted. `$skiptoken` stays -- two
  *  pages are two answers, and dropping it would serve page one for both. */
-export function queryKey(query) {
+export function queryKey(query, ignore = NOTHING) {
+  return queryEntries(query, ignore).map(([k, v]) => `${k}=${v}`).sort().join("&");
+}
+
+const NOTHING = new Set();
+
+/** The query as normalised [name, value] pairs, in request order: `sap-*`
+ *  dropped, guids in one spelling, `$skip=0` dropped (it is no `$skip`),
+ *  and the options named in `ignore` (lower case) dropped. */
+export function queryEntries(query, ignore = NOTHING) {
   return queryPairs(query ?? "")
-    .filter(([k]) => !k.toLowerCase().startsWith("sap-"))
-    .map(([k, v]) => `${k}=${guids(v)}`)
-    .sort()
-    .join("&");
+    .filter(([k, v]) => {
+      const name = k.toLowerCase();
+      return !name.startsWith("sap-") && !ignore.has(name) && !(name === "$skip" && v.trim() === "0");
+    })
+    .map(([k, v]) => [k, k.toLowerCase() === "$filter" ? outerParens(guids(v)) : guids(v)]);
+}
+
+/** `(A or B)` -> `A or B`: parentheses around the whole of a `$filter` say
+ *  nothing, and pages differ in whether they send them. Scanned, quotes
+ *  respected (a `'` inside a literal is two); a pair is dropped only when
+ *  the first `(` closes at the very end -- `(A) or (B)` keeps both. */
+function outerParens(text) {
+  let t = text.trim();
+  for (;;) {
+    if (!t.startsWith("(") || !t.endsWith(")")) {
+      return t;
+    }
+    let depth = 0;
+    let quoted = false;
+    let closes = -1;
+    for (let i = 0; i < t.length && closes < 0; i += 1) {
+      const c = t[i];
+      if (c === "'") {
+        quoted = !quoted;
+      } else if (!quoted && c === "(") {
+        depth += 1;
+      } else if (!quoted && c === ")") {
+        depth -= 1;
+        if (depth === 0) {
+          closes = i;
+        }
+      }
+    }
+    if (closes !== t.length - 1) {
+      return t;
+    }
+    t = t.slice(1, -1).trim();
+  }
 }
 
 /** `/a/b/` -> `a/b` */
@@ -198,12 +262,16 @@ function trimSlashes(path) {
 }
 
 /** One string per request: what a fixture is found by. */
-export function replayKey({method, service, path, query}) {
-  const p = guids(trimSlashes(decode(path ?? "")));
-  return `${method.toUpperCase()} ${serviceKey(service)}/${p}?${queryKey(query)}`;
+export function replayKey({method, service, path, query}, ignore = NOTHING) {
+  return `${pathKey({method, service, path})}?${queryKey(query, ignore)}`;
 }
 
-const ODATA_ROOT = "/sap/opu/odata/sap/";
+/** The part of the key before the query: method, service and path. */
+export function pathKey({method, service, path}) {
+  return `${method.toUpperCase()} ${serviceKey(service)}/${guids(trimSlashes(decode(path ?? "")))}`;
+}
+
+export const ODATA_ROOT = "/sap/opu/odata/sap/";
 
 /** `/sap/opu/odata/sap/SRV;v=2/Set?x` -> {service, path, query}, or undefined */
 export function splitUrl(url) {
@@ -287,27 +355,235 @@ function emptyAnswer(path) {
   return undefined;
 }
 
+// options a match may never ignore: two pages are two answers
+const NEVER_IGNORED = ["$skip", "$skiptoken"];
+
+/** a `match` as the set of options it ignores, lower case; what it may not
+ *  ignore is dropped and said, so a stand cannot quietly serve page one for
+ *  page two */
+function ignoreOf(match, where, say) {
+  if (match === undefined) {
+    return undefined;
+  }
+  const list = match?.ignore;
+  if (!Array.isArray(list) || list.some((o) => typeof o !== "string")) {
+    say(`osd-http-replay: ${where} has a match without an ignore list of option names -- matching stays exact`);
+    return NOTHING;
+  }
+  const out = new Set();
+  for (const option of list) {
+    const name = option.trim().toLowerCase();
+    if (NEVER_IGNORED.includes(name)) {
+      say(`osd-http-replay: ${where} asks to ignore ${option}, which is never ignored (two pages are two answers)`);
+    } else if (name !== "") {
+      out.add(name);
+    }
+  }
+  return out;
+}
+
+const signatureOf = (ignore) => [...ignore].sort().join(",");
+
+/** `$top` of a query as a number, or undefined when there is none, it is
+ *  not a count, or the query names it more than once */
+function topOf(entries) {
+  const all = entries.filter(([k]) => k.toLowerCase() === "$top");
+  const v = all.length === 1 ? all[0][1].trim() : undefined;
+  return v !== undefined && v !== "" && [...v].every((c) => c >= "0" && c <= "9") ? Number(v) : undefined;
+}
+
+/** Of several recordings that answer one request once options are ignored:
+ *  the smallest that holds the rows asked for, else the largest; without a
+ *  `$top` asked for, the one recorded without a `$top`, else the largest.
+ *  Ties go to load order (the first folder's). */
+function choose(candidates, asked) {
+  const size = (c) => c.top ?? Infinity;
+  let best;
+  for (const c of candidates) {
+    if (best === undefined) {
+      best = c;
+      continue;
+    }
+    const enough = (x) => asked === undefined ? x.top === undefined : size(x) >= asked;
+    if (enough(c) && !enough(best)) {
+      best = c;
+    } else if (enough(c) === enough(best) && (enough(c) && asked !== undefined ? size(c) < size(best) : size(c) > size(best))) {
+      best = c;
+    }
+  }
+  return best;
+}
+
+/** a collection's rows cut to `top`, in V2 (`d.results`) or V4 (`value`)
+ *  shape; anything else is returned as it was. The fixture's own body is
+ *  never changed: it answers the next request too. A recorded next link is
+ *  dropped with the rows: it points past the recorded page, and a client
+ *  following it would skip every row between the cut and that page. */
+function cutRows(body, top) {
+  let doc = body;
+  if (typeof body === "string") {
+    const t = body.trimStart();
+    if (!t.startsWith("{")) {
+      return body;
+    }
+    try {
+      doc = JSON.parse(body);
+    } catch {
+      return body;
+    }
+  }
+  let out;
+  if (Array.isArray(doc?.d?.results) && doc.d.results.length > top) {
+    const {__next, ...d} = doc.d;
+    out = {...doc, d: {...d, results: doc.d.results.slice(0, top)}};
+  } else if (Array.isArray(doc?.value) && doc.value.length > top) {
+    const {"@odata.nextLink": next, ...rest} = doc;
+    out = {...rest, value: doc.value.slice(0, top)};
+  } else {
+    return body;
+  }
+  return typeof body === "string" ? JSON.stringify(out) : out;
+}
+
+/** how two normalised queries differ, option by option: [{option, asked,
+ *  recorded}], undefined where one side lacks the option */
+export function differences(asked, recorded) {
+  const a = new Map(asked);
+  const r = new Map(recorded);
+  const out = [];
+  for (const option of [...new Set([...a.keys(), ...r.keys()])].sort()) {
+    if (a.get(option) !== r.get(option)) {
+      out.push({option, asked: a.get(option), recorded: r.get(option)});
+    }
+  }
+  return out;
+}
+
+const MISSES_KEPT = 500;
+
 /** A replayer over one set of fixtures. `answer` is the whole decision for
  *  one request and knows nothing of express, so `$batch` parts and plain
- *  requests go through the same door. */
-export function replayer(fixtures, {onMiss = "error", say = console.error, name = "replay"} = {}) {
-  async function answer({method, service, path, query}) {
-    const key = replayKey({method, service, path, query});
-    const fixture = fixtures.get(key);
-    if (fixture === undefined) {
-      say(`osd-http-replay: MISS ${name} ${key}`);
-      const soft = onMiss === "empty" && method === "GET" ? emptyAnswer(path) : undefined;
-      if (soft !== undefined) {
-        return {...soft, outcome: "miss"};
+ *  requests go through the same door. `match` is the destination's (see the
+ *  head of this file); a fixture's own `match` overrides it. */
+export function replayer(fixtures, {onMiss = "error", say = console.error, name = "replay", match} = {}) {
+  const fallbackIgnore = ignoreOf(match, `destination ${name}`, say) ?? NOTHING;
+  // per ignore set, the relaxed key -> the recordings it reaches
+  const relaxed = new Map();
+  // per method + service + path, every recording there (for the nearest)
+  const byPath = new Map();
+  for (const fixture of fixtures.values()) {
+    const entries = queryEntries(fixture.key.query);
+    const at = pathKey(fixture.key);
+    const one = {fixture, entries, top: topOf(entries)};
+    if (!byPath.has(at)) {
+      byPath.set(at, []);
+    }
+    byPath.get(at).push(one);
+    const ignore = ignoreOf(fixture.match, fixture.file ?? at, say) ?? fallbackIgnore;
+    if (ignore.size === 0) {
+      continue;
+    }
+    const signature = signatureOf(ignore);
+    if (!relaxed.has(signature)) {
+      relaxed.set(signature, {ignore, keys: new Map()});
+    }
+    const key = `${at}?${queryKey(fixture.key.query, ignore)}`;
+    const keys = relaxed.get(signature).keys;
+    if (!keys.has(key)) {
+      keys.set(key, []);
+    }
+    keys.get(key).push(one);
+  }
+
+  /** the recording a request reaches once options are ignored, and the
+   *  ignore set that reached it */
+  function near(request, entries) {
+    const at = pathKey(request);
+    const asked = topOf(entries);
+    const malformed = asked === undefined && entries.some(([k]) => k.toLowerCase() === "$top");
+    for (const {ignore, keys} of relaxed.values()) {
+      if (malformed && ignore.has("$top")) {
+        // a $top that is not a count cannot be cut to: no relaxed answer
+        continue;
       }
-      return {status: 404, headers: {"content-type": "application/json"}, outcome: "miss",
-        body: errorBody("STG/REPLAY_MISS", `not recorded: ${key}`)};
+      const candidates = keys.get(`${at}?${queryKey(request.query, ignore)}`);
+      if (candidates !== undefined) {
+        return {...choose(candidates, asked), ignore};
+      }
+    }
+    return undefined;
+  }
+
+  /** the recording at the same path whose query differs least */
+  function nearest(request, entries) {
+    let best;
+    for (const one of byPath.get(pathKey(request)) ?? []) {
+      const diff = differences(entries, one.entries);
+      if (best === undefined || diff.length < best.differences.length) {
+        best = {file: one.fixture.file, key: replayKey(one.fixture.key), differences: diff};
+      }
+    }
+    return best;
+  }
+
+  const misses = new Map();
+  function remember(key, request, closest, context) {
+    let miss = misses.get(key);
+    if (miss === undefined) {
+      if (misses.size >= MISSES_KEPT) {
+        misses.delete(misses.keys().next().value);
+      }
+      miss = {destination: name, key, request: {method: request.method, service: request.service, path: request.path ?? "", query: request.query ?? ""},
+        closest, count: 0, first: new Date().toISOString(), parts: []};
+      misses.set(key, miss);
+    }
+    miss.count += 1;
+    miss.last = new Date().toISOString();
+    if (context?.part !== undefined && miss.parts.length < 10) {
+      miss.parts.push({part: context.part, line: context.line});
+    }
+  }
+
+  const describe = (d) => `${d.option} asked ${d.asked ?? "(none)"}, recorded ${d.recorded ?? "(none)"}`;
+
+  async function answer({method, service, path, query}, context) {
+    const request = {method, service, path, query};
+    const key = replayKey(request);
+    let fixture = fixtures.get(key);
+    let cut;
+    if (fixture === undefined) {
+      const entries = queryEntries(query);
+      const reached = near(request, entries);
+      if (reached !== undefined) {
+        fixture = reached.fixture;
+        const asked = topOf(entries);
+        if (reached.ignore.has("$top") && asked !== undefined && (reached.top === undefined || reached.top > asked)) {
+          cut = asked;
+        }
+      } else {
+        const closest = nearest(request, entries);
+        remember(key, request, closest, context);
+        const where = context?.part === undefined ? "" : ` (batch part ${context.part}: ${context.line})`;
+        const hint = closest === undefined
+          ? " -- nothing recorded at this path"
+          : ` -- closest ${closest.file ?? closest.key}: ${closest.differences.map(describe).join("; ")}`;
+        say(`osd-http-replay: MISS ${name} ${key}${where}${hint}`);
+        const soft = onMiss === "empty" && method === "GET" ? emptyAnswer(path) : undefined;
+        if (soft !== undefined) {
+          return {...soft, outcome: "miss"};
+        }
+        return {status: 404, headers: {"content-type": "application/json"}, outcome: "miss",
+          body: errorBody("STG/REPLAY_MISS", `not recorded: ${key}`)};
+      }
     }
     const r = fixture.response;
     let body = r.body ?? "";
     if (fixture.dynamic !== false && (typeof body === "string" ? body.includes("{{") : true)) {
       const input = Object.fromEntries(queryPairs(query ?? ""));
       body = await substitute(body, input);
+    }
+    if (cut !== undefined) {
+      body = cutRows(body, cut);
     }
     const headers = {};
     for (const [h, v] of Object.entries(r.headers ?? {})) {
@@ -319,9 +595,10 @@ export function replayer(fixtures, {onMiss = "error", say = console.error, name 
       body = JSON.stringify(body);
       headers["content-type"] ??= "application/json";
     }
-    return {status: r.status, headers, body, outcome: "hit"};
+    return {status: r.status, headers, body, outcome: "hit", file: fixture.file};
   }
-  return {answer, size: fixtures.size};
+  return {answer, size: fixtures.size, name, misses: () => [...misses.values()],
+    nearest: (request) => nearest(request, queryEntries(request.query))};
 }
 
 // ---------------------------------------------------------------- $batch
@@ -554,7 +831,7 @@ export async function answerBatch(replay, service, body, contentType) {
   const boundary = `batchresponse_stg_replay_${counter}`;
   const outcomes = [];
   let out = "";
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     if (item.changeset !== undefined) {
       outcomes.push("refused");
       out += `--${boundary}\r\n` + formatPart({status: 501, headers: {"content-type": "application/json"},
@@ -574,7 +851,7 @@ export async function answerBatch(replay, service, body, contentType) {
     })();
     const a = target === undefined
       ? {status: 404, headers: {"content-type": "application/json"}, body: errorBody("STG/REPLAY_MISS", `not an OData path: ${item.url}`), outcome: "miss"}
-      : await replay.answer({method: "GET", ...target});
+      : await replay.answer({method: "GET", ...target}, {part: index + 1, line: `GET ${item.url}`});
     outcomes.push(a.outcome);
     out += `--${boundary}\r\n` + formatPart(a);
   }

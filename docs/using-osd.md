@@ -604,7 +604,8 @@ reading a service on another system.
 
 An http destination takes RFC's `mode` too, so a page can read a foreign
 service with no system behind it
-([`tools/osd-http-replay.mjs`](../tools/osd-http-replay.mjs)):
+([`tools/osd-http-replay.mjs`](../tools/osd-http-replay.mjs); misses in
+[`tools/osd-replay-misses.mjs`](../tools/osd-replay-misses.mjs)):
 
 ```json
 {
@@ -639,6 +640,41 @@ asks (a UI5 model asks with an Accept header and no `$format`).
 changeset or any write is a 501. **A miss is loud:** a 404 and a line on
 stderr, unless the destination asks for `"onMiss": "empty"`. A local
 service of the same name still wins.
+
+**Matching is exact unless asked otherwise.** A Fiori list asks for a
+`$top` that depends on the window height, and for its variant's `$select`
+and `$orderby`. With `"match": {"ignore": ["$top", "$select", "$orderby"]}`
+on a destination, or on one fixture (which then overrides the destination's),
+a request that differs from a recording only in those options is answered by
+it:
+
+- an exact recording always wins;
+- parentheses around the whole of a `$filter` are dropped from every key
+  (`(A or B)` is `A or B`); around a part they stay;
+- `$skip` and `$skiptoken` are never ignored, and asking for it is refused
+  out loud; `$skip=0` is the same as no `$skip`;
+- when `$top` was ignored, the recorded rows are cut to the `$top` asked
+  for (`d.results` or `value`), and of several recordings that differ only
+  in `$top`, the smallest one holding enough rows answers.
+
+A miss line names the recording at the same path whose query differs least,
+and how (`$top asked 35, recorded 20`); inside a `$batch` it also names the
+part's number and request line. `GET /sap/bc/osd/replay/misses` lists the
+misses of the run, as JSON or with `?format=html` as a table, each with the
+command that makes it a fixture from its nearest recording:
+
+```
+node tools/osd-replay-promote.mjs --destination REF --url '<the miss>' --out .local/replay/promoted
+```
+
+From a stand's binary the command is `osd replay-promote`, quoted for
+PowerShell on Windows. It writes only where git could not publish the file:
+the exact file, where it physically lands through any symlink, must be
+untracked and ignored, and a repository git cannot answer about counts as
+publishing. It never overwrites a file. List the folder first in the
+destination's `fixtures` so it wins. When rows are cut to the `$top` asked,
+a recorded `__next` / `@odata.nextLink` is dropped with them, and a `$top`
+that is not a count gets no relaxed answer.
 
 `OSD_DESTINATIONS` names another destinations file; its relative
 `fixtures` are read beside it, which is how a compiled binary, running in

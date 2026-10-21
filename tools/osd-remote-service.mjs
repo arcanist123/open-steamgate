@@ -21,6 +21,7 @@
 import {remoteServices} from "./osd-destinations.mjs";
 import {dirname, resolve} from "node:path";
 import {fixtureFolders, loadFixtures, MODES, ON_MISS, replayer, replayService} from "./osd-http-replay.mjs";
+import {missesHandler} from "./osd-replay-misses.mjs";
 
 // What a transparent proxy has to carry, and why each one.
 //
@@ -146,7 +147,7 @@ export function mountRemoteServices(app, known = () => false, options = {}) {
       const named = options.file ?? (process.env.OSD_DESTINATIONS || undefined);
       const root = options.root ?? (named === undefined ? process.cwd() : dirname(resolve(named)));
       const folders = fixtureFolders(destination, {root, tree: options.tree, say});
-      loaded.set(name, replayer(loadFixtures(folders, {say}), {onMiss: destination.onMiss, say, name}));
+      loaded.set(name, replayer(loadFixtures(folders, {say}), {onMiss: destination.onMiss, say, name, match: destination.match}));
     }
     const replay = loaded.get(name);
     if (destination.onMiss !== undefined && !ON_MISS.includes(destination.onMiss)) {
@@ -158,6 +159,11 @@ export function mountRemoteServices(app, known = () => false, options = {}) {
     }
     app.use(replayService(service, replay, known, {live: canAsk ? forwarder({timeout: 5000, ...destination}) : undefined}));
     mounted.push(`${service} -> ${name} (${canAsk ? "fallback" : "replay"}, ${replay.size} fixtures)`);
+  }
+  if (loaded.size > 0) {
+    // what was asked and not recorded, with the nearest recording of each
+    // (tools/osd-http-replay.mjs missesHandler)
+    app.get("/sap/bc/osd/replay/misses", missesHandler([...loaded.values()]));
   }
   return mounted;
 }
