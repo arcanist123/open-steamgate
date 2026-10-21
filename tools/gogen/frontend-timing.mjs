@@ -33,7 +33,8 @@ export function timedFrontend(phase, run) {
 export function finishFrontendRound() {
   if (!current?.enabled) return [];
   const rows = ["graphLoading", "certificateValidation", "observation", "replay", "finalization"]
-    .map((phase) => ({phase, round: /** @type {TimingState} */ (current).round, ms: roundedMillis(/** @type {TimingState} */ (current).phases.get(phase) ?? 0)}));
+    // @ts-expect-error -- abapiti form pending
+    .map((phase) => ({phase, round: current.round, ms: roundedMillis(current.phases.get(phase) ?? 0)}));
   if (process.env.OSABAP_TIMING === "1") for (const row of rows)
     console.error(`OSABAP_TIMING ${JSON.stringify(row)}`);
   return rows;

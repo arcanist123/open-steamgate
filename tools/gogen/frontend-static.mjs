@@ -8,7 +8,8 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
   const {CHAR_UTILITIES, C, upper, clasDef, registerConst, localInterfaceConstant, Unsupported, ancestors, goName, typeOf, abaplint, notInProgram} = deps;
   if (!write && owner === "CL_ABAP_CHAR_UTILITIES" && CHAR_UTILITIES[attr] !== undefined) return {e: "chars", value: CHAR_UTILITIES[attr], type: C(1)};
   /** @type {import("@abaplint/core").IRegistry} */ const reg = ctx.reg;
-  const intf = /** @type {import("@abaplint/core").Objects.Interface | undefined} */ (reg.getObject("INTF", owner))?.getDefinition();
+  // @ts-expect-error -- abapiti form pending
+  const intf = reg.getObject("INTF", owner)?.getDefinition();
   const clas = clasDef(ctx.reg, owner);
   const local = ctx.program.localInterfaces?.get(`${ctx.program.currentOwner}|${owner}`);
   const def = intf ?? clas ?? local?.def;
@@ -56,7 +57,8 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
     const globalFriend = friends.some((f) => upper(f) === ctx.className);
     const localFriend = ctx.className.startsWith(`${at.split(":")[0]}:`) && (pool?.getABAPFiles() ?? []).some((f) => f.getStatements().some((st) => {
       const text = st.concatTokens().toUpperCase();
-      return text.startsWith(`CLASS ${at.split(":").at(-1)} DEFINITION LOCAL FRIENDS `) && text.split(/\bLOCAL FRIENDS\b/)[1].match(/[A-Z_][A-Z0-9_]*/g)?.includes(/** @type {string} */ (friendName));
+      // @ts-expect-error -- abapiti form pending
+      return text.startsWith(`CLASS ${at.split(":").at(-1)} DEFINITION LOCAL FRIENDS `) && text.split(/\bLOCAL FRIENDS\b/)[1].match(/[A-Z_][A-Z0-9_]*/g)?.includes(friendName);
     }));
     const friend = globalFriend || localFriend;
     const inside = friend || ctx.className === at || ancestors(ctx.reg, ctx.className).includes(at);

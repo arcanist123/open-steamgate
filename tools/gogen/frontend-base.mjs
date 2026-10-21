@@ -31,7 +31,7 @@ export class Unsupported extends Error {}
 /** @type {Extract<import("./ir.ts").Type, {k: "exc"}>} */ const EXC = {k: "exc"};
 
 /** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {n is import("@abaplint/core").Nodes.ExpressionNode} */ const isExpr = (n, cls) => n instanceof Nodes.ExpressionNode && n.get() instanceof cls;
-/** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {n is import("@abaplint/core").Nodes.StatementNode} */ const isStmt = (n, cls) => n instanceof Nodes.StatementNode && n.get() instanceof cls;
+/** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {boolean} */ const isStmt = (n, cls) => n instanceof Nodes.StatementNode && n.get() instanceof cls;
 /** @param {unknown} n @param {import("./frontend-types.ts").NodeClass} cls @returns {n is import("@abaplint/core").Nodes.StructureNode} */ const isStruct = (n, cls) => n instanceof Nodes.StructureNode && n.get() instanceof cls;
 /** @param {unknown} n @param {string} [s] @returns {n is import("@abaplint/core").Nodes.TokenNode} */ const isTok = (n, s) => n instanceof Nodes.TokenNode && (s === undefined || upper(n.getFirstToken().getStr()) === s);
 /** @param {import("@abaplint/core").INode} n @returns {string} */ const tokenStr = (n) => n.getFirstToken().getStr();
@@ -46,8 +46,10 @@ export class Unsupported extends Error {}
 // rows (APPEND, INSERT INDEX, MODIFY INDEX, SORT, SELECT / SPLIT INTO TABLE)
 // refuses one, and a move between a SORTED and another table is not the
 // same type (it would have to sort)
-/** @param {import("./frontend-types.ts").ValueExpr | undefined} t @param {string} what @returns {void} */ const refuseSorted = (t, what) => { if (/** @type {{sorted?: readonly string[]}} */ (t?.type)?.sorted) throw new Unsupported(`${what} a SORTED table`); };
-/** @param {import("./frontend-types.ts").TableType} a @param {import("./frontend-types.ts").TableType} b @returns {boolean} */ const sameSort = (a, b) => (a.sorted ?? null) === null ? (b.sorted ?? null) === null : (b.sorted !== undefined && /** @type {readonly string[]} */ (a.sorted).join() === b.sorted.join() && a.unique === b.unique);
+// @ts-expect-error -- abapiti form pending
+/** @param {import("./frontend-types.ts").ValueExpr | undefined} t @param {string} what @returns {void} */ const refuseSorted = (t, what) => { if (t?.type?.sorted) throw new Unsupported(`${what} a SORTED table`); };
+// @ts-expect-error -- abapiti form pending
+/** @param {import("./frontend-types.ts").TableType} a @param {import("./frontend-types.ts").TableType} b @returns {boolean} */ const sameSort = (a, b) => (a.sorted ?? null) === null ? (b.sorted ?? null) === null : (b.sorted !== undefined && a.sorted.join() === b.sorted.join() && a.unique === b.unique);
 // @ts-expect-error -- abapiti form pending
 /** @param {import("./ir.ts").Type} a @param {import("./ir.ts").Type} b @returns {boolean} */ export const sameType = (a, b) => a.k === b.k && (a.k !== "table" || (sameType(a.row, b.row) && sameSort(a, b)))
   // @ts-expect-error -- abapiti form pending

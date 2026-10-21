@@ -61,35 +61,42 @@ export function hoistLocalConstants(body, ctx, h) {
     const go = `${owner}_${segment(name)}`;
     if (ctx.program.consts.has(go)) throw new Error(`local constant name collision: ${ctx.className}=>${ctx.method}=>${name} (${go})`);
     ctx.program.consts.set(go, {go, type, ...init});
-    /** @type {Map<string, import("./frontend-types.ts").ValueExpr>} */ (ctx.localConstants).set(name, {e: "const", go, type});
+    // @ts-expect-error -- abapiti form pending
+    ctx.localConstants.set(name, {e: "const", go, type});
     ctx.locals.delete(name);
   };
   /** @param {import("@abaplint/core").Nodes.StructureNode | import("@abaplint/core").Nodes.StatementNode | undefined} node */ const walk = (node) => {
     if (!node) return;
     if (isStruct(node, Structures.Constants)) {
-      const name = upper(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (node.findFirstExpression(Expressions.DefinitionName)).concatTokens());
-      /** @type {Set<string>} */ (ctx.localConstantNames).add(name);
+      // @ts-expect-error -- abapiti form pending
+      const name = upper(node.findFirstExpression(Expressions.DefinitionName).concatTokens());
+      // @ts-expect-error -- abapiti form pending
+      ctx.localConstantNames.add(name);
       const type = ctx.locals.get(name);
       if (type?.k !== "struct") throw new Unsupported(`CONSTANTS BEGIN OF ${name}: not a local structure`);
       const fields = ctx.program.structs.get(type.go)?.fields ?? [];
       /** @type {Record<string, import("./ir.ts").Expr>} */ const inits = {};
       for (const st of node.findAllStatements(Statements.Constant)) {
-        const field = upper(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (st.findFirstExpression(Expressions.DefinitionName)).concatTokens());
+        // @ts-expect-error -- abapiti form pending
+        const field = upper(st.findFirstExpression(Expressions.DefinitionName).concatTokens());
         const ft = fields.find((f) => f.name === field)?.type;
         if (!ft || !literalValue(st)) throw new Unsupported(`CONSTANTS ${name}-${field}: nonliteral VALUE`);
         inits[field] = initialValue(st, {...ctx, locals: new Map([[field, ft]])}).value;
       }
       /** @type {Record<string, import("./frontend-types.ts").ConstantInitializer | undefined>} */ const folded = Object.fromEntries(Object.entries(inits).map(([f, v]) => [f, fold(v)]));
       if (Object.values(folded).every(Boolean)) add(name, type, {fieldInits: folded});
-      else /** @type {Map<import("./frontend-types.ts").SyntaxNode, import("./frontend-types.ts").FrontendStmt[]>} */ (ctx.localConstantFields).set(node, Object.entries(inits).map(/** @returns {import("./frontend-types.ts").FrontendStmt} */ ([field, value]) => ({
+      // @ts-expect-error -- abapiti form pending
+      else ctx.localConstantFields.set(node, Object.entries(inits).map(/** @returns {import("./frontend-types.ts").FrontendStmt} */ ([field, value]) => ({
         // @ts-expect-error -- abapiti form pending
         s: "assign", target: {e: "field", base: {e: "var", name, type}, name: field, type: fields.find((f) => f.name === field).type}, value,
       })));
       return;
     }
     if (node instanceof Nodes.StatementNode && isStmt(node, Statements.Constant) && literalValue(node)) {
-      const name = upper(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (node.findFirstExpression(Expressions.DefinitionName)).concatTokens());
-      /** @type {Set<string>} */ (ctx.localConstantNames).add(name);
+      // @ts-expect-error -- abapiti form pending
+      const name = upper(node.findFirstExpression(Expressions.DefinitionName).concatTokens());
+      // @ts-expect-error -- abapiti form pending
+      ctx.localConstantNames.add(name);
       const init = initialValue(node, ctx);
       const value = fold(init.value);
       // @ts-expect-error -- abapiti form pending

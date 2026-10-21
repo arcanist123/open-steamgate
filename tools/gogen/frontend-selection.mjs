@@ -6,7 +6,8 @@ import {indexFrozenSelection, selectionHas} from "./frontend-queries.mjs";
 import {expandProgramSelection, withRole, enumerateObjects} from "./frontend-provenance.mjs";
 
 /** @param {string} fn @returns {string} */
-const objectName = fn => /** @type {string} */ (fn.split("/").pop()).split(".")[0].toLowerCase().replaceAll("#", "/");
+// @ts-expect-error -- abapiti form pending
+const objectName = fn => fn.split("/").pop().split(".")[0].toLowerCase().replaceAll("#", "/");
 /** @param {import("./frontend-session-types.ts").Registry} reg @param {string[]} objects @param {import("./frontend-diagnostics.ts").DiagnosticsSession | null} [session] */
 export function selectionDiagnostics(reg, objects, session) {
   const wanted = objects.map(o => o.toLowerCase().replaceAll("#", "/"));
@@ -51,8 +52,10 @@ export function deriveSelectionWanted(reg, options, session, capture, getLocals,
   const selection = prepareSelection(reg, options, session), {wanted} = selection;
   if (capture) capture.selection = selection;
   const result = new Set(wanted.map(n => n.toUpperCase())), includeTests = options.includeTests ?? false;
-  for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", o => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (/** @type {boolean} */ (includeTests) || localOwners.has(o.getName().toUpperCase())))) {
-    for (const local of getLocals(reg, /** @type {import("@abaplint/core").Objects.Class} */ (obj), includeTests === true || (includeTests instanceof Set && includeTests.has(obj.getName().toUpperCase())))) result.add(local.name);
+  // @ts-expect-error -- abapiti form pending
+  for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", o => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (includeTests || localOwners.has(o.getName().toUpperCase())))) {
+    // @ts-expect-error -- abapiti form pending
+    for (const local of getLocals(reg, obj, includeTests === true || (includeTests instanceof Set && includeTests.has(obj.getName().toUpperCase())))) result.add(local.name);
   }
   for (const group of enumerateObjects(reg, "selected-groups", wanted, "scheduling", o => o instanceof abaplint.Objects.FunctionGroup && selectionHas(wanted, o.getName().toLowerCase()))) result.add(`FUGR:${group.getName().toUpperCase()}`);
   return [...result];

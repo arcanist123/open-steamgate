@@ -13,7 +13,8 @@ import {source, sourceOperand} from "./frontend-expressions-calls.mjs";
 // a RAW(n) column is T.bytes(n), a RAWSTRING T.bytes() (ultra/zvdb)
 /** @param {import("./ir.ts").Type} t @returns {SqlIrType} */ const sqlIrType = (t) => (t.k === "i" ? T.int : t.k === "int8" ? T.int8 : t.k === "string" ? T.str : t.k === "d" ? T.date
   : t.k === "p" ? T.dec(2 * (t.len ?? 8) - 1, t.dec ?? 0) : t.k === "x" ? T.bytes(t.len ?? 1) : t.k === "xstring" ? T.bytes()
-    : T.char(/** @type {{len?: number}} */ (t).len ?? 1));
+    // @ts-expect-error -- abapiti form pending
+    : T.char(t.len ?? 1));
 /** the IR type a written value binds as (tools/ir-writes.mjs bindValue): a
  * d, t or n is its characters, as the column stores them @param {import("./ir.ts").Type} t @param {string} where @returns {SqlIrType} */
 function writeIrType(t, where) {
@@ -79,10 +80,11 @@ function sqlHost(src, trailing, ctx, text) {
     if (v === undefined || v.e === undefined) throw new Unsupported(`SQL value: ${text}`);
     return v;
   }
-  let v = sourceOperand(/** @type {import("./frontend-types.ts").SyntaxNode} */ (simple.getFirstChild()), ctx);
+  // @ts-expect-error -- abapiti form pending
+  let v = sourceOperand(simple.getFirstChild(), ctx);
   for (let i = 1; i < sk.length; i += 2) {
     if (!isTok(sk[i], "-") || !isExpr(sk[i + 1], Expressions.SQLFieldName)) throw new Unsupported(`SQL value: ${text}`);
-    const f = fieldOf(ctx, v.type, /** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (sk[i + 1]).concatTokens(), text);
+    const f = fieldOf(ctx, v.type, sk[i + 1].concatTokens(), text);
     v = {e: "field", base: v, name: f.name, type: f.type};
   }
   return v;

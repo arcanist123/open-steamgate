@@ -12,13 +12,15 @@ import {Expressions, isTok, isExpr, S, Unsupported, goName} from "./frontend-bas
  */
 export function dynamicStaticCall(node, ctx, {sourceOperand, source, convert, lvalue}) {
   const text = node.concatTokens();
-  const kids = /** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (node.findDirectExpression(Expressions.MethodSource)).getChildren();
+  // @ts-expect-error -- abapiti form pending
+  const kids = node.findDirectExpression(Expressions.MethodSource).getChildren();
   if (kids.length !== 3 || !isTok(kids[1], "=>")) throw new Unsupported(`CALL METHOD form: ${text}`);
   /** @param {import("./frontend-types.ts").SyntaxNode} dynamic */
   const operand = (dynamic) => {
     const inner = dynamic.getChildren().filter((c) => !isTok(c));
     if (inner.length !== 1) throw new Unsupported(`CALL METHOD form: ${text}`);
-    return sourceOperand(/** @type {import("./frontend-types.ts").SyntaxNode} */ (inner[0]), ctx);
+    // @ts-expect-error -- abapiti form pending
+    return sourceOperand(inner[0], ctx);
   };
   const cls = convert(operand(kids[0]), S);
   let method;
@@ -35,17 +37,22 @@ export function dynamicStaticCall(node, ctx, {sourceOperand, source, convert, lv
   const sections = ["IMPORTING", "CHANGING", "EXCEPTIONS"];
   if (mp?.getChildren().some((c) => sections.some((k) => isTok(c, k)))) throw new Unsupported(`CALL METHOD by name with ${mp.concatTokens()}`);
   if (body && !mp) throw new Unsupported(`CALL METHOD form: ${text}`);
-  const args = (mp?.findAllExpressions(Expressions.ParameterS) ?? []).map((p) => ({name: /** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (p.findDirectExpression(Expressions.ParameterName)).concatTokens().toUpperCase(),
-    value: convert(source(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (p.findDirectExpression(Expressions.Source)), ctx), {k: "data"})}));
+  // @ts-expect-error -- abapiti form pending
+  const args = (mp?.findAllExpressions(Expressions.ParameterS) ?? []).map((p) => ({name: p.findDirectExpression(Expressions.ParameterName).concatTokens().toUpperCase(),
+    // @ts-expect-error -- abapiti form pending
+    value: convert(source(p.findDirectExpression(Expressions.Source), ctx), {k: "data"})}));
   const rp = mp?.findDirectExpression(Expressions.ParameterT);
-  const receiving = rp ? {name: /** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (rp.findDirectExpression(Expressions.ParameterName)).concatTokens().toUpperCase(),
-    target: lvalue(/** @type {import("@abaplint/core").Nodes.ExpressionNode} */ (rp.findDirectExpression(Expressions.Target)), ctx)} : null;
+  // @ts-expect-error -- abapiti form pending
+  const receiving = rp ? {name: rp.findDirectExpression(Expressions.ParameterName).concatTokens().toUpperCase(),
+    // @ts-expect-error -- abapiti form pending
+    target: lvalue(rp.findDirectExpression(Expressions.Target), ctx)} : null;
   for (const name of ["CX_SY_DYN_CALL_ILLEGAL_CLASS", "CX_SY_DYN_CALL_ILLEGAL_METHOD", "CX_SY_DYN_CALL_PARAM_NOT_FOUND", "CX_SY_DYN_CALL_PARAM_MISSING", "CX_SY_DYN_CALL_ILLEGAL_TYPE"]) {
     for (let n = name; n;) {
       const def = ctx.reg.getObject("CLAS", n)?.getDefinition();
       if (!def) break;
       ctx.program.missing.add(n);
-      n = /** @type {string} */ (def.getSuperClass()?.toUpperCase());
+      // @ts-expect-error -- abapiti form pending
+      n = def.getSuperClass()?.toUpperCase();
     }
   }
   ctx.program.dynStatics.add(method);
@@ -69,8 +76,10 @@ export function prepareDynamicStatics(program, {defaultValue, aliasTarget}) {
     /** @type {Map<string, import("./frontend-types.ts").FrontendMethod | (import("./frontend-types.ts").MethodSignature & {reason: string})>} */ const methods = new Map();
     for (const method of cls.methods)
       if (method.static && !methods.has(method.name)) methods.set(method.name, method);
-    for (const method of /** @type {NonNullable<import("./frontend-types.ts").FrontendClass["stubs"]>} */ (cls.stubs))
-      if (/** @type {import("./frontend-types.ts").Signature} */ (method).static && !methods.has(method.name)) methods.set(method.name, method);
+    // @ts-expect-error -- abapiti form pending
+    for (const method of cls.stubs)
+      // @ts-expect-error -- abapiti form pending
+      if (method.static && !methods.has(method.name)) methods.set(method.name, method);
     statics.set(cls.name, methods);
   }
   for (const cls of program.classes) for (const method of program.dynStatics) {
@@ -83,7 +92,8 @@ export function prepareDynamicStatics(program, {defaultValue, aliasTarget}) {
       const c = classes.get(owner);
       impl = statics.get(owner)?.get(name);
       if (impl) break;
-      owner = /** @type {string} */ (c?.super);
+      // @ts-expect-error -- abapiti form pending
+      owner = c?.super;
     }
     if (!impl) continue;
     const saved = [program.currentOwner, program.currentClass, program.currentTypes];
@@ -92,7 +102,8 @@ export function prepareDynamicStatics(program, {defaultValue, aliasTarget}) {
       program.currentOwner = owner.split(":")[0];
       program.currentClass = goName(owner);
       program.currentTypes = undefined;
-      for (const p of /** @type {{params?: readonly import("./frontend-types.ts").FrontendParam[]}} */ (impl).params ?? []) if (p.default !== undefined)
+      // @ts-expect-error -- abapiti form pending
+      for (const p of impl.params ?? []) if (p.default !== undefined)
         defaults.push({name: p.name, value: defaultValue(p, {reg: program.reg, program, className: owner})});
     // @ts-expect-error -- abapiti form pending
     } finally { [program.currentOwner, program.currentClass, program.currentTypes] = saved; }
