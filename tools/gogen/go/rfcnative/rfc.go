@@ -76,7 +76,7 @@ func Start(ctx context.Context, c Config, binds []string, handler http.Handler, 
 		backend[0].Close()
 		return err
 	}
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 30 * time.Second}
+	server := &http.Server{Handler: stateful(handler), ReadHeaderTimeout: 30 * time.Second}
 	go func() { <-ctx.Done(); server.Close() }()
 	go func() {
 		if err := server.Serve(backend[0]); err != nil && err != http.ErrServerClosed {
@@ -92,4 +92,15 @@ func Start(ctx context.Context, c Config, binds []string, handler http.Handler, 
 	}
 	logf("native RFC demo listening on %s", osdbind.Describe(listeners))
 	return nil
+}
+
+// Eclipse conversations retain their HTTP context even when the tunneled
+// request omits the session header, as in the JS bridge. CSRF probes use it too.
+func stateful(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-SAP-ADT-SessionType") == "" {
+			r.Header.Set("X-SAP-ADT-SessionType", "stateful")
+		}
+		handler.ServeHTTP(w, r)
+	})
 }

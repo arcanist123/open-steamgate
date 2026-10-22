@@ -715,7 +715,6 @@ func main() {
 	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
 
 	protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
-
 	for _, svc := range icfServices {
 		log.Printf("ICF service  on http://localhost:%d%s  (%s)", *port, svc.Path, svc.Handler)
 	}
