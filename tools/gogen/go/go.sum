@@ -22,6 +22,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/oisee/open-diag-go v0.0.0-20260928212308-62029ee085bc h1:x8ASYhpbzGsKSLoashF8CXJrHPRWf7dxDVdMQdKUlXw=
 github.com/oisee/open-diag-go v0.0.0-20260928212308-62029ee085bc/go.mod h1:M2hRvxgpsTVwtGrcWYxS2ttAzp4N+kPxEBEkXDmMNY0=
+github.com/oisee/open-rfc-go v0.2.1-0.20260916163431-274c0c912ddb h1:/jYtnpgoN5pSlqdmQcVKRJek5VLHclUy3kY0FoLFCHY=
+github.com/oisee/open-rfc-go v0.2.1-0.20260916163431-274c0c912ddb/go.mod h1:ymKpeVFBsjAHn/YF/zk1d7z+MkRVrEO2Ckqa2RKGD6c=
 github.com/oisee/vibing-steampunk v0.0.0-20260905112959-6e390b1f61ff h1:r5JL30tNWEo8/BWVQiEsn2kQIlf2kCKDnyBs4HKgoCo=
 github.com/oisee/vibing-steampunk v0.0.0-20260905112959-6e390b1f61ff/go.mod h1:weVJ4zs+HTOuvr6sCNmKynR69962DcCLQ+ittD38paY=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=

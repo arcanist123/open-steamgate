@@ -2,10 +2,7 @@ module osg/gogen
 
 go 1.26.0
 
-// open-diag-go develops beside these sibling modules and deliberately keeps
-// v0.0.0 placeholders in its own go.mod. Pin those placeholders for consumers.
-replace github.com/oisee/open-rfc-go v0.0.0 => github.com/oisee/open-rfc-go v0.0.0-20260820234724-6ef4d9eeb9cd
-
+// Pin the sibling placeholder retained by open-diag-go.
 replace github.com/oisee/vibing-steampunk v0.0.0 => github.com/oisee/vibing-steampunk v0.0.0-20260905112959-6e390b1f61ff
 
 require (
@@ -25,6 +22,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/oisee/open-rfc-go v0.2.1-0.20260916163431-274c0c912ddb
 	github.com/oisee/vibing-steampunk v0.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
