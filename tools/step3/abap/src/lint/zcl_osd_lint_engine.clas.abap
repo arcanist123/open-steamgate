@@ -20,9 +20,18 @@ CLASS zcl_osd_lint_engine DEFINITION PUBLIC FINAL CREATE PRIVATE.
       IMPORTING it_files TYPE tt_file it_deps TYPE tt_file iv_config TYPE string.
     CLASS-METHODS check
       IMPORTING iv_filename TYPE string RETURNING VALUE(rt_issues) TYPE tt_issue.
-    CLASS-METHODS update IMPORTING iv_filename TYPE string iv_raw TYPE string.
+    CLASS-METHODS update
+      IMPORTING iv_filename TYPE string iv_raw TYPE string iv_remove TYPE abap_bool DEFAULT abap_false.
   PRIVATE SECTION.
+    TYPES: BEGIN OF ty_reader,
+             word TYPE string,
+             object TYPE REF TO zif_lnt_object,
+           END OF ty_reader,
+           tt_reader TYPE SORTED TABLE OF ty_reader WITH NON-UNIQUE KEY word.
     CLASS-DATA go_registry TYPE REF TO zcl_lnt_registry.
+    CLASS-DATA gt_readers TYPE tt_reader.
+    CLASS-METHODS index_object IMPORTING io_object TYPE REF TO zif_lnt_object.
+    CLASS-METHODS index_registry.
     CLASS-METHODS column
       IMPORTING io_position TYPE REF TO zcl_lnt_position
       RETURNING VALUE(rv_column) TYPE i.
@@ -33,7 +42,7 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     DATA lo_run TYPE REF TO zcl_lnt_registry_run.
     DATA ls_file TYPE ty_file.
 *   A failed re-prime must not leave an old corpus available for checking.
-    CLEAR go_registry.
+    CLEAR: go_registry, gt_readers.
     CREATE OBJECT lo_run.
     LOOP AT it_files INTO ls_file.
       lo_run->add_file( i_filename = ls_file-filename i_raw = ls_file-raw ).
@@ -42,6 +51,7 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
       lo_run->add_dependency( i_filename = ls_file-filename i_raw = ls_file-raw ).
     ENDLOOP.
     go_registry = lo_run->parse( i_config = iv_config ).
+    index_registry( ).
   ENDMETHOD.
 
   METHOD check.
@@ -100,10 +110,121 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     rv_column = lo_column->value.
   ENDMETHOD.
 
+  METHOD index_registry.
+    DATA lo_objects TYPE REF TO zif_lnt_generator_8f73cd1c.
+    DATA lo_next TYPE REF TO zcl_lnt_generator_17955b8b.
+    CLEAR gt_readers.
+    lo_objects = go_registry->get_objects( ).
+    DO.
+      lo_next = lo_objects->next( ).
+      IF lo_next->done = abap_true.
+        EXIT.
+      ENDIF.
+      index_object( lo_next->value ).
+    ENDDO.
+  ENDMETHOD.
+
+  METHOD index_object.
+    DATA lo_files TYPE REF TO zlnt_runtime_arra_c22708faf2e3.
+    DATA lo_item TYPE REF TO object.
+    DATA lo_file TYPE REF TO zif_lnt_file.
+    DATA lv_raw TYPE string.
+    DATA lt_matches TYPE match_result_tab.
+    DATA ls_match TYPE match_result.
+    DATA ls_reader TYPE ty_reader.
+    DATA lt_words TYPE SORTED TABLE OF string WITH UNIQUE KEY table_line.
+    DATA lv_word TYPE string.
+    DELETE gt_readers WHERE object = io_object.
+    lo_files = io_object->get_files( ).
+    lo_files->dense( ).
+    LOOP AT lo_files->items INTO lo_item.
+      lo_file ?= lo_item.
+      lv_raw = to_upper( lo_file->get_raw( ) ).
+*     Same over-approximation as OBJECT_NAME_PATTERN: comments/strings count.
+      FIND ALL OCCURRENCES OF REGEX `(/[A-Z0-9_]{1,10}/)?[A-Z0-9_]{1,40}`
+        IN lv_raw RESULTS lt_matches.
+      LOOP AT lt_matches INTO ls_match.
+        lv_word = lv_raw+ls_match-offset(ls_match-length).
+        INSERT lv_word INTO TABLE lt_words.
+      ENDLOOP.
+    ENDLOOP.
+    ls_reader-object = io_object.
+    LOOP AT lt_words INTO lv_word.
+      ls_reader-word = lv_word.
+      INSERT ls_reader INTO TABLE gt_readers.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD update.
-*   update_file alone does not invalidate cached syntax in dependent objects.
-*   The overlay slice must also dirty readers and implement restoration.
-    RAISE EXCEPTION TYPE zcx_osd_lint_engine
-      EXPORTING iv_reason = `update is not implemented; re-prime the corpus`.
+    DATA lo_before TYPE REF TO zif_lnt_file.
+    DATA lo_file TYPE REF TO zif_lnt_file.
+    DATA lo_old TYPE REF TO zif_lnt_object.
+    DATA lo_object TYPE REF TO zif_lnt_object.
+    DATA lo_parsed TYPE REF TO zif_lnt_registry.
+    DATA lv_name TYPE string.
+    DATA lv_word TYPE string.
+    DATA lt_queue TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
+    DATA lt_reached TYPE SORTED TABLE OF string WITH UNIQUE KEY table_line.
+    DATA lt_dirty TYPE STANDARD TABLE OF REF TO zif_lnt_object WITH DEFAULT KEY.
+    DATA ls_reader TYPE ty_reader.
+    DATA lv_index TYPE i.
+    IF go_registry IS NOT BOUND.
+      RAISE EXCEPTION TYPE zcx_osd_lint_engine
+        EXPORTING iv_reason = `prime must succeed before update`.
+    ENDIF.
+    lo_before = go_registry->get_file_by_name( i_filename = iv_filename ).
+    IF iv_remove = abap_true AND lo_before IS NOT BOUND.
+      lo_parsed = go_registry->parse( ).
+      RETURN.
+    ENDIF.
+    IF lo_before IS BOUND.
+      IF iv_remove = abap_false AND lo_before->get_raw( ) = iv_raw.
+        lo_parsed = go_registry->parse( ).
+        RETURN.
+      ENDIF.
+      lo_old = go_registry->find_object_for_file( i_file = lo_before ).
+    ENDIF.
+    IF iv_remove = abap_true.
+      lo_file = lo_before.
+      go_registry->remove_file( i_file = lo_before ).
+    ELSE.
+      CREATE OBJECT lo_file TYPE zcl_lnt_memory_file
+        EXPORTING i_filename = iv_filename i_raw = iv_raw.
+      IF lo_before IS BOUND.
+        go_registry->update_file( i_file = lo_file ).
+      ELSE.
+        go_registry->add_file( i_file = lo_file ).
+      ENDIF.
+    ENDIF.
+    lv_name = to_upper( lo_file->get_object_name( ) ).
+    lo_object = go_registry->find_object_for_file( i_file = lo_file ).
+    IF lo_old IS BOUND AND lo_old <> lo_object.
+      DELETE gt_readers WHERE object = lo_old.
+    ENDIF.
+    IF lo_object IS BOUND.
+      index_object( lo_object ).
+    ENDIF.
+    APPEND lv_name TO lt_queue.
+    INSERT lv_name INTO TABLE lt_reached.
+*   Visit appended names too: transitive lexical readers, as on Node.
+    lv_index = 1.
+    WHILE lv_index <= lines( lt_queue ).
+      READ TABLE lt_queue INTO lv_word INDEX lv_index.
+      lv_index = lv_index + 1.
+      LOOP AT gt_readers INTO ls_reader WHERE word = lv_word.
+        READ TABLE lt_dirty WITH KEY table_line = ls_reader-object TRANSPORTING NO FIELDS.
+        IF sy-subrc = 0.
+          CONTINUE.
+        ENDIF.
+        APPEND ls_reader-object TO lt_dirty.
+        ls_reader-object->set_dirty( ).
+        lv_name = to_upper( ls_reader-object->get_name( ) ).
+        INSERT lv_name INTO TABLE lt_reached.
+        IF sy-subrc = 0.
+          APPEND lv_name TO lt_queue.
+        ENDIF.
+      ENDLOOP.
+    ENDWHILE.
+    lo_parsed = go_registry->parse( ).
   ENDMETHOD.
 ENDCLASS.

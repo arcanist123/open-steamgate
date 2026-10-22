@@ -24,8 +24,9 @@ type Issue struct {
 // Calls run synchronously on one private Session/Statics owned by the host.
 // No dialog step or work-process lock may be acquired inside these callbacks.
 type Engine struct {
-	Prime func([]objstore.LintFile, string)
-	Check func(string) []Issue
+	Prime  func([]objstore.LintFile, string)
+	Check  func(string) []Issue
+	Update func(string, *string)
 }
 
 type Compiler struct {
@@ -39,6 +40,7 @@ type Compiler struct {
 	failure  error
 	primed   bool
 	calls    uint64
+	config   string
 }
 
 var _ storecheck.Compiler = (*Compiler)(nil)
@@ -56,7 +58,7 @@ func (c *Compiler) trapped(err *error) {
 	}
 }
 
-// Prime is called exactly once at startup, before accepting HTTP requests.
+// Prime initializes the private registry before accepting HTTP requests.
 // Failure is retained so CHECKRUN can return notProcessed with its cause.
 func (c *Compiler) Prime(config string) (err error) {
 	c.mu.Lock()
@@ -85,15 +87,18 @@ func (c *Compiler) Prime(config string) (err error) {
 	if err != nil {
 		return err
 	}
+	if c.baseline.Config != "" {
+		config = c.baseline.Config
+	}
 	started := time.Now()
 	c.Engine.Prime(c.baseline.Files, config)
 	c.primed = true
+	c.config = config
 	if err = c.unchanged(); err != nil {
 		return err
 	}
 	c.log("lint-engine=abap prime=1 files=%d elapsed=%s", len(c.baseline.Files), time.Since(started))
-	// Raw source bytes are owned by the registry now; keep only identity.
-	c.baseline.Files = nil
+	// Retain the saved bytes to diff edits and restore overlays exactly.
 	return nil
 }
 
@@ -111,60 +116,158 @@ func (c *Compiler) unchanged() error {
 	if err != nil {
 		return err
 	}
-	if now.Root != c.baseline.Root || now.Digest != c.baseline.Digest {
-		return fmt.Errorf("ABAP lint baseline changed (store/config/library inputs); restart and re-prime; rebuild if layers changed")
+	if now.Root != c.baseline.Root || now.Digest != c.baseline.Digest || now.Structure != c.baseline.Structure {
+		return fmt.Errorf("ABAP lint inputs changed during check; retry")
 	}
 	return nil
 }
 
-func (c *Compiler) Check(ctx context.Context, in storecheck.Input) (rows []storecheck.Issue, err error) {
+func (c *Compiler) SupportsSource() bool { return true }
+
+func (c *Compiler) syncSaved() (string, error) {
+	if c.Guard != nil {
+		if err := c.Guard(); err != nil {
+			return "", err
+		}
+	}
+	now, err := c.Capture()
+	if err != nil {
+		return "", err
+	}
+	if now.Root != c.baseline.Root {
+		return "", fmt.Errorf("ABAP lint: request root differs from primed root")
+	}
+	status := ""
+	if now.Structure != c.baseline.Structure {
+		config := now.Config
+		if config == "" {
+			config = c.config
+		}
+		c.Engine.Prime(now.Files, config)
+		c.config = config
+		status = "ABAP lint: full re-prime after structural layer/config change"
+		c.log("lint-engine=abap re-prime files=%d reason=structural", len(now.Files))
+	} else if now.Digest != c.baseline.Digest {
+		if c.Engine.Update == nil {
+			return "", fmt.Errorf("ABAP lint: update bridge unavailable; rebuild")
+		}
+		old, current := map[string]string{}, map[string]string{}
+		for _, f := range c.baseline.Files {
+			old[f.Filename] = f.Raw
+		}
+		for _, f := range now.Files {
+			current[f.Filename] = f.Raw
+		}
+		// Remove in old registry order, then update/add in current registry order.
+		for _, f := range c.baseline.Files {
+			if _, exists := current[f.Filename]; !exists {
+				c.Engine.Update(f.Filename, nil)
+			}
+		}
+		for _, f := range now.Files {
+			before, exists := old[f.Filename]
+			if !exists || before != f.Raw {
+				raw := f.Raw
+				c.Engine.Update(f.Filename, &raw)
+			}
+		}
+	}
+	c.baseline = now
+	return status, nil
+}
+
+func (c *Compiler) Check(ctx context.Context, in storecheck.Input) ([]storecheck.Issue, error) {
 	if !in.CheckRun {
 		if c.Other == nil {
 			return nil, storecheck.ErrCompilerAbsent
 		}
 		return c.Other.Check(ctx, in)
 	}
+	rows, _, err := c.CheckRun(ctx, in)
+	return rows, err
+}
+
+// A thrown check is recoverable after restoration. A failed update/restore or
+// prime poisons the registry, since its saved state can no longer be proven.
+func engineCheck(fn func() []Issue) (issues []Issue, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("ABAP lint engine check failed: %v", value)
+		}
+	}()
+	return fn(), nil
+}
+
+func (c *Compiler) CheckRun(ctx context.Context, in storecheck.Input) (rows []storecheck.Issue, status string, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	defer c.trapped(&err)
 	if c.failure != nil {
-		return nil, c.failure
+		return nil, "", c.failure
 	}
 	if !c.primed {
-		return nil, fmt.Errorf("ABAP lint engine not primed")
+		return nil, "", fmt.Errorf("ABAP lint engine not primed")
 	}
 	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	if in.Source != nil {
-		return nil, fmt.Errorf("ABAP lint: inline SOURCE requires the overlay slice")
+		return nil, "", err
 	}
 	if in.Type != "CLAS" && in.Type != "INTF" && in.Type != "PROG" && in.Type != "INCL" {
-		return nil, fmt.Errorf("ABAP lint: CHECKRUN for %s is outside the saved ABAP slice", in.Type)
+		return nil, "", fmt.Errorf("ABAP lint: CHECKRUN for %s is outside the ABAP slice", in.Type)
 	}
 	if in.Root != c.baseline.Root {
-		return nil, fmt.Errorf("ABAP lint: request root differs from primed root")
+		return nil, "", fmt.Errorf("ABAP lint: request root differs from primed root")
 	}
-	if err = c.unchanged(); err != nil {
-		return nil, err
-	}
-	target, err := targetFile(in)
+	status, err = c.syncSaved()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	if err = ctx.Err(); err != nil {
+		return nil, status, err
+	}
+	target, err := c.currentTarget(in)
+	if err != nil {
+		return nil, "", err
+	}
+
 	c.calls++
 	started := time.Now()
 	c.log("lint-engine=abap check=%d target=%s entered=ZCL_OSD_LINT_ENGINE=>CHECK", c.calls, target)
-	issues := c.Engine.Check(target)
+	issues, err := c.checkWithSource(target, in.Source)
+	if err != nil {
+		return nil, status, err
+	}
 	if err = ctx.Err(); err != nil {
-		return nil, err
+		return nil, status, err
 	}
 	if err = c.unchanged(); err != nil {
-		return nil, err
+		return nil, status, err
 	}
 	rows = MapIssues(in, issues)
 	c.log("lint-engine=abap check=%d issues=%d elapsed=%s", c.calls, len(rows), time.Since(started))
-	return rows, nil
+	return rows, status, nil
+}
+
+// Restoration finishes before input verification and the completion log.
+func (c *Compiler) checkWithSource(target string, source *string) (issues []Issue, err error) {
+	if source != nil {
+		if c.Engine.Update == nil {
+			return nil, fmt.Errorf("ABAP lint: update bridge unavailable; rebuild")
+		}
+		var original *string
+		for _, f := range c.baseline.Files {
+			if f.Filename == target {
+				raw := f.Raw
+				original = &raw
+				break
+			}
+		}
+		defer func() {
+			defer c.trapped(&err)
+			c.Engine.Update(target, original)
+		}()
+		c.Engine.Update(target, source)
+	}
+	return engineCheck(func() []Issue { return c.Engine.Check(target) })
 }
 
 func (c *Compiler) Outline(ctx context.Context, in storecheck.Input) (json.RawMessage, error) {
@@ -172,6 +275,27 @@ func (c *Compiler) Outline(ctx context.Context, in storecheck.Input) (json.RawMe
 		return nil, storecheck.ErrCompilerAbsent
 	}
 	return c.Other.Outline(ctx, in)
+}
+
+// A structural re-prime can move an object's winning file to another layer.
+// Preserve the store-resolved logical target when present, otherwise select
+// that same abapGit filename from the current resolved registry.
+func (c *Compiler) currentTarget(in storecheck.Input) (string, error) {
+	target, err := targetFile(in)
+	if err != nil {
+		return "", err
+	}
+	for _, file := range c.baseline.Files {
+		if file.Filename == target {
+			return target, nil
+		}
+	}
+	for _, file := range c.baseline.Files {
+		if path.Base(file.Filename) == path.Base(target) {
+			return file.Filename, nil
+		}
+	}
+	return target, nil
 }
 
 func targetFile(in storecheck.Input) (string, error) {
@@ -186,6 +310,13 @@ func targetFile(in storecheck.Input) (string, error) {
 		if strings.HasSuffix(file, suffix) {
 			return "/" + strings.TrimPrefix(file, "/"), nil
 		}
+	}
+	if in.Source != nil && in.Target != "" {
+		target := in.Target
+		if in.Type == "CLAS" {
+			target = strings.TrimSuffix(target, ".clas.abap") + suffix
+		}
+		return "/" + strings.TrimPrefix(target, "/"), nil
 	}
 	return "", fmt.Errorf("ABAP lint: no saved target file for %s %s include %s", in.Type, in.Name, in.Include)
 }

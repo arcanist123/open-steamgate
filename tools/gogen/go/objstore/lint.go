@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -15,13 +16,14 @@ import (
 type LintFile struct{ Filename, Raw string }
 
 type LintSnapshot struct {
-	Root, Digest string
-	Files        []LintFile
+	Root, Digest      string
+	Config, Structure string
+	Files             []LintFile
 }
 
 // CaptureLint reads the store's configured roots and library lists in registry
 // order. hidden is the Node layer resolver's build-time answer. A caller must
-// compare Digest before AND after checking; this slice never updates a registry.
+// compare Digest before AND after checking; Files retain bytes for incremental updates.
 func CaptureLint(hidden []string) (LintSnapshot, error) {
 	storeState.mu.Lock()
 	defer storeState.mu.Unlock()
@@ -29,19 +31,38 @@ func CaptureLint(hidden []string) (LintSnapshot, error) {
 	if storeState.cfg == nil {
 		return out, fmt.Errorf("ABAP lint: no object store configured")
 	}
+	return captureLintView(storeState.root, storeState.cfg, storeState.excluded, hidden)
+}
+
+// CaptureLintView captures newly resolved layer facts without changing the store
+// or its active-version proofs. Structural resolution never runs a checker.
+func CaptureLintView(root string, cfg *Config, hidden []string) (LintSnapshot, error) {
+	var excluded []*regexp.Regexp
+	for _, pattern := range cfg.Excluded {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return LintSnapshot{}, err
+		}
+		excluded = append(excluded, re)
+	}
+	return captureLintView(root, cfg, excluded, hidden)
+}
+
+func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hidden []string) (LintSnapshot, error) {
+	out := LintSnapshot{Root: rootPath}
 	skip := map[string]bool{}
 	for _, file := range hidden {
 		skip[file] = true
 	}
 	hash := sha256.New()
 	encoder := json.NewEncoder(hash)
-	_ = encoder.Encode(storeState.cfg)
-	roots := append(append([]Root{}, storeState.cfg.Roots...), storeState.cfg.Libs...)
+	_ = encoder.Encode(cfg)
+	roots := append(append([]Root{}, cfg.Roots...), cfg.Libs...)
 	for _, root := range roots {
 		files := root.Files
 		if !root.Library {
 			var err error
-			files, err = lintWalk(storeState.root, root.Path)
+			files, err = lintWalk(rootPath, root.Path, excluded)
 			if err != nil {
 				return out, err
 			}
@@ -50,12 +71,12 @@ func CaptureLint(hidden []string) (LintSnapshot, error) {
 			if !(strings.HasSuffix(file, ".abap") || strings.HasSuffix(file, ".xml") || strings.HasSuffix(file, ".asddls")) {
 				continue
 			}
-			bytes, err := os.ReadFile(filepath.Join(storeState.root, file))
+			bytes, err := os.ReadFile(filepath.Join(rootPath, file))
 			if err != nil {
 				return out, fmt.Errorf("ABAP lint input %s: %w", file, err)
 			}
 			// Include hidden files in identity: an edit/addition could change
-			// which layer wins, which needs a new build in this first slice.
+			// which layer wins and require full layer resolution and re-prime.
 			_ = encoder.Encode([]string{file, storeDigestBytes(bytes)})
 			if !skip[file] {
 				out.Files = append(out.Files, LintFile{Filename: "/" + file, Raw: string(bytes)})
@@ -70,7 +91,7 @@ func CaptureLint(hidden []string) (LintSnapshot, error) {
 }
 
 // Like storeWalk, but IO failures must never become a clean, partial registry.
-func lintWalk(base, dir string) ([]string, error) {
+func lintWalk(base, dir string, patterns []*regexp.Regexp) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(base, dir))
 	if os.IsNotExist(err) {
 		return nil, nil // optional roots (notably local/tmp) may not exist yet
@@ -89,7 +110,7 @@ func lintWalk(base, dir string) ([]string, error) {
 			return nil, err
 		}
 		if info.IsDir() {
-			children, err := lintWalk(base, file)
+			children, err := lintWalk(base, file, patterns)
 			if err != nil {
 				return nil, err
 			}
@@ -97,7 +118,7 @@ func lintWalk(base, dir string) ([]string, error) {
 			continue
 		}
 		excluded := false
-		for _, re := range storeState.excluded {
+		for _, re := range patterns {
 			excluded = excluded || re.MatchString("/"+file)
 		}
 		if !excluded {

@@ -14,7 +14,8 @@ export async function lintBuildSpec(root) {
   const {ObjectStore} = await import("../osd-store.mjs");
   const {configuredRegistry, walkStoreFiles} = await import("../osd-store-registry.mjs");
   const {layers} = await import("../osd-inputs.mjs");
-  const {packsOf} = await import("../osd-packs.mjs");
+  const {storeConfig} = await import("./store.mjs");
+  const {packsOf, placesOf} = await import("../osd-packs.mjs");
   const store = new ObjectStore({root});
   const hidden = layers(root, {input_folder: store.roots.map(r => r.path)}, process.env, {discoveryOnly: true}).hidden;
   const skip = new Set(hidden);
@@ -27,7 +28,11 @@ export async function lintBuildSpec(root) {
     ...packsOf(root).map(pack => relative(root, join(pack.dir, "osd-pack.json")))]) {
     guards[file] = createHash("sha256").update(readFileSync(join(root, file))).digest("hex");
   }
-  return {config, hidden, files, guards};
+  const facts = await storeConfig(root, {store, storeModule: new URL("../osd-store.mjs", import.meta.url).href});
+  // Active-version proofs are unrelated to checker inputs.
+  const {roots, libs, excluded} = facts;
+  const places = placesOf(root).map(path => relative(root, path));
+  return {config, hidden, files, guards, places, store: {roots, libs, excluded}};
 }
 
 // Typed calls stay in package main beside the generated ABAP classes.
@@ -50,6 +55,11 @@ func newLintEngine() storelint.Engine {
    deps := []ZCL_OSD_LINT_ENGINE__TY_FILE{}
    for _, f := range files { input = append(input, ZCL_OSD_LINT_ENGINE__TY_FILE{filename: f.Filename, raw: f.Raw}) }
    ZCL_OSD_LINT_ENGINE_PRIME(s, &input, &deps, config)
+  },
+  Update: func(target string, raw *string) {
+   text, remove := "", " "
+   if raw == nil { remove = "X" } else { text = *raw }
+   ZCL_OSD_LINT_ENGINE_UPDATE(s, target, text, remove)
   },
   Check: func(target string) []storelint.Issue {
    issues := ZCL_OSD_LINT_ENGINE_CHECK(s, target)

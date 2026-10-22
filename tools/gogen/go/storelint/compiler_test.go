@@ -69,7 +69,7 @@ func fixture() (*Compiler, *storecheck.Request, *string, *int) {
 		if config != `{"rules":{}}` {
 			panic("wrong config")
 		}
-	}, Check: func(target string) []Issue {
+	}, Update: func(string, *string) {}, Check: func(target string) []Issue {
 		if target != "/src/ztest.clas.abap" {
 			panic(target)
 		}
@@ -117,16 +117,16 @@ func TestLifecycleAndNoFallback(t *testing.T) {
 		t.Fatal("outline not delegated")
 	}
 	*digest = "dependent file changed"
-	if r := runReport(t, c, *req); r.Status != "notProcessed" || !strings.Contains(r.StatusText, "baseline changed") {
+	if r := runReport(t, c, *req); r.Status != "processed" {
 		t.Fatal(r)
 	}
-	if c.calls != 2 {
-		t.Fatal("stale registry executed")
+	if c.calls != 3 {
+		t.Fatal("saved edit was not checked")
 	}
 }
 
 func TestRefusals(t *testing.T) {
-	for _, mode := range []string{"missing-build", "prime-trap", "check-trap", "during-check", "config", "SOURCE", "unsupported", "missing-target"} {
+	for _, mode := range []string{"missing-build", "prime-trap", "check-trap", "during-check", "config", "unsupported", "missing-target"} {
 		t.Run(mode, func(t *testing.T) {
 			c, req, digest, _ := fixture()
 			switch mode {
@@ -140,8 +140,6 @@ func TestRefusals(t *testing.T) {
 				c.Engine.Check = func(string) []Issue { *digest = "external edit"; return nil }
 			case "config":
 				c.Guard = func() error { return fmt.Errorf("effective config changed") }
-			case "SOURCE":
-				req.Filter = "SOURCE"
 			case "unsupported":
 				req.Input.Type = "DDLS"
 			case "missing-target":
@@ -172,5 +170,158 @@ func TestCheckerSerialized(t *testing.T) {
 	group.Wait()
 	if c.calls != 8 {
 		t.Fatal(c.calls)
+	}
+}
+
+func TestSavedUpdatesOverlayAndRestore(t *testing.T) {
+	for _, thrown := range []bool{false, true} {
+		for _, newObject := range []bool{false, true} {
+			t.Run(fmt.Sprintf("throw=%t/new=%t", thrown, newObject), func(t *testing.T) {
+				files := []objstore.LintFile{{Filename: "/src/ztest.clas.abap", Raw: "original"}, {Filename: "/lib/zdep.intf.abap", Raw: "old"}, {Filename: "/src/removed.prog.abap", Raw: "gone"}}
+				digest := "one"
+				registry := map[string]string{}
+				events := []string{}
+				c, req, _, primes := fixture()
+				c.Capture = func() (objstore.LintSnapshot, error) {
+					return objstore.LintSnapshot{Root: "/tree", Digest: digest, Files: append([]objstore.LintFile{}, files...)}, nil
+				}
+				prime := c.Engine.Prime
+				c.Engine.Prime = func(f []objstore.LintFile, config string) {
+					prime(f, config)
+					for _, file := range f {
+						registry[file.Filename] = file.Raw
+					}
+				}
+				c.Engine.Update = func(target string, raw *string) {
+					if raw == nil {
+						events = append(events, "remove "+target)
+						delete(registry, target)
+					} else {
+						events = append(events, "update "+target+"="+*raw)
+						registry[target] = *raw
+					}
+				}
+				c.Engine.Check = func(target string) []Issue {
+					events = append(events, "check "+target+"="+registry[target])
+					if thrown {
+						panic("thrown check")
+					}
+					return nil
+				}
+				if err := c.Prime(`{"rules":{}}`); err != nil {
+					t.Fatal(err)
+				}
+				files = []objstore.LintFile{{Filename: "/src/ztest.clas.abap", Raw: "saved edit"}, {Filename: "/lib/zdep.intf.abap", Raw: "edited dependency"}, {Filename: "/src/added.prog.abap", Raw: "added"}}
+				digest = "two"
+				overlay := "buffer"
+				req.Filter, req.Input.Source = "SOURCE", &overlay
+				target := "/src/ztest.clas.abap"
+				restore := "update " + target + "=saved edit"
+				if newObject {
+					target = "/src/osd/znew.clas.abap"
+					req.Exists = false
+					req.Input.Name, req.Input.Target, req.Input.Logical = "ZNEW", target, nil
+					restore = "remove " + target
+				}
+				r := runReport(t, c, *req)
+				if thrown && r.Status != "notProcessed" || !thrown && r.Status != "processed" {
+					t.Fatal(r)
+				}
+				expected := []string{"remove /src/removed.prog.abap", "update /src/ztest.clas.abap=saved edit", "update /lib/zdep.intf.abap=edited dependency", "update /src/added.prog.abap=added", "update " + target + "=buffer", "check " + target + "=buffer", restore}
+				if !reflect.DeepEqual(events, expected) {
+					t.Fatalf("events %q want %q", events, expected)
+				}
+				if c.failure != nil || *primes != 1 {
+					t.Fatal("check failure poisoned restored registry", c.failure, *primes)
+				}
+				// Retry after a thrown check and verify saved bytes (or removal) survived.
+				thrown = false
+				req.Filter, req.Exists, req.Input.Source = "", true, nil
+				req.Input.Name, req.Input.Target, req.Input.Logical = "ZTEST", "", []string{"src/ztest.clas.abap"}
+				if r := runReport(t, c, *req); r.Status != "processed" {
+					t.Fatal(r)
+				}
+				if registry["/src/ztest.clas.abap"] != "saved edit" {
+					t.Fatal(registry)
+				}
+				if newObject {
+					if _, exists := registry[target]; exists {
+						t.Fatal("new overlay leaked")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestStructuralReprimeAndGenerationEdit(t *testing.T) {
+	c, req, _, primes := fixture()
+	structure, config, digest := "layers1", `{"rules":{}}`, "one"
+	c.Capture = func() (objstore.LintSnapshot, error) {
+		return objstore.LintSnapshot{Root: "/tree", Digest: digest, Structure: structure, Config: config, Files: []objstore.LintFile{{Filename: "/src/ztest.clas.abap", Raw: "saved"}}}, nil
+	}
+	if err := c.Prime(config); err != nil {
+		t.Fatal(err)
+	}
+	req.Input.Generation = "new-generation"
+	if r := runReport(t, c, *req); r.Status != "processed" || *primes != 1 {
+		t.Fatal(r, *primes)
+	}
+	structure = "layers2"
+	if r := runReport(t, c, *req); r.Status != "processed" || !strings.Contains(r.StatusText, "full re-prime") || *primes != 2 {
+		t.Fatal(r, *primes)
+	}
+	if r := runReport(t, c, *req); r.StatusText != "" || *primes != 2 {
+		t.Fatal(r, *primes)
+	}
+}
+
+func TestRestoreFailurePoisonsAndEmptyOverlay(t *testing.T) {
+	c, req, _, _ := fixture()
+	updates := 0
+	c.Engine.Update = func(target string, raw *string) {
+		updates++
+		if updates == 1 && (raw == nil || *raw != "") {
+			t.Fatal("empty source must update, not remove")
+		}
+		if updates == 2 {
+			panic("restore failed")
+		}
+	}
+	if err := c.Prime(`{"rules":{}}`); err != nil {
+		t.Fatal(err)
+	}
+	req.Filter = "SOURCE"
+	req.Input.Source = new(string)
+	if r := runReport(t, c, *req); r.Status != "notProcessed" || !strings.Contains(r.StatusText, "restore failed") {
+		t.Fatal(r)
+	}
+	if c.failure == nil {
+		t.Fatal("restore failure must poison registry")
+	}
+	before := c.calls
+	if r := runReport(t, c, *req); r.Status != "notProcessed" || c.calls != before {
+		t.Fatal(r)
+	}
+}
+
+func TestStructuralWinnerIsChecked(t *testing.T) {
+	c, req, _, _ := fixture()
+	structure, target := "base", "/src/ztest.clas.abap"
+	c.Capture = func() (objstore.LintSnapshot, error) {
+		return objstore.LintSnapshot{Root: "/tree", Digest: target, Structure: structure, Files: []objstore.LintFile{{Filename: target, Raw: "saved"}}}, nil
+	}
+	c.Engine.Check = func(file string) []Issue {
+		if file != target {
+			t.Fatalf("stale winner %s want %s", file, target)
+		}
+		return nil
+	}
+	if err := c.Prime(`{"rules":{}}`); err != nil {
+		t.Fatal(err)
+	}
+	structure, target = "new-pack", "/packs/new/src/ztest.clas.abap"
+	if r := runReport(t, c, *req); r.Status != "processed" || !strings.Contains(r.StatusText, "full re-prime") {
+		t.Fatal(r)
 	}
 }

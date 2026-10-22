@@ -44,8 +44,22 @@ func TestLintBuildGuards(t *testing.T) {
 	}
 	defer objstore.SetStore("", nil, "")
 	spec := lintSpec{Config: "{}", Files: []string{"/src/ztest.prog.abap"}, Guards: map[string]string{"abaplint.jsonc": fmt.Sprintf("%x", sha256.Sum256([]byte("{}")))}}
-	calls := 0
-	c := configuredLintCompiler(root, nil, storelint.Engine{Prime: func([]objstore.LintFile, string) {}, Check: func(string) []storelint.Issue { calls++; return nil }}, spec)
+	savedResolver := resolveLintSpec
+	defer func() { resolveLintSpec = savedResolver }()
+	resolves := 0
+	resolveLintSpec = func(string) (lintSpec, error) {
+		resolves++
+		config, _ := os.ReadFile(filepath.Join(root, "abaplint.jsonc"))
+		snapshot, err := objstore.CaptureLint(nil)
+		facts := &objstore.Config{Roots: []objstore.Root{{Path: "src"}}}
+		next := lintSpec{Config: string(config), Guards: map[string]string{"abaplint.jsonc": fmt.Sprintf("%x", sha256.Sum256(config))}, Store: facts}
+		for _, f := range snapshot.Files {
+			next.Files = append(next.Files, f.Filename)
+		}
+		return next, err
+	}
+	calls, primes, updates := 0, 0, 0
+	c := configuredLintCompiler(root, nil, storelint.Engine{Prime: func([]objstore.LintFile, string) { primes++ }, Update: func(string, *string) { updates++ }, Check: func(string) []storelint.Issue { calls++; return nil }}, spec)
 	if err := c.Prime(spec.Config); err != nil {
 		t.Fatal(err)
 	}
@@ -57,13 +71,66 @@ func TestLintBuildGuards(t *testing.T) {
 	}
 	write("abaplint.jsonc", `{"syntax":{}}`)
 	r, err = storecheck.Run(c, req)
-	if err != nil || !strings.Contains(r.Scalars["EV_JSON"], "changed since build") || calls != 1 {
+	if err != nil || !strings.Contains(r.Scalars["EV_JSON"], "full re-prime") || calls != 2 || primes != 2 || resolves != 1 {
 		t.Fatal(r, err, calls)
 	}
-	write("abaplint.jsonc", "{}")
 	write("src/new.prog.abap", "REPORT new.")
 	r, err = storecheck.Run(c, req)
-	if err != nil || !strings.Contains(r.Scalars["EV_JSON"], "membership/order differs") || calls != 1 {
+	if err != nil || !strings.Contains(r.Scalars["EV_JSON"], `"status":"processed"`) || calls != 3 || updates != 1 || resolves != 1 {
 		t.Fatal(r, err, calls)
+	}
+}
+
+func TestLintPackDiscoveryAndLayerChanges(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "packs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	spec := lintSpec{Guards: map[string]string{}, Places: []string{"packs"}}
+	initial, changed, err := lintStructure(root, spec)
+	if err != nil || changed {
+		t.Fatal(initial, changed, err)
+	}
+	manifest := "packs/new/osd-pack.json"
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(root, manifest)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, manifest), []byte(`{"name":"new"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	added, changed, err := lintStructure(root, spec)
+	if err != nil || !changed || added == initial {
+		t.Fatal(added, changed, err)
+	}
+	spec.Guards[manifest] = fmt.Sprintf("%x", sha256.Sum256([]byte(`{"name":"new"}`)))
+	if _, changed, err := lintStructure(root, spec); err != nil || changed {
+		t.Fatal(changed, err)
+	}
+	if err := os.Remove(filepath.Join(root, manifest)); err != nil {
+		t.Fatal(err)
+	}
+	if _, changed, err := lintStructure(root, spec); err != nil || !changed {
+		t.Fatal(changed, err)
+	}
+	hidden := "base/ztest.clas.abap"
+	if err := os.MkdirAll(filepath.Join(root, "base"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, hidden), []byte("base"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	spec.Hidden = []string{hidden}
+	spec.Files = []string{"/overlay/ztest.clas.abap"}
+	// Deleting the winner must expose the base through full layer resolution.
+	if !lintNeedsLayers(root, spec, objstore.LintSnapshot{}) {
+		t.Fatal("deleted winner missed")
+	}
+	// New duplicate files must be resolved by Node's layer rules.
+	if !lintNeedsLayers(root, lintSpec{}, objstore.LintSnapshot{Files: []objstore.LintFile{{Filename: "/base/ztest.clas.abap"}, {Filename: "/overlay/ztest.clas.abap"}}}) {
+		t.Fatal("new shadow missed")
+	}
+	// New ordinary files, including sibling includes, stay incremental.
+	if lintNeedsLayers(root, lintSpec{}, objstore.LintSnapshot{Files: []objstore.LintFile{{Filename: "/base/ztest.clas.abap"}, {Filename: "/base/ztest.clas.locals_def.abap"}}}) {
+		t.Fatal("ordinary addition became structural")
 	}
 }
