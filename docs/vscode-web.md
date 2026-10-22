@@ -50,9 +50,25 @@ Serve `editors/vscode/` itself (the directory with `package.json`) over trusted 
 - **CSP.** `script-src` is a nonce (the page's inline scripts and the bridge), `https://ui5.sap.com` (SAPUI5 core and libraries, as everywhere else) and the webview resource origin (the app's own files). `style-src` adds `'unsafe-inline'` because UI5 renderers write style attributes and the pages carry `<style>` blocks; `img-src` adds `data:` and `blob:` for UI5's icons and theme images; `font-src` and `connect-src` are the CDN and the resource origin. No gateway origin is listed: the gateway is reached by postMessage only.
 - **Hash navigation** is the page's own `location.hash` inside the webview frame: tile clicks and in-app navigation work as in a browser.
 
-Not covered yet: tiles that frame an ICF page instead of loading a component (Zork, WEBGUI, System information, Data browser, Vivid Vibes, LSD), because an iframe's document cannot be loaded over the bridge; `<img>` sources served by the gateway (`PhotoSet` pictures), for the same reason; APC push channels; and a webview restored after a reload (the tab closes and is opened again from the tree or the command).
+### Launchpad tiles
+
+The launchpad opens a tile that is not a UI5 component (Zork, WEBGUI, System information, Data browser, Vivid Vibes, LSD, Source) in a new browser window, on GitHub Pages as well. A webview can neither open a window nor navigate, so the page's runtime routes what a browser would do with an address:
+
+- **Gateway pages.** `window.open`, a link click and a form submit to a `/sap/bc/` path go to the extension, which asks the gateway for the page (following redirects) and renders it in a webview panel: a new panel for a new window, the same panel for a link or a form. The page gets the same policy, base URL and runtime as a Fiori page; its own scripts get the nonce. Clicks are taken in the capture phase, because UI5 stops the click of its own controls before it reaches the window, and they are stopped before VS Code's webview link handler, which acts on any `<a>` regardless of `defaultPrevented`: without that, a tile opened the bare webview host page in a browser window next to its target.
+- **Script-less sandboxed frames.** The WEBGUI draws a transaction's HTML viewer in a `srcdoc` frame with `sandbox="allow-forms …"` and no `allow-scripts`. Such a frame gets `allow-same-origin` when the page is rendered, so the runtime can route its forms from outside; nothing can run inside it either way. (On GitHub Pages the same form posts to an origin-absolute path and gets GitHub's 405.)
+- **App pages and outside addresses.** An address under `/app/` opens as a Fiori page in its own panel; any other `http(s)` address goes to `vscode.env.openExternal` (the Source tile and the QR tile beside it).
+- **APC.** A `WebSocket` to `/sap/bc/apc/…` is a stand-in that talks to the extension over the same message channel; the extension drives the channel's ABAP handler through `openChannel`, `channelMessage` and `closeChannel` of `web/preview-backend.mjs`, as the preview's service worker does. Channels close with their panel.
+- **Gateway media.** An `<img>`, `<audio>`, `<video>` or `<source>` whose `src` is a gateway path, set by a script or by markup, and a `background-image` with such a URL (how `sap.m.Avatar` shows the `PhotoSet` pictures in the Travels list), is fetched over the bridge and given a `blob:` URL; `play()` waits for it.
+- **SMW0 media.** `web:vscode` copies the transpiled W3MI files (the Zork story file, the demos' pictures and music) to `dist/web/media/`, and the web entry's W3MI loader reads them from the extension's own files. A `%` in a name is stored as `@`, because VS Code's file reads in the browser lose it.
+- **Greyed tiles.** The launchpad greys the Workbench unless `HEAD /sap/bc/adt/core/discovery` answers 200. The worker answers it, but the Workbench needs the Node host's ADT continuations and reports "ADT discovery failed: HTTP 404", so the launchpad's question is answered with 404 in the page and the tile is grey, as on Pages. The AMDP sandbox is grey because sql.js has no SQLScript engine; on the main Pages deployment it is live on DuckDB-Wasm.
+
+Vivid Vibes and LSD need the `o4d` and `lsd` packs (`OSD_WEB_PACKS=all`); the default core+zork build still shows their tiles, and they open the gateway's 404 page there.
+
+Not covered yet: a webview restored after a reload (the tab closes and is opened again from the tree or the command); `url()` in style sheets (only inline `background-image` is rewritten); `location.href = …` navigation from a page's script; binary WebSocket frames.
 
 `npm run web:vscode:test` opens the launchpad through the command palette and checks four tile texts, clicks the Travels tile and waits for row `T0001`, writes a TravelSet row through the page's own `fetch`, presses Go and waits for that row, reads it from the probe view, reloads VS Code, clicks the `stg.travel` row under Apps and waits for the same row. It saves `fiori-launchpad.png`, `fiori-travels.png`, `fiori-travels-created.png` and `fiori-tree-app.png` under `$OUT_DIR` (default `/tmp/osd-shots`).
+
+It then clicks every tile in turn (`scripts/test-web-tiles.mjs`) and asserts what the GitHub Pages preview shows for it: the seven UI5 apps' rows (Travels with its `PhotoSet` pictures decoded from `blob:` URLs), the Workbench and AMDP tiles greyed, Zork answering `open mailbox`, the WEBGUI running `ZOSD_NOTE` from the command field and adding a notepad line through the viewer frame's form, System information, the Data browser's rows of `ZC_STG_TRAVEL`, Vivid Vibes and LSD playing over their push channels (when their packs are built), and Source and the QR tile opening exactly one browser window at the repository. Each saves `tile-<name>.png`.
 
 ## DuckDB-Wasm (`osd.web.database`)
 
@@ -66,7 +82,7 @@ What DuckDB adds here is Portable AMDP. A SQLScript notebook cell runs on it: th
 
 ## Scope and limits
 
-This S2c wave proves the transport contract and a thin webview write path. The service panel shows only name, kind, and URL; it has no source links or entity sets. The web entry does not bridge WebSocket/APC (Fiori apps: see above). The desktop extension's Test Explorer, launcher, notebooks, and other Node-backed commands are not implemented in the web entry. Stored databases are not migrated between gateway build IDs. Packaging a published web VSIX and tests in browsers other than Chromium are outside this probe.
+This S2c wave proves the transport contract and a thin webview write path. The service panel shows only name, kind, and URL; it has no source links or entity sets. APC push channels are bridged for pages in webviews only (see "Launchpad tiles"). The desktop extension's Test Explorer, launcher, notebooks, and other Node-backed commands are not implemented in the web entry. Stored databases are not migrated between gateway build IDs. Packaging a published web VSIX and tests in browsers other than Chromium are outside this probe.
 
 ## Measured here
 
