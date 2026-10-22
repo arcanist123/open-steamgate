@@ -8,6 +8,7 @@ import {
 } from "../lib.js";
 import {openDataPreview} from "../data-preview-view.js";
 import {newSqlNotebook, sqlNotebookController, sqlNotebookSerializer} from "../sql-notebook.js";
+import {mediaFileName, pageChannels, sandboxScriptlessFrames} from "./page-host.mjs";
 
 const SERVICE = "/sap/opu/odata/sap/ZSTG_DEMO_SRV";
 const METADATA = `${SERVICE}/$metadata`;
@@ -80,14 +81,14 @@ async function duckdbWasmURL() {
 // is VS Code's extension host, not the bundle, so the files are read from the
 // extension's own dist/web/media (scripts/build-vscode-web.mjs copies them).
 // The answer is the content as upper-case hex, as the preview's loader gives it.
-// A "%" of the name is stored as "@" (see the build).
+// The file name is mediaFileName (page-host.mjs), as the build stores it.
 function installMediaLoader() {
   const hex = Array.from({length: 256}, (_, byte) => byte.toString(16).padStart(2, "0").toUpperCase());
   const loaded = new Map();
   globalThis.abap.W3MI_LOADER = async (objid, filename) => {
     if (loaded.has(filename)) return loaded.get(filename);
     if (!extensionUri) throw new Error(`W3MI ${objid}: the extension is not activated`);
-    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extensionUri, "dist", "web", "media", filename.replaceAll("%", "@")));
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extensionUri, "dist", "web", "media", mediaFileName(filename)));
     const parts = [];
     for (let at = 0; at < bytes.length; at += 8192) {
       let part = "";
@@ -577,7 +578,8 @@ function fioriRuntime(config) {
   const vscode = acquireVsCodeApi();
   const bridgeFetch = webviewBridge(vscode, "/sap/opu/odata/sap");
   const mount = new URL(config.mount);
-  const stats = {bridged: 0, bridgedSync: [], localSync: [], nativeSync: [], errors: [], local: [], media: [], routed: [], sockets: []};
+  const stats = {bridged: 0, bridgedSync: [], localSync: [], nativeSync: [], errors: [], local: [], media: [], routed: [], sockets: [],
+    played: [], revoked: 0, frameHooks: 0, scans: 0};
   // vscode.dev is cross-origin isolated and so is every webview frame in it
   // (COEP require-corp). The UI5 CDN answers CORS (access-control-allow-origin
   // *) but sends no Cross-Origin-Resource-Policy, so a plain <script>, <link>
@@ -593,18 +595,48 @@ function fioriRuntime(config) {
   // ?audio or ?img=) cannot be loaded by the element from the resource
   // origin; they are fetched over the bridge and handed to the element as a
   // blob: URL. play() waits for the bytes so a page that sets src and plays
-  // at once still plays.
+  // at once still plays. A failed load is not kept, so the next use retries.
+  // Past MEDIA_KEEP entries, a blob no element shows any more (users: the
+  // elements it was handed to, held weakly) is revoked and forgotten.
+  const MEDIA_KEEP = 16;
   const blobs = new Map();
-  const media = (virtual) => {
+  const users = new Map();
+  const media = (virtual, user) => {
     if (!blobs.has(virtual)) {
-      blobs.set(virtual, bridgeFetch(`https://osd.invalid${virtual}`).then(async (response) => {
+      const loading = bridgeFetch(`https://osd.invalid${virtual}`).then(async (response) => {
         if (!response.ok) throw new Error(`${response.status} ${response.statusText} ${(await response.text()).slice(0, 300)}`);
         stats.media.push(virtual);
-        return URL.createObjectURL(await response.blob());
-      }));
-      blobs.get(virtual).catch((error) => stats.errors.push(`media ${virtual}: ${error?.message ?? error}`));
+        const url = URL.createObjectURL(await response.blob());
+        loading.url = url;
+        return url;
+      });
+      blobs.set(virtual, loading);
+      users.set(virtual, new Set());
+      loading.then(() => sweep(virtual), (error) => {
+        stats.errors.push(`media ${virtual}: ${error?.message ?? error}`);
+        if (blobs.get(virtual) === loading) {
+          blobs.delete(virtual);
+          users.delete(virtual);
+        }
+      });
     }
+    users.get(virtual).add(new WeakRef(user));
     return blobs.get(virtual);
+  };
+  const shows = (element, virtual, url) => element !== undefined &&
+    (element.osdSource === virtual || element.osdBackground === virtual || element.src === url || element.currentSrc === url ||
+      (element.style?.backgroundImage ?? "").includes(url));
+  const sweep = (keep) => {
+    if (blobs.size <= MEDIA_KEEP) return;
+    for (const [virtual, loading] of blobs) {
+      if (virtual === keep || loading.url === undefined) continue;
+      const holders = [...users.get(virtual)].map((ref) => ref.deref()).filter((one) => shows(one, virtual, loading.url));
+      if (holders.length > 0) continue;
+      URL.revokeObjectURL(loading.url);
+      blobs.delete(virtual);
+      users.delete(virtual);
+      stats.revoked++;
+    }
   };
   const mediaTypes = [HTMLImageElement, HTMLMediaElement, HTMLSourceElement];
   const descriptors = new Map();
@@ -616,7 +648,7 @@ function fioriRuntime(config) {
       const virtual = mediaTypes.includes(type) ? virtualOf(value) : undefined;
       if (virtual !== undefined) {
         this.osdSource = virtual;
-        this.osdPending = media(virtual).then((url) => {
+        this.osdPending = media(virtual, this).then((url) => {
           if (this.osdSource === virtual) descriptor.set.call(this, url);
         }, () => undefined);
         return;
@@ -627,8 +659,13 @@ function fioriRuntime(config) {
     }});
   }
   const play = HTMLMediaElement.prototype.play;
+  // What played is recorded (and what refused to), so a test can tell a demo
+  // that advances in silence from one that plays.
   HTMLMediaElement.prototype.play = function () {
-    return this.osdPending ? this.osdPending.then(() => play.call(this)) : play.call(this);
+    const started = this.osdPending ? this.osdPending.then(() => play.call(this)) : play.call(this);
+    const source = this.osdSource ?? this.currentSrc;
+    started.then(() => stats.played.push(source), (error) => stats.errors.push(`play ${source}: ${error?.message ?? error}`));
+    return started;
   };
   const setAttribute = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function (name, value) {
@@ -643,30 +680,39 @@ function fioriRuntime(config) {
   };
   // Elements the parser or innerHTML made (UI5 renders strings, an ICF page
   // is markup) never pass the setter: they are rewritten once they appear.
+  // An added subtree is scanned once; a changed attribute concerns its own
+  // element only.
+  const adoptSource = (one) => {
+    if (!mediaTypes.some((type) => one instanceof type)) return;
+    const value = one.getAttribute("src");
+    if (value && !value.startsWith("blob:") && virtualOf(value) !== undefined && one.osdSource !== virtualOf(value)) one.src = value;
+  };
+  // sap.m.Avatar (the Travels photo) paints a background-image instead
+  const adoptBackground = (one) => {
+    const quoted = /url\((?:"([^"]*)"|'([^']*)'|([^)]*))\)/.exec(one.style?.backgroundImage ?? "");
+    const source = quoted && (quoted[1] ?? quoted[2] ?? quoted[3]);
+    const virtual = source && !source.startsWith("blob:") ? virtualOf(source) : undefined;
+    if (virtual !== undefined) {
+      one.osdBackground = virtual;
+      media(virtual, one).then((url) => {
+        if (one.style.backgroundImage.includes(source)) one.style.backgroundImage = `url("${url}")`;
+      }, () => undefined);
+    }
+  };
   const adopt = (element) => {
     if (!(element instanceof Element)) return;
+    stats.scans++;
     for (const frame of element.matches("iframe") ? [element] : element.querySelectorAll("iframe")) hookFrame(frame);
-    for (const one of [element, ...element.querySelectorAll("img[src], audio[src], video[src], source[src]")]) {
-      if (!mediaTypes.some((type) => one instanceof type)) continue;
-      const value = one.getAttribute("src");
-      if (value && !value.startsWith("blob:") && virtualOf(value) !== undefined && one.osdSource !== virtualOf(value)) one.src = value;
-    }
-    // sap.m.Avatar (the Travels photo) paints a background-image instead
-    for (const one of [element, ...element.querySelectorAll("[style*='url(']")]) {
-      const quoted = /url\((?:"([^"]*)"|'([^']*)'|([^)]*))\)/.exec(one.style?.backgroundImage ?? "");
-      const source = quoted && (quoted[1] ?? quoted[2] ?? quoted[3]);
-      const virtual = source && !source.startsWith("blob:") ? virtualOf(source) : undefined;
-      if (virtual !== undefined) {
-        media(virtual).then((url) => {
-          if (one.style.backgroundImage.includes(source)) one.style.backgroundImage = `url("${url}")`;
-        }, () => undefined);
-      }
-    }
+    for (const one of [element, ...element.querySelectorAll("img[src], audio[src], video[src], source[src]")]) adoptSource(one);
+    for (const one of [element, ...element.querySelectorAll("[style*='url(']")]) adoptBackground(one);
   };
   new MutationObserver((records) => {
     for (const record of records) {
-      if (record.type === "attributes") adopt(record.target);
-      else record.addedNodes.forEach(adopt);
+      if (record.type === "childList") record.addedNodes.forEach(adopt);
+      else if (record.attributeName === "src") {
+        if (record.target.matches("iframe")) hookFrame(record.target);
+        adoptSource(record.target);
+      } else adoptBackground(record.target);
     }
   }).observe(document.documentElement, {childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style"]});
   // A virtual path of the gateway, or undefined for a URL the browser loads.
@@ -963,7 +1009,11 @@ function fioriRuntime(config) {
   // srcdoc frame (the WEBGUI's HTML viewer control). Such a frame is given
   // allow-same-origin when the page is rendered (webviewPage), so its links
   // and forms are handled from here; no script runs inside it.
+  const hookedFrames = new WeakSet();
   const hookFrame = (frame) => {
+    if (hookedFrames.has(frame)) return;
+    hookedFrames.add(frame);
+    stats.frameHooks++;
     const hook = () => {
       let inner;
       try { inner = frame.contentDocument; } catch { return; }
@@ -1040,7 +1090,9 @@ function fioriRuntime(config) {
   };
   Object.assign(OsdWebSocket, {CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3, prototype: NativeSocket.prototype});
   window.WebSocket = OsdWebSocket;
-  window.osdBridge = {fetch: bridgeFetch, stats, virtualOf};
+  window.osdBridge = {fetch: bridgeFetch, stats, virtualOf, mediaCached: () => blobs.size,
+    mediaState: () => [...document.querySelectorAll("audio, video")].map((one) =>
+      ({source: one.osdSource ?? one.currentSrc, paused: one.paused, time: one.currentTime, ready: one.readyState, error: one.error?.code ?? 0}))};
   // CSP refusals are kept so a test (and a developer) can see what the
   // policy blocked instead of guessing from a blank page.
   document.addEventListener("securitypolicyviolation", (event) => {
@@ -1098,11 +1150,9 @@ fioriRuntime(${JSON.stringify({...config, cdns: CDNS}).replace(/</g, "\\u003c")}
   let html = at < 0 ? `${head}\n${source}`
     : source.slice(0, source.indexOf(">", at) + 1) + `\n${head}` + source.slice(source.indexOf(">", at) + 1);
   html = html.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
-  // A script-less sandboxed frame (the WEBGUI's HTML viewer) becomes
-  // same-origin with this page, so the runtime can take over its links and
-  // forms; without allow-scripts nothing can run in it either way.
-  html = html.replace(/<iframe\b[^>]*>/gi, (tag) => tag.replace(/\bsandbox="([^"]*)"/i, (attribute, flags) =>
-    /\ballow-scripts\b/.test(flags) || /\ballow-same-origin\b/.test(flags) ? attribute : `sandbox="${flags} allow-same-origin"`));
+  // A script-less sandboxed srcdoc frame (the WEBGUI's HTML viewer) becomes
+  // same-origin with this page, so the runtime can take over its links and forms.
+  html = sandboxScriptlessFrames(html);
   // The page's own CDN tags load in CORS mode too (see fioriRuntime: COEP).
   html = html.replace(/<(script|link)\b(?![^>]*\bcrossorigin)([^>]*\b(?:src|href)="https:\/\/(?:ui5\.sap\.com|cdn\.jsdelivr\.net)\/)/gi,
     (_, tag, rest) => `<${tag} crossorigin="anonymous"${rest}`);
@@ -1129,15 +1179,13 @@ const webviewRootOf = (context, panel) =>
 // an app where a browser would navigate or open a window, an outside address,
 // and its push channels. Every panel of a page gets the same handler.
 function wirePanel(context, panel) {
-  const channels = new Map();
   const panelId = nonceOf();
   const toPage = (message) => panel.webview.postMessage(message).then(undefined, () => false);
-  const closeAll = async () => {
-    const backend = await backendOf();
-    for (const id of channels.keys()) await backend.closeChannel(id).catch(() => undefined);
-    channels.clear();
-  };
-  panel.onDidDispose(() => { void closeAll(); });
+  const apc = pageChannels({backend: backendOf, toPage,
+    services: () => import("../../../web/generated/services.mjs"),
+    describe: async (error) => (await import("../../../tools/osd-describe.mjs")).describe(error)});
+  pageWiring.set(panel, apc);
+  panel.onDidDispose(() => { void apc.closeAll(); });
   panel.webview.onDidReceiveMessage(async (message) => {
     try {
       if (message?.type === "fetch" && Number.isSafeInteger(message.id)) {
@@ -1145,17 +1193,16 @@ function wirePanel(context, panel) {
         await toPage({type: "fetch-result", id: message.id, response});
       } else if (message?.type === "navigate" && message.request) {
         if (message.newWindow) await openGatewayPage(context, message.request);
-        else {
-          await closeAll();
-          await openGatewayPage(context, message.request, panel);
-        }
+        else await openGatewayPage(context, message.request, panel);
       } else if (message?.type === "open-app" && typeof message.path === "string") {
         const path = message.path.replace(/^(\/app\/(?:[\w-]+\/)*)(\?[^#]*)?(#.*)?$/, "$1index.html$3").replace(/\?[^#]*/, "");
         await openFioriPage(context, path);
       } else if (message?.type === "open-external" && /^https?:\/\//.test(message.url ?? "")) {
         await vscode.env.openExternal(vscode.Uri.parse(message.url, true));
       } else if (message?.type?.startsWith?.("apc-") && typeof message.id === "string") {
-        await apcFromPage(`${panelId}:${message.id}`, channels, message, toPage);
+        // A page's WebSocket to /sap/bc/apc/... (fioriRuntime's OsdSocket),
+        // driven as the preview's service worker drives it (web/preview-worker.mjs).
+        await apc.receive(`${panelId}:${message.id}`, message);
       }
     } catch (error) {
       vscode.window.showErrorMessage(`osd: ${String(error?.message ?? error)}`);
@@ -1163,35 +1210,12 @@ function wirePanel(context, panel) {
   });
 }
 
-// A page's WebSocket to /sap/bc/apc/... (fioriRuntime's OsdSocket), driven
-// as the preview's service worker drives it (web/preview-worker.mjs).
-async function apcFromPage(key, channels, message, toPage) {
-  const backend = await backendOf();
-  const send = (payload) => { void toPage({type: "apc", id: message.id, ...payload}); };
-  const run = async (work) => {
-    try { await work(); } catch (error) {
-      channels.delete(key);
-      await backend.closeChannel(key).catch(() => undefined);
-      const {describe} = await import("../../../tools/osd-describe.mjs");
-      send({apc: "close", code: 1011, reason: describe(error)});
-    }
-  };
-  if (message.type === "apc-open") {
-    const {channels: known} = await import("../../../web/generated/services.mjs");
-    const channel = known.find((one) => one.path.toLowerCase() === String(message.path).toLowerCase());
-    if (!channel) {
-      send({apc: "close", code: 1008, reason: `no channel on ${message.path}`});
-      return;
-    }
-    channels.set(key, channel);
-    await run(() => backend.openChannel(key, channel, send));
-  } else if (message.type === "apc-send" && channels.has(key)) {
-    await run(() => backend.channelMessage(key, String(message.text), send));
-  } else if (message.type === "apc-close" && channels.has(key)) {
-    channels.delete(key);
-    await backend.closeChannel(key);
-    send({apc: "close", code: message.code ?? 1000, reason: message.reason ?? ""});
-  }
+// The document of a wired panel ends when its HTML is replaced: its channels
+// end with it (page-host.mjs, pageChannels).
+const pageWiring = new WeakMap();
+async function setPanelHtml(panel, html) {
+  await pageWiring.get(panel)?.closeAll();
+  panel.webview.html = html;
 }
 
 // A page the gateway writes (an ICF service: Zork, WEBGUI, the data browser),
@@ -1223,8 +1247,8 @@ async function openGatewayPage(context, request, panel) {
     wirePanel(context, panel);
   }
   const webviewRoot = webviewRootOf(context, panel);
-  panel.webview.html = webviewPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource,
-    base: webviewRoot + path.slice(1) + query, config: {mount: webviewRoot, appBase: `${webviewRoot}app/`, components: {}}});
+  await setPanelHtml(panel, webviewPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource,
+    base: webviewRoot + path.slice(1) + query, config: {mount: webviewRoot, appBase: `${webviewRoot}app/`, components: {}}}));
   return panel;
 }
 
@@ -1248,9 +1272,9 @@ async function openFioriPage(context, path) {
   }
   const webviewRoot = webviewRootOf(context, panel);
   const appBase = `${webviewRoot}app/`;
-  panel.webview.html = fioriPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource, appBase,
+  await setPanelHtml(panel, fioriPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource, appBase,
     pageBase: appBase + page.slice(0, page.lastIndexOf("/") + 1), mount: webviewRoot,
-    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps, page});
+    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps, page}));
   return panel;
 }
 

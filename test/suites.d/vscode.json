@@ -14,6 +14,7 @@
     "test/vscode-launcher.mjs",
     "test/vscode-serving-front.mjs",
     "test/vscode-vsix.mjs",
+    "test/vscode-web-page-host.mjs",
     "test/vscode-warm.mjs",
     "test/vscode-warm-ready.mjs",
     "test/vscode-process-tree.mjs",
