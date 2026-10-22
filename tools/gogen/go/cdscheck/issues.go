@@ -2,29 +2,28 @@ package cdscheck
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
 var (
-	spaces        = regexp.MustCompile(`\s+`)
-	dots          = regexp.MustCompile(`\s*\.\s*`)
-	colons        = regexp.MustCompile(`\s*:\s*`)
-	annoSpace     = regexp.MustCompile(`@\s+`)
-	aliasEnd      = regexp.MustCompile(`(?i)\s+as\s+\w+$`)
-	tableFunction = regexp.MustCompile(`(?i)\bdefine\s+table\s+function\b`)
-	virtualAnno   = regexp.MustCompile(`(?i)@ObjectModel\.virtualElement:\s*true`)
-	virtualBy     = regexp.MustCompile(`(?i)@ObjectModel\.virtualElementCalculatedBy:\s*'ABAP:\s*([^']+)'`)
-	castType      = regexp.MustCompile(`(?i)as\s+abap\s*\.\s*(\w+)\s*(?:\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\))?`)
-	castInner     = regexp.MustCompile(`(?i)^\s*cast\s*\(\s*(.*?)\s+as\s+abap\s*\.`)
-	column        = regexp.MustCompile(`^[\w.]+$`)
-	expression    = regexp.MustCompile(`[()+\-*/]|^'`)
-	analytics     = regexp.MustCompile(`(?i)@Analytics\.dataCategory`)
-	writeFlag     = regexp.MustCompile(`(?i)@ObjectModel\.(writeEnabled|createEnabled|updateEnabled|deleteEnabled):\s*true`)
+	spaces        = jsRegexp(`\s+`)
+	dots          = jsRegexp(`\s*\.\s*`)
+	colons        = jsRegexp(`\s*:\s*`)
+	annoSpace     = jsRegexp(`@\s+`)
+	aliasEnd      = jsRegexp(`(?i)\s+as\s+\w+$`)
+	tableFunction = jsRegexp(`(?i)\bdefine\s+table\s+function\b`)
+	virtualAnno   = jsRegexp(`(?i)@ObjectModel\.virtualElement:\s*true`)
+	virtualBy     = jsRegexp(`(?i)@ObjectModel\.virtualElementCalculatedBy:\s*'ABAP:\s*([^']+)'`)
+	castType      = jsRegexp(`(?i)as\s+abap\s*\.\s*(\w+)\s*(?:\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\))?`)
+	castInner     = jsRegexp(`(?i)^\s*cast\s*\(\s*(.*?)\s+as\s+abap\s*\.`)
+	column        = jsRegexp(`^[\w.]+$`)
+	expression    = jsRegexp(`[()+\-*/]|^'`)
+	analytics     = jsRegexp(`(?i)@Analytics\.dataCategory`)
+	writeFlag     = jsRegexp(`(?i)@ObjectModel\.(writeEnabled|createEnabled|updateEnabled|deleteEnabled):\s*true`)
 )
 
 func normalize(s string) string {
-	return strings.TrimSpace(annoSpace.ReplaceAllString(colons.ReplaceAllString(dots.ReplaceAllString(s, "."), ": "), "@"))
+	return jsTrim(annoSpace.ReplaceAllString(colons.ReplaceAllString(dots.ReplaceAllString(s, "."), ": "), "@"))
 }
 func annotations(n *Expression) string {
 	var out []string
@@ -43,7 +42,7 @@ func hasCalculatingClass(n *Expression) bool {
 	for _, c := range n.Children {
 		if c.Kind == "CDSAnnotation" {
 			m := virtualBy.FindStringSubmatch(normalize(c.Text))
-			if m != nil && strings.TrimSpace(m[1]) != "" {
+			if m != nil && jsTrim(m[1]) != "" {
 				return true
 			}
 		}
@@ -101,7 +100,7 @@ func parse(obj Object, name string, inspect Inspector) (v *view, err error) {
 		v.skip = "a WHERE in the view is not carried yet: the DDIC view would return every row, and a write through it could insert a row the view cannot show"
 		return &view{skip: v.skip}, nil
 	}
-	v.source = compact(upper(strings.TrimSpace(aliasEnd.ReplaceAllString(sources[0].Text, ""))))
+	v.source = compact(upper(jsTrim(aliasEnd.ReplaceAllString(sources[0].Text, ""))))
 	table := inspect("TABL", v.source)
 	isTable := table.Found
 	if !isTable {
@@ -116,10 +115,7 @@ func parse(obj Object, name string, inspect Inspector) (v *view, err error) {
 		annos := annotations(el)
 		as := direct(el, "CDSAs")
 		alias := text(direct(as, "CDSName"))
-		src := direct(el, "CDSName")
-		if src == nil {
-			src = direct(el, "CDSPrefixedName")
-		}
+		src := direct(el, "CDSName", "CDSPrefixedName")
 		srcName := compact(text(src))
 		cast := direct(el, "CDSCast")
 		if cast != nil && virtualAnno.MatchString(annos) {

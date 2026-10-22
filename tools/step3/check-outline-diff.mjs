@@ -123,11 +123,14 @@ export async function differential({root=process.cwd(),library,out}) {
     // analytical writes, virtual/cast refusals, and annotation case/spacing.
     const dictionary=[
       {Filename:"/src/zstg_demo.tabl.xml",Raw:readFileSync(join(originalRoot,"src/ddic/zstg_demo.tabl.xml"),"utf8")},
-      {Filename:"/src/znative_gen.view.xml",Raw:`<abapGit><asx:abap xmlns:asx="http://www.sap.com/abapxml"><asx:values><DD25V><VIEWNAME>ZNATIVE_GEN</VIEWNAME><VIEWCLASS>D</VIEWCLASS></DD25V><DD27P_TABLE><DD27P><VIEWFIELD>TRAVEL_ID</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>TRAVEL_ID</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P><DD27P><VIEWFIELD>OLD_FIELD</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>DESCRIPTION</FIELDNAME></DD27P></DD27P_TABLE></asx:values></asx:abap></abapGit>`},
+      {Filename:"/src/znative_gen.view.xml",Raw:`<abapGit><asx:abap xmlns:asx="http://www.sap.com/abapxml"><asx:values><DD25V><VIEWNAME>ZNATIVE_GEN</VIEWNAME><VIEWCLASS>D</VIEWCLASS></DD25V><DD27P_TABLE><DD27P><VIEWFIELD>MANDT</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>MANDT</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P><DD27P><VIEWFIELD>TRAVEL_ID</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>TRAVEL_ID</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P><DD27P><VIEWFIELD>OLD_FIELD</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>DESCRIPTION</FIELDNAME></DD27P></DD27P_TABLE></asx:values></asx:abap></abapGit>`},
     ];
     updateRegistryFiles(registry,dictionary.map(f=>[f.Filename,f.Raw]));
     const casts=[
       "key travel_id, description", "description",
+      "key mandt, key travel_id", "key mandt as client, key travel_id",
+      "key travel_id, @ObjectModel.virtualElement: true @ObjectModel.virtualElementCalculatedBy: 'ABAP:   ' cast( '' as abap.char(20) ) as text",
+      "key travel_id, @ObjectModel.virtualElement: true @ObjectModel.virtualElementCalculatedBy: 'ABAP:\ufeff' cast( '' as abap.char(20) ) as text",
       "key travel_id, cast( description as abap.char(20) ) as text",
       "key travel_id, cast( 'constant' as abap.char(20) ) as text",
       "key travel_id, cast( description as abap.unknown(20) ) as text",

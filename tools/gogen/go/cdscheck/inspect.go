@@ -30,11 +30,13 @@ func find(n *Expression, kind string) []*Expression {
 	}
 	return out
 }
-func direct(n *Expression, kind string) *Expression {
+func direct(n *Expression, kinds ...string) *Expression {
 	if n != nil {
 		for i := range n.Children {
-			if n.Children[i].Kind == kind {
-				return &n.Children[i]
+			for _, kind := range kinds {
+				if n.Children[i].Kind == kind {
+					return &n.Children[i]
+				}
 			}
 		}
 	}
