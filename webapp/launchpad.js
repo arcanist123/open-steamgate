@@ -244,7 +244,7 @@ sap.ui.define([], function () {
   // slot. Watch for shell re-renders when navigation switches applications.
   function installHeaderLogo() {
     var root = document.getElementById("content");
-    var logo = new URL("./osd-airship.svg", document.baseURI).href;
+    var logo = new URL("./osd-logo.svg", document.baseURI).href;
     function update() {
       var icon = document.getElementById("shell-header-icon");
       if (icon && icon.getAttribute("src") !== logo) {
