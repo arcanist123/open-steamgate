@@ -1,4 +1,13 @@
 import * as vscode from "vscode";
+import {
+  Osd, dataPreviewObjectOf, tablHasMandt,
+  dataPreviewQuery, dataPreviewCountQuery, dataPreviewStatusText,
+  dataPreviewAvailability, dataPreviewError,
+  freestyleOutputItems, freestyleTableHtml, htmlEscape, notebookAbapSource, notebookFromJson, notebookToJson,
+  sqlNotebookStarter,
+} from "../lib.js";
+import {openDataPreview} from "../data-preview-view.js";
+import {newSqlNotebook, sqlNotebookController, sqlNotebookSerializer} from "../sql-notebook.js";
 
 const SERVICE = "/sap/opu/odata/sap/ZSTG_DEMO_SRV";
 const METADATA = `${SERVICE}/$metadata`;
@@ -11,6 +20,12 @@ let requestQueue = Promise.resolve();
 let activationToMetadataMs;
 const STATUS = "/sap/opu/odata/sap/ZOSD_STATUS_SRV";
 const SERVICE_KINDS = [["ODATA", "OData"], ["APP", "Apps"], ["ICF", "ICF"], ["APC", "APC"]];
+const webLib = {
+  dataPreviewQuery, dataPreviewCountQuery, dataPreviewStatusText,
+  dataPreviewAvailability, dataPreviewError,
+  freestyleOutputItems, freestyleTableHtml, htmlEscape, notebookAbapSource, notebookFromJson, notebookToJson,
+  sqlNotebookStarter,
+};
 
 function transaction(mode, work) {
   return new Promise((resolve, reject) => {
@@ -76,6 +91,25 @@ async function send(method, path, {headers = {}, body, search = ""} = {}) {
     }, body: body === undefined ? undefined : encoder.encode(JSON.stringify(body)),
   });
   return {status: answer.status, headers: answer.headers, text: decoder.decode(answer.body)};
+}
+
+async function gatewayFetch(input, init = {}) {
+  const request = input instanceof Request ? input : new Request(new URL(String(input), "https://osd.invalid"), init);
+  const body = ["GET", "HEAD"].includes(request.method) ? undefined : new Uint8Array(await request.arrayBuffer());
+  const answer = await gateway({
+    method: request.method,
+    path: new URL(request.url).pathname,
+    search: new URL(request.url).search,
+    headers: Object.fromEntries(request.headers.entries()),
+    body,
+  });
+  return new Response([204, 205, 304].includes(answer.status) ? null : answer.body, {
+    status: answer.status,
+    statusText: {200: "OK", 201: "Created", 202: "Accepted", 204: "No Content", 400: "Bad Request",
+      401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
+      409: "Conflict", 500: "Internal Server Error"}[answer.status] ?? "",
+    headers: answer.headers,
+  });
 }
 
 // The wire format uses base64 because VS Code's webview message transport is
@@ -771,6 +805,28 @@ export async function activate(context) {
   await vscode.commands.executeCommand("setContext", "osd.web", true);
   const output = vscode.window.createOutputChannel("OSD Web Probe");
   context.subscriptions.push(output);
+  const webClient = () => new Osd("https://osd.invalid", gatewayFetch);
+  const openWebDataPreview = async () => {
+    const editor = vscode.window.activeTextEditor;
+    const preview = editor === undefined ? undefined : dataPreviewObjectOf(editor.document.fileName);
+    if (preview === undefined) {
+      vscode.window.showErrorMessage("osd: Open a TABL or DDLS source before running Data Preview.");
+      return;
+    }
+    await openDataPreview(preview.type, preview.name, preview.type === "TABL" && tablHasMandt(editor.document.getText()), {
+      vscode, output, client: webClient, managedUrl: "https://osd.invalid", openNotebook: (statement) => newSqlNotebook(vscode, "osd-sql-notebook", statement),
+      lib: webLib,
+    });
+  };
+  const loggedWebDataPreview = async () => {
+    try {
+      await openWebDataPreview();
+    } catch (error) {
+      console.error(error);
+      output.appendLine(`OSD_WEB_DATA_PREVIEW_ERROR ${String(error?.stack ?? error)}`);
+      throw error;
+    }
+  };
   const run = (label, work) => async () => {
     const commandStarted = performance.now();
     output.show(true);
@@ -809,6 +865,17 @@ export async function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("osd.webServiceDetails", showServiceDetails));
   context.subscriptions.push(vscode.commands.registerCommand("osd.webOpenLaunchpad", () => openFioriPage(context, "/app/flp.html#Shell-home")));
   context.subscriptions.push(vscode.commands.registerCommand("osd.webOpenApp", (row) => openFioriPage(context, row?.Path)));
+  context.subscriptions.push(vscode.commands.registerCommand("osd.webDataPreview", loggedWebDataPreview));
+  context.subscriptions.push(vscode.commands.registerCommand("osd.newSqlNotebook", (statement) => newSqlNotebook(vscode, "osd-sql-notebook", statement, webLib)));
+  context.subscriptions.push(vscode.workspace.registerNotebookSerializer("osd-sql-notebook", sqlNotebookSerializer(vscode, (text) => new TextEncoder().encode(text), webLib)));
+  context.subscriptions.push(sqlNotebookController(vscode, {
+    output,
+    client: webClient,
+    lib: webLib,
+    // The bundled worker exposes the ADT freestyle door, not the AMDP or
+    // notebook classrun doors used by the desktop kernel.
+    isCellAvailable: async (language) => language === "sql",
+  }));
   try {
     const metadata = await send("GET", METADATA);
     required(metadata, 200, "activation $metadata");

@@ -2,7 +2,7 @@
 // Playwright drives one persistent Chromium profile through a page reload.
 import {spawn} from "node:child_process";
 import {createHash} from "node:crypto";
-import {mkdir, mkdtemp, readFile, rm, stat} from "node:fs/promises";
+import {copyFile, mkdir, mkdtemp, readFile, rm, stat} from "node:fs/promises";
 import {createServer} from "node:net";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
@@ -101,6 +101,7 @@ async function freePort() {
 }
 
 const temp = await mkdtemp(join(tmpdir(), "osd-vscode-web-"));
+const workspace = join(temp, "workspace");
 const port = await freePort();
 const origin = `http://localhost:${port}`;
 let server;
@@ -159,6 +160,45 @@ async function openProbeView(page) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 500));
   }
   throw new Error("Probe webview did not open");
+}
+
+async function openWorkspaceFile(page, name) {
+  const explorer = page.locator(".explorer-folders-view .monaco-list-row").filter({hasText: name}).first();
+  await explorer.waitFor({timeout: 30000});
+  await explorer.dblclick();
+  await page.locator(".editor-instance .monaco-editor").first().waitFor({timeout: 30000});
+}
+
+async function runPaletteCommand(page, title) {
+  await page.keyboard.press("Control+Shift+P");
+  const input = page.locator(".quick-input-widget input").first();
+  await input.waitFor({timeout: 30000});
+  await input.fill(`>${title}`);
+  const choice = page.locator(".quick-input-list .monaco-list-row").filter({hasText: title}).first();
+  await choice.waitFor({timeout: 30000});
+  await choice.click();
+}
+
+async function frameWithText(page, text, timeout = 120000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      const body = await frame.locator("body").textContent({timeout: 500}).catch(() => "");
+      if (body?.includes(text)) return frame;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+  }
+  throw new Error(`No webview frame contained ${JSON.stringify(text)}`);
+}
+
+async function acceptNotebookTrust(page) {
+  const trust = page.locator(".monaco-text-button").filter({hasText: "Open Notebook"}).first();
+  await trust.waitFor({state: "visible", timeout: 5000}).catch(() => undefined);
+  if (await trust.isVisible()) {
+    const remember = page.locator("text=Don't ask me again").first();
+    if (await remember.isVisible()) await remember.click();
+    await trust.click();
+  }
 }
 
 async function webviewResult(frame, marker) {
@@ -262,11 +302,16 @@ async function fioriFromTree(page, ids) {
   await page.screenshot({path: join(shots, "fiori-tree-app.png")});
   return frame;
 }
+await mkdir(workspace, {recursive: true});
+await copyFile(join(root, "src/ddic/zstg_demo.tabl.xml"), join(workspace, "zstg_demo.tabl.xml"));
+await copyFile(join(extension, "examples/demo.osdnb"), join(workspace, "demo.osdnb"));
+await copyFile(join(extension, "examples/abap-amdp.osdnb"), join(workspace, "abap-amdp.osdnb"));
 
 try {
   server = spawn("npx", ["-y", "@vscode/test-web", "--browser", "none",
     "--quality", "stable", "--extensionDevelopmentPath", extension,
-    "--testRunnerDataDir", process.env.OSD_WEB_TEST_DATA_DIR ?? join(temp, "vscode"), "--port", String(port)], {
+    "--testRunnerDataDir", process.env.OSD_WEB_TEST_DATA_DIR ?? join(temp, "vscode"), "--port", String(port),
+    workspace], {
     cwd: root,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -307,6 +352,45 @@ try {
     throw new Error(`Web read probe failed: ${JSON.stringify(read)}`);
   }
   console.log(`Worker reads: SELECT ${read.rows} rows, DDIC ${read.ddic}, cap ${read.cap}, invalid ${read.invalid}`);
+
+  await openWorkspaceFile(page, "zstg_demo.tabl.xml");
+  await runPaletteCommand(page, "osd: Data Preview (F8)");
+  const previewFrame = await frameWithText(page, "Open in SQL notebook");
+  const previewText = await previewFrame.locator("body").textContent();
+  if (!previewText.includes("TRAVEL_ID") || !previewText.includes("T0001") ||
+      !previewText.includes("Open in SQL notebook") || !/-- \d+ rows? --/.test(previewText)) {
+    throw new Error(`F8 Data Preview output is incomplete: ${previewText.slice(0, 1000)}`);
+  }
+  const shots = process.env.OUT_DIR ?? "/tmp/osd-shots";
+  await mkdir(shots, {recursive: true});
+  await previewFrame.locator("#notebook").waitFor({timeout: 30000});
+  await page.screenshot({path: join(shots, "web-data-preview.png"), fullPage: true});
+  console.log("F8 Data Preview: webview columns, T0001 row, status, notebook action");
+
+  await openWorkspaceFile(page, "demo.osdnb");
+  await acceptNotebookTrust(page);
+  await page.getByText("SELECT travel_id, description, status, seats FROM zstg_demo ORDER BY travel_id").first().click();
+  await page.keyboard.press("Shift+Enter");
+  const notebookFrame = await frameWithText(page, "raw JSON");
+  const notebookText = await notebookFrame.locator("body").textContent();
+  if (!notebookText.includes("TRAVEL_ID") || !notebookText.includes("DESCRIPTION") ||
+      !notebookText.includes("T0001") || !notebookText.includes("raw JSON")) {
+    throw new Error(`SQL notebook output is incomplete: ${notebookText.slice(0, 1000)}`);
+  }
+  await page.screenshot({path: join(shots, "web-sql-notebook.png"), fullPage: true});
+  console.log("SQL notebook: HTML table header, T0001 row, raw JSON output");
+
+  await openWorkspaceFile(page, "abap-amdp.osdnb");
+  await acceptNotebookTrust(page);
+  await page.getByText("DATA lt_demo TYPE").first().click();
+  await page.keyboard.press("Shift+Enter");
+  await page.getByText("abap notebook cells are not available in the browser").first().waitFor({timeout: 30000});
+  const sqlscriptEditor = page.locator(".notebook-editor .monaco-editor").filter({hasText: "SELECT 6*7 AS answer"}).last();
+  await sqlscriptEditor.locator(".view-lines").click();
+  await page.keyboard.press("Shift+Enter");
+  await page.getByText("sqlscript notebook cells are not available in the browser").first().waitFor({timeout: 30000});
+  await page.screenshot({path: join(shots, "web-notebook-unavailable.png"), fullPage: true});
+  console.log("Browser notebooks: ABAP and SQLScript cells explain that they are unavailable");
 
   await page.reload({waitUntil: "domcontentloaded"});
   await page.locator(".monaco-workbench").waitFor({timeout: 120000});
@@ -407,7 +491,8 @@ try {
   const choices = page.locator(".quick-input-list .monaco-list-row");
   await choices.filter({hasText: "osd: Web probe"}).first().waitFor({timeout: 30000});
   await palette.fill(">osd:");
-  const webCommands = ["osd: Web probe", "osd: Web read probe", "osd: Web verify last Travel", "osd: Web probe view", "osd: Open Fiori Launchpad", "osd: Refresh the view (no rebuild)"];
+  const webCommands = ["osd: Web probe", "osd: Web read probe", "osd: Web verify last Travel", "osd: Web probe view",
+    "osd: Open Fiori Launchpad", "osd: Data Preview (F8)", "osd: New SQL notebook", "osd: Refresh the view (no rebuild)"];
   for (const title of webCommands) await choices.filter({hasText: title}).first().waitFor({timeout: 30000});
   await page.locator(".quick-input-widget .quick-input-progress.done").waitFor({timeout: 30000});
   const paletteRows = await choices.allTextContents();
@@ -418,8 +503,14 @@ try {
     throw new Error(`Desktop-only or missing OSD commands in the web palette: ${JSON.stringify(paletteRows)}`);
   }
   await page.keyboard.press("Escape");
-  console.log("OSD tree: generation, grouped demo OData, service details; desktop commands hidden");
+  await page.locator(".quick-input-widget").first().waitFor({state: "hidden", timeout: 30000});
+  console.log("OSD tree: generation, grouped demo OData, service details; web commands available");
 
+  await runPaletteCommand(page, "osd: New SQL notebook");
+  await acceptNotebookTrust(page);
+  await page.locator("text=SELECT * FROM zosd_sys UP TO 10 ROWS").first().waitFor({timeout: 30000});
+  await page.screenshot({path: join(shots, "web-new-sql-notebook.png"), fullPage: true});
+  console.log("New SQL notebook: untitled notebook opened with runnable starter cell");
 
 } catch (error) {
   console.error(error);

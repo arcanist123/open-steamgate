@@ -184,7 +184,7 @@ describe("editors/vscode: the extension's logic", function () {
   it("shows Check and Activate before Run and Debug for supported source objects", () => {
     const {contributes} = JSON.parse(readFileSync(path.join(ROOT, "editors/vscode/package.json"), "utf8"));
     const menu = contributes.menus["editor/title"];
-    expect(menu.map(({command}) => command)).to.deep.equal(["osd.check", "osd.activate", "osd.classrun", "osd.runTitle", "osd.runUnit", "osd.runWithDebugger"]);
+    expect(menu.map(({command}) => command)).to.deep.equal(["osd.check", "osd.activate", "osd.classrun", "osd.runTitle", "osd.runUnit", "osd.runWithDebugger", "osd.webDataPreview"]);
     for (const [command, name] of [["osd.check", "check"], ["osd.activate", "activate"],
       ["osd.classrun", "run-console"], ["osd.runTitle", "run-console"],
       ["osd.run", "run-console"], ["osd.runUnit", "beaker"]]) {
@@ -3537,9 +3537,11 @@ describe("editors/vscode: Services tree (grouping, sorting, URLs, normalization)
       expect(commands.get(external).title).to.match(/in External Browser$/);
     }
     const palette = manifest.contributes.menus.commandPalette;
-    for (const command of ["osd.newSqlNotebook", "osd.openSample", "osd.showRawJobLog"]) {
+    for (const command of ["osd.openSample", "osd.showRawJobLog"]) {
       expect(palette.find((m) => m.command === command)?.when, command).to.equal("!isWeb && !osd.web");
     }
+    expect(palette.find((m) => m.command === "osd.newSqlNotebook")?.when)
+      .to.equal("(!isWeb && !osd.web) || (isWeb && osd.web)");
     for (const command of ["osd.openHostDoorExternal", "osd.openServiceRowExternal", "osd.openServiceMetadataExternal"]) {
       expect(palette.find((m) => m.command === command)?.when, command).to.equal("false");
     }
