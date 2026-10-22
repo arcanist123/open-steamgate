@@ -560,7 +560,8 @@ function fioriRuntime(config) {
     ? {status: 200, statusText: "OK", headers: new Headers({"content-type": "application/json"}), bytes: new TextEncoder().encode(config.sandboxConfigBody)}
     : undefined;
   const nativeFetch = window.fetch.bind(window);
-  window.fetch = (input, init) => {
+  // async, like fetch itself: a bad Request/init rejects instead of throwing.
+  window.fetch = async (input, init) => {
     const path = virtualOf(input instanceof Request ? input.url : input);
     if (path === undefined) return nativeFetch(input, init);
     stats.bridged++;
@@ -568,10 +569,11 @@ function fioriRuntime(config) {
     // A Request carries its body as a stream the bridge cannot send: read it
     // out first, and let init override the Request's own fields as fetch does.
     const request = new Request(input, init);
-    return request.arrayBuffer().then((buffer) => bridgeFetch(`https://osd.invalid${path}`, {
+    const buffer = await request.arrayBuffer();
+    return bridgeFetch(`https://osd.invalid${path}`, {
       method: request.method, headers: request.headers,
       body: ["GET", "HEAD"].includes(request.method) ? undefined : buffer,
-    }));
+    });
   };
   const Native = window.XMLHttpRequest;
   const decoder = new TextDecoder();
