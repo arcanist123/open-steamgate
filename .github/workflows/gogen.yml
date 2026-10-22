@@ -23,6 +23,7 @@ on:
   pull_request:
     paths:
       - 'tools/gogen/**'
+      - 'tools/step3/**'
       - 'tsconfig.gogen.json'
       - 'tools/osd-samc.mjs'
       - 'test/osd-no-ts-runtime.mjs'
@@ -48,6 +49,7 @@ on:
     branches: [main]
     paths:
       - 'tools/gogen/**'
+      - 'tools/step3/**'
       - 'tsconfig.gogen.json'
       - 'tools/osd-samc.mjs'
       - 'test/osd-no-ts-runtime.mjs'
