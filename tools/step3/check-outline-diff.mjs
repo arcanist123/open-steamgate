@@ -15,7 +15,7 @@ import {diagnostic} from "../osd-compiler-sidecar.mjs";
 import {runsAs} from "../osd-main.mjs";
 
 export async function differential({root=process.cwd(),library,out}) {
-  if (!library) throw new Error("--library PATH is required: emit the pinned library and install cds-inspect first");
+  if (!library) throw new Error("--library PATH is required: emit the pinned abapiti da13e34d library first");
   root=resolve(root); library=resolve(library);
   const spec=await lintBuildSpec(root);
   const store=new ObjectStore({root});
@@ -125,6 +125,7 @@ export async function differential({root=process.cwd(),library,out}) {
       {Filename:"/src/zstg_demo.tabl.xml",Raw:readFileSync(join(originalRoot,"src/ddic/zstg_demo.tabl.xml"),"utf8")},
       {Filename:"/src/znative_gen.view.xml",Raw:`<abapGit><asx:abap xmlns:asx="http://www.sap.com/abapxml"><asx:values><DD25V><VIEWNAME>ZNATIVE_GEN</VIEWNAME><VIEWCLASS>D</VIEWCLASS></DD25V><DD27P_TABLE><DD27P><VIEWFIELD>MANDT</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>MANDT</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P><DD27P><VIEWFIELD>TRAVEL_ID</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>TRAVEL_ID</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P><DD27P><VIEWFIELD>OLD_FIELD</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>DESCRIPTION</FIELDNAME></DD27P></DD27P_TABLE></asx:values></asx:abap></abapGit>`},
     ];
+    dictionary.push({Filename:"/src/znative_mut.view.xml",Raw:dictionary[1].Raw.replaceAll("ZNATIVE_GEN","ZNATIVE_MUT")});
     updateRegistryFiles(registry,dictionary.map(f=>[f.Filename,f.Raw]));
     const casts=[
       "key travel_id, description", "description",
@@ -139,8 +140,9 @@ export async function differential({root=process.cwd(),library,out}) {
       "key travel_id, @ObjectModel.virtualElement: true @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TEST' cast( '' as abap.unknown(20) ) as text",
     ];
     await call({Command:"prime",Root:root,Config:spec.config,Files:dictionary});
-    for(const [i,fields]of casts.entries()) {
-      const Raw="@AbapCatalog.sqlViewName: 'ZNATIVE_GEN'\n@ObjectModel.writeEnabled: true\ndefine view znative_mut as select from zstg_demo { "+fields+" }";
+    const definitions=casts.map(fields=>"@AbapCatalog.sqlViewName: 'ZNATIVE_GEN'\n@ObjectModel.writeEnabled: true\ndefine view znative_mut as select from zstg_demo { "+fields+" }");
+    definitions.push(definitions[0].replace("'ZNATIVE_GEN'", "''"),definitions[0].replace("@AbapCatalog.sqlViewName: 'ZNATIVE_GEN'", ""));
+    for(const [i,Raw]of definitions.entries()) {
       const file={Filename:"/src/znative_mut.ddls.asddls",Raw};writeFileSync(join(root,file.Filename.slice(1)),Raw);updateRegistryFiles(registry,[[file.Filename,Raw]]);
       await run({type:"DDLS",name:"ZNATIVE_MUT"},[file],{files:[...dictionary,file],label:`dictionary-${i}`});counts.mutations++;
     }

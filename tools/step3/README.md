@@ -21,8 +21,9 @@ The original Slice-1 update refusal is superseded.
 
 ## Pins and generated member names
 
-The current TS-HG library pin is **abapiti `0a11cd3c`** (PR #245,
-`feat/tshg-library-tree`) with **abaplint `9f7f098c2` / core 2.120.73**.
+The current TS-HG library pin is **abapiti `da13e34d`** (PR #246, based on
+selfhost `8df2b932`) with **abaplint `9f7f098c2` / core 2.120.73**.
+PR #246 is under review; its final SHA may change after critic feedback.
 See the native CHECK/OUTLINE build below. The following generated ABAP member
 names describe the historical TS-HA library, still pinned independently.
 
@@ -548,7 +549,7 @@ reported corpus/mutations; the historical HTTP measurements are unchanged.
 
 ## TS-HG Go engine (optional build, default when linked)
 
-Current companion: abapiti `0a11cd3c` on `feat/tshg-library-tree` (PR #245),
+Current companion: abapiti `da13e34d` (PR #246, based on selfhost `8df2b932`),
 core `9f7f098c2` / 2.120.73. The original .56 pilot used `5b56ecf` on
 `feat/tshg-library`; its historical timings below still identify that build.
 
@@ -557,12 +558,13 @@ TypeScript → HIR → Go translation of the pinned abaplint core. A Go-linked
 binary selects it by default; binaries without Go lint linkage default to Node. This is a separate build input from the TS-HA `native/lib` directory:
 
 ```sh
-# From OSG, using abapiti feat/tshg-library-tree at 0a11cd3c.
+# From OSG, using abapiti PR #246 at da13e34d.
 OSG=$PWD
 # Fresh isolated source clones (omit if already staged at these exact pins).
-git clone --single-branch --branch feat/tshg-library-tree \
+git clone \
   https://github.com/oisee/abapiti.git .local/native-outline/abapiti
-git -C .local/native-outline/abapiti checkout 0a11cd3c
+git -C .local/native-outline/abapiti fetch origin refs/pull/246/head
+git -C .local/native-outline/abapiti checkout da13e34d
 git clone https://github.com/abaplint/abaplint.git .local/native-outline/abaplint
 git -C .local/native-outline/abaplint checkout 9f7f098c2
 ABAPITI=$(realpath .local/native-outline/abapiti)
@@ -581,7 +583,6 @@ OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh \
   "$OSG/.local/step3/abapiti-tshg" abaplint "$ABAPLINT" --target go \
   --go-package abaplint -o "$OSG/.local/step3/tshg"
 LINT_LIB="$OSG/.local/step3/tshg/go"
-node tools/step3/cds-inspect.mjs "$LINT_LIB"
 OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh node tools/gogen/osgo.mjs \
   --lint-engine go --lint-lib "$LINT_LIB"
 ```
@@ -591,7 +592,9 @@ profiling outputs; another package name emits a library via `EmitPackage` and a
 generated `library.go` wrapper. Library generation does not invoke `go build`.
 Its module path is `zabaplint`; the exported API is `Checker.Prime(files, deps,
 config)`, `Check(filename) []Issue`, `CheckObject(type,name) ([]Issue,bool)`,
-`Tree(type,name) ([]FileTree,bool)`, `Update(filename, *raw)`, `Stats()` and
+`Tree(type,name) ([]FileTree,bool)`, `CDS(name) (*Expression,*string,bool)`,
+`DDIC(type,name) (components,keys []string,found bool)`,
+`Files(type,name) ([]File,bool)`, `Update(filename, *raw)`, `Stats()` and
 `ConcatTokens`. Tree copies node kinds, statement identity, token/structure
 bounds, pragma identity and file order under the library lock. Empty ABAP
 files have an empty Any structure with zero positions; non-ABAP objects return
@@ -600,14 +603,16 @@ an empty file list with found=true.
 and bytes are preserved. The wrapper returns structured Issue getter values,
 preserving order, duplicates and both start/end coordinates. It never parses
 the batch CLI's text report. Use a fresh output directory to avoid mixing CLI
-and library artifacts. No hand edits to generated code are needed. `cds-inspect.mjs` adds a separate
-`osg_inspect.go` adapter: the upstream public API intentionally omits CDS
-expression trees and dictionary components. This extra adapter copies those
-facts through `OSGInspect` under the same library mutex; Go `cdscheck` ports the
-Node generator diagnostic policy. Its exact library.go SHA-256 is enforced,
-so another emitter/core/package pin is refused rather than guessed. The emitter
-and its five output files stay unchanged. The extra adapter is OSG-owned, not
-an API claimed to exist in upstream PR #245.
+and library artifacts. No hand edits to generated code are needed. CDS copies
+expression kind/text,
+start/end positions and expression children; DDIC copies components only for a
+StructureType (nil otherwise) and dictionary keys; Files copies exact bytes and
+object file order. These library calls parse pending edits and copy facts under
+the library mutex. The generated bridge uses them directly; Go `cdscheck` keeps
+the Node generator diagnostic policy. An absent SQL view name is nil and falls
+back to the CDS name, while a pointer to an empty string stays empty, matching
+`parseDDLS`'s nullish fallback. No OSG extraction adapter or generated-file hash
+pin is installed.
 
 OSG imports the library only in its optional generated `zz_lint.go` bridge and
 uses a temporary modfile with a local `replace`; tracked `go.mod`/`go.sum` stay

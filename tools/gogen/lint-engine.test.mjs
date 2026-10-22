@@ -355,10 +355,10 @@ test("Go library bridge links only on request and shares CHECKRUN lifecycle with
  type FileTree struct { Filename string; Structure *Node; Statements []Node }
  func (c *Checker) CheckObject(typ,name string) ([]Issue,bool) { return nil,false }
  func (c *Checker) Tree(typ,name string) ([]FileTree,bool) { return nil,false }
- type OSGExpression struct { Kind,Text string; Children []OSGExpression }
- type OSGFile struct { Filename,Raw string }
- type OSGObject struct { Found bool; SQLView string; Components,Keys []string; Files []OSGFile; Tree *OSGExpression }
- func (c *Checker) OSGInspect(typ,name string) OSGObject { return OSGObject{} }
+ type Expression struct { Kind,Text string; Start,End Pos; Children []Expression }
+ func (c *Checker) CDS(name string) (*Expression,*string,bool) { return nil,nil,false }
+ func (c *Checker) DDIC(typ,name string) ([]string,[]string,bool) { return nil,nil,false }
+ func (c *Checker) Files(typ,name string) ([]File,bool) { return nil,false }
  func (c *Checker) Stats() Stats { return c.stats }
 `);
     assert.deepEqual(lintBuildOptions([]), {engine: "abap", lib: undefined});
@@ -366,6 +366,12 @@ test("Go library bridge links only on request and shares CHECKRUN lifecycle with
     for (const args of [["--lint-engine", "go"], ["--lint-lib"], ["--lint-lib="], ["--lint-engine", "automatic"], ["--echo", "--lint-lib", lib]]) {
       assert.throws(() => lintBuildOptions(args));
     }
+    const api = readFileSync(join(lib, "library.go"), "utf8");
+    for (const method of ["CDS", "DDIC", "Files"]) {
+      writeFileSync(join(lib, "library.go"), api.replace(`func (c *Checker) ${method}(`, `func (c *Checker) old${method}(`));
+      assert.throws(() => lintBuildOptions(["--lint-engine=go", "--lint-lib", lib]), new RegExp(`da13e34d ${method} API`));
+    }
+    writeFileSync(join(lib, "library.go"), api);
     writeFileSync(join(dir, "zz_lint.go"), goLintEngineGo({config: "{}"}));
     writeFileSync(join(dir, "bridge_test.go"), `package main
  import("context";"strings";"testing";"osg/gogen/objstore";"osg/gogen/storecheck";"osg/gogen/storelint")

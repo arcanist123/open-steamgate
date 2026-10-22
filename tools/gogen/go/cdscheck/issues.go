@@ -81,9 +81,9 @@ func parse(obj Object, name string, inspect Inspector) (v *view, err error) {
 	if obj.Tree == nil {
 		return nil, nil
 	}
-	v = &view{sql: obj.SQLView}
-	if v.sql == "" {
-		v.sql = name
+	v = &view{sql: name}
+	if obj.SQLView != nil {
+		v.sql = *obj.SQLView
 	}
 	v.sql = upper(v.sql)
 	selectNode := direct(obj.Tree, "CDSSelect")
