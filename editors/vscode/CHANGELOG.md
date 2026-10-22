@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **open-steamgate in vscode.dev.** The extension now has a browser entry: in vscode.dev (and other VS Code for the Web hosts) the whole ABAP gateway runs in the extension's web worker, with no server, on sql.js persisted in IndexedDB (or DuckDB-Wasm with `osd.web.database`). Available there:
+  - the OSD view;
+  - F8 Data Preview on TABL/DDLS;
+  - SQL notebooks (SQLScript cells on DuckDB);
+  - the Fiori launchpad with every tile, in webviews. That covers the Travels/Bookings apps with Create, the analytics apps, SEGW, ICF services, System status, Zork, WEBGUI, System information, the Data browser, Vivid Vibes and LSD with sound, and the content-pack apps.
+
+  Desktop-only: Start/Rebuild, F9, ABAP Unit, the debugger, Check/Activate, jobs.
+- New icon and activity-bar glyph: the open-steamgate gear-gate.
+
 - Add the read-only **OSD Jobs** sidebar: status groups, name/user/date filters, step details, job logs, verified saved output and copyable job keys. The jobs status item opens the panel; active jobs refresh through the existing status poll.
 
 - Activation now sends `method=activate`; a server from this release answers activation without it with 400 "Parameter method could not be found.", as an SAP system does. The extension and its bundled server update together.
