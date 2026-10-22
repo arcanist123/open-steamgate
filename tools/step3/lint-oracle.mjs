@@ -25,8 +25,8 @@ if (values["export-adt-config"]) {
   const require = createRequire(join(core, "package.json"));
   const pkg = require("./package.json");
   const lint = require(core);
-  if (pkg.version !== "2.120.56" || lint.Registry.abaplintVersion() !== "2.120.56") {
-    throw new Error(`oracle requires core 2.120.56 built from 577f875e; see tools/step3/README.md (${core})`);
+  if (pkg.version !== "2.120.73" || lint.Registry.abaplintVersion() !== "2.120.73") {
+    throw new Error(`oracle requires core 2.120.73 built from 9f7f098c; see tools/step3/README.md (${core})`);
   }
   const paths = file => file ? readFileSync(file, "utf8").replaceAll("\r", "").split("\n").filter(Boolean) : [];
   const registry = new lint.Registry(new lint.Config(readFileSync(values.config, "utf8")));
