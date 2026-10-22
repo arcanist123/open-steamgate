@@ -19,8 +19,8 @@ The private RFC HTTP backend remains IPv4 loopback even with a public bind.
 ## RFC seam and licensing
 
 `rfcnative` mounts `github.com/oisee/open-rfc-go/pkg/adtbridge`, pinned at
-`c620e342404d0ea23f6da9b63bfbe97cc7c6e258`
-(`v0.2.1-0.20261022165448-c620e342404d`). Backend exposes only TLS transport
+`61d450713a040bc0afc39c4994be6bbfcba5bd79`
+(`v0.2.1-0.20261022173244-61d450713a04`). Backend exposes only TLS transport
 configuration, not a custom RoundTripper. The adapter therefore starts a
 private ephemeral loopback HTTP server with osgo's own handler. The dependency
 owns each conversation's cookie jar and CSRF fetch/retry. The HTTP seam supplies
@@ -37,16 +37,21 @@ The function profile is JS's `SADT_REST_RFC_ENDPOINT`,
 `RFC_GET_FUNCTION_INTERFACE`, `DDIF_FIELDINFO_GET`, plus Go's
 `RFC_GET_STRUCTURE_DEFINITION`. No generic RFC/FM runtime is advertised.
 
-This integration is opt-in and supports `STG_RFC_AUTH_MODE=demo` only (also the
-default). Every other mode fails before protocol listeners are opened.
-`STG_ADT_USER/PASSWORD/CLIENT/LANGUAGE` configure backend identity; an orphan
-password is rejected. An external `STG_ADT_BACKEND` is not selected by osgo.
+This integration is opt-in. `STG_RFC_AUTH_MODE` selects `demo` (default) or
+`static`, exactly as the JS server's environment entrypoint. Static requires
+`STG_RFC_USER` and `STG_RFC_PASSWORD`; optional `STG_RFC_CLIENT` restricts logons
+to that client. `STG_ADT_USER/PASSWORD/CLIENT/LANGUAGE` independently configure
+the HTTP backend identity; an orphan backend password is rejected. Unsupported
+modes and incomplete identities fail synchronously through upstream `Check`
+in `FromEnv`, and again in `Start` before opening listeners. Static logon
+reassembly uses upstream's default `MaxLogonBytes` of 64 KiB. An external
+`STG_ADT_BACKEND` is not selected by osgo.
 
 Differences from JS, including limitations of the pinned API:
 
 - RFC demo logons are accepted without decoding/validating the supplied caller
-  identity; it is not propagated as the repository owner. Configured backend
-  identity is used in the logon response. Static RFC authentication is absent.
+  identity. Static mode decodes and validates the caller user/password/client,
+  but neither mode propagates caller identity as the HTTP repository owner.
 - No shared lock-handle adoption between RFC connections or backend logoff on
   disconnect. Cookies remain per conversation.
 - Since open-rfc-go#10 (`c620e342`) the bridge confines every request and
@@ -54,6 +59,10 @@ Differences from JS, including limitations of the pinned API:
   authority-relative URIs before applying credentials, ignores caller
   Authorization/Cookie/Host headers, and adopts a rotated CSRF token from
   successful responses.
+- RFC resource policy also differs: native backend requests time out at 30 s
+  versus JS's 120 s; native has no JS-style 64-connection cap or socket idle
+  timeout. The 30 passing assertions cover a narrower contract than complete
+  replacement parity.
 - Metadata is not identical. The public `open-rfc-go/rfc` client cannot perform
   the recursive ADT request against either bridge at these pins. The probe
   reports JS's APPC response-pending error and native's unimplemented classic
@@ -62,19 +71,23 @@ Differences from JS, including limitations of the pinned API:
 
 ## DIAG reuse
 
-`diagnative` mounts the already pinned MIT `open-diag-go/pkg/lsd` service at
-`62029ee085bc`, with `Stub: "tape"`. It can render the tape/shell; no new DIAG
-stack was built. One fan-in listener feeds both address families to a single
+`diagnative` mounts the MIT `open-diag-go/pkg/lsd` service at
+`601b751c3561059fd27c3fd0b3e9e2ad301a3fff`
+(`v0.0.0-20261022172934-601b751c3561`), with `Stub: "tape"`. It can render
+the tape/shell; no new DIAG stack was built. One fan-in listener feeds both address families to a single
 `lsd.Serve`, avoiding concurrent initialization of its global renderer state.
 
 The existing fragmented hello/NI ping, tape text, repeated screen and `/i`
-end-of-session assertions pass against it. Differences remain: its embedded
-shell names `LSD` rather than OSG's selected SID; malformed hellos receive a
-screen; NI limit is 64 MiB versus JS's 1 MiB; it lacks JS's connection cap and
-initial idle timeout; it waits briefly after EOP before closing. The twelve
-second hold and exit commands are already implemented by the dependency.
-The dependency owns the scrubbed shell; there was no new field audit or stock
-SAP GUI acceptance run for this integration.
+end-of-session assertions pass against it. `lsd.Options.SID` receives the host's
+selected SID: `OSD_SID`, then `STG_ADT_SID`, default `OSD`. Both hosts trim ASCII
+blanks, uppercase it, and reject anything other than three ASCII letters/digits
+starting with a letter. The dependency now rejects malformed hellos.
+
+Differences remain: NI limit is 64 MiB versus JS's 1 MiB; it lacks JS's
+connection cap and initial idle timeout; it waits briefly after EOP before
+closing. The twelve second hold and exit commands are already implemented by
+the dependency. Its scrubbed shell is not asserted byte-identical to JS's.
+There was no new field audit or stock SAP GUI acceptance run.
 
 ## Reproduce the evidence
 
@@ -109,11 +122,12 @@ conversation, and compares HTTP status and decoded body bytes, not volatile
 HTTP headers or raw RFC envelopes. Local details go to
 `.local/native-protocols/session.json`; no wire captures are committed.
 
-The baseline is 30 passing tests. Native replay gives 25 passing / 5 failing:
-startup error API timing/text, the two static-auth scenarios, DIAG SID, and
-junk-hello rejection. In demo mode the RFC cookie/CSRF scenario reaches the
-backend and fails on the retained rotated token. Required failures are retained
-and no existing suite is removed/skipped or made green by weakened assertions.
+The JS baseline and native replay both pass **30/30** at these pins. Native
+replay covers static wrong-password rejection without backend requests,
+synchronous invalid-auth setup, cookie/CSRF forwarding and rotation, configured
+DIAG SID and junk-hello rejection. The adapter translates actual native error
+logs to the JS factory logging callbacks and runs the production Go config
+validator synchronously in a helper subprocess; no assertions are weakened.
 The adapter ignores custom DIAG screen/hold options, which are JS test factory
 options not exposed by osgo; the wire assertions remain unchanged.
 
@@ -122,18 +136,27 @@ Validate packages with `gofmt`, `go vet`, and `go test -race` for `rfcnative`,
 its temporary module replacement (`withGoLintModule` in
 `tools/gogen/lint-engine.mjs`) for vet and tests.
 
-## Measured validation on 63acb9c9 plus this branch
+## Measured validation on feat/osgo-protocols-parity
 
 The real wire session receives 200 for discovery and CHECKRUN with equal body
 bytes through JS and native 33nn. CHECKRUN is `processed` and reports the
 intentional missing implementation of `broken`, rather than `notProcessed`.
 Both osgo processes run with an empty executable PATH. The test driver and JS
 bridge still use Node; the native osgo listeners and CHECKRUN do not.
-The two existing HTTP ADT conformance cases run against osgo separately.
+Measured on 2026-10-22 over instance 90 (`3390`):
+
+| Request | JS / native status | JS / native body bytes | Comparison |
+|---|---|---|---|
+| Discovery | 200 / 200 | 14442 / 14442 | identical |
+| CHECKRUN | 200 / 200 | 580 / 580 | identical, processed |
+
+Discovery SHA-256: `a7d085bf0b6782e64440613e40cc84591b08781b67fd04714027d7051b5b8a2d`.
+CHECKRUN SHA-256: `10b2eefc89f3e350c9c6e8ff1b387dabde22bfcbf2d710bde56d99f4c2495828`.
+The two existing HTTP ADT conformance cases pass against osgo separately (2/2).
 The public Go RFC client probe exits 1 for both bridges; therefore the complete
 session script deliberately exits 1 even when its wire comparison succeeds.
 
-Both new production packages and the two test helper packages pass vet and race
+Both adapter packages and the two test helper packages pass vet and race
 checks (helper packages have no unit tests). Full generated `cmd/osgo` vet is
 not green: the default race-test invocation stops on a generated redundant
 `lv_len > 0 && lv_len > 0`, and full vet also reports generated unreachable
@@ -141,6 +164,6 @@ code. Those failures are retained. A separately labelled
 `go test -race -vet=off ./cmd/osgo` passes; it exercises host tests but does not
 replace the failed vet result. No CI workflow or required check is disabled.
 
-Size budgets are exact physical production lines: rfcnative 106, diagnative
+Size budgets are exact physical production lines: rfcnative 108, diagnative
 111. Command glue has an explicitly reasoned package budget; main.go remains
 at the existing 800-line file ceiling. The size checker and leak scanner pass.
