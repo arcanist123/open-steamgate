@@ -970,7 +970,7 @@
       "R6 cast-to-probe": 0,
       "R7 object-typed": 2,
       "R8 typeof-namespace-member": 0,
-      "R9 cast-count": 80
+      "R9 cast-count": 79
     },
     "tools/gogen/gateway.mjs": {
       "R1 extract-cast": 0,

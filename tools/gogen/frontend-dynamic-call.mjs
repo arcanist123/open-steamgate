@@ -48,10 +48,10 @@ export function dynamicStaticCall(node, ctx, {sourceOperand, source, convert, lv
     target: lvalue(rp.findDirectExpression(Expressions.Target), ctx)} : null;
   for (const name of ["CX_SY_DYN_CALL_ILLEGAL_CLASS", "CX_SY_DYN_CALL_ILLEGAL_METHOD", "CX_SY_DYN_CALL_PARAM_NOT_FOUND", "CX_SY_DYN_CALL_PARAM_MISSING", "CX_SY_DYN_CALL_ILLEGAL_TYPE"]) {
     for (let n = name; n;) {
+      // @ts-expect-error -- abapiti form pending
       const def = ctx.reg.getObject("CLAS", n)?.getDefinition();
       if (!def) break;
       ctx.program.missing.add(n);
-      // @ts-expect-error -- abapiti form pending
       n = def.getSuperClass()?.toUpperCase();
     }
   }

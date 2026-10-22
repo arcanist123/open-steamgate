@@ -74,7 +74,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   // Reset counters per compile.
   FAE_N = 0;
   PERSIST_LOWERING = !!cacheDir;
-  /** @type {import("./frontend-session-types.ts").Registry} */ const reg = registry ?? /** @type {import("./frontend-session-types.ts").Registry} */ (new abaplint.Registry(new abaplint.Config(JSON.stringify(config))));
+  /** @type {import("./frontend-session-types.ts").Registry} */ const reg = registry ?? new abaplint.Registry(new abaplint.Config(JSON.stringify(config)));
   // Resolve files; diagnose selection.
   // @ts-expect-error -- abapiti form pending
   /** @param {string} fn @returns {string} */ const objName = (fn) => fn.split("/").pop().split(".")[0].toLowerCase().replace(/#/g, "/");
@@ -130,7 +130,6 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   else if (diskFrontend) compile = (ctx, obj, lower, session) => diskFrontend.compileDiskClass(ctx, obj, lower, session); // Does not use this.
   // @ts-expect-error -- abapiti form pending
   const {wanted, diagnostics, broken} = prepareSelection(reg, {objects, tolerant, strictRoots}, session, () => { prepareArtifactDigests(reg, !!session, closureContext); }, discoveryProbe?.selection);
-
   // Eager collections keep first writes inside the replay proxies. Anonymous
   // type identities use a Map so their ordered effects can be replayed too;
   // these keys already belong to the registry retained for this compilation.
@@ -1189,6 +1188,7 @@ function compiledFunctionCall(node, ctx, text, name) {
   // superclass's, an interface's): the backends give it its registrations
   // (ultra/events, go/abap/events.go)
   cls.instanceEvents = [className, ...ancestors(reg, className)].some((c) => {
+    // @ts-expect-error -- abapiti form pending
     /** @type {import("@abaplint/core").IClassDefinition | undefined} */ const d = reg.getObject("CLAS", c)?.getDefinition();
     if (!d) return false;
     if (d.getEvents().some((e) => !e.isStatic())) return true;
