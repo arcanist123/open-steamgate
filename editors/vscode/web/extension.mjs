@@ -75,6 +75,30 @@ async function duckdbWasmURL() {
   return URL.createObjectURL(new Blob([bytes], {type: "application/wasm"}));
 }
 
+// SMW0 media without a disk (preview-backend.mjs, W3MI_LOADER). The preview
+// fetches media/<file> relative to its service worker; this worker's location
+// is VS Code's extension host, not the bundle, so the files are read from the
+// extension's own dist/web/media (scripts/build-vscode-web.mjs copies them).
+// The answer is the content as upper-case hex, as the preview's loader gives it.
+// A "%" of the name is stored as "@" (see the build).
+function installMediaLoader() {
+  const hex = Array.from({length: 256}, (_, byte) => byte.toString(16).padStart(2, "0").toUpperCase());
+  const loaded = new Map();
+  globalThis.abap.W3MI_LOADER = async (objid, filename) => {
+    if (loaded.has(filename)) return loaded.get(filename);
+    if (!extensionUri) throw new Error(`W3MI ${objid}: the extension is not activated`);
+    const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extensionUri, "dist", "web", "media", filename.replaceAll("%", "@")));
+    const parts = [];
+    for (let at = 0; at < bytes.length; at += 8192) {
+      let part = "";
+      for (const byte of bytes.subarray(at, at + 8192)) part += hex[byte];
+      parts.push(part);
+    }
+    loaded.set(filename, parts.join(""));
+    return loaded.get(filename);
+  };
+}
+
 function backendOf() {
   backendPromise ??= (async () => {
     // preview-backend imports this before the transpiled runtime. Do not pin
@@ -85,6 +109,7 @@ function backendOf() {
       wasmURL: database === "duckdb" ? await duckdbWasmURL() : undefined};
     const backend = await import("../../../web/preview-backend.mjs");
     if (backend.database !== database) throw new Error(`The gateway runs ${backend.database}, osd.web.database asks for ${database}`);
+    installMediaLoader();
     if (database === "duckdb") {
       // nothing is stored: the database is the seed, every time
       await backend.startBackend(undefined, {mount: "/", stamp: backend.buildId});
@@ -552,7 +577,7 @@ function fioriRuntime(config) {
   const vscode = acquireVsCodeApi();
   const bridgeFetch = webviewBridge(vscode, "/sap/opu/odata/sap");
   const mount = new URL(config.mount);
-  const stats = {bridged: 0, bridgedSync: [], localSync: [], nativeSync: [], errors: []};
+  const stats = {bridged: 0, bridgedSync: [], localSync: [], nativeSync: [], errors: [], local: [], media: [], routed: [], sockets: []};
   // vscode.dev is cross-origin isolated and so is every webview frame in it
   // (COEP require-corp). The UI5 CDN answers CORS (access-control-allow-origin
   // *) but sends no Cross-Origin-Resource-Policy, so a plain <script>, <link>
@@ -560,23 +585,90 @@ function fioriRuntime(config) {
   // creates those elements itself (ui5loader, theming), so every one aimed at
   // the CDN is switched to crossorigin="anonymous" before its URL is set.
   // Harmless where the page is not isolated (desktop, @vscode/test-web).
+  // The same holds for the CDN an ICF page loads from (xterm.js for Zork).
   const cdn = (value) => {
-    try { return new URL(String(value), document.baseURI).origin === "https://ui5.sap.com"; } catch { return false; }
+    try { return config.cdns.includes(new URL(String(value), document.baseURI).origin); } catch { return false; }
   };
-  for (const [type, attribute] of [[HTMLScriptElement, "src"], [HTMLLinkElement, "href"], [HTMLImageElement, "src"]]) {
+  // Pictures and sounds the gateway serves (PhotoSet's $value, a page's
+  // ?audio or ?img=) cannot be loaded by the element from the resource
+  // origin; they are fetched over the bridge and handed to the element as a
+  // blob: URL. play() waits for the bytes so a page that sets src and plays
+  // at once still plays.
+  const blobs = new Map();
+  const media = (virtual) => {
+    if (!blobs.has(virtual)) {
+      blobs.set(virtual, bridgeFetch(`https://osd.invalid${virtual}`).then(async (response) => {
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText} ${(await response.text()).slice(0, 300)}`);
+        stats.media.push(virtual);
+        return URL.createObjectURL(await response.blob());
+      }));
+      blobs.get(virtual).catch((error) => stats.errors.push(`media ${virtual}: ${error?.message ?? error}`));
+    }
+    return blobs.get(virtual);
+  };
+  const mediaTypes = [HTMLImageElement, HTMLMediaElement, HTMLSourceElement];
+  const descriptors = new Map();
+  for (const [type, attribute] of [[HTMLScriptElement, "src"], [HTMLLinkElement, "href"], [HTMLImageElement, "src"],
+    [HTMLMediaElement, "src"], [HTMLSourceElement, "src"]]) {
     const descriptor = Object.getOwnPropertyDescriptor(type.prototype, attribute);
+    descriptors.set(type, descriptor);
     Object.defineProperty(type.prototype, attribute, {...descriptor, set(value) {
+      const virtual = mediaTypes.includes(type) ? virtualOf(value) : undefined;
+      if (virtual !== undefined) {
+        this.osdSource = virtual;
+        this.osdPending = media(virtual).then((url) => {
+          if (this.osdSource === virtual) descriptor.set.call(this, url);
+        }, () => undefined);
+        return;
+      }
+      this.osdSource = undefined;
       if (cdn(value) && this.crossOrigin === null) this.crossOrigin = "anonymous";
       descriptor.set.call(this, value);
     }});
   }
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function () {
+    return this.osdPending ? this.osdPending.then(() => play.call(this)) : play.call(this);
+  };
   const setAttribute = Element.prototype.setAttribute;
   Element.prototype.setAttribute = function (name, value) {
+    if (name === "src" && mediaTypes.some((type) => this instanceof type) && virtualOf(value) !== undefined) {
+      this.src = value;
+      return;
+    }
     if ((name === "src" || name === "href") && cdn(value) && "crossOrigin" in this && this.crossOrigin === null) {
       this.crossOrigin = "anonymous";
     }
     return setAttribute.call(this, name, value);
   };
+  // Elements the parser or innerHTML made (UI5 renders strings, an ICF page
+  // is markup) never pass the setter: they are rewritten once they appear.
+  const adopt = (element) => {
+    if (!(element instanceof Element)) return;
+    for (const frame of element.matches("iframe") ? [element] : element.querySelectorAll("iframe")) hookFrame(frame);
+    for (const one of [element, ...element.querySelectorAll("img[src], audio[src], video[src], source[src]")]) {
+      if (!mediaTypes.some((type) => one instanceof type)) continue;
+      const value = one.getAttribute("src");
+      if (value && !value.startsWith("blob:") && virtualOf(value) !== undefined && one.osdSource !== virtualOf(value)) one.src = value;
+    }
+    // sap.m.Avatar (the Travels photo) paints a background-image instead
+    for (const one of [element, ...element.querySelectorAll("[style*='url(']")]) {
+      const quoted = /url\((?:"([^"]*)"|'([^']*)'|([^)]*))\)/.exec(one.style?.backgroundImage ?? "");
+      const source = quoted && (quoted[1] ?? quoted[2] ?? quoted[3]);
+      const virtual = source && !source.startsWith("blob:") ? virtualOf(source) : undefined;
+      if (virtual !== undefined) {
+        media(virtual).then((url) => {
+          if (one.style.backgroundImage.includes(source)) one.style.backgroundImage = `url("${url}")`;
+        }, () => undefined);
+      }
+    }
+  };
+  new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "attributes") adopt(record.target);
+      else record.addedNodes.forEach(adopt);
+    }
+  }).observe(document.documentElement, {childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style"]});
   // A virtual path of the gateway, or undefined for a URL the browser loads.
   const virtualOf = (input) => {
     let url;
@@ -588,14 +680,29 @@ function fioriRuntime(config) {
   // The launchpad sandbox asks for an optional config at an absolute path
   // with a synchronous request. The answer is a constant (an empty merge, as
   // tools/osd-sandbox-config.mjs serves it), so it is answered in the page.
-  const localAnswer = (path) => path.split("?")[0] === config.sandboxConfigPath
+  //
+  // The launchpad greys the Workbench tile unless HEAD on ADT discovery is a
+  // 200 (launchpad.js). The in-worker gateway answers that HEAD, but the
+  // Workbench's ADT needs the Node host's continuations, which no browser
+  // host has (web/preview-continuations.mjs): opened here it reports "ADT
+  // discovery failed: HTTP 404". GitHub Pages greys the tile for the same
+  // reason, so the launchpad's question is answered here with a 404.
+  const localAnswer = (path, method = "GET") => path.split("?")[0] === config.sandboxConfigPath
     ? {status: 200, statusText: "OK", headers: new Headers({"content-type": "application/json"}), bytes: new TextEncoder().encode(config.sandboxConfigBody)}
-    : undefined;
+    : config.page === "/app/flp.html" && method === "HEAD" && path.split("?")[0] === "/sap/bc/adt/core/discovery"
+      ? {status: 404, statusText: "Not Found", headers: new Headers({"content-type": "text/plain"}),
+        bytes: new TextEncoder().encode("No ADT facade in the web extension")}
+      : undefined;
   const nativeFetch = window.fetch.bind(window);
   // async, like fetch itself: a bad Request/init rejects instead of throwing.
   window.fetch = async (input, init) => {
     const path = virtualOf(input instanceof Request ? input.url : input);
     if (path === undefined) return nativeFetch(input, init);
+    const local = localAnswer(path, String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase());
+    if (local) {
+      stats.local.push(path);
+      return Promise.resolve(new Response(local.status === 204 ? null : local.bytes, {status: local.status, statusText: local.statusText, headers: local.headers}));
+    }
     stats.bridged++;
     if (!(input instanceof Request)) return bridgeFetch(`https://osd.invalid${path}`, init ?? {});
     // A Request carries its body as a stream the bridge cannot send: read it
@@ -660,7 +767,7 @@ function fioriRuntime(config) {
         // A webview's message channel is asynchronous, so a synchronous
         // gateway request cannot be answered. Record it and fail it the way a
         // synchronous network error fails, unless the answer is a constant.
-        const local = localAnswer(state.path);
+        const local = localAnswer(state.path, state.method);
         if (local) {
           stats.localSync.push(state.path);
           finish(local);
@@ -671,7 +778,7 @@ function fioriRuntime(config) {
         throw new DOMException(`Synchronous request to the in-worker gateway is not supported: ${state.method} ${state.path}`, "NetworkError");
       }
       this.osdFire("loadstart", {lengthComputable: false, loaded: 0, total: 0});
-      const local = localAnswer(state.path);
+      const local = localAnswer(state.path, state.method);
       if (local) {
         queueMicrotask(() => { if (!state.aborted) finish(local); });
         return;
@@ -748,6 +855,191 @@ function fioriRuntime(config) {
     }
   }
   window.XMLHttpRequest = OsdXMLHttpRequest;
+  // A webview cannot navigate or open a window. Where a browser would, the
+  // extension does: a gateway page (an ICF tile, a link or form inside such a
+  // page) is rendered by the extension, in this panel or in a new one; an app
+  // page under /app/ opens in its own panel; any other web address goes to
+  // vscode.env.openExternal. On GitHub Pages the launchpad opens these tiles
+  // in a new window; here that is a new editor tab.
+  const appOf = (input) => {
+    let url;
+    try { url = new URL(String(input), document.baseURI); } catch { return undefined; }
+    if (url.origin !== mount.origin) return undefined;
+    const path = url.pathname.startsWith(mount.pathname) ? "/" + url.pathname.slice(mount.pathname.length) : url.pathname;
+    return /^\/app\//.test(path) ? path + url.search + url.hash : undefined;
+  };
+  const externalOf = (input) => {
+    let url;
+    try { url = new URL(String(input), document.baseURI); } catch { return undefined; }
+    return /^https?:$/.test(url.protocol) && url.origin !== mount.origin ? url.href : undefined;
+  };
+  const toBase64 = (bytes) => {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return btoa(binary);
+  };
+  // true when the address was taken over; false leaves it to the browser
+  const route = (href, {newWindow = false, method = "GET", body, contentType} = {}) => {
+    const virtual = virtualOf(href);
+    if (virtual !== undefined && /^\/sap\/bc\//i.test(virtual)) {
+      const [path, query = ""] = virtual.split(/(?=\?)/);
+      stats.routed.push(`${newWindow ? "open" : "navigate"} ${method} ${virtual}`);
+      vscode.postMessage({type: "navigate", newWindow, request: {method, path, query,
+        headers: contentType ? [["content-type", contentType]] : [], body: toBase64(body ?? new Uint8Array(0))}});
+      return true;
+    }
+    const app = appOf(href);
+    if (app !== undefined) {
+      if (!newWindow && config.page && app.split("#")[0] === config.page) {
+        window.location.hash = app.includes("#") ? app.slice(app.indexOf("#")) : "";
+        return true;
+      }
+      stats.routed.push(`app ${app}`);
+      vscode.postMessage({type: "open-app", path: app});
+      return true;
+    }
+    const external = externalOf(href);
+    if (external !== undefined) {
+      stats.routed.push(`external ${external}`);
+      vscode.postMessage({type: "open-external", url: external});
+      return true;
+    }
+    return false;
+  };
+  const nativeOpen = window.open;
+  window.open = function (url, target, features) {
+    if (url !== undefined && url !== null && String(url) !== "" && route(url, {newWindow: true})) return null;
+    return nativeOpen.apply(window, arguments);
+  };
+  // Capture phase: UI5 stops the click of its own controls before it reaches
+  // window, and the browser's default action still follows. Every gateway,
+  // app or outside link is taken over here. A launchpad tile is an <a> to
+  // this document's own URL (…&sap-ushell-config=lean#Source-open) whose
+  // press UI5 handles itself; its default action would open the bare webview
+  // host page, so it is cancelled. A same-document hash link is left alone.
+  const clicked = new WeakSet();
+  const onClick = (event) => {
+    if (event.defaultPrevented || event.button > 1) return;
+    // closest(), not instanceof: the target may live in a nested frame's realm
+    const anchor = typeof event.target?.closest === "function" ? event.target.closest("a[href]") : null;
+    const raw = anchor?.getAttribute("href") ?? "";
+    if (!anchor || raw === "" || raw.startsWith("#") || /^javascript:/i.test(raw) || anchor.hasAttribute("download")) return;
+    const newWindow = anchor.target === "_blank" || event.button === 1 || event.ctrlKey || event.metaKey;
+    const target = new URL(anchor.href);
+    if (target.origin === location.origin && target.pathname === location.pathname) {
+      clicked.add(event);
+      if (newWindow || target.search !== location.search) event.preventDefault();
+      return;
+    }
+    if (route(anchor.href, {newWindow})) {
+      clicked.add(event);
+      event.preventDefault();
+    }
+  };
+  window.addEventListener("click", onClick, true);
+  window.addEventListener("auxclick", onClick, true);
+  // VS Code's webview host listens for clicks on links too, later on this
+  // window and regardless of defaultPrevented, and opens the address in a
+  // browser window. A click handled above goes no further than here.
+  for (const type of ["click", "auxclick"]) {
+    window.addEventListener(type, (event) => { if (clicked.has(event)) event.stopImmediatePropagation(); });
+  }
+  const onSubmit = (event) => {
+    if (event.defaultPrevented) return;
+    const form = event.target;
+    const submitter = event.submitter ?? null;
+    const action = new URL(submitter?.getAttribute("formaction") ?? form.getAttribute("action") ?? "", form.ownerDocument.baseURI);
+    const method = String(submitter?.getAttribute("formmethod") ?? form.getAttribute("method") ?? "get").toUpperCase();
+    const fields = new URLSearchParams(new FormData(form, submitter));
+    const newWindow = (submitter?.getAttribute("formtarget") ?? form.target) === "_blank";
+    if (method === "GET") {
+      action.search = fields.toString();
+      if (route(action.href, {newWindow})) event.preventDefault();
+    } else if (route(action.href, {newWindow, method, body: new TextEncoder().encode(fields.toString()),
+      contentType: "application/x-www-form-urlencoded"})) event.preventDefault();
+  };
+  window.addEventListener("submit", onSubmit);
+  // A gateway page may draw a part of itself in a script-less sandboxed
+  // srcdoc frame (the WEBGUI's HTML viewer control). Such a frame is given
+  // allow-same-origin when the page is rendered (webviewPage), so its links
+  // and forms are handled from here; no script runs inside it.
+  const hookFrame = (frame) => {
+    const hook = () => {
+      let inner;
+      try { inner = frame.contentDocument; } catch { return; }
+      if (!inner || inner.osdHooked) return;
+      inner.osdHooked = true;
+      inner.addEventListener("click", onClick, true);
+      inner.addEventListener("submit", onSubmit);
+    };
+    frame.addEventListener("load", hook);
+    hook();
+  };
+  // APC: a WebSocket to a push channel of the gateway (/sap/bc/apc/...) talks
+  // to the extension, which drives the channel's ABAP handler in its worker
+  // (preview-backend openChannel / channelMessage / closeChannel), as the
+  // preview's service worker does (web/preview-socket.mjs). Other sockets stay
+  // the browser's.
+  const NativeSocket = window.WebSocket;
+  const sockets = new Map();
+  let socketCount = 0;
+  const apcOf = (input) => {
+    let url;
+    try { url = new URL(String(input), document.baseURI); } catch { return undefined; }
+    if (url.host !== location.host && url.host !== mount.host) return undefined;
+    const path = url.pathname.startsWith(mount.pathname) ? "/" + url.pathname.slice(mount.pathname.length) : url.pathname;
+    return /^\/sap\/bc\/apc\//i.test(path) ? path : undefined;
+  };
+  class OsdSocket extends EventTarget {
+    constructor(url, protocols, path) {
+      super();
+      Object.assign(this, {url: String(url), readyState: 0, protocol: Array.isArray(protocols) ? (protocols[0] ?? "") : (protocols ?? ""),
+        binaryType: "blob", bufferedAmount: 0, extensions: "", onopen: null, onmessage: null, onerror: null, onclose: null,
+        CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3});
+      this.id = `apc-${socketCount += 1}`;
+      sockets.set(this.id, this);
+      stats.sockets.push(path);
+      vscode.postMessage({type: "apc-open", id: this.id, path});
+    }
+    osdEmit(type, detail) {
+      const event = type === "message" ? new MessageEvent("message", {data: detail})
+        : new (type === "close" ? CloseEvent : Event)(type, detail);
+      this[`on${type}`]?.call(this, event);
+      this.dispatchEvent(event);
+    }
+    osdReceive(message) {
+      if (message.apc === "open") {
+        this.readyState = 1;
+        this.osdEmit("open", {});
+      } else if (message.apc === "message") {
+        this.osdEmit("message", message.text);
+      } else if (message.apc === "error") {
+        this.osdEmit("error", {});
+      } else if (message.apc === "close") {
+        this.readyState = 3;
+        sockets.delete(this.id);
+        this.osdEmit("close", {code: message.code ?? 1000, reason: message.reason ?? "", wasClean: message.code === 1000});
+      }
+    }
+    send(data) {
+      if (this.readyState !== 1) throw new DOMException("the socket is not open", "InvalidStateError");
+      vscode.postMessage({type: "apc-send", id: this.id, text: String(data)});
+    }
+    close(code = 1000, reason = "") {
+      if (this.readyState >= 2) return;
+      this.readyState = 2;
+      vscode.postMessage({type: "apc-close", id: this.id, code, reason});
+    }
+  }
+  window.addEventListener("message", (event) => {
+    if (event.data?.type === "apc") sockets.get(event.data.id)?.osdReceive(event.data);
+  });
+  const OsdWebSocket = function WebSocket(url, protocols) {
+    const path = apcOf(url);
+    return path === undefined ? new NativeSocket(url, protocols) : new OsdSocket(url, protocols, path);
+  };
+  Object.assign(OsdWebSocket, {CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3, prototype: NativeSocket.prototype});
+  window.WebSocket = OsdWebSocket;
   window.osdBridge = {fetch: bridgeFetch, stats, virtualOf};
   // CSP refusals are kept so a test (and a developer) can see what the
   // policy blocked instead of guessing from a blank page.
@@ -771,42 +1063,170 @@ function fioriRuntime(config) {
   if (config.hash && window.location.hash !== config.hash) window.location.hash = config.hash;
 }
 
-function fioriPage(source, {nonce, cspSource, appBase, pageBase, mount, hash, apps}) {
+// CDNs a page in a webview may load scripts, styles and fonts from:
+// SAPUI5 for the apps, jsDelivr for the xterm.js the Zork page loads.
+const CDNS = ["https://ui5.sap.com", "https://cdn.jsdelivr.net"];
+
+// One webview page, an app's own HTML or one the gateway wrote: the policy,
+// the base, the bridge and runtime first in <head>, the nonce on every script.
+function webviewPage(source, {nonce, cspSource, base, config}) {
   // Why each source is allowed:
   // - 'nonce-…': the page's own inline scripts and this bridge, nothing else inline;
-  // - https://ui5.sap.com: SAPUI5 core, libraries, themes and fonts from SAP's CDN, as the app loads them everywhere;
+  // - CDNS: SAPUI5 core, libraries, themes and fonts from SAP's CDN, as the app loads them everywhere,
+  //   and the xterm.js the Zork page loads from jsDelivr;
   // - cspSource: the app's own files (Component.js, manifest, i18n, annotations, images) copied into dist/web/app;
   // - style-src 'unsafe-inline': UI5 renderers write style attributes and the pages carry <style> blocks;
-  // - img-src data: blob:: UI5 icons and theme images as data URIs.
+  // - img-src data: blob:: UI5 icons and theme images as data URIs, gateway pictures as blob: URLs;
+  // - media-src blob:: gateway audio (the demos' music), fetched over the bridge.
   // connect-src has no gateway origin: the gateway is reached by postMessage only.
+  const cdns = CDNS.join(" ");
   const csp = [
     "default-src 'none'",
-    `script-src 'nonce-${nonce}' https://ui5.sap.com ${cspSource}`,
-    `style-src 'unsafe-inline' https://ui5.sap.com ${cspSource}`,
-    `font-src https://ui5.sap.com ${cspSource}`,
-    `img-src https://ui5.sap.com ${cspSource} data: blob:`,
-    `connect-src https://ui5.sap.com ${cspSource}`,
+    `script-src 'nonce-${nonce}' ${cdns} ${cspSource}`,
+    `style-src 'unsafe-inline' ${cdns} ${cspSource}`,
+    `font-src ${cdns} ${cspSource} data:`,
+    `img-src ${cdns} ${cspSource} data: blob:`,
+    `media-src ${cspSource} data: blob:`,
+    `connect-src ${cdns} ${cspSource}`,
   ].join("; ");
-  const config = {mount, appBase, hash, components: apps.components, sandboxConfigPath: apps.sandboxConfigPath,
-    sandboxConfigBody: apps.sandboxConfigBody};
   const head = `<meta http-equiv="Content-Security-Policy" content="${csp}">
-<base href="${pageBase}">
+<base href="${base}">
 <script nonce="${nonce}">${webviewBridge.toString()}
 ${fioriRuntime.toString()}
-fioriRuntime(${JSON.stringify(config).replace(/</g, "\\u003c")});</script>`;
-  let html = source.replace(/<head>/i, `<head>\n${head}`);
+fioriRuntime(${JSON.stringify({...config, cdns: CDNS}).replace(/</g, "\\u003c")});</script>`;
+  const at = source.search(/<head\b[^>]*>/i);
+  let html = at < 0 ? `${head}\n${source}`
+    : source.slice(0, source.indexOf(">", at) + 1) + `\n${head}` + source.slice(source.indexOf(">", at) + 1);
   html = html.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
-  // The launchpad's own config script ends before the sandbox bootstrap tag.
-  html = html.replace(/<script nonce="[^"]*" src="[^"]*\/sap\/ushell\/bootstrap\/sandbox\.js"/,
-    (tag) => `<script nonce="${nonce}">window.osdRebaseApplications();</script>\n  ${tag}`);
+  // A script-less sandboxed frame (the WEBGUI's HTML viewer) becomes
+  // same-origin with this page, so the runtime can take over its links and
+  // forms; without allow-scripts nothing can run in it either way.
+  html = html.replace(/<iframe\b[^>]*>/gi, (tag) => tag.replace(/\bsandbox="([^"]*)"/i, (attribute, flags) =>
+    /\ballow-scripts\b/.test(flags) || /\ballow-same-origin\b/.test(flags) ? attribute : `sandbox="${flags} allow-same-origin"`));
   // The page's own CDN tags load in CORS mode too (see fioriRuntime: COEP).
-  // After the rebase insertion above, whose pattern expects <script nonce=... src=...>.
-  html = html.replace(/<(script|link)\b(?![^>]*\bcrossorigin)([^>]*\b(?:src|href)="https:\/\/ui5\.sap\.com\/)/gi,
+  html = html.replace(/<(script|link)\b(?![^>]*\bcrossorigin)([^>]*\b(?:src|href)="https:\/\/(?:ui5\.sap\.com|cdn\.jsdelivr\.net)\/)/gi,
     (_, tag, rest) => `<${tag} crossorigin="anonymous"${rest}`);
   return html;
 }
 
+function fioriPage(source, {nonce, cspSource, appBase, pageBase, mount, hash, apps, page}) {
+  const config = {mount, appBase, hash, page: `/app/${page}`, components: apps.components,
+    sandboxConfigPath: apps.sandboxConfigPath, sandboxConfigBody: apps.sandboxConfigBody};
+  let html = webviewPage(source, {nonce, cspSource, base: pageBase, config});
+  // The launchpad's own config script ends before the sandbox bootstrap tag.
+  // Any attribute order: the CDN tag has gained crossorigin before its src.
+  html = html.replace(/<script\b[^>]*\bsrc="[^"]*\/sap\/ushell\/bootstrap\/sandbox\.js"/,
+    (tag) => `<script nonce="${nonce}">window.osdRebaseApplications();</script>\n  ${tag}`);
+  return html;
+}
+
 const fioriPanels = new Map();
+const nonceOf = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+const webviewRootOf = (context, panel) =>
+  panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "web")).toString().replace(/\/?$/, "/");
+
+// What a page in a webview asks of the extension: gateway requests, a page or
+// an app where a browser would navigate or open a window, an outside address,
+// and its push channels. Every panel of a page gets the same handler.
+function wirePanel(context, panel) {
+  const channels = new Map();
+  const panelId = nonceOf();
+  const toPage = (message) => panel.webview.postMessage(message).then(undefined, () => false);
+  const closeAll = async () => {
+    const backend = await backendOf();
+    for (const id of channels.keys()) await backend.closeChannel(id).catch(() => undefined);
+    channels.clear();
+  };
+  panel.onDidDispose(() => { void closeAll(); });
+  panel.webview.onDidReceiveMessage(async (message) => {
+    try {
+      if (message?.type === "fetch" && Number.isSafeInteger(message.id)) {
+        const response = await bridgeRequest(message);
+        await toPage({type: "fetch-result", id: message.id, response});
+      } else if (message?.type === "navigate" && message.request) {
+        if (message.newWindow) await openGatewayPage(context, message.request);
+        else {
+          await closeAll();
+          await openGatewayPage(context, message.request, panel);
+        }
+      } else if (message?.type === "open-app" && typeof message.path === "string") {
+        const path = message.path.replace(/^(\/app\/(?:[\w-]+\/)*)(\?[^#]*)?(#.*)?$/, "$1index.html$3").replace(/\?[^#]*/, "");
+        await openFioriPage(context, path);
+      } else if (message?.type === "open-external" && /^https?:\/\//.test(message.url ?? "")) {
+        await vscode.env.openExternal(vscode.Uri.parse(message.url, true));
+      } else if (message?.type?.startsWith?.("apc-") && typeof message.id === "string") {
+        await apcFromPage(`${panelId}:${message.id}`, channels, message, toPage);
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage(`osd: ${String(error?.message ?? error)}`);
+    }
+  });
+}
+
+// A page's WebSocket to /sap/bc/apc/... (fioriRuntime's OsdSocket), driven
+// as the preview's service worker drives it (web/preview-worker.mjs).
+async function apcFromPage(key, channels, message, toPage) {
+  const backend = await backendOf();
+  const send = (payload) => { void toPage({type: "apc", id: message.id, ...payload}); };
+  const run = async (work) => {
+    try { await work(); } catch (error) {
+      channels.delete(key);
+      await backend.closeChannel(key).catch(() => undefined);
+      const {describe} = await import("../../../tools/osd-describe.mjs");
+      send({apc: "close", code: 1011, reason: describe(error)});
+    }
+  };
+  if (message.type === "apc-open") {
+    const {channels: known} = await import("../../../web/generated/services.mjs");
+    const channel = known.find((one) => one.path.toLowerCase() === String(message.path).toLowerCase());
+    if (!channel) {
+      send({apc: "close", code: 1008, reason: `no channel on ${message.path}`});
+      return;
+    }
+    channels.set(key, channel);
+    await run(() => backend.openChannel(key, channel, send));
+  } else if (message.type === "apc-send" && channels.has(key)) {
+    await run(() => backend.channelMessage(key, String(message.text), send));
+  } else if (message.type === "apc-close" && channels.has(key)) {
+    channels.delete(key);
+    await backend.closeChannel(key);
+    send({apc: "close", code: message.code ?? 1000, reason: message.reason ?? ""});
+  }
+}
+
+// A page the gateway writes (an ICF service: Zork, WEBGUI, the data browser),
+// in a webview of its own. The extension asks the gateway for the HTML, as a
+// browser would, follows redirects, and renders it with the runtime: the
+// page's requests, pictures, links, forms and sockets come back here.
+async function openGatewayPage(context, request, panel) {
+  let {method = "GET", path, query = "", headers = [], body = ""} = request;
+  let answer;
+  for (let hop = 0; hop < 5; hop++) {
+    answer = await bridgeRequest({method, path, query, headers, body});
+    const location = [301, 302, 303, 307, 308].includes(answer.status) ? new Headers(answer.headers).get("location") : null;
+    if (!location) break;
+    const next = new URL(location, `https://osd.invalid${path}${query}`);
+    ({pathname: path, search: query} = next);
+    if (answer.status !== 307 && answer.status !== 308) [method, headers, body] = ["GET", [], ""];
+  }
+  const type = new Headers(answer.headers).get("content-type") ?? "";
+  const text = decoder.decode(bytesFromBase64(answer.body));
+  const source = /html/i.test(type) ? text
+    : `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(path)}</title></head><body><h1>${answer.status} ${escapeHtml(answer.statusText)}</h1><pre>${escapeHtml(text)}</pre></body></html>`;
+  const title = (/<title[^>]*>([^<]*)<\/title>/i.exec(source)?.[1] ?? "").trim() || path;
+  if (panel) {
+    panel.title = title;
+    panel.reveal();
+  } else {
+    panel = vscode.window.createWebviewPanel("osdWebPage", title, vscode.ViewColumn.One,
+      {enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist", "web")]});
+    wirePanel(context, panel);
+  }
+  const webviewRoot = webviewRootOf(context, panel);
+  panel.webview.html = webviewPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource,
+    base: webviewRoot + path.slice(1) + query, config: {mount: webviewRoot, appBase: `${webviewRoot}app/`, components: {}}});
+  return panel;
+}
 
 async function openFioriPage(context, path) {
   const match = /^\/app\/((?:[\w-]+\/)*[\w-]+\.html)(#[^\s]*)?$/.exec(path ?? "");
@@ -824,19 +1244,13 @@ async function openFioriPage(context, path) {
       {enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [appRoot]});
     fioriPanels.set(page, panel);
     panel.onDidDispose(() => fioriPanels.delete(page));
-    panel.webview.onDidReceiveMessage(async (message) => {
-      if (message?.type === "fetch" && Number.isSafeInteger(message.id)) {
-        const response = await bridgeRequest(message);
-        await panel.webview.postMessage({type: "fetch-result", id: message.id, response});
-      }
-    });
+    wirePanel(context, panel);
   }
-  const webviewRoot = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "web")).toString().replace(/\/?$/, "/");
+  const webviewRoot = webviewRootOf(context, panel);
   const appBase = `${webviewRoot}app/`;
-  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-  panel.webview.html = fioriPage(source, {nonce, cspSource: panel.webview.cspSource, appBase,
+  panel.webview.html = fioriPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource, appBase,
     pageBase: appBase + page.slice(0, page.lastIndexOf("/") + 1), mount: webviewRoot,
-    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps});
+    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps, page});
   return panel;
 }
 

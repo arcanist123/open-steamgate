@@ -89,6 +89,24 @@ async function manifests(dir, prefix) {
 await manifests(app, "");
 await writeFile(join(app, "osd-web-apps.json"), JSON.stringify({components, sandboxConfigPath: SANDBOX_CONFIG_PATH,
   sandboxConfigBody: SANDBOX_CONFIG_BODY}, undefined, 2) + "\n");
+// The SMW0 media (W3MI objects: the Zork story file, the demos' pictures and
+// audio), beside the bundle as the preview keeps them beside sw.js. The web
+// entry's W3MI loader reads them from the extension's own files; output/ only
+// holds the selected packs' objects. A "%" in an abapGit media name (the
+// escaped dot of zoisee-ear-02%2emp3) is a character of the name, and VS
+// Code's file reads in the browser lose it on the way to the server, so the
+// copy carries "@" in its place; the loader asks for the same spelling.
+const media = resolve(root, "editors/vscode/dist/web/media");
+await mkdir(media, {recursive: true});
+let mediaBytes = 0;
+let mediaFiles = 0;
+for (const entry of (await readdir(resolve(root, "output"))).sort()) {
+  if (!/\.w3mi\.data\./.test(entry)) continue;
+  await cp(resolve(root, "output", entry), join(media, entry.replaceAll("%", "@")));
+  mediaBytes += (await stat(join(media, entry.replaceAll("%", "@")))).size;
+  mediaFiles++;
+}
+console.log(`VS Code web media: ${mediaFiles} W3MI objects, ${mediaBytes} bytes (${(mediaBytes / 1048576).toFixed(2)} MiB)`);
 let appBytes = 0;
 let appFiles = 0;
 async function measure(dir) {
