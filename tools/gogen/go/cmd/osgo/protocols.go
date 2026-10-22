@@ -20,7 +20,7 @@ func protocolFlags() nativeProtocols {
 	}
 }
 
-func (p nativeProtocols) start(sid string, adt bool, binds []string, handler http.Handler) {
+func (p nativeProtocols) start(sid string, adt bool, binds []string, handler http.Handler) (int, int) {
 	rfc, err := rfcnative.FromEnv(*p.rfc, sid, os.Getenv)
 	if err != nil {
 		log.Fatal(err)
@@ -38,4 +38,8 @@ func (p nativeProtocols) start(sid string, adt bool, binds []string, handler htt
 	if err := diagnative.Start(context.Background(), diag, binds, log.Printf); err != nil {
 		log.Fatal(err)
 	}
+	if !rfc.Enabled {
+		rfc.Port = -1
+	}
+	return rfc.Port, diag
 }

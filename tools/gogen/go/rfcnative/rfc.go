@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"osg/gogen/instance"
 	"osg/gogen/osdbind"
 	"strconv"
 	"time"
@@ -31,16 +32,13 @@ func FromEnv(enabled bool, sid string, env func(string) string) (Config, error) 
 	if mode != "" && mode != "demo" {
 		return c, fmt.Errorf("native RFC supports STG_RFC_AUTH_MODE=demo only")
 	}
-	instance := env("INSTANCE")
-	if instance == "" {
-		instance = "00"
-	}
-	if len(instance) != 2 || instance[0] < '0' || instance[0] > '9' || instance[1] < '0' || instance[1] > '9' {
-		return c, fmt.Errorf("INSTANCE must be two digits")
-	}
 	port := env("STG_RFC_PORT")
 	if port == "" {
-		port = "33" + instance
+		derived, err := instance.Port(33, env("INSTANCE"))
+		if err != nil {
+			return c, err
+		}
+		port = strconv.Itoa(derived)
 	}
 	var err error
 	c.Port, err = strconv.Atoi(port)

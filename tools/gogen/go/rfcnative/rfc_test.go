@@ -11,6 +11,7 @@ func TestConfig(t *testing.T) {
 	}{
 		{nil, false, 0, false}, {nil, true, 3300, false},
 		{map[string]string{"INSTANCE": "95"}, true, 3395, false},
+		{map[string]string{"INSTANCE": "bad", "STG_RFC_PORT": "3396"}, true, 3396, false},
 		{map[string]string{"OSD_OSGO_RFC": "1", "STG_RFC_PORT": "0"}, false, 0, false},
 		{map[string]string{"INSTANCE": "x1"}, true, 0, true},
 		{map[string]string{"STG_RFC_PORT": "65536"}, true, 0, true},

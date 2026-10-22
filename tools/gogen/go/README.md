@@ -8,6 +8,9 @@
 
 `cmd/` contains command entry points, including `osgo/`, `osabap/`, and benchmark or probe commands. `go.mod` defines the module; [conformance](../../../docs/conformance.md) describes the HTTP checks used across hosts.
 
+`instance/` validates instance numbers for the four standard ports; `hostports/`
+selects OSGo HTTP/HTTPS overrides, TLS credentials and the startup banner.
+
 `crc32x/` updates the pure CRC-32 register used by the zip reader.
 
 `gzipx/` handles raw DEFLATE byte streams.
