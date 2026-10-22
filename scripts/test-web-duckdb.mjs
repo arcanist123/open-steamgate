@@ -36,7 +36,7 @@ export async function duckdbPass({page, command, runPaletteCommand, fioriFrame, 
   const prompt = page.locator(".notifications-toasts .notification-list-item")
     .filter({hasText: "takes effect after a window reload"}).first();
   await prompt.waitFor({timeout: 30000});
-  const promptText = (await prompt.textContent()).replaceAll(" ", " ");
+  const promptText = (await prompt.textContent()).replaceAll("\u00a0", " ");
   if (!promptText.includes("DuckDB-Wasm")) throw new Error(`Engine prompt does not name DuckDB: ${promptText}`);
   await page.screenshot({path: join(shots, "duckdb-setting-prompt.png")});
   console.log(`DuckDB setting: prompt "${promptText.slice(0, 160)}"`);
