@@ -676,11 +676,19 @@ function fioriRuntime(config, urlsInUse) {
       this.src = value;
       return;
     }
-    if (name === "src" && mediaTypes.some((type) => this instanceof type)) this.osdSource = undefined;
+    if (String(name).toLowerCase() === "src" && mediaTypes.some((type) => this instanceof type)) this.osdSource = undefined;
     if ((name === "src" || name === "href") && cdn(value) && "crossOrigin" in this && this.crossOrigin === null) {
       this.crossOrigin = "anonymous";
     }
     return setAttribute.call(this, name, value);
+  };
+  // osdSource is cleared where src changes, synchronously (the setters above
+  // and here), never from a mutation record: a record is read after the fact
+  // and would clear a path set after it (page-host.mjs, mediaUrlsInUse)
+  const removeAttribute = Element.prototype.removeAttribute;
+  Element.prototype.removeAttribute = function (name) {
+    if (String(name).toLowerCase() === "src" && mediaTypes.some((type) => this instanceof type)) this.osdSource = undefined;
+    return removeAttribute.call(this, name);
   };
   // Elements the parser or innerHTML made (UI5 renders strings, an ICF page
   // is markup) never pass the setter: they are rewritten once they appear.
@@ -691,8 +699,6 @@ function fioriRuntime(config, urlsInUse) {
     const value = one.getAttribute("src");
     const virtual = value && !value.startsWith("blob:") ? virtualOf(value) : undefined;
     if (virtual !== undefined && one.osdSource !== virtual) one.src = value;
-    // src no longer waits for a path (cleared, or set to a URL the browser loads)
-    else if (virtual === undefined && !value?.startsWith("blob:")) one.osdSource = undefined;
   };
   // sap.m.Avatar (the Travels photo) paints a background-image instead.
   // osdBackground names the path only while the style still does: once the

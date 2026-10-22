@@ -48,7 +48,13 @@ async function mediaCache(frame) {
         image.src = "";
       }
     };
-    const readable = (blob) => fetch(blob).then((response) => response.ok, () => false);
+    // decoded as a picture (the webview's CSP lets img-src, not connect-src, read blob:)
+    const readable = (blob) => new Promise((done) => {
+      const probe = new Image();
+      probe.onload = () => done(probe.naturalWidth > 0);
+      probe.onerror = () => done(false);
+      probe.src = blob;
+    });
     // critic round 4: a bridged blob URL copied to an element nobody handed
     // it to (an <img> and a background), the original cleared and removed,
     // then enough distinct pictures to push the copy past the bound
@@ -60,11 +66,13 @@ async function mediaCache(frame) {
     copy.setAttribute("src", blob);
     const painted = document.body.appendChild(document.createElement("div"));
     painted.style.backgroundImage = `url("${blob}")`;
+    const copyBefore = await readable(blob);
     original.src = "";
     original.remove();
     await settle();
     await loadMore(0, 24);
     const copyKept = await readable(blob);
+    const copyCached = bridge.mediaCached().includes(bridge.virtualOf(url(`${photo}?osd-copy=1`)));
     copy.remove();
     // and the background copy alone still holds it
     await loadMore(24, 4);
@@ -87,7 +95,7 @@ async function mediaCache(frame) {
     const clearedRevoked = bridge.stats.revoked - beforeClear;
     const clearedCached = bridge.mediaCached().length;
     for (const one of retained) one.remove();
-    return {cached, revoked: revokedNow, missing, copyKept, backgroundKept, painting, clearedRevoked, clearedCached,
+    return {cached, revoked: revokedNow, missing, copyBefore, copyKept, copyCached, backgroundKept, painting, clearedRevoked, clearedCached,
       stale: retained.filter((one) => one.osdBackground !== undefined).length};
   });
   if (outcome.error) throw new Error(`media cache: ${outcome.error}`);
@@ -95,7 +103,10 @@ async function mediaCache(frame) {
     throw new Error(`media cache: ${outcome.cached.length} blobs kept, ${outcome.revoked} revoked after 40 distinct pictures`);
   }
   if (outcome.cached.includes(outcome.missing)) throw new Error(`media cache: the failed load ${outcome.missing} is kept`);
-  if (!outcome.copyKept) throw new Error("media cache: a blob URL copied to another <img> was revoked while it showed it");
+  if (!outcome.copyBefore) throw new Error("media cache: the picture to copy did not decode");
+  if (!outcome.copyKept || !outcome.copyCached) {
+    throw new Error(`media cache: a blob URL copied to another <img> was revoked while it showed it (decodes ${outcome.copyKept}, cached ${outcome.copyCached})`);
+  }
   if (!outcome.backgroundKept) throw new Error("media cache: a blob URL copied to a background was revoked while it showed it");
   if (outcome.painting !== 20) throw new Error(`media cache: ${outcome.painting} of 20 backgrounds painted`);
   if (outcome.stale > 0 || outcome.clearedCached > 17 || outcome.clearedRevoked < 4) {
