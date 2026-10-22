@@ -148,6 +148,8 @@ export function goLintEngineGo(spec) {
   return `package main
 import (
  "encoding/json"
+ "osg/gogen/adtoutline"
+ "osg/gogen/cdscheck"
  "osg/gogen/lintinput"
  lint "zabaplint"
  "osg/gogen/objstore"
@@ -169,6 +171,51 @@ func (l *goLintLibrary) Check(target string) []storelint.Issue {
  out := make([]storelint.Issue, 0, len(issues))
  for _, i := range issues { out = append(out, storelint.Issue{Filename: i.Filename, Key: i.Key, Message: i.Message, Row: i.Row, Column: i.Column}) }
  return out
+}
+func (l *goLintLibrary) DDLS(name string) []storelint.Issue {
+ inspect:=func(typ,name string) cdscheck.Object {
+  o:=l.checker.OSGInspect(typ,name)
+  out:=cdscheck.Object{Found:o.Found,SQLView:o.SQLView,Components:o.Components,Keys:o.Keys}
+  for _,f:=range o.Files { out.Files=append(out.Files,cdscheck.File{Filename:f.Filename,Raw:f.Raw}) }
+  var expr func(lint.OSGExpression) cdscheck.Expression
+  expr=func(n lint.OSGExpression) cdscheck.Expression {
+   e:=cdscheck.Expression{Kind:n.Kind,Text:n.Text}; for _,c:=range n.Children { e.Children=append(e.Children,expr(c)) };return e
+  }
+  if o.Tree!=nil { tree:=expr(*o.Tree);out.Tree=&tree };return out
+ }
+ out:=[]storelint.Issue{}
+ for _,i:=range cdscheck.Issues(name,inspect) { out=append(out,storelint.Issue{Filename:i.Filename,Key:"cds",Severity:i.Severity,Message:i.Message,Row:1,Column:1}) }
+ return out
+}
+func (l *goLintLibrary) CheckObject(typ, name string) ([]storelint.Issue, bool) {
+ issues, found := l.checker.CheckObject(typ, name)
+ out := make([]storelint.Issue, 0, len(issues))
+ for _, i := range issues { out = append(out, storelint.Issue{Filename:i.Filename, Key:i.Key, Message:i.Message, Severity:i.Severity, Row:i.Row, Column:i.Column, EndRow:i.EndRow, EndColumn:i.EndColumn}) }
+ return out, found
+}
+func (l *goLintLibrary) SnapshotTree(files []objstore.LintFile, config, typ, name string) ([]adtoutline.FileTree, bool) {
+ var checker lint.Checker
+ input := make([]lint.File, 0, len(files))
+ for _, f := range files { input = append(input, lint.File{Filename:f.Filename, Raw:f.Raw}) }
+ checker.Prime(input, nil, config)
+ trees, found := checker.Tree(typ,name)
+ pos := func(p lint.Pos) adtoutline.Pos { return adtoutline.Pos{Row:p.Row,Col:p.Col} }
+ var node func(lint.Node) adtoutline.Node
+ node = func(n lint.Node) adtoutline.Node {
+  out := adtoutline.Node{Kind:n.Kind,Statement:n.Statement,Start:pos(n.Start),End:pos(n.End)}
+  for _, t := range n.Tokens { out.Tokens = append(out.Tokens,adtoutline.Token{Str:t.Str,Start:pos(t.Start),End:pos(t.End),Pragma:t.Pragma}) }
+  for _, c := range n.Children { out.Children = append(out.Children,node(c)) }
+  if n.FirstStatement != nil { first:=node(*n.FirstStatement); out.FirstStatement=&first }
+  return out
+ }
+ out := make([]adtoutline.FileTree,0,len(trees))
+ for _, f := range trees {
+  tree:=adtoutline.FileTree{Filename:f.Filename}
+  if f.Structure != nil { structure:=node(*f.Structure); tree.Structure=&structure }
+  for _, s := range f.Statements { tree.Statements=append(tree.Statements,node(s)) }
+  out=append(out,tree)
+ }
+ return out,found
 }
 func (l *goLintLibrary) Stats() storelint.Stats {
  r := l.checker.Stats()

@@ -349,6 +349,16 @@ test("Go library bridge links only on request and shares CHECKRUN lifecycle with
   if raw == "throw" { panic("refused test body") }
   return []Issue{{Filename:file, Key:"syntax", Severity:"warning", Message:raw, Row:12, Column:5}}
  }
+ type Pos struct { Row,Col int32 }
+ type Token struct { Str string; Start,End Pos; Pragma bool }
+ type Node struct { Kind string; Statement bool; Start,End Pos; Tokens []Token; Children []Node; FirstStatement *Node }
+ type FileTree struct { Filename string; Structure *Node; Statements []Node }
+ func (c *Checker) CheckObject(typ,name string) ([]Issue,bool) { return nil,false }
+ func (c *Checker) Tree(typ,name string) ([]FileTree,bool) { return nil,false }
+ type OSGExpression struct { Kind,Text string; Children []OSGExpression }
+ type OSGFile struct { Filename,Raw string }
+ type OSGObject struct { Found bool; SQLView string; Components,Keys []string; Files []OSGFile; Tree *OSGExpression }
+ func (c *Checker) OSGInspect(typ,name string) OSGObject { return OSGObject{} }
  func (c *Checker) Stats() Stats { return c.stats }
 `);
     assert.deepEqual(lintBuildOptions([]), {engine: "abap", lib: undefined});
