@@ -10,9 +10,9 @@ import (
 
 // Only saved ABAP checks on the in-process provider use a targeted index.
 // Other commands, source overlays and non-ABAP types keep the general index.
-func checkRunIndex(command, typ, name string, source *string, filter string) *storeIndex {
+func checkRunIndex(command, typ, name string, _ *string, filter string) *storeIndex {
 	capable, ok := compilerState.provider.(storecheck.SourceCompiler)
-	if command == "CHECKRUN" && source == nil && filter != "SOURCE" && ok && capable.SupportsSource() {
+	if command == "CHECKRUN" && !storecheck.UsesSource(command, filter, true, compilerState.provider) && ok && capable.SupportsSource() {
 		switch typ {
 		case "CLAS", "INTF", "PROG", "INCL":
 			ext, _ := storeTypeExt(typ)

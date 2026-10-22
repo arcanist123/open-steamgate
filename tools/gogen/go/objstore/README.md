@@ -86,3 +86,12 @@ Other commands, source overlays, non-ABAP types and sidecar providers retain
 and build/live identity checks use the unchanged compiler boundary.
 `BenchmarkTargetIndex3000` isolates full versus targeted lookup on 3,000 project
 files; the whole saved request benchmark lives in lintinput.
+
+CHECKRUN saved/inline selection uses `storecheck.UsesSource`, the same predicate
+as execution: `IV_FILTER=SOURCE`, a source object type and a source-capable
+provider select an overlay. `IV_SOURCE` presence and contents do not select the
+mode. ABAP's report method passes its string for both modes (the generated
+adapter therefore supplies a non-nil pointer for a saved empty string), and
+encodes `has_source` separately in `IV_FILTER`. A saved request ignores even a
+nonempty buffer; an explicitly empty SOURCE buffer remains an overlay. Targeted
+index selection follows that flag while retaining the provider/type admission.

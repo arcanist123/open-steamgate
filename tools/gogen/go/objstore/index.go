@@ -244,8 +244,15 @@ func (ix *storeIndex) set(key string, e *storeEntry) {
 // git pull changed is then never answered from a stale index.
 func storeBuild() *storeIndex { return storeBuildFor("") }
 
+// storeIndexBuilt is a test observer, installed only while holding the store mutex.
+// It must not call back into the store.
+var storeIndexBuilt func(target string)
+
 // A nonempty target filters enumeration before per-object stat/package work.
 func storeBuildFor(target string) *storeIndex {
+	if storeIndexBuilt != nil {
+		storeIndexBuilt(target)
+	}
 	ix := &storeIndex{by: map[string]*storeEntry{}}
 	cfg := storeState.cfg
 	roots := append(append([]Root{}, cfg.Roots...), cfg.Libs...)

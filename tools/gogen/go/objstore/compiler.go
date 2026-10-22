@@ -76,16 +76,14 @@ func captureCompiler(ix *storeIndex, command, typ, name, include string, source 
 	} else {
 		req.Input.Version = version
 	}
-	if !req.Exists && command == "CHECKRUN" && filter == "SOURCE" && req.SourceType {
-		if capable, ok := compilerState.provider.(storecheck.SourceCompiler); ok && capable.SupportsSource() {
-			req.Input = CompilerInput{Root: storeState.root, Generation: compilerState.generation, Type: typ, Name: name, Version: version}
-			req.InputError = nil
-			for _, root := range storeState.cfg.Roots {
-				if root.Writable {
-					ext := map[string]string{"CLAS": ".clas.abap", "INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap"}[typ]
-					req.Input.Target = filepath.ToSlash(filepath.Join(root.Path, "osd", strings.ReplaceAll(strings.ToLower(name), "/", "#")+ext))
-					break
-				}
+	if !req.Exists && storecheck.UsesSource(command, filter, req.SourceType, compilerState.provider) {
+		req.Input = CompilerInput{Root: storeState.root, Generation: compilerState.generation, Type: typ, Name: name, Version: version}
+		req.InputError = nil
+		for _, root := range storeState.cfg.Roots {
+			if root.Writable {
+				ext := map[string]string{"CLAS": ".clas.abap", "INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap"}[typ]
+				req.Input.Target = filepath.ToSlash(filepath.Join(root.Path, "osd", strings.ReplaceAll(strings.ToLower(name), "/", "#")+ext))
+				break
 			}
 		}
 	}

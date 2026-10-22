@@ -140,12 +140,11 @@ func TestTargetIndexAdmission(t *testing.T) {
 	if ix := checkRunIndex("CHECKRUN", "PROG", "Z", nil, ""); ix.find("PROG", "Z") == nil || ix.find("PROG", "OTHER") != nil {
 		t.Fatal("saved ABAP did not use targeted lookup")
 	}
-	source := "buffer"
 	for _, tc := range []struct {
 		command, typ, filter string
 		source               *string
 	}{
-		{"CHECK", "PROG", "", nil}, {"CHECKRUN", "TABL", "", nil}, {"CHECKRUN", "PROG", "SOURCE", nil}, {"CHECKRUN", "PROG", "", &source},
+		{"CHECK", "PROG", "", nil}, {"CHECKRUN", "TABL", "", nil}, {"CHECKRUN", "PROG", "SOURCE", nil},
 	} {
 		if checkRunIndex(tc.command, tc.typ, "Z", tc.source, tc.filter).find("PROG", "OTHER") == nil {
 			t.Fatalf("lost fallback %+v", tc)
@@ -237,5 +236,74 @@ func TestTargetIndexSavedCheckCanonicalName(t *testing.T) {
 	t.Logf("full=%s; targeted=%s", full.Scalars["EV_JSON"], fast.Scalars["EV_JSON"])
 	if full.Scalars["EV_JSON"] != fast.Scalars["EV_JSON"] {
 		t.Fatal("saved CHECKRUN changes its public result")
+	}
+}
+
+// The generated STORE adapter supplies IV_SOURCE even for saved HTTP requests.
+// Observe the actual builder reached by Call, rather than only equal output.
+func TestTargetIndexAdapterSource(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "src"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for f, s := range map[string]string{"abap_transpile.json": "{}", "src/ztest.prog.abap": "REPORT ztest.", "src/other.prog.abap": "REPORT other."} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte(s), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := SetStore(root, []byte(`{"roots":[{"path":"src","writable":true}]}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	defer SetStore("", nil, "")
+	provider := &sourceTestCompiler{}
+	SetCompiler(provider, "")
+	defer SetCompiler(nil, "")
+	ptr := func(s string) *string { return &s }
+	for _, tc := range []struct {
+		name, filter string
+		source       *string
+	}{
+		{"saved-absent", "", nil},
+		{"saved-adapter-empty", "", ptr("")},
+		{"saved-ignores-buffer", "", ptr("unsaved")},
+		{"overlay-empty", "SOURCE", ptr("")},
+		{"overlay-text", "SOURCE", ptr("unsaved")},
+		{"overlay-absent", "SOURCE", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storeState.mu.Lock()
+			req := captureCompiler(storeBuild(), "CHECKRUN", "PROG", "ZTEST", "", tc.source, tc.filter, "")
+			storeState.mu.Unlock()
+			full, err := storecheck.Run(provider, req)
+			if err != nil || !strings.Contains(full.Scalars["EV_JSON"], `"status":"processed"`) {
+				t.Fatalf("invalid full fixture: %+v %v", full, err)
+			}
+			var builds []string
+			storeState.mu.Lock()
+			storeIndexBuilt = func(target string) { builds = append(builds, target) }
+			storeState.mu.Unlock()
+			defer func() {
+				storeState.mu.Lock()
+				storeIndexBuilt = nil
+				storeState.mu.Unlock()
+			}()
+			answer := Call(map[string]*string{"IV_COMMAND": ptr("CHECKRUN"), "IV_TYPE": ptr("PROG"), "IV_NAME": ptr("ZTEST"), "IV_SOURCE": tc.source, "IV_FILTER": ptr(tc.filter)})
+			wantTarget := "ZTEST.prog.abap"
+			if tc.filter == "SOURCE" {
+				wantTarget = ""
+			}
+			if !reflect.DeepEqual(builds, []string{wantTarget}) {
+				t.Fatalf("index builds = %q, want %q", builds, []string{wantTarget})
+			}
+			if answer.Scalars["EV_ERROR"] != "" || answer.Scalars["EV_JSON"] != full.Scalars["EV_JSON"] {
+				t.Fatalf("full=%+v Call=%+v", full, answer)
+			}
+			if tc.filter != "SOURCE" && provider.request.Source != nil {
+				t.Fatal("saved check used inline source")
+			}
+			if tc.filter == "SOURCE" && (provider.request.Source == nil || (tc.source != nil && *provider.request.Source != *tc.source)) {
+				t.Fatal("overlay source lost, including empty buffer")
+			}
+		})
 	}
 }
