@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-77 -77 154 128" role="img" aria-label="Open SteamGate">
+<defs>
+<clipPath id="sg2b">
+<circle cx="0" cy="0" r="13"/>
+<rect x="-13" y="0" width="26" height="49"/>
+</clipPath>
+</defs>
+<g fill="#1d2325">
+<g id="symbol">
+<path d="M-62 38L-62 0A62 62 0 0 1 62 0L62 38L51 38L51 0A51 51 0 0 0 -51 0L-51 38Z"/>
+<path d="M-60.53 0.63L-73.22 -2.7L-71.7 -15.09L-58.58 -15.25Z"/>
+<path d="M-53.9 -27.55L-63.59 -36.39L-56.49 -46.65L-44.8 -40.71Z"/>
+<path d="M-34.94 -49.43L-39.42 -61.76L-28.37 -67.55L-20.77 -56.85Z"/>
+<path d="M-8 -60L-6.24 -73L6.24 -73L8 -60Z"/>
+<path d="M20.77 -56.85L28.37 -67.55L39.42 -61.76L34.94 -49.43Z"/>
+<path d="M44.8 -40.71L56.49 -46.65L63.59 -36.39L53.9 -27.55Z"/>
+<path d="M58.58 -15.25L71.7 -15.09L73.22 -2.7L60.53 0.63Z"/>
+<path d="M-60 14L-73 15.76L-73 28.24L-60 30Z"/>
+<path d="M60 14L73 15.76L73 28.24L60 30Z"/>
+<path d="M-36 47L-36 0A36 36 0 0 1 36 0L36 47" fill="none" stroke="#1d2325" stroke-width="11"/>
+<path d="M-17 47L-17 0A17 17 0 0 1 17 0L17 47" fill="none" stroke="#1d2325" stroke-width="8"/>
+<g clip-path="url(#sg2b)">
+<rect x="-5.83" y="0" width="3" height="47"/>
+<rect x="2.83" y="0" width="3" height="47"/>
+</g>
+</g>
+</g>
+</svg>

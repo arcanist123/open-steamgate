@@ -37,7 +37,7 @@ The feature list groups discovered paths; each linked path is checked when this 
 - Commands: `npm run vsix` ([scripts/build-vsix.mjs](../scripts/build-vsix.mjs)); `npm run web:vscode` ([scripts/build-vscode-web.mjs](../scripts/build-vscode-web.mjs)); `npm run web:preview` ([tools/osd-build.mjs](../tools/osd-build.mjs), [scripts/build-preview.mjs](../scripts/build-preview.mjs))
 - Main files: [src/webgui](../src/webgui); [src/status](../src/status)
 - Tests: [test/vscode-extension.mjs](../test/vscode-extension.mjs); [test/preview-closure.mjs](../test/preview-closure.mjs)
-- Docs: [A thin VS Code extension over a running osd (Q2)](../docs/vscode-extension.md); [VS Code for the Web gateway, tree, and webview transport probe](../docs/vscode-web.md); [Preview deployments: the gateway in the browser](../docs/preview-deployments.md)
+- Docs: [A thin VS Code extension over a running osd (Q2)](../docs/vscode-extension.md); [VS Code for the Web: open-steamgate in vscode.dev](../docs/vscode-web.md); [Preview deployments: the gateway in the browser](../docs/preview-deployments.md)
 
 ## Packs and deployment
 
