@@ -425,6 +425,9 @@ CLASS zcl_osd_edit IMPLEMENTATION.
         lv_hint = `Check is a parse of the system, seconds. ` &&
                   `Activate is that check over every caller and then a build, and a build ` &&
                   `of changed sources is never cached.`.
+      ELSEIF can( iv_caps = lv_caps iv_command = `CHECK` ) = abap_true.
+        lv_hint = `Check validates the source in this host. ` &&
+                  `Activation requires rebuilding the system from this tree.`.
       ELSEIF can( iv_caps = lv_caps iv_command = `WRITE` ) = abap_true.
         lv_hint = `This host is a built system: it can save a source but not check or activate it. ` &&
                   `What is saved becomes active when the system is built again from this tree.`.

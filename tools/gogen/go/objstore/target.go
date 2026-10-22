@@ -1,6 +1,7 @@
 package objstore
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,11 +9,12 @@ import (
 	"osg/gogen/storecheck"
 )
 
-// Only saved ABAP checks on the in-process provider use a targeted index.
-// Other commands, source overlays and non-ABAP types keep the general index.
+// Targeted native checks retain a fresh walk and the full builder's layer rules.
 func checkRunIndex(command, typ, name string, _ *string, filter string) *storeIndex {
 	capable, ok := compilerState.provider.(storecheck.SourceCompiler)
-	if command == "CHECKRUN" && !storecheck.UsesSource(command, filter, true, compilerState.provider) && ok && capable.SupportsSource() {
+	native, linked := compilerState.provider.(interface{ SupportsCheckSource() bool })
+	check := command == "CHECK" && linked && native.SupportsCheckSource()
+	if check || (command == "CHECKRUN" && !storecheck.UsesSource(command, filter, true, compilerState.provider) && ok && capable.SupportsSource()) {
 		switch typ {
 		case "CLAS", "INTF", "PROG", "INCL":
 			ext, _ := storeTypeExt(typ)
@@ -77,4 +79,18 @@ func storeTargetWalk(base, dir, target string, out []string) []string {
 		}
 	}
 	return out
+}
+
+func outlineIndex(raw string) *storeIndex {
+	native, ok := compilerState.provider.(interface{ NativeCheckOutline() bool })
+	var in struct{ Kind, Type, Name string }
+	if ok && native.NativeCheckOutline() && json.Unmarshal([]byte(raw), &in) == nil && in.Kind == "OUTLINE" {
+		typ := strings.ToUpper(in.Type)
+		switch typ {
+		case "CLAS", "INTF", "PROG", "INCL":
+			ext, _ := storeTypeExt(typ)
+			return storeBuildFor(strings.ReplaceAll(strings.ToUpper(in.Name), "/", "#") + ext)
+		}
+	}
+	return storeBuild()
 }

@@ -74,14 +74,14 @@ reuse. Full reads preserve open/read semantics, not stronger coherence than the
 filesystem provides. This remains a two-pass freshness check, not an atomic
 filesystem transaction.
 
-Saved CHECKRUN on a source-capable in-process provider uses a targeted index for
-CLAS/INTF/PROG/INCL. Every request freshly reads all project directories, follows
+Saved CHECKRUN on a source-capable in-process provider and native CHECK/OUTLINE
+use a targeted index for CLAS/INTF/PROG/INCL, including native CHECK overlays. Every request freshly reads all project directories, follows
 directory links like the general walker, and stats matching candidates. It
 filters names before unrelated file stat/package work, preserving lexical root
 traversal, exclusions, case handling, project overwrite/library-first precedence,
 INCL aliases and package chains through the shared index builder. Libraries
 still use the configured explicit file lists. There is no retained store index.
-Other commands, source overlays, non-ABAP types and sidecar providers retain
+Other commands, CHECKRUN overlays, non-ABAP types and sidecar providers retain
 `storeBuild`. Include reads and expected hashes, store revision/provider checks,
 and build/live identity checks use the unchanged compiler boundary.
 `BenchmarkTargetIndex3000` isolates full versus targeted lookup on 3,000 project
@@ -95,3 +95,7 @@ adapter therefore supplies a non-nil pointer for a saved empty string), and
 encodes `has_source` separately in `IV_FILTER`. A saved request ignores even a
 nonempty buffer; an explicitly empty SOURCE buffer remains an overlay. Targeted
 index selection follows that flag while retaining the provider/type admission.
+
+STORE CAPABILITIES advertises CHECK when the native CheckObject callback is
+linked, independently of sidecar discovery. A built native host does not
+advertise ACTIVATE; the editor explains that activation requires a rebuild.
