@@ -36,7 +36,18 @@ For a manual session, run `npm run web:vscode`, then `npx -y @vscode/test-web --
 
 ## Try in vscode.dev
 
-Serve `editors/vscode/` itself (the directory with `package.json`) over trusted HTTPS with CORS enabled. For example, create and trust a local certificate with `mkcert`, then run an HTTPS static server such as `npx serve --cors -l 5000 --ssl-cert <cert.pem> --ssl-key <key.pem>` from that directory. In `https://vscode.dev`, run **Developer: Install Extension From Location...** and enter the server's `https://localhost:5000` URL. The browser must trust the certificate and be able to fetch `dist/web/extension.js` across origins. These steps follow the [VS Code web extension guide](https://code.visualstudio.com/api/extension-guides/web-extensions#test-your-web-extension-in-vscodedev). Run **osd: Web probe view**, click **Run write and batch probe**, and check that the result shows metadata 200, CSRF 200 with a token, POST 201 with a Location, GET 200, filtered GET 200, forbidden path 403, batch 202, and batch-row GET 200. Reload vscode.dev, open the view again, click **Verify saved row**, and check GET 200 with the same ID and description. This is the manual vscode.dev gate; the automated `@vscode/test-web` run uses the same webview flow.
+**From the Marketplace.** The Marketplace package carries the browser entry (`OSD_VSIX_WEB=1` in `release.yml`), so in `https://vscode.dev` the extension installs from the Extensions view like any other: search for open-steamgate (switch to the pre-release version if only that one carries it yet). Nothing runs outside the browser: the gateway is the extension's own web worker.
+
+**From a build or a preview, without the Marketplace.** vscode.dev's Content-Security-Policy lets **Developer: Install Extension From Location...** fetch only from `https://localhost:*` and the Marketplace CDN, so a GitHub Pages URL is refused even though Pages answers CORS (measured in vscode.dev, 2026-10-22). The local door is `scripts/serve-vscode-web.mjs` (`npm run web:vscode:serve`):
+
+```sh
+node scripts/serve-vscode-web.mjs https://oisee.github.io/open-steamgate/main/vscode-web   # relay a published preview, nothing to build
+# or: npm run web:vscode && npm run web:vscode:stage && npm run web:vscode:serve          # this checkout
+```
+
+It answers on `https://localhost:5000` (`OSD_WEB_PORT`) with a self-signed certificate unless `OSD_WEB_CERT`/`OSD_WEB_KEY` name one (e.g. from `mkcert localhost`). Open `https://localhost:5000/` once and accept the certificate. Then, in vscode.dev, run **Developer: Install Extension From Location...** with `https://localhost:5000`. Chrome asks once for permission to reach the local network. The server grants CORS to VS Code's own origins only (vscode.dev, `*.vscode-cdn.net`, localhost), answers the Private Network Access preflight, and sends `Cross-Origin-Resource-Policy: cross-origin` because vscode.dev is cross-origin isolated. Each PR preview has the same directory at `/pr-<n>/vscode-web/`.
+
+Then run **osd: Open Fiori Launchpad**, or open the OSD view.
 
 ## Fiori apps in a webview
 

@@ -16,7 +16,7 @@
   "engines": {"vscode": "^1.101.0"},
   "extensionKind": ["workspace", "ui"],
   "capabilities": {
-    "virtualWorkspaces": {"supported": "limited", "description": "The web gateway probe works in virtual workspaces; desktop filesystem commands need a local folder."}
+    "virtualWorkspaces": {"supported": "limited", "description": "In VS Code for the Web the ABAP gateway runs in the browser: the OSD view, Fiori apps, F8 Data Preview and SQL notebooks work; Start, ABAP Unit, the debugger and Check/Activate need the desktop."}
   },
   "categories": ["Programming Languages", "Testing", "Other"],
   "main": "./extension.js",
