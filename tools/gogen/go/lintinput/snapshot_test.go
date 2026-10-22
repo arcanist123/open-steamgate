@@ -18,7 +18,12 @@ import (
 // The expensive engine is a no-op here: measure the real input/guard/bridge
 // path independently of engine work. The store variant includes index build,
 // target hashing and the store's post-call stale-result checks.
-func BenchmarkFreshness3000(b *testing.B) {
+func BenchmarkFreshness3000(b *testing.B) { benchmarkFreshness3000(b, false) }
+
+// All-project variant exercises fresh directory discovery for every file.
+func BenchmarkSavedProjectCheckRun3000(b *testing.B) { benchmarkFreshness3000(b, true) }
+
+func benchmarkFreshness3000(b *testing.B, allProject bool) {
 	root := b.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "abap_transpile.json"), []byte("{}"), 0600); err != nil {
 		b.Fatal(err)
@@ -27,7 +32,7 @@ func BenchmarkFreshness3000(b *testing.B) {
 	raw := []byte(strings.Repeat("* synthetic ABAP input\n", 200)) // 4,400 bytes; 13.2 MB total
 	for i := 0; i < 3000; i++ {
 		base := "lib"
-		if i < 300 {
+		if i < 300 || allProject {
 			base = "src"
 		}
 		file := fmt.Sprintf("%s/d%02d/z%04d.prog.abap", base, i/100, i)

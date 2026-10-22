@@ -242,16 +242,33 @@ func (ix *storeIndex) set(key string, e *storeEntry) {
 // every object of every root, by type and name (osd-store.mjs build). Built
 // again for every call: the walk is milliseconds, and a file an editor or a
 // git pull changed is then never answered from a stale index.
-func storeBuild() *storeIndex {
+func storeBuild() *storeIndex { return storeBuildFor("") }
+
+// storeIndexBuilt is a test observer, installed only while holding the store mutex.
+// It must not call back into the store.
+var storeIndexBuilt func(target string)
+
+// A nonempty target filters enumeration before per-object stat/package work.
+func storeBuildFor(target string) *storeIndex {
+	if storeIndexBuilt != nil {
+		storeIndexBuilt(target)
+	}
 	ix := &storeIndex{by: map[string]*storeEntry{}}
 	cfg := storeState.cfg
 	roots := append(append([]Root{}, cfg.Roots...), cfg.Libs...)
 	for _, root := range roots {
 		files := root.Files
 		if !root.Library {
-			files = storeWalk(storeState.root, root.Path, nil)
+			if target == "" {
+				files = storeWalk(storeState.root, root.Path, nil)
+			} else {
+				files = storeTargetWalk(storeState.root, root.Path, target, nil)
+			}
 		}
 		for _, file := range files {
+			if target != "" && !storeTargetMatches(filepath.Base(file), target) {
+				continue
+			}
 			name := file[strings.LastIndex(file, "/")+1:]
 			for _, t := range storeTypes {
 				if !strings.HasSuffix(name, t.Ext) || t.SameFileAs != "" {

@@ -104,10 +104,17 @@ type ReportCompiler interface {
 	CheckRun(context.Context, Input) ([]Issue, string, error)
 }
 
+// UsesSource is the CHECKRUN overlay rule shared by execution and index selection.
+// IV_FILTER carries ABAP's has_source flag: SOURCE includes an empty buffer;
+// without it IV_SOURCE is ignored, regardless of pointer presence or contents.
+func UsesSource(command, filter string, sourceType bool, provider Compiler) bool {
+	capable, ok := provider.(SourceCompiler)
+	return command == "CHECKRUN" && filter == "SOURCE" && sourceType && ok && capable.SupportsSource()
+}
+
 // Run never consults store state and never owns the provider's lifecycle.
 func Run(provider Compiler, req Request) (Result, error) {
-	sourceCompiler, ok := provider.(SourceCompiler)
-	overlay := req.Command == "CHECKRUN" && req.Filter == "SOURCE" && req.SourceType && ok && sourceCompiler.SupportsSource()
+	overlay := UsesSource(req.Command, req.Filter, req.SourceType, provider)
 	r := Result{Scalars: map[string]string{}, Issues: []Issue{}}
 	if req.Command == "CHECKRUN" {
 		if !req.Known {

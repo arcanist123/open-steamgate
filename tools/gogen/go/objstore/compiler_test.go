@@ -127,6 +127,8 @@ type blockedCompiler struct {
 	blockAvailability bool
 }
 
+func (c *blockedCompiler) SupportsSource() bool { return true }
+
 func (c *blockedCompiler) Available(ctx context.Context) error {
 	if c.blockAvailability {
 		c.entered <- CompilerInput{}
@@ -188,7 +190,7 @@ func TestCompilerDoesNotLockStoreAndRejectsStaleResults(t *testing.T) {
 					ptr := func(s string) *string { return &s }
 					done := make(chan Answer, 1)
 					go func() {
-						done <- Call(map[string]*string{"IV_COMMAND": ptr(command), "IV_TYPE": ptr("PROG"), "IV_NAME": ptr("ZTEST"), "IV_JSON": ptr(`{"kind":"OUTLINE","type":"PROG","name":"ZTEST"}`), "IV_SOURCE": ptr("")})
+						done <- Call(map[string]*string{"IV_COMMAND": ptr(command), "IV_TYPE": ptr("PROG"), "IV_NAME": ptr("ZTEST"), "IV_JSON": ptr(`{"kind":"OUTLINE","type":"PROG","name":"ZTEST"}`), "IV_SOURCE": nil})
 					}()
 					select {
 					case input := <-c.entered:
