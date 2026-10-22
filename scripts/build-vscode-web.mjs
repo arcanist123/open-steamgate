@@ -56,6 +56,16 @@ const bytes = (await stat(file)).size;
 const gzipBytes = gzipSync(await readFile(file)).byteLength;
 console.log(`VS Code web bundle (${selection === "" ? "core" : selection === "zork" ? "core+zork" : selection}): raw ${bytes} bytes (${(bytes / 1048576).toFixed(2)} MiB), gzip ${gzipBytes} bytes (${(gzipBytes / 1048576).toFixed(2)} MiB)`);
 
+// DuckDB-Wasm for osd.web.database = duckdb: the engine's 39 MB binary goes
+// beside extension.js, not into it, and the extension fetches it only when the
+// setting asks for DuckDB. Copied after webpack, whose output.clean empties
+// dist/web. The JavaScript half (the blocking bundle) is already in the bundle,
+// as it is in the preview's sw.js.
+const wasm = require.resolve("@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm");
+await cp(wasm, resolve(root, "editors/vscode/dist/web/duckdb-mvp.wasm"));
+const wasmBytes = (await stat(wasm)).size;
+console.log(`VS Code web DuckDB-Wasm: duckdb-mvp.wasm beside the bundle, ${wasmBytes} bytes (${(wasmBytes / 1048576).toFixed(2)} MiB), loaded only for osd.web.database = duckdb`);
+
 // The Fiori apps for the webview (docs/vscode-web.md): the root webapp and the
 // selected packs' pages, laid out as the preview lays out build/app, so that
 // the pages' relative URLs mean the same thing. Copied after webpack, whose

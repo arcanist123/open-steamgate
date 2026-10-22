@@ -81,6 +81,16 @@
           "default": "auto",
           "description": "OSD_WARM for a system osd.start launches (docs/warm-compile.md, docs/vscode-extension.md \"Warm\"): a save reaches the running system in well under a second instead of the cold build's several. \"auto\" turns it on when this machine has at least 4 GB of RAM (the prime costs about 0.7 GB); \"on\"/\"off\" always do or never do. Whether it actually primes is still the server's own business -- with the pinned transpiler it stays cold and says why, shown as the status bar's own \"cold: <reason>\"."
         },
+        "osd.web.database": {
+          "type": "string",
+          "enum": ["sql.js", "duckdb"],
+          "enumDescriptions": [
+            "sql.js; the database is kept in the browser's IndexedDB across reloads.",
+            "DuckDB-Wasm, as on the GitHub Pages preview: Portable AMDP (SQLScript procedures) runs, but the database lives in memory and is reseeded on every reload. The 39 MB engine is fetched beside the extension only when chosen."
+          ],
+          "default": "sql.js",
+          "description": "VS Code for the Web only: the database engine of the in-browser gateway. A change takes effect after a window reload."
+        },
         "osd.notebook.rowLimit": {
           "type": "number",
           "default": 100,

@@ -51,13 +51,39 @@ function transaction(mode, work) {
 const readValue = (key) => transaction("readonly", (store) => store.get(key));
 const writeValue = (key, value) => transaction("readwrite", (store) => store.put(value, key));
 
+// osd.web.database, read once: the worker holds one ABAP runtime and one
+// connection, so a change asks for a window reload (activate) rather than
+// swapping the engine under a running gateway.
+let extensionUri;
+const engine = () => vscode.workspace.getConfiguration("osd").get("web.database", "sql.js") === "duckdb" ? "duckdb" : "sql.js";
+const ENGINE_LABEL = {"sql.js": "sql.js + IndexedDB", duckdb: "DuckDB-Wasm (in memory, reseeded on reload)"};
+
+// The DuckDB-Wasm binary sits beside extension.js (dist/web/), not in it, and
+// is fetched only when duckdb is chosen. An http(s) extension location (the
+// test-web server, vscode.dev's install from location) is fetched directly by
+// DuckDB; any other scheme is read through the workspace file system.
+async function duckdbWasmURL() {
+  const uri = vscode.Uri.joinPath(extensionUri, "dist", "web", "duckdb-mvp.wasm");
+  if (uri.scheme === "http" || uri.scheme === "https") return uri.toString(true);
+  const bytes = await vscode.workspace.fs.readFile(uri);
+  return URL.createObjectURL(new Blob([bytes], {type: "application/wasm"}));
+}
+
 function backendOf() {
   backendPromise ??= (async () => {
     // preview-backend imports this before the transpiled runtime. Do not pin
     // Date in a worker shared with the VS Code extension host.
     globalThis.__stgPreviewFreezeTime = false;
+    const database = engine();
+    globalThis.__stgPreviewHost = {database, place: "the extension's web worker",
+      wasmURL: database === "duckdb" ? await duckdbWasmURL() : undefined};
     const backend = await import("../../../web/preview-backend.mjs");
-    if (backend.database !== "sql.js") throw new Error("The web extension requires the sql.js preview build");
+    if (backend.database !== database) throw new Error(`The gateway runs ${backend.database}, osd.web.database asks for ${database}`);
+    if (database === "duckdb") {
+      // nothing is stored: the database is the seed, every time
+      await backend.startBackend(undefined, {mount: "/", stamp: backend.buildId});
+      return backend;
+    }
     const stored = await readValue(backend.buildId);
     await backend.startBackend(stored && new Uint8Array(stored), {mount: "/", stamp: backend.buildId});
     if (!stored) await writeValue(backend.buildId, await backend.exportDatabase());
@@ -75,7 +101,7 @@ function gateway(request) {
   const result = requestQueue.then(async () => {
     const backend = await backendOf();
     const answer = await backend.handleRequest(request);
-    if (!["GET", "HEAD"].includes(request.method) && !request.path.startsWith("/sap/bc/adt/datapreview/") && request.path !== "/osd/sql") {
+    if (backend.database !== "duckdb" && !["GET", "HEAD"].includes(request.method) && !request.path.startsWith("/sap/bc/adt/datapreview/") && request.path !== "/osd/sql") {
       await writeValue(backend.buildId, await backend.exportDatabase());
     }
     return answer;
@@ -263,7 +289,7 @@ class WebTreeProvider {
       return [
         new vscode.TreeItem("In-browser gateway"),
         new vscode.TreeItem(`Generation: ${generation ?? "unknown"}`),
-        new vscode.TreeItem("Database: sql.js + IndexedDB"),
+        new vscode.TreeItem(`Database: ${ENGINE_LABEL[engine()]}`),
       ];
     }
     if (item.contextValue === "osd-web-services") {
@@ -812,7 +838,18 @@ export async function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("osd.prepareAbapgitZip", () =>
     vscode.window.showErrorMessage("osd: Preparing an abapGit zip needs a desktop open-steamgate checkout with deploy/manifest.json, source files and Node tools. The web build has no file system or process runner.")));
   const started = performance.now();
+  extensionUri = context.extensionUri;
   await vscode.commands.executeCommand("setContext", "osd.web", true);
+  const chosen = engine();
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (event) => {
+    if (!event.affectsConfiguration("osd.web.database")) return;
+    const now = engine();
+    if (now === chosen) return;
+    const reload = "Reload Window";
+    const answer = await vscode.window.showInformationMessage(
+      `osd: The in-browser gateway runs ${ENGINE_LABEL[chosen]}. ${ENGINE_LABEL[now]} takes effect after a window reload.`, reload);
+    if (answer === reload) await vscode.commands.executeCommand("workbench.action.reloadWindow");
+  }));
   const output = vscode.window.createOutputChannel("OSD Web Probe");
   context.subscriptions.push(output);
   const webClient = () => new Osd("https://osd.invalid", gatewayFetch);
@@ -882,15 +919,19 @@ export async function activate(context) {
     output,
     client: webClient,
     lib: webLib,
-    // The bundled worker exposes the ADT freestyle door, not the AMDP or
-    // notebook classrun doors used by the desktop kernel.
-    isCellAvailable: async (language) => language === "sql",
+    // The bundled worker exposes the ADT freestyle door, not the notebook
+    // classrun door used by the desktop kernel. On DuckDB it answers the
+    // SQLScript cell door with Portable AMDP, as the Node host does.
+    isCellAvailable: async (language) => language === "sql" || (language === "sqlscript" && chosen === "duckdb"),
   }));
   try {
     const metadata = await send("GET", METADATA);
     required(metadata, 200, "activation $metadata");
     activationToMetadataMs = Math.round(performance.now() - started);
-    output.appendLine(`OSD_WEB_READY ${JSON.stringify({activationToMetadataMs})}`);
+    output.appendLine(`OSD_WEB_READY ${JSON.stringify({activationToMetadataMs, database: chosen})}`);
+    if (chosen === "duckdb") {
+      vscode.window.setStatusBarMessage("osd: DuckDB-Wasm, in memory: changes are gone after a reload", 15000);
+    }
     await tree.refresh();
   } catch (error) {
     output.appendLine(`OSD_WEB_BOOT_ERROR ${String(error?.stack ?? error)}`);
