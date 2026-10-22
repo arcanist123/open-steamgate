@@ -23,6 +23,7 @@ type Spec struct {
 	Hidden, Files []string
 	Guards        map[string]string
 	Places        []string
+	LibraryPlaces []string
 	Store         *objstore.Config
 }
 
@@ -154,6 +155,8 @@ func NeedsLayers(root string, spec Spec, snapshot objstore.LintSnapshot) bool {
 func New(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec) *storelint.Compiler {
 	absolute, rootErr := filepath.Abs(root)
 	root = absolute
+	var previousMembership string
+	initialized := false
 	return &storelint.Compiler{Other: other, Engine: engine, Logf: log.Printf,
 		Capture: func() (objstore.LintSnapshot, error) {
 			if rootErr != nil {
@@ -163,6 +166,13 @@ func New(root string, other storecheck.Compiler, engine storelint.Engine, spec S
 			if err != nil {
 				return objstore.LintSnapshot{}, err
 			}
+			membership, err := libraryMembership(root, libraryPlaces(spec))
+			if err != nil {
+				return objstore.LintSnapshot{}, err
+			}
+			// Resolve once at startup as embedded lists may already be stale.
+			// Later snapshots only resolve after a namespace change.
+			changed = changed || (initialized && membership != previousMembership) || (!initialized && spec.LibraryPlaces != nil)
 			capture := func() (objstore.LintSnapshot, error) {
 				if spec.Store != nil {
 					return objstore.CaptureLintView(root, spec.Store, spec.Hidden)
@@ -174,7 +184,8 @@ func New(root string, other storecheck.Compiler, engine storelint.Engine, spec S
 				return snapshot, err
 			}
 			// File edits retain the existing config/layer decisions.
-			if changed || NeedsLayers(root, spec, snapshot) {
+			resolvedInputs := changed || NeedsLayers(root, spec, snapshot)
+			if resolvedInputs {
 				resolved, resolveErr := Resolve(root)
 				if resolveErr != nil {
 					return snapshot, resolveErr
@@ -192,6 +203,20 @@ func New(root string, other storecheck.Compiler, engine storelint.Engine, spec S
 					return snapshot, err
 				}
 			}
+			var afterMembership string
+			// Only structural resolution needs a second directory scan. Ordinary
+			// captures pay for one scan; the post-check capture catches races.
+			if resolvedInputs {
+				afterMembership, err = libraryMembership(root, libraryPlaces(spec))
+				if err != nil {
+					return snapshot, err
+				}
+				if membership != afterMembership {
+					return snapshot, fmt.Errorf("lint library membership changed during resolution; retry")
+				}
+			}
+			previousMembership, initialized = membership, true
+			structure += ":" + membership
 			spec.Files = spec.Files[:0]
 			for _, f := range snapshot.Files {
 				spec.Files = append(spec.Files, f.Filename)

@@ -15,8 +15,8 @@
   ],
   "budgets": {
     "go:lintinput": {
-      "lines": 210,
-      "reason": "Self-contained checker input resolver/capture extracted from cmd/osgo for isolated tests and build caching."
+      "lines": 303,
+      "reason": "Self-contained checker input resolver/capture extracted from cmd/osgo for isolated tests and build caching. Review #834: library namespace fingerprints watch configured empty/missing folders and trigger canonical glob/exclusion resolution before capture; this is checker input resolution, independent of generated engines."
     },
     "go:dyncall": {
       "lines": 74,

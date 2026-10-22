@@ -120,13 +120,13 @@ jobs:
       - name: Go vet and tests
         working-directory: tools/gogen/go
         run: |
-          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./objstore/ ./storelint/ ./storecheck/ ./storecompiler/ ./osdbind/
+          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./objstore/ ./lintinput/ ./storelint/ ./storecheck/ ./storecompiler/ ./osdbind/
           go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./objstore/... ./osdbind/...
           # the sandbox builds for the browser too (nofollow_other.go)
           GOOS=js GOARCH=wasm go build ./sandbox/ ./objstore/
           # ABAP's process-global string memos, the AMC broker and the lock
           # server are concurrent: test them with the race detector (enq: E0).
-          go test -race ./abap/... ./amc/... ./enq/... ./storelint/... ./storecheck/... ./storecompiler/...
+          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./storecheck/... ./storecompiler/...
       - name: ABAP lint bridge and CHECKRUN edit gates
         run: node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
       - name: Semantics, Go and IR-as-JS against the measured answers

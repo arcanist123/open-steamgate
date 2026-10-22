@@ -15,7 +15,7 @@ export function lintFolders(root, lib) {
 export async function lintBuildSpec(root) {
   const {ObjectStore} = await import("../osd-store.mjs");
   const {configuredRegistry, walkStoreFiles} = await import("../osd-store-registry.mjs");
-  const {layers} = await import("../osd-inputs.mjs");
+  const {layers, libraryFiles} = await import("../osd-inputs.mjs");
   const {storeConfig} = await import("./store.mjs");
   const {packsOf, placesOf} = await import("../osd-packs.mjs");
   const store = new ObjectStore({root});
@@ -34,7 +34,8 @@ export async function lintBuildSpec(root) {
   // Active-version proofs are unrelated to checker inputs.
   const {roots, libs, excluded} = facts;
   const places = placesOf(root).map(path => relative(root, path));
-  return {config, hidden, files, guards, places, store: {roots, libs, excluded}};
+  const libraryPlaces = libraryFiles(root, undefined, {includeMissing: true}).map(lib => relative(root, lib.dir));
+  return {config, hidden, files, guards, places, libraryPlaces, store: {roots, libs, excluded}};
 }
 
 // Typed calls stay in package main beside the generated ABAP classes.

@@ -228,7 +228,7 @@ if (runsAs("osd-inputs.mjs")) {
  * A lib with no folder on disk is skipped rather than cloned: the transpile
  * may clone a URL-only library, a store asked for one object may not.
  */
-export function libraryFiles(root = process.cwd(), config = undefined) {
+export function libraryFiles(root = process.cwd(), config = undefined, {includeMissing = false} = {}) {
   // a tree with no config configures no libraries -- which is a tree that is
   // not this one (a fixture, a fresh folder), and asking it for libraries is
   // a question with an empty answer rather than an error
@@ -247,7 +247,10 @@ export function libraryFiles(root = process.cwd(), config = undefined) {
     const layer = system?.layers.find(l => l.kind === "lib" && l.name === lib.folder.replaceAll("\\", "/").split("/").at(-1));
     if (system && !layer) throw new Error(`system does not provide library ${lib.folder}`);
     const dir = system ? layerDir(root, layer) : resolve(root, "." + lib.folder);
-    if (existsSync(dir) === false) continue;
+    if (existsSync(dir) === false) {
+      if (includeMissing) out.push({folder: lib.folder, dir, files: []});
+      continue;
+    }
     const patterns = typeof lib.files === "string" && lib.files !== ""
       ? [lib.files]
       : Array.isArray(lib.files) ? lib.files : ["/src/**"];
