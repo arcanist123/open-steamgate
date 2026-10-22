@@ -564,7 +564,14 @@ function fioriRuntime(config) {
     const path = virtualOf(input instanceof Request ? input.url : input);
     if (path === undefined) return nativeFetch(input, init);
     stats.bridged++;
-    return bridgeFetch(`https://osd.invalid${path}`, input instanceof Request && init === undefined ? input : init ?? {});
+    if (!(input instanceof Request)) return bridgeFetch(`https://osd.invalid${path}`, init ?? {});
+    // A Request carries its body as a stream the bridge cannot send: read it
+    // out first, and let init override the Request's own fields as fetch does.
+    const request = new Request(input, init);
+    return request.arrayBuffer().then((buffer) => bridgeFetch(`https://osd.invalid${path}`, {
+      method: request.method, headers: request.headers,
+      body: ["GET", "HEAD"].includes(request.method) ? undefined : buffer,
+    }));
   };
   const Native = window.XMLHttpRequest;
   const decoder = new TextDecoder();
@@ -815,7 +822,7 @@ export async function activate(context) {
       return;
     }
     await openDataPreview(preview.type, preview.name, preview.type === "TABL" && tablHasMandt(editor.document.getText()), {
-      vscode, output, client: webClient, managedUrl: "https://osd.invalid", openNotebook: (statement) => newSqlNotebook(vscode, "osd-sql-notebook", statement),
+      vscode, output, client: webClient, systemState: () => ({managedUrl: "https://osd.invalid"}), openNotebook: (statement) => newSqlNotebook(vscode, "osd-sql-notebook", statement),
       lib: webLib,
     });
   };

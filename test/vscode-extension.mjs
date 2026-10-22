@@ -141,7 +141,7 @@ function vscodeStub(settings = {}) {
         const disposeListeners = [];
         const panel = {
           args,
-          webview: {html: "", onDidReceiveMessage: () => ({dispose() {}})},
+          webview: {html: "", onDidReceiveMessage(listener) { this.receive = listener; return {dispose() {}}; }},
           onDidDispose: (listener) => { disposeListeners.push(listener); return {dispose() {}}; },
           disposed: false,
           dispose() { this.disposed = true; for (const listener of disposeListeners) listener(); },
@@ -2702,6 +2702,24 @@ describe("editors/vscode: the extension's logic", function () {
     });
     expect(calls).to.equal(0);
     expect(api.panels[0].webview.html).to.contain("Start system");
+  });
+
+  it("Q7: Refresh after Start reads the controller's launcher again, not the one the panel opened with", async () => {
+    const api = vscodeStub({url: "http://localhost:3531"});
+    const {openDataPreview} = loadExtension(api);
+    const controller = {launcher: undefined, managedUrl: "http://localhost:3531"};
+    controller.launcher = {state: "stopped"};
+    let calls = 0;
+    await openDataPreview("TABL", "ZOSD_FLEET_VOY", false, {appendLine() {}}, {
+      controller,
+      client: () => ({dataPreview: async () => { calls++; return {columns: [{name: "VOYAGE_ID", label: "Voyage", key: true}], rows: [], ms: 1}; }}),
+    });
+    expect(calls).to.equal(0);
+    expect(api.panels[0].webview.html).to.contain("Start system");
+    controller.launcher = {state: "running"};
+    await api.panels[0].webview.receive({command: "refresh"});
+    expect(calls).to.equal(1);
+    expect(api.panels[0].webview.html).to.contain("0 rows");
   });
 
   it("Q7: an external URL remains usable, and a successful empty table is not an error", async () => {

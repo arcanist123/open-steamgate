@@ -200,10 +200,13 @@ const steps = [
   {
     name: "f8-tabl",
     title: "F8 Data Preview on ZSTG_DEMO (TABL)",
-    command: "osd: Run",
+    // The desktop dispatches F8 through osd.run; the browser names it directly.
+    commands: ["osd: Data Preview (F8)", "osd: Run"],
     async run(page) {
       await openFile(page, "zstg_demo.tabl.xml");
-      if (!(await palette(page, this.command))) return undefined;
+      let offered = false;
+      for (const command of this.commands) if ((offered = await palette(page, command))) break;
+      if (!offered) return undefined;
       return norm(await webviewText(page, /T0001/));
     },
   },

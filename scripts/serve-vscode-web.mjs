@@ -51,6 +51,10 @@ async function answer(path) {
     return {status: upstream.status, type: upstream.headers.get("content-type") ?? "application/octet-stream",
       body: Buffer.from(await upstream.arrayBuffer())};
   }
+  // An extension directory has no dot-files to serve; a mistaken directory may (.env, .git).
+  if (decodeURIComponent(path).split("/").some((segment) => segment.startsWith("."))) {
+    return {status: 404, type: "text/plain", body: Buffer.from("not found")};
+  }
   const file = normalize(join(dir, decodeURIComponent(path)));
   if (file !== dir && !file.startsWith(dir + sep)) return {status: 403, type: "text/plain", body: Buffer.from("forbidden")};
   const info = await stat(file).catch(() => undefined);
@@ -60,21 +64,31 @@ async function answer(path) {
 
 // vscode.dev is a public origin and this is the loopback address: Chrome's
 // Private/Local Network Access sends a preflight that must be answered with
-// Allow-Private-Network, and asks the person once for permission. vscode.dev
-// is cross-origin isolated (COEP), so every file also needs CORP cross-origin.
-const CORS = {"access-control-allow-origin": "*", "cross-origin-resource-policy": "cross-origin", "access-control-allow-private-network": "true",
-  "access-control-allow-methods": "GET, HEAD, OPTIONS", "access-control-allow-headers": "*"};
+// Allow-Private-Network (and asks the person once). vscode.dev is
+// cross-origin isolated (COEP), so every file also needs CORP cross-origin.
+// Only VS Code's own origins may read the answers: vscode.dev (and insiders)
+// for the install, its *.vscode-cdn.net frames for the extension host and the
+// webviews, and localhost for @vscode/test-web. Another site that reaches the
+// loopback address gets no CORS grant. OSD_WEB_ORIGINS (a regular expression)
+// replaces the list.
+const ORIGINS = new RegExp(process.env.OSD_WEB_ORIGINS ??
+  "^(?:https://(?:[a-z0-9-]+\\.)*(?:vscode\\.dev|vscode-cdn\\.net)|https?://(?:localhost|127\\.0\\.0\\.1)(?::\\d+)?)$");
+const cors = (origin) => ({
+  ...(origin && ORIGINS.test(origin) ? {"access-control-allow-origin": origin, "access-control-allow-private-network": "true"} : {}),
+  vary: "Origin", "cross-origin-resource-policy": "cross-origin",
+  "access-control-allow-methods": "GET, HEAD, OPTIONS", "access-control-allow-headers": "*",
+});
 
 createServer(certificate(), async (request, response) => {
   if (request.method === "OPTIONS") {
-    response.writeHead(204, CORS);
+    response.writeHead(204, cors(request.headers.origin));
     response.end();
     return;
   }
   const path = new URL(request.url, "https://localhost").pathname;
   const reply = await answer(path === "/" ? "/package.json" : path).catch((error) =>
     ({status: 502, type: "text/plain", body: Buffer.from(String(error.message ?? error))}));
-  response.writeHead(reply.status, {...CORS, "content-type": reply.type, "cache-control": "no-cache"});
+  response.writeHead(reply.status, {...cors(request.headers.origin), "content-type": reply.type, "cache-control": "no-cache"});
   response.end(request.method === "HEAD" ? undefined : reply.body);
 }).listen(port, "127.0.0.1", () => {
   console.log(`serve-vscode-web: https://localhost:${port}/ <- ${remote ?? dir}`);

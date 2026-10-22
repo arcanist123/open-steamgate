@@ -3584,12 +3584,18 @@ async function classrunObject(name, classrunOutput, withDebugger = false, file,
 // that already exists for exactly "run this SQL and hand back a number".
 
 async function openDataPreview(objectType, name, hasMandt, output, options = {}) {
-  const controller = options.controller ?? activeController;
   return openDataPreviewView(objectType, name, hasMandt, {
     vscode, output,
     client: options.client ?? (() => osd()),
-    launcher: Object.hasOwn(options, "launcher") ? options.launcher : controller?.launcher,
-    managedUrl: Object.hasOwn(options, "managedUrl") ? options.managedUrl : controller?.managedUrl,
+    // Read on every (re)load, as before the extraction: Start creates the
+    // launcher, and activeController can change, after the panel opened.
+    systemState: () => {
+      const controller = options.controller ?? activeController;
+      return {
+        launcher: Object.hasOwn(options, "launcher") ? options.launcher : controller?.launcher,
+        managedUrl: Object.hasOwn(options, "managedUrl") ? options.managedUrl : controller?.managedUrl,
+      };
+    },
     openNotebook: newSqlNotebook,
     lib: require("./lib.js"),
   });

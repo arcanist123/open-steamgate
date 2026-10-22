@@ -11,13 +11,17 @@ function cellText(value) {
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
-function openDataPreview(objectType, name, hasMandt, {vscode, output, client, openNotebook, controller, launcher, managedUrl, lib = desktopLib} = {}) {
+/** `systemState()` is read on every load, not once: the panel's own Start
+ *  button creates the launcher after the panel opened, and a reload must see
+ *  it (it returns `{launcher, managedUrl}`). */
+function openDataPreview(objectType, name, hasMandt, {vscode, output, client, openNotebook, systemState = () => ({}), lib = desktopLib} = {}) {
   const panel = vscode.window.createWebviewPanel("osdDataPreview", `Data Preview ${name}`, vscode.ViewColumn.Beside,
     {enableScripts: true, retainContextWhenHidden: true});
   let allClients = false;
   const load = async () => {
     const rowLimit = vscode.workspace.getConfiguration("osd").get("dataPreview.rowLimit", 100);
     const url = vscode.workspace.getConfiguration("osd").get("url", "http://localhost:3030").replace(/\/+$/, "");
+    const {launcher, managedUrl} = systemState();
     const unavailable = lib.dataPreviewAvailability(launcher?.state, managedUrl, url);
     if (unavailable !== undefined) {
       panel.webview.html = dataPreviewHtml(name, {error: unavailable.message, start: unavailable.start});
