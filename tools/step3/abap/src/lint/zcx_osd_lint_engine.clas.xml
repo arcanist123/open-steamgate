@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_CLAS" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values><VSEOCLASS><CLSNAME>ZCX_OSD_LINT_ENGINE</CLSNAME><LANGU>E</LANGU><DESCRIPT>Translated lint engine refusal</DESCRIPT><STATE>1</STATE><CLSCCINCL>X</CLSCCINCL><CATEGORY>40</CATEGORY><FIXPT>X</FIXPT><UNICODE>X</UNICODE></VSEOCLASS></asx:values>
+ </asx:abap>
+</abapGit>
