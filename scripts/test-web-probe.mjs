@@ -8,6 +8,7 @@ import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {runInNewContext} from "node:vm";
 import {chromium} from "@playwright/test";
+import {fioriTiles} from "./test-web-tiles.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const shots = process.env.OUT_DIR || "/tmp/osd-shots";
@@ -475,6 +476,13 @@ try {
   }
   if (!serviceDetails) throw new Error("Single click did not open the service details panel");
   const created = await fioriChecks(page);
+  // Every launchpad tile, against what the GitHub Pages preview shows for it
+  // (scripts/test-web-tiles.mjs). Tiles of packs this build left out are listed as such.
+  const {channels, services} = await import("../web/generated/services.mjs");
+  const packs = [...new Set([...channels, ...services].map((one) => one.pack).filter(Boolean))];
+  for (const tile of await fioriTiles(page, {shots, fioriFrame, packs})) {
+    console.log(`Tile ${tile.tile}: ${tile.after}${tile.shot ? `; ${tile.shot}` : ""}`);
+  }
   // The row the app wrote is the extension's: the probe view, another
   // webview over the same worker gateway, reads it.
   // Focus is inside the Fiori webview now; switch tabs with the mouse.
