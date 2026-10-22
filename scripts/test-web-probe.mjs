@@ -353,6 +353,19 @@ try {
   }
   console.log(`Worker reads: SELECT ${read.rows} rows, DDIC ${read.ddic}, cap ${read.cap}, invalid ${read.invalid}`);
 
+  // OSD_WEB_TEST_DB=duckdb: from here switch osd.web.database through the UI
+  // and check the DuckDB-Wasm gateway (scripts/test-web-duckdb.mjs) instead of
+  // the sql.js checks below, which the default run covers and which rely on
+  // IndexedDB persistence across reloads.
+  const duckdbOnly = process.env.OSD_WEB_TEST_DB === "duckdb";
+  if (duckdbOnly) {
+    const {duckdbPass} = await import("./test-web-duckdb.mjs");
+    const duck = await duckdbPass({page, command, runPaletteCommand, fioriFrame, acceptNotebookTrust,
+      shots: process.env.OUT_DIR || "/tmp/osd-shots"});
+    console.log(`First $metadata: sql.js ${probe.activationToMetadataMs} ms, duckdb ${duck.activationToMetadataMs} ms`);
+  }
+  if (!duckdbOnly) {
+
   await openWorkspaceFile(page, "zstg_demo.tabl.xml");
   await runPaletteCommand(page, "osd: Data Preview (F8)");
   const previewFrame = await frameWithText(page, "Open in SQL notebook");
@@ -512,14 +525,7 @@ try {
   await page.screenshot({path: join(shots, "web-new-sql-notebook.png"), fullPage: true});
   console.log("New SQL notebook: untitled notebook opened with runnable starter cell");
 
-  // OSD_WEB_TEST_DB=duckdb: switch osd.web.database through the UI and check
-  // the DuckDB-Wasm gateway (scripts/test-web-duckdb.mjs)
-  if (process.env.OSD_WEB_TEST_DB === "duckdb") {
-    const {duckdbPass} = await import("./test-web-duckdb.mjs");
-    const duck = await duckdbPass({page, command, runPaletteCommand, fioriFrame, openWorkspaceFile, acceptNotebookTrust, shots});
-    console.log(`First $metadata: sql.js ${probe.activationToMetadataMs} ms, duckdb ${duck.activationToMetadataMs} ms`);
-  }
-
+  } // !duckdbOnly
 } catch (error) {
   console.error(error);
   console.error("Workbench text:", (await page?.locator("body").innerText().catch(() => ""))?.slice(-3000));

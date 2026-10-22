@@ -19,14 +19,16 @@ import {join} from "node:path";
 
 const PAGES_AMDP_TILE = ["AMDP sandbox", "needs a database that speaks it", "no SQLScript engine here"];
 
-export async function duckdbPass({page, command, runPaletteCommand, fioriFrame, openWorkspaceFile, acceptNotebookTrust, shots}) {
+export async function duckdbPass({page, command, runPaletteCommand, fioriFrame, acceptNotebookTrust, shots}) {
   await mkdir(shots, {recursive: true});
   // 1. the setting, through the UI
   await runPaletteCommand(page, "Preferences: Open User Settings (JSON)");
-  const editor = page.locator(".editor-instance .monaco-editor").first();
+  // current VS Code opens it in a modal editor rather than a tab; either way
+  // the editor that shows the file has the focus
+  const editor = page.locator(".monaco-editor").filter({has: page.locator(".view-lines")})
+    .filter({hasText: "{"}).last();
+  await page.getByText("settings.json", {exact: true}).first().waitFor({timeout: 30000});
   await editor.waitFor({timeout: 30000});
-  await page.waitForFunction(() => document.title.includes("settings.json") ||
-    [...document.querySelectorAll(".tabs-container .tab")].some((tab) => tab.textContent.includes("settings.json")), undefined, {timeout: 30000});
   await editor.locator(".view-lines").click();
   await page.keyboard.press("Control+A");
   await page.keyboard.insertText(`{\n  "osd.web.database": "duckdb"\n}\n`);
@@ -38,8 +40,9 @@ export async function duckdbPass({page, command, runPaletteCommand, fioriFrame, 
   if (!promptText.includes("DuckDB-Wasm")) throw new Error(`Engine prompt does not name DuckDB: ${promptText}`);
   await page.screenshot({path: join(shots, "duckdb-setting-prompt.png")});
   console.log(`DuckDB setting: prompt "${promptText.slice(0, 160)}"`);
-  await prompt.locator(".monaco-button").filter({hasText: "Reload Window"}).first().click();
-  await page.waitForLoadState("domcontentloaded");
+  const reloaded = page.waitForNavigation({waitUntil: "domcontentloaded", timeout: 120000});
+  await prompt.getByRole("button", {name: "Reload Window"}).first().click();
+  await reloaded;
   await page.locator(".monaco-workbench").waitFor({timeout: 120000});
 
   // 2. the gateway, on DuckDB
@@ -78,9 +81,22 @@ export async function duckdbPass({page, command, runPaletteCommand, fioriFrame, 
 
   // 5. a SQLScript notebook cell, Portable AMDP on the worker's DuckDB
   await runPaletteCommand(page, "View: Show Explorer");
-  await openWorkspaceFile(page, "abap-amdp.osdnb");
+  // not openWorkspaceFile: the launchpad webview is the editor group's first
+  // editor, so wait for the notebook's own cell instead of a text editor
+  await page.locator(".explorer-folders-view .monaco-list-row").filter({hasText: "abap-amdp.osdnb"}).first().dblclick();
   await acceptNotebookTrust(page);
+  const abapCell = page.locator(".notebook-editor .monaco-editor").filter({hasText: "DATA lt_demo TYPE"}).first();
+  await abapCell.waitFor({timeout: 60000});
+  // the SQLScript cell is below the fold: focus the ABAP cell, leave its
+  // editor and step down to the next code cell, then run that one cell
+  await abapCell.locator(".view-lines").click();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("ArrowDown");
   const sqlscriptEditor = page.locator(".notebook-editor .monaco-editor").filter({hasText: "SELECT 6*7 AS answer"}).last();
+  await sqlscriptEditor.waitFor({timeout: 60000}).catch(async (error) => {
+    await page.screenshot({path: join(shots, "duckdb-notebook-missing.png")});
+    throw error;
+  });
   await sqlscriptEditor.locator(".view-lines").click();
   await page.keyboard.press("Shift+Enter");
   const until = Date.now() + 120000;
@@ -93,6 +109,7 @@ export async function duckdbPass({page, command, runPaletteCommand, fioriFrame, 
     if (cell === undefined) await new Promise((resolveWait) => setTimeout(resolveWait, 500));
   }
   if (cell === undefined) {
+    await page.screenshot({path: join(shots, "duckdb-sqlscript-missing.png")});
     const refused = await page.getByText("sqlscript notebook cells are not available in the browser").count();
     throw new Error(`SQLScript cell did not run on DuckDB${refused ? ": refused as unavailable in the browser" : ""}`);
   }
