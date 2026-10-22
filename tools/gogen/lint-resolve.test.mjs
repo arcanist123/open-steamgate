@@ -219,6 +219,19 @@ test("inferred root package is guarded while ordinary same-prefix additions rema
   } finally {delete process.env.OSD_LAYERS;}
 });
 
+test("critic 838: unnamed DEVC header still guards inferred package mutations", async () => {
+  const root = fixture("critic-unnamed");
+  write(root, "base/.abapgit.xml", "<abapGit><STARTING_FOLDER>/</STARTING_FOLDER></abapGit>");
+  write(root, "base/package.devc.xml", "<DEVC><CTEXT>Root package</CTEXT></DEVC>");
+  write(root, "base/zcl_one_first.clas.abap", "CLASS zcl_one_first DEFINITION PUBLIC. ENDCLASS.");
+  const {rules, facts} = await parity(root, undefined, "unnamed header initial");
+  assert.equal(facts.store.roots[0].package, "$ZONE");
+  write(root, "base/zcl_other_first.clas.abap", "CLASS zcl_other_first DEFINITION PUBLIC. ENDCLASS.");
+  const fresh = await lintBuildSpec(root);
+  assert.equal(fresh.store.roots[0].package, "$OSD_BASE");
+  assert.match(native(root, rules).stderr, /rebuild/);
+});
+
 test("regex incompatibilities fail at build time", async () => {
   for (const re of ["(?=x)", "(x)\\1", "\\s", "[[:alpha:]]"]) {
     const root = fixture("regex-" + digest(re).slice(0, 8));

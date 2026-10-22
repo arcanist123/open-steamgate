@@ -7,7 +7,7 @@ import {fileURLToPath} from "node:url";
 import {rootsOf} from "../osd-store.mjs";
 import {withTmp} from "../osd-store-tmp.mjs";
 import {tmpDisabled} from "../osd-tmp.mjs";
-import {userLayersOf, rootPackage} from "../osd-source-layers.mjs";
+import {userLayersOf, rootPackageInfo} from "../osd-source-layers.mjs";
 import {libraryFiles} from "../osd-inputs.mjs";
 import {activeSystem, layerDir, layerSource, logicalSystemPath} from "../osd-system.mjs";
 
@@ -93,7 +93,8 @@ export function lintRules(root, facts, packs) {
   const inference = {};
   for (const dir of metadataDirs) if (kind(resolve(root, dir)) === "directory") {
     const names = readdirSync(resolve(root, dir));
-    if (!names.some(name => name.endsWith(".devc.xml"))) inference[dir] = rootPackage(resolve(root, dir), "__OSGO_FALLBACK__");
+    const decision = rootPackageInfo(resolve(root, dir), "__OSGO_FALLBACK__");
+    if (decision.inferred) inference[dir] = decision.package;
     for (const name of names) if (name.endsWith(".devc.xml")) {
       const file = join(dir, name); metadata[file] = hash(resolve(root, file));
     }
