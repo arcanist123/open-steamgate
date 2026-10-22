@@ -205,6 +205,9 @@ func programParts(files []FileTree) []*element {
 	kinds := []string{"Form", "ClassDefinition", "ClassImplementation"}
 	codes := map[string]string{"Form": "PROG/PU", "ClassDefinition": "PROG/PL", "ClassImplementation": "PROG/PP"}
 	for _, n := range find(files[0].Structure, kinds, false) {
+		if n.Statement {
+			continue
+		}
 		s := first(n)
 		if s == nil || len(s.Tokens) < 2 {
 			continue

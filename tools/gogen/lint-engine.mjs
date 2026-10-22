@@ -110,6 +110,11 @@ export function goLintLibrary(lib) {
   if (!/^module\s+zabaplint\s*$/m.test(mod) || !/^package\s+(?!main\b)\w+\s*$/m.test(api)) {
     throw new Error("--lint-lib for go requires abapiti's library output: --target go --go-package abaplint (module zabaplint)");
   }
+  if (!/func \(c \*Checker\) CheckObject\(/.test(api) || !/func \(c \*Checker\) Tree\(/.test(api)) {
+    throw new Error("Go lint library requires abapiti 0a11cd3c CheckObject/Tree API (core 2.120.73)");
+  }
+  const inspector = existsSync(join(path, "osg_inspect.go")) ? readFileSync(join(path, "osg_inspect.go"), "utf8") : api;
+  if (!inspector.includes("OSGInspect(")) throw new Error("Go lint library needs the CDS extraction adapter: node tools/step3/cds-inspect.mjs PATH");
   return path;
 }
 

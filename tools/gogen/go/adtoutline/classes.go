@@ -83,6 +83,9 @@ func classParts(files []FileTree, globalName, code string) *element {
 			source = "./includes/" + map[string]string{"locals_def": "definitions", "locals_imp": "implementations", "testclasses": "testclasses", "macros": "macros"}[strings.ToLower(m[1])]
 		}
 		for _, n := range find(f.Structure, []string{"ClassDefinition", "ClassImplementation", "Interface"}, false) {
+			if n.Statement {
+				continue
+			}
 			header := first(n)
 			if header == nil || len(header.Tokens) < 2 {
 				continue

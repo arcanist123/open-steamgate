@@ -173,3 +173,16 @@ func TestNativeCallsSerialize(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 }
+
+func TestNativeOutlineTrapIsIsolated(t *testing.T) {
+	c, in, _ := nativeFixture(t)
+	c.Engine.SnapshotTree = func([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool) {
+		panic("snapshot parse refused")
+	}
+	if _, err := c.Outline(context.Background(), in); err == nil || !strings.Contains(err.Error(), "snapshot parse refused") {
+		t.Fatal(err)
+	}
+	if _, err := c.Check(context.Background(), in); err != nil {
+		t.Fatal("isolated outline poisoned saved checker", err)
+	}
+}

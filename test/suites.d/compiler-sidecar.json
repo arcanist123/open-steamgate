@@ -1,1 +1,1 @@
-{"files":["test/osd-compiler-sidecar.mjs"]}
+{"files": ["test/osd-compiler-sidecar.mjs", "test/native-check-outline.mjs"]}

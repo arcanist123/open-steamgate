@@ -152,7 +152,7 @@ func (c *Compiler) Prime(config string) (err error) {
 }
 
 // Available must not probe the sidecar: an opted-in CHECKRUN may never fall back.
-// CHECK/OUTLINE delegate to Other, which checks its own availability.
+// Engines without native CHECK/OUTLINE callbacks delegate to Other.
 func (c *Compiler) Available(context.Context) error { return nil }
 
 func (c *Compiler) unchanged() error {

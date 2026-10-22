@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 
 	"osg/gogen/adtoutline"
@@ -66,7 +67,7 @@ func snapshot(ctx context.Context, in storecheck.Input) ([]objstore.LintFile, er
 		if logical == "" {
 			logical = f.Path
 		}
-		if strings.HasPrefix(logical, "/") || strings.Contains(logical, "\\") || hasParent(logical) || ObjectIdentity(logical) != strings.ToUpper(in.Name)+"."+registryType(in.Type) {
+		if strings.HasPrefix(logical, "/") || strings.Contains(logical, "\\") || hasParent(logical) || (ObjectIdentity(logical) != strings.ToUpper(in.Name)+"."+registryType(in.Type) && !(in.Type == "DEVC" && strings.EqualFold(path.Base(logical), "package.devc.xml"))) {
 			return nil, fmt.Errorf("invalid logical snapshot path: %s", logical)
 		}
 		raw, err := root.ReadFile(f.Path)
@@ -179,7 +180,10 @@ func (c *Compiler) outline(ctx context.Context, in storecheck.Input) (doc json.R
 	}
 	// Match configuredRegistry + only the supplied snapshot, as outlineSnapshot
 	// does. A separate Checker avoids lending saved/inactive includes to active.
-	trees, _ := c.Engine.SnapshotTree(files, c.config, registryType(in.Type), in.Name)
+	trees, treeErr := c.snapshotTree(files, in)
+	if treeErr != nil {
+		return nil, treeErr
+	}
 	doc = adtoutline.Document(in.Type, in.Name, in.Version, trees)
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -191,4 +195,15 @@ func (c *Compiler) outline(ctx context.Context, in storecheck.Input) (doc json.R
 		return nil, err
 	}
 	return doc, nil
+}
+
+// A snapshot checker is disposable: a parse trap must not poison saved state.
+func (c *Compiler) snapshotTree(files []objstore.LintFile, in storecheck.Input) (trees []adtoutline.FileTree, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			err = fmt.Errorf("%s lint engine outline failed: %v", c.label(), value)
+		}
+	}()
+	trees, _ = c.Engine.SnapshotTree(files, c.config, registryType(in.Type), in.Name)
+	return trees, nil
 }

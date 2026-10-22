@@ -33,7 +33,7 @@ export async function differential({root=process.cwd(),library,out}) {
     writeFileSync(join(build,"main.go"),readFileSync(new URL("./check-outline-driver/main.go.txt",import.meta.url)));
     const binary=join(scratch,"driver");
     withGoLintModule(goRoot,library,args=>execFileSync("go",["build",...args,"-o",binary,"./cmd/"+build.split("/").at(-1)],{cwd:goRoot,stdio:"inherit",env:{...process.env,GOWORK:"off",GOFLAGS:process.env.GOFLAGS??"-p=1 -gcflags=-N"}}));
-    child=spawn(binary,[],{stdio:["pipe","pipe","inherit"]});
+    child=spawn(binary,[],{stdio:["pipe","pipe","inherit"],env:{...process.env,PATH:join(scratch,"no-node-or-bun")}});
     const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]();
     const call=async request=>{child.stdin.write(JSON.stringify(request)+"\n");const line=await lines.next();if(line.done)throw new Error("native driver exited");const response=JSON.parse(line.value);if(response.Error)throw new Error(response.Error);return response.Value;};
     await call({Command:"prime",Root:root,Config:spec.config,Files:files});
@@ -99,8 +99,50 @@ export async function differential({root=process.cwd(),library,out}) {
     for(const source of ["",mutationFiles[0].Raw,"broken inline."]) {
       sync();await run(object,current,{source,label:"inline",files:current});await run(object,current,{label:"restored"});counts.mutations++;
     }
+    // Other source types include explicit INCL/SRVD coverage even on checkouts
+    // with no stored examples. Every shape is checked saved, active and inline.
+    const shapes=[
+      ["INTF",".intf.abap",["INTERFACE znative_mut PUBLIC. METHODS run. ENDINTERFACE.","INTERFACE znative_mut PUBLIC. DATA edited TYPE i. ENDINTERFACE.","broken interface.",""]],
+      ["PROG",".prog.abap",["REPORT znative_mut. INITIALIZATION. WRITE 'init'. START-OF-SELECTION. FORM run. ENDFORM.","REPORT znative_mut. CLASS lcl_run DEFINITION. ENDCLASS. CLASS lcl_run IMPLEMENTATION. ENDCLASS.","REPORT znative_mut. broken statement.",""]],
+      ["INCL",".prog.abap",["DATA value TYPE i.","DEFINE example. WRITE &1. END-OF-DEFINITION.","broken include.",""]],
+      ["SRVD",".srvd.srvdsrv",["define service znative_mut { expose zmissing; }","define service znative_mut { expose zedited as edited; }","broken service",""]],
+      ["DDLS",".ddls.asddls",["define view entity znative_mut as select from zmissing { key id }","define view entity znative_mut as select from zmissing { key edited }","broken view", "", "define table function znative_mut returns { id : abap.int4; } implemented by method zcl_missing=>run;", "define view entity znative_mut as select from zmissing { key id } where id = 'A'", "define view entity znative_mut as select from zmissing inner join zother on zmissing.id = zother.id { key zmissing.id }", "@ObjectModel.writeEnabled: true\ndefine view entity znative_mut as select from zmissing { key id }"]],
+    ];
+    for(const [type,suffix,variants] of shapes) {
+      const Filename="/src/znative_mut"+suffix;
+      await call({Command:"prime",Root:root,Config:spec.config,Files:[]});
+      for(const [i,Raw] of variants.entries()) {
+        const file={Filename,Raw};writeFileSync(join(root,Filename.slice(1)),Raw);updateRegistryFiles(registry,[[Filename,Raw]]);
+        await run({type,name:"ZNATIVE_MUT"},[file],{files:[file],label:`mutation-${i}`});
+        await run({type,name:"ZNATIVE_MUT"},[file],{version:"active",onlyOutline:true,label:`mutation-${i}`});
+        await run({type,name:"ZNATIVE_MUT"},[file],{source:Raw,label:`inline-${i}`});counts.mutations++;
+      }
+      updateRegistryFiles(registry,[[Filename,undefined]]);
+    }
+    // Dictionary extraction: disappearing generated fields, missing keys,
+    // analytical writes, virtual/cast refusals, and annotation case/spacing.
+    const dictionary=[
+      {Filename:"/src/zstg_demo.tabl.xml",Raw:readFileSync(join(originalRoot,"src/ddic/zstg_demo.tabl.xml"),"utf8")},
+      {Filename:"/src/znative_gen.view.xml",Raw:`<abapGit><asx:abap xmlns:asx="http://www.sap.com/abapxml"><asx:values><DD25V><VIEWNAME>ZNATIVE_GEN</VIEWNAME><VIEWCLASS>D</VIEWCLASS></DD25V><DD27P_TABLE><DD27P><VIEWFIELD>TRAVEL_ID</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>TRAVEL_ID</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P><DD27P><VIEWFIELD>OLD_FIELD</VIEWFIELD><TABNAME>ZSTG_DEMO</TABNAME><FIELDNAME>DESCRIPTION</FIELDNAME></DD27P></DD27P_TABLE></asx:values></asx:abap></abapGit>`},
+    ];
+    updateRegistryFiles(registry,dictionary.map(f=>[f.Filename,f.Raw]));
+    const casts=[
+      "key travel_id, description", "description",
+      "key travel_id, cast( description as abap.char(20) ) as text",
+      "key travel_id, cast( 'constant' as abap.char(20) ) as text",
+      "key travel_id, cast( description as abap.unknown(20) ) as text",
+      "key travel_id, @ObjectModel.virtualElement: true cast( '' as abap.char(20) ) as text",
+      "key travel_id, @ObjectModel.virtualElement: true @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TEST' cast( '' as abap.char(20) ) as text",
+      "key travel_id, @ObjectModel.virtualElement: true @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TEST' cast( '' as abap.unknown(20) ) as text",
+    ];
+    await call({Command:"prime",Root:root,Config:spec.config,Files:dictionary});
+    for(const [i,fields]of casts.entries()) {
+      const Raw="@AbapCatalog.sqlViewName: 'ZNATIVE_GEN'\n@ObjectModel.writeEnabled: true\ndefine view znative_mut as select from zstg_demo { "+fields+" }";
+      const file={Filename:"/src/znative_mut.ddls.asddls",Raw};writeFileSync(join(root,file.Filename.slice(1)),Raw);updateRegistryFiles(registry,[[file.Filename,Raw]]);
+      await run({type:"DDLS",name:"ZNATIVE_MUT"},[file],{files:[...dictionary,file],label:`dictionary-${i}`});counts.mutations++;
+    }
     root=originalRoot;
-    const result={counts,files:files.length,hashes:{node:hashes.node.digest("hex"),go:hashes.go.digest("hex")},failures};
+    const result={counts,files:files.length,runtime:{path:"no executables on PATH",other:"panic sentinel"},hashes:{node:hashes.node.digest("hex"),go:hashes.go.digest("hex")},failures};
     if(out)writeFileSync(out,JSON.stringify(result,null,2)+"\n");
     console.log(JSON.stringify({...result,failures:failures.length},null,2));
     assert.equal(failures.length,0,"CHECK/OUTLINE differential failed");
