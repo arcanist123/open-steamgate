@@ -8,7 +8,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-test("CHECKRUN diff enforces nonzero broken parity, ordered tuples and execution origin", async () => {
+for (const engine of ["abap", "go"]) test(`${engine}: CHECKRUN diff enforces nonzero broken parity, ordered tuples and execution origin`, async () => {
   const dir = mkdtempSync(join(tmpdir(), "checkrun-diff-"));
   const log = join(dir, "abap.log");
   let broken = false, mismatch = false, executed = true;
@@ -22,7 +22,7 @@ test("CHECKRUN diff enforces nonzero broken parity, ordered tuples and execution
     if (req.url.includes("logoff")) { res.end(); return; }
     assert.equal(req.headers["x-csrf-token"], "test-token");
     assert.equal(req.headers.cookie, "session=test");
-    if (abap && executed) appendFileSync(log, "lint-engine=abap check=1 issues=1 elapsed=1ms\n");
+    if (abap && executed) appendFileSync(log, `lint-engine=${engine} check=1 issues=1 elapsed=1ms\n`);
     const uri = "/sap/bc/adt/oo/classes/zcl_osd_adt_logoff";
     const message = broken ? `<c:checkMessage c:uri="${uri}/source/main#start=12,5" c:type="E" c:shortText="&quot;step3_undefined&quot; not found, Target${mismatch && !abap ? " different" : ""}"/>` : "";
     res.setHeader("content-type", "application/vnd.sap.adt.checkmessages+xml");
@@ -31,7 +31,7 @@ test("CHECKRUN diff enforces nonzero broken parity, ordered tuples and execution
   try {
     for (const server of servers) { server.listen(0, "127.0.0.1"); await once(server, "listening"); }
     const run = async variant => {
-      writeFileSync(log, "lint-engine=abap prime=1 files=1 elapsed=1ms\n");
+      writeFileSync(log, `lint-engine=${engine} prime=1 files=1 elapsed=1ms\n`);
       const child = spawn(process.execPath, [fileURLToPath(new URL("./checkrun-diff.mjs", import.meta.url)),
         "--abap", `http://127.0.0.1:${servers[0].address().port}`, "--node", `http://127.0.0.1:${servers[1].address().port}`,
         "--abap-log", log, "--variant", variant], {stdio: ["ignore", "pipe", "pipe"]});
@@ -64,7 +64,7 @@ test("CHECKRUN diff enforces nonzero broken parity, ordered tuples and execution
   }
 });
 
-test("overlay and saved-edit gates exercise clean/broken/clean, new objects and cleanup", async () => {
+for (const engine of ["abap", "go"]) test(`${engine}: overlay and saved-edit gates exercise clean/broken/clean, new objects and cleanup`, async () => {
   const dir = mkdtempSync(join(tmpdir(), "checkrun-edits-"));
   const log = join(dir, "abap.log");
   const uri = "/sap/bc/adt/oo/classes/zcl_osd_adt_logoff";
@@ -102,7 +102,7 @@ test("overlay and saved-edit gates exercise clean/broken/clean, new objects and 
       const source = content ? Buffer.from(content[1], "base64").toString("utf8") : state.saved;
       if (content) state.overlays.push({target, source});
       state.checks.push({target, source});
-      if (abap) appendFileSync(log, "lint-engine=abap check=1 issues=1 elapsed=1ms\n");
+      if (abap) appendFileSync(log, `lint-engine=${engine} check=1 issues=1 elapsed=1ms\n`);
       const broken = source.includes("step3_undefined");
       if (broken && abap && failCheck) {res.statusCode = 503; res.end("thrown check"); return;}
       const message = broken ? `<c:checkMessage c:uri="${target}/source/main#start=3,5" c:type="E" c:shortText="step3_undefined${mismatch && !abap ? " different" : ""}"/>` : "";
@@ -112,7 +112,7 @@ test("overlay and saved-edit gates exercise clean/broken/clean, new objects and 
   try {
     for (const server of servers) {server.listen(0, "127.0.0.1"); await once(server, "listening");}
     const run = async mode => {
-      writeFileSync(log, "lint-engine=abap prime=1 files=1 elapsed=1ms\n");
+      writeFileSync(log, `lint-engine=${engine} prime=1 files=1 elapsed=1ms\n`);
       const child = spawn(process.execPath, [fileURLToPath(new URL("./checkrun-diff.mjs", import.meta.url)), "--abap", `http://127.0.0.1:${servers[0].address().port}`, "--node", `http://127.0.0.1:${servers[1].address().port}`, "--abap-log", log, "--mode", mode], {stdio: ["ignore", "pipe", "pipe"]});
       let output = "";
       child.stdout.on("data", d => {output += d;}); child.stderr.on("data", d => {output += d;});

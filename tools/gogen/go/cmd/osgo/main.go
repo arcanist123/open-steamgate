@@ -491,7 +491,7 @@ func main() {
 	compilerStatus := flag.Bool("compiler-status", false, "print compiler sidecar status as JSON")
 	version := flag.Bool("version", false, "print release tag and commit")
 	adtFlag := flag.Bool("adt", false, "mount /sap/bc/adt through ZCL_OSD_ADT_HANDLER (also OSD_OSGO_ADT=1; default off)")
-	lintEngineFlag := flag.String("lint-engine", os.Getenv("OSD_LINT_ENGINE"), "CHECKRUN engine: node (default) or abap (requires --lint-lib build)")
+	lintEngineFlag := flag.String("lint-engine", os.Getenv("OSD_LINT_ENGINE"), "CHECKRUN engine: node (default), abap or go (in-process engines require --lint-lib build)")
 	pprofFlag := flag.Bool("pprof", false, "enable loopback-only profiling (also OSD_PPROF=1)")
 	pprofAddr := flag.String("pprof-addr", "", "separate profiling listener (default 127.0.0.1:6060)")
 	root := flag.String("root", osgRoot, "the checkout whose webapp/ is served")

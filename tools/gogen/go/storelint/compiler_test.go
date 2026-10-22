@@ -60,6 +60,8 @@ func (o *otherCompiler) Outline(context.Context, storecheck.Input) (json.RawMess
 	return nil, fmt.Errorf("Node outline")
 }
 
+var fixtureGo bool
+
 func fixture() (*Compiler, *storecheck.Request, *string, *int) {
 	digest, primes := "initial", 0
 	c := &Compiler{Other: &otherCompiler{}, Capture: func() (objstore.LintSnapshot, error) {
@@ -76,6 +78,9 @@ func fixture() (*Compiler, *storecheck.Request, *string, *int) {
 		return []Issue{{Filename: target, Message: "broken", Row: 3, Column: 7}}
 	}}}
 	req := &storecheck.Request{Command: "CHECKRUN", Known: true, SourceType: true, Exists: true, Input: storecheck.Input{Root: "/tree", Type: "CLAS", Name: "ZTEST", Logical: []string{"src/ztest.clas.abap", "src/ztest.clas.locals_def.abap"}}}
+	if fixtureGo {
+		c.Engine = NewGoEngine(fakeGoLibrary{c.Engine})
+	}
 	return c, req, &digest, &primes
 }
 

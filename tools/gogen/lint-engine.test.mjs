@@ -7,7 +7,8 @@ import {execFileSync} from "node:child_process";
 import {compileProgram} from "./frontend.mjs";
 import {emitGo} from "./emit-go.mjs";
 import {createGoTestDir} from "./go-test-module.mjs";
-import {lintBuildSpec, lintEngineGo} from "./lint-engine.mjs";
+import {lintBuildSpec, lintEngineGo, goLintEngineGo, lintBuildOptions, withGoLintModule} from "./lint-engine.mjs";
+import {lintOrigin} from "../step3/lint-origin.mjs";
 import {writeLintRegistryDouble} from "./lint-engine-fixture.mjs";
 
 test("real ABAP facade indexes buckets, preserves transitive readers, and parses lazily without OSGo stubs", () => {
@@ -320,4 +321,115 @@ test("structural resolver exports effective syntax, new/removed packs and layer 
     assert.ok(removed.files.includes("/src/ztest.prog.abap"));
     assert.deepEqual(removed.hidden, initial.hidden);
   } finally {rmSync(root, {recursive: true, force: true});}
+});
+
+
+test("Go library bridge links only on request and shares CHECKRUN lifecycle with a small external package", () => {
+  const lib = mkdtempSync(join(tmpdir(), "lint-external-go-"));
+  const {dir, goRoot} = createGoTestDir("lint-go-bridge-");
+  const modBefore = readFileSync(join(goRoot, "go.mod"), "utf8");
+  const sumBefore = readFileSync(join(goRoot, "go.sum"), "utf8");
+  try {
+    writeFileSync(join(lib, "go.mod"), "module zabaplint\n\ngo 1.26.0\n");
+    writeFileSync(join(lib, "library.go"), `package deliberately_different
+ type File struct { Filename, Raw string }
+ type Issue struct { Filename, Key, Severity, Message string; Row, Column, EndRow, EndColumn int32 }
+ type Stats struct { Updates, Noops, IndexedObjects, ReaderVisits, DirtiedObjects, ParseRuns, ParseObjects int32 }
+ type Checker struct { files map[string]string; stats Stats }
+ func (c *Checker) Prime(files, deps []File, config string) {
+  if config != "{}" || len(deps) != 0 { panic("bad inputs") }
+  c.files = map[string]string{}
+  for _, f := range files { c.files[f.Filename] = f.Raw }
+ }
+ func (c *Checker) Update(file string, raw *string) {
+  c.stats.Updates++
+  if raw == nil { delete(c.files, file) } else { c.files[file] = *raw }
+ }
+ func (c *Checker) Check(file string) []Issue {
+  raw, found := c.files[file]
+  if !found { panic("missing file") }
+  if raw == "throw" { panic("refused test body") }
+  return []Issue{{Filename:file, Key:"syntax", Severity:"warning", Message:raw, Row:12, Column:5}}
+ }
+ func (c *Checker) Stats() Stats { return c.stats }
+`);
+    assert.deepEqual(lintBuildOptions([]), {engine: "abap", lib: undefined});
+    assert.deepEqual(lintBuildOptions(["--lint-engine=go", "--lint-lib", lib]), {engine: "go", lib});
+    for (const args of [["--lint-engine", "go"], ["--lint-lib"], ["--lint-lib="], ["--lint-engine", "automatic"], ["--echo", "--lint-lib", lib]]) {
+      assert.throws(() => lintBuildOptions(args));
+    }
+    writeFileSync(join(dir, "zz_lint.go"), goLintEngineGo({config: "{}"}));
+    writeFileSync(join(dir, "bridge_test.go"), `package main
+ import("context";"strings";"testing";"osg/gogen/objstore";"osg/gogen/storecheck";"osg/gogen/storelint")
+ type lintSpec struct {Config string}
+ var makeGoLintCompiler func(string, storecheck.Compiler) (*storelint.Compiler, string)
+ func configuredLintCompiler(_ string, other storecheck.Compiler, engine storelint.Engine, _ lintSpec) *storelint.Compiler { return &storelint.Compiler{Other:other, Engine:engine} }
+ func TestBridge(t *testing.T) {
+  c, config := makeGoLintCompiler("/tree", nil)
+  file := "/src/#x#ztest.clas.locals_def.abap"
+  snapshot := objstore.LintSnapshot{Root:"/tree", Digest:"one", Files:[]objstore.LintFile{{Filename:file, Raw:"original"}}}
+  c.Capture = func() (objstore.LintSnapshot,error) { copy := snapshot; copy.Files = append([]objstore.LintFile{},snapshot.Files...); return copy,nil }
+  var logs []string
+  c.Logf = func(format string, _ ...any) { logs = append(logs,format) }
+  if err := c.Prime(config); err != nil { t.Fatal(err) }
+  in := storecheck.Input{CheckRun:true, Root:"/tree", Type:"CLAS", Name:"/X/ZTEST", Include:"definitions", Logical:[]string{file}}
+  check := func(want string) {
+   t.Helper()
+   issues,err := c.Check(context.Background(),in)
+   if err != nil || len(issues)!=1 || issues[0].MESSAGE!=want || issues[0].LINE!=12 || issues[0].COL!=5 || issues[0].Severity!="E" || issues[0].URI!="/sap/bc/adt/oo/classes/%2Fx%2Fztest/includes/definitions" { t.Fatal(issues,err) }
+  }
+  check("original");check("original")
+  // Separate instances retain independent registries.
+  other := newGoLintEngine()
+  other.Prime([]objstore.LintFile{{Filename:file, Raw:"other"}},"{}")
+  check("original")
+  snapshot.Digest="two";snapshot.Files[0].Raw="saved"
+  check("saved")
+  for _,raw:=range []string{"buffer","","throw"} {
+   in.Source=&raw
+   if raw=="throw" { if _,err:=c.Check(context.Background(),in);err==nil||!strings.Contains(err.Error(),"refused test body"){t.Fatal(err)} } else { check(raw) }
+   in.Source=nil;check("saved")
+  }
+  // A new overlay is removed, including after a refused body.
+  in.Name="ZNEW";in.Include="";in.Logical=nil;in.Target="/src/znew.clas.abap"
+  raw:="throw";in.Source=&raw
+  if _,err:=c.Check(context.Background(),in);err==nil{t.Fatal("expected refusal")}
+  in.Source=nil;in.Logical=[]string{in.Target}
+  if _,err:=c.Check(context.Background(),in);err==nil||!strings.Contains(err.Error(),"missing file"){t.Fatal("new overlay leaked",err)}
+  if c.Engine.Name!="go" || c.Engine.Stats().Updates!=9 { t.Fatal(c.Engine.Name,c.Engine.Stats()) }
+  if len(logs)==0 { t.Fatal("missing origin logs") }
+ }
+`);
+    let temporaryMod;
+    withGoLintModule(goRoot, lib, modArgs => {
+      temporaryMod = modArgs[0].slice("-modfile=".length);
+      const output = execFileSync("go", ["test", ...modArgs, "./" + dir.slice(goRoot.length + 1)], {cwd: goRoot, encoding: "utf8", env: {...process.env, GOPROXY: "off", GOWORK: "off"}});
+      assert.match(output, /^ok\s/m);
+    });
+    assert.throws(() => readFileSync(temporaryMod));
+    assert.equal(readFileSync(join(goRoot, "go.mod"), "utf8"), modBefore);
+    assert.equal(readFileSync(join(goRoot, "go.sum"), "utf8"), sumBefore);
+    assert.deepEqual(withGoLintModule(goRoot, undefined, args => args), []);
+    // Existing CLI output must be rejected before starting the OSG build.
+    writeFileSync(join(lib, "library.go"), "package main\n");
+    assert.throws(() => lintBuildOptions(["--lint-engine", "go", "--lint-lib", lib]), /library output/);
+  } finally {
+    rmSync(lib, {recursive: true, force: true});
+    rmSync(goRoot, {recursive: true, force: true});
+  }
+});
+
+
+test("differential origin gate counts completed checks for the selected engine", () => {
+  for (const engine of ["abap", "go"]) {
+    const prime = `lint-engine=${engine} prime=1 files=5 elapsed=1s\n`;
+    const entered = `lint-engine=${engine} check=1 target=/a entered=checker\n`;
+    const completed = `lint-engine=${engine} check=1 issues=2 elapsed=1ms\n`;
+    assert.deepEqual(lintOrigin(prime + entered), {engine, checks: 0});
+    assert.deepEqual(lintOrigin(prime + entered + completed, engine), {engine, checks: 1});
+    assert.throws(() => lintOrigin(prime + prime), /exactly one/);
+    assert.throws(() => lintOrigin(completed), /exactly one/);
+    assert.throws(() => lintOrigin(prime, engine === "abap" ? "go" : "abap"), /engine changed/);
+    assert.throws(() => lintOrigin(prime + completed.replace(`=${engine}`, engine === "abap" ? "=go" : "=abap")), /mixed engines/);
+  }
 });

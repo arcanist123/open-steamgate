@@ -1,4 +1,4 @@
-// Package storelint adapts a persistent, host-owned ABAP lint facade to CHECKRUN.
+// Package storelint adapts a persistent, host-owned lint engine to CHECKRUN.
 // It has no dependency on generated types or the ABAP runtime.
 package storelint
 
@@ -27,13 +27,16 @@ type Stats struct {
 	Updates, Noops, IndexedObjects, ReaderVisits, DirtiedObjects, ParseRuns, ParseObjects int32
 }
 
-// Calls run synchronously on one private Session/Statics owned by the host.
-// No dialog step or work-process lock may be acquired inside these callbacks.
+// Calls run synchronously on one host-owned registry. The ABAP bridge owns
+// private Session/Statics. No dialog step or work-process lock may be acquired
+// inside these callbacks.
 type Engine struct {
-	Prime  func([]objstore.LintFile, string)
-	Check  func(string) []Issue
-	Update func(string, *string)
-	Stats  func() Stats
+	// Name defaults to abap for the existing TS-HA bridge.
+	Name, Entry string
+	Prime       func([]objstore.LintFile, string)
+	Check       func(string) []Issue
+	Update      func(string, *string)
+	Stats       func() Stats
 }
 
 type Compiler struct {
@@ -51,6 +54,20 @@ type Compiler struct {
 }
 
 var _ storecheck.Compiler = (*Compiler)(nil)
+
+func (c *Compiler) name() string {
+	if c.Engine.Name != "" {
+		return c.Engine.Name
+	}
+	return "abap"
+}
+
+func (c *Compiler) label() string {
+	if c.name() == "go" {
+		return "Go"
+	}
+	return "ABAP"
+}
 
 func (c *Compiler) log(format string, args ...any) {
 	if c.Logf != nil {
@@ -70,8 +87,8 @@ func (c *Compiler) logWork(phase string, before Stats, started time.Time) {
 		return
 	}
 	after := c.stats()
-	c.log("lint-engine=abap check=%d phase=%s updates=%d noops=%d indexed=%d reader-visits=%d dirtied=%d parse-runs=%d parse-objects=%d elapsed=%s",
-		c.calls, phase, after.Updates-before.Updates, after.Noops-before.Noops,
+	c.log("lint-engine=%s check=%d phase=%s updates=%d noops=%d indexed=%d reader-visits=%d dirtied=%d parse-runs=%d parse-objects=%d elapsed=%s",
+		c.name(), c.calls, phase, after.Updates-before.Updates, after.Noops-before.Noops,
 		after.IndexedObjects-before.IndexedObjects, after.ReaderVisits-before.ReaderVisits,
 		after.DirtiedObjects-before.DirtiedObjects, after.ParseRuns-before.ParseRuns,
 		after.ParseObjects-before.ParseObjects, time.Since(started))
@@ -79,7 +96,7 @@ func (c *Compiler) logWork(phase string, before Stats, started time.Time) {
 
 func (c *Compiler) trapped(err *error) {
 	if value := recover(); value != nil {
-		*err = fmt.Errorf("ABAP lint engine failed: %v", value)
+		*err = fmt.Errorf("%s lint engine failed: %v", c.label(), value)
 		c.failure = *err
 	}
 }
@@ -96,13 +113,13 @@ func (c *Compiler) Prime(config string) (err error) {
 	}()
 	defer c.trapped(&err)
 	if c.primed || c.failure != nil {
-		return fmt.Errorf("ABAP lint: prime already attempted; restart required")
+		return fmt.Errorf("%s lint: prime already attempted; restart required", c.label())
 	}
 	if c.Engine.Prime == nil || c.Engine.Check == nil {
-		return fmt.Errorf("ABAP lint engine not compiled; rebuild osgo with --lint-lib PATH")
+		return fmt.Errorf("%s lint engine not compiled; rebuild osgo with --lint-lib PATH", c.label())
 	}
 	if c.Capture == nil {
-		return fmt.Errorf("ABAP lint: no input capture configured")
+		return fmt.Errorf("%s lint: no input capture configured", c.label())
 	}
 	if c.Guard != nil {
 		if err = c.Guard(); err != nil {
@@ -123,7 +140,7 @@ func (c *Compiler) Prime(config string) (err error) {
 	if err = c.unchanged(); err != nil {
 		return err
 	}
-	c.log("lint-engine=abap prime=1 files=%d elapsed=%s", len(c.baseline.Files), time.Since(started))
+	c.log("lint-engine=%s prime=1 files=%d elapsed=%s", c.name(), len(c.baseline.Files), time.Since(started))
 	// Retain the saved bytes to diff edits and restore overlays exactly.
 	return nil
 }
@@ -143,7 +160,7 @@ func (c *Compiler) unchanged() error {
 		return err
 	}
 	if now.Root != c.baseline.Root || now.Digest != c.baseline.Digest || now.Structure != c.baseline.Structure {
-		return fmt.Errorf("ABAP lint inputs changed during check; retry")
+		return fmt.Errorf("%s lint inputs changed during check; retry", c.label())
 	}
 	return nil
 }
@@ -161,7 +178,7 @@ func (c *Compiler) syncSaved() (string, error) {
 		return "", err
 	}
 	if now.Root != c.baseline.Root {
-		return "", fmt.Errorf("ABAP lint: request root differs from primed root")
+		return "", fmt.Errorf("%s lint: request root differs from primed root", c.label())
 	}
 	status := ""
 	if now.Structure != c.baseline.Structure {
@@ -171,11 +188,11 @@ func (c *Compiler) syncSaved() (string, error) {
 		}
 		c.Engine.Prime(now.Files, config)
 		c.config = config
-		status = "ABAP lint: full re-prime after structural layer/config change"
-		c.log("lint-engine=abap re-prime files=%d reason=structural", len(now.Files))
+		status = c.label() + " lint: full re-prime after structural layer/config change"
+		c.log("lint-engine=%s re-prime files=%d reason=structural", c.name(), len(now.Files))
 	} else if now.Digest != c.baseline.Digest {
 		if c.Engine.Update == nil {
-			return "", fmt.Errorf("ABAP lint: update bridge unavailable; rebuild")
+			return "", fmt.Errorf("%s lint: update bridge unavailable; rebuild", c.label())
 		}
 		old, current := map[string]string{}, map[string]string{}
 		for _, f := range c.baseline.Files {
@@ -215,10 +232,10 @@ func (c *Compiler) Check(ctx context.Context, in storecheck.Input) ([]storecheck
 
 // A thrown check is recoverable after restoration. A failed update/restore or
 // prime poisons the registry, since its saved state can no longer be proven.
-func engineCheck(fn func() []Issue) (issues []Issue, err error) {
+func (c *Compiler) engineCheck(fn func() []Issue) (issues []Issue, err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = fmt.Errorf("ABAP lint engine check failed: %v", value)
+			err = fmt.Errorf("%s lint engine check failed: %v", c.label(), value)
 		}
 	}()
 	return fn(), nil
@@ -232,16 +249,16 @@ func (c *Compiler) CheckRun(ctx context.Context, in storecheck.Input) (rows []st
 		return nil, "", c.failure
 	}
 	if !c.primed {
-		return nil, "", fmt.Errorf("ABAP lint engine not primed")
+		return nil, "", fmt.Errorf("%s lint engine not primed", c.label())
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, "", err
 	}
 	if in.Type != "CLAS" && in.Type != "INTF" && in.Type != "PROG" && in.Type != "INCL" {
-		return nil, "", fmt.Errorf("ABAP lint: CHECKRUN for %s is outside the ABAP slice", in.Type)
+		return nil, "", fmt.Errorf("%s lint: CHECKRUN for %s is outside the ABAP slice", c.label(), in.Type)
 	}
 	if in.Root != c.baseline.Root {
-		return nil, "", fmt.Errorf("ABAP lint: request root differs from primed root")
+		return nil, "", fmt.Errorf("%s lint: request root differs from primed root", c.label())
 	}
 	status, err = c.syncSaved()
 	if err != nil {
@@ -257,7 +274,11 @@ func (c *Compiler) CheckRun(ctx context.Context, in storecheck.Input) (rows []st
 
 	c.calls++
 	started := time.Now()
-	c.log("lint-engine=abap check=%d target=%s entered=ZCL_OSD_LINT_ENGINE=>CHECK", c.calls, target)
+	entry := c.Engine.Entry
+	if entry == "" {
+		entry = "ZCL_OSD_LINT_ENGINE=>CHECK"
+	}
+	c.log("lint-engine=%s check=%d target=%s entered=%s", c.name(), c.calls, target, entry)
 	issues, err := c.checkWithSource(target, in.Source)
 	if err != nil {
 		return nil, status, err
@@ -269,7 +290,7 @@ func (c *Compiler) CheckRun(ctx context.Context, in storecheck.Input) (rows []st
 		return nil, status, err
 	}
 	rows = MapIssues(in, issues)
-	c.log("lint-engine=abap check=%d issues=%d elapsed=%s", c.calls, len(rows), time.Since(started))
+	c.log("lint-engine=%s check=%d issues=%d elapsed=%s", c.name(), c.calls, len(rows), time.Since(started))
 	return rows, status, nil
 }
 
@@ -282,7 +303,7 @@ func (c *Compiler) checkWithSource(target string, source *string) (issues []Issu
 	}
 	if source != nil {
 		if c.Engine.Update == nil {
-			return nil, fmt.Errorf("ABAP lint: update bridge unavailable; rebuild")
+			return nil, fmt.Errorf("%s lint: update bridge unavailable; rebuild", c.label())
 		}
 		var original *string
 		for _, f := range c.baseline.Files {
@@ -300,7 +321,7 @@ func (c *Compiler) checkWithSource(target string, source *string) (issues []Issu
 	}
 	before, started := c.stats(), time.Now()
 	defer func() { c.logWork("check", before, started) }()
-	return engineCheck(func() []Issue { return c.Engine.Check(target) })
+	return c.engineCheck(func() []Issue { return c.Engine.Check(target) })
 }
 
 func (c *Compiler) Outline(ctx context.Context, in storecheck.Input) (json.RawMessage, error) {
@@ -334,7 +355,7 @@ func (c *Compiler) currentTarget(in storecheck.Input) (string, error) {
 func targetFile(in storecheck.Input) (string, error) {
 	suffix := map[string]string{"": ".clas.abap", "main": ".clas.abap", "definitions": ".clas.locals_def.abap", "implementations": ".clas.locals_imp.abap", "macros": ".clas.macros.abap", "testclasses": ".clas.testclasses.abap"}[in.Include]
 	if in.Type == "CLAS" && suffix == "" {
-		return "", fmt.Errorf("ABAP lint: unknown class include %s", in.Include)
+		return "", fmt.Errorf("lint: unknown class include %s", in.Include)
 	}
 	if in.Type != "CLAS" {
 		suffix = map[string]string{"INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap"}[in.Type]
@@ -351,7 +372,7 @@ func targetFile(in storecheck.Input) (string, error) {
 		}
 		return "/" + strings.TrimPrefix(target, "/"), nil
 	}
-	return "", fmt.Errorf("ABAP lint: no saved target file for %s %s include %s", in.Type, in.Name, in.Include)
+	return "", fmt.Errorf("lint: no saved target file for %s %s include %s", in.Type, in.Name, in.Include)
 }
 
 func MapIssues(in storecheck.Input, issues []Issue) []storecheck.Issue {

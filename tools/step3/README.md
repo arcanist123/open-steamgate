@@ -526,3 +526,108 @@ Slice 1's 24/24 gate at `5055acad` does not establish edit/overlay parity.
 Remaining work: Node warm-check mode/closure acceptance and warm measurements;
 engine .56 -> .73 migration/parity beyond these fixtures; DDLS generator
 diagnostics; AMDP portability warnings and their ADT report mapping.
+
+## TS-HG Go engine (opt-in)
+
+Companion abapiti patch: `5b56ecf` on `feat/tshg-library`, based on
+`selfhost` at `bae64e1`, in the separate `abapiti-tshg` clone.
+
+`-lint-engine=go` (or `OSD_LINT_ENGINE=go`) selects abapiti's direct
+TypeScript → HIR → Go translation of the pinned abaplint core. Node remains the
+default. This is a separate build input from the TS-HA `native/lib` directory:
+
+```sh
+# From OSG, using the separate abapiti review branch feat/tshg-library.
+OSG=$PWD
+ABAPITI=$(realpath ../abapiti-tshg)
+mkdir -p "$OSG/.local/step3"
+(cd "$ABAPITI" && GOPROXY=off go build -o "$OSG/.local/step3/abapiti-tshg" ./cmd/abapiti)
+
+# Heavy generation/build: dell runs these on i10. Use a fresh output directory.
+OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh \
+  "$OSG/.local/step3/abapiti-tshg" abaplint --target go \
+  --go-package abaplint -o "$OSG/.local/step3/tshg"
+LINT_LIB="$OSG/.local/step3/tshg/go"
+OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh node tools/gogen/osgo.mjs \
+  --lint-engine go --lint-lib "$LINT_LIB"
+```
+
+The abapiti patch adds `--go-package`: `main` retains the existing CLI and site
+profiling outputs; another package name emits a library via `EmitPackage` and a
+generated `library.go` wrapper. Library generation does not invoke `go build`.
+Its module path is `zabaplint`; the exported API is `Checker.Prime(files, deps,
+config)`, `Check(filename) []Issue`, `Update(filename, *raw)` and `Stats()`.
+`nil` removes a file; a pointer to an empty string installs empty source. Paths
+and bytes are preserved. The wrapper returns structured Issue getter values,
+preserving order, duplicates and both start/end coordinates. It never parses
+the batch CLI's text report. Use a fresh output directory to avoid mixing CLI
+and library artifacts. No hand edits to generated code are needed.
+
+OSG imports the library only in its optional generated `zz_lint.go` bridge and
+uses a temporary modfile with a local `replace`; tracked `go.mod`/`go.sum` stay
+unchanged. Generated abaplint sources stay in the external directory. Plain
+builds have no import or dependency on that module. The existing
+`--lint-lib native/lib` build still selects ABAP linkage when `--lint-engine`
+is omitted. A Go-linked binary still defaults to Node at runtime. Selecting an
+engine absent from the binary yields `notProcessed`, without fallback.
+
+`storelint.NewGoEngine` supplies the same `storecheck.Compiler` lifecycle used
+by ABAP: startup prime, ordered saved-file diffs, structural re-prime, checks
+before/after execution for stale inputs, deferred overlay restoration and
+removal of new overlay objects. Failed prime/update/restore poisons the host
+compiler; a failed check is recoverable after restoration. The typed bridge
+maps through the existing `MapIssues`/`diagnosticURI`, including severity `E`.
+Library globals are serialized across Checker instances; the host also holds
+its compiler mutex across install/check/restore. The generated wrapper indexes
+lexical readers with Go maps, dirties transitive readers, and defers parsing
+until Check. Prime iterates the registry once to build that index. Counter
+names are shared; Go's `reader-visits` counts indexed readers visited, while
+ABAP counts entries examined in its fixed buckets, so their values can differ.
+The existing non-source presence behavior and DDLS/AMDP gaps still apply.
+Structural layer/config resolution still uses Node for input facts, never for
+Go CHECKRUN diagnostics. The 30-second context cannot preempt generated code.
+
+For execution-origin proof, copy the binary away from sidecar discovery and
+start it with a fresh log, over a disposable complete clean store:
+
+```sh
+mkdir -p .local/step3/go-only
+cp tools/gogen/.out/osgo .local/step3/go-only/osgo
+OSGO_SIDECAR="$PWD/.local/step3/no-sidecar" OSD_HEAVY_RANGE=80-89 \
+  tools/osd-heavy.sh .local/step3/go-only/osgo \
+  -adt -lint-engine=go -root "$PWD" 2> .local/step3/osgo-go.log
+```
+
+Use the allocated port from the heavy wrapper as `GO_URL`; start the normal
+Node host on the same inputs as described above. The differential CLI retains
+its existing `--abap` and `--abap-log` flag names for either engine. It infers
+the selected engine from the single prime line, rejects mixed origins, and
+requires one completed check for each POST:
+
+```sh
+for MODE in saved overlay saved-edit; do
+  node tools/step3/checkrun-diff.mjs --abap "$GO_URL" --node "$NODE_URL" \
+    --abap-log .local/step3/osgo-go.log --mode "$MODE" \
+    --objects "$OBJECTS_JSON" --out ".local/step3/http-go-$MODE"
+done
+```
+
+`OBJECTS_JSON` is the same object list used by the ABAP-vs-Node gate. Also run
+the saved `--variant broken` gate against identical broken store copies with
+a fresh server/log. Preserve mismatches against the actual OSG Node version
+(.73), separately from the translated core pin (.56). Record cold prime time,
+warm unchanged checks, saved edits and overlay install/check/restore times plus
+retained memory. M1's 48 s batch result motivates this path; it does not prove
+warm latency or HTTP equality for the new library. Full generated-core linkage,
+real HTTP gates and latency/memory measurements are dell's remaining acceptance
+work; they were deliberately not run during this implementation.
+
+Focused local checks (small doubles, no full generated core):
+
+```sh
+(cd tools/gogen/go && GOPROXY=off go test -race \
+  ./storelint ./storecheck ./objstore ./storecompiler ./cmd/osgo)
+node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
+(cd ../abapiti-tshg && GOPROXY=off go test ./tsfront \
+  -run '^TestRegistryGo(Library|ReadPolicy)$' -count=1)
+```

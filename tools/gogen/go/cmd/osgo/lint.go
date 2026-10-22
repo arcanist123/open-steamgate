@@ -31,13 +31,22 @@ var makeLintCompiler = func(_ string, other storecheck.Compiler) (*storelint.Com
 	return &storelint.Compiler{Other: other}, ""
 }
 
+// Installed by the optional TS-HG bridge, independently of the ABAP build.
+var makeGoLintCompiler = func(_ string, other storecheck.Compiler) (*storelint.Compiler, string) {
+	return &storelint.Compiler{Other: other, Engine: storelint.Engine{Name: "go"}}, ""
+}
+
 func selectCheckCompiler(root string, other storecheck.Compiler, selected string) storecheck.Compiler {
-	if selected != "abap" {
+	if selected != "abap" && selected != "go" {
 		return other
 	}
-	engine, config := makeLintCompiler(root, other)
+	factory := makeLintCompiler
+	if selected == "go" {
+		factory = makeGoLintCompiler
+	}
+	engine, config := factory(root, other)
 	if err := engine.Prime(config); err != nil {
-		log.Printf("lint-engine=abap unavailable: %v (CHECKRUN will return notProcessed)", err)
+		log.Printf("lint-engine=%s unavailable: %v (CHECKRUN will return notProcessed)", selected, err)
 	}
 	return engine
 }
@@ -47,14 +56,15 @@ func selectedLintEngine(value string) (string, error) {
 	if value == "" {
 		value = "node"
 	}
-	if value != "node" && value != "abap" {
-		return "", fmt.Errorf("invalid lint engine %q: use node or abap", value)
+	if value != "node" && value != "abap" && value != "go" {
+		return "", fmt.Errorf("invalid lint engine %q: use node, abap or go", value)
 	}
 	return value, nil
 }
 
 // Only structural changes invoke the existing Node layer/config resolver. It
-// returns input facts, never diagnostics; every prime/check still runs in ABAP.
+// returns input facts, never diagnostics. Every prime/check runs in the
+// selected in-process engine.
 var resolveLintSpec = func(root string) (lintSpec, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -62,15 +72,15 @@ var resolveLintSpec = func(root string) (lintSpec, error) {
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
-		return lintSpec{}, fmt.Errorf("ABAP lint: full re-prime needs structural input resolution: %w", err)
+		return lintSpec{}, fmt.Errorf("lint: full re-prime needs structural input resolution: %w", err)
 	}
 	var spec lintSpec
 	err = json.Unmarshal(out, &spec)
 	if err != nil {
-		return spec, fmt.Errorf("ABAP lint structural input facts: %w", err)
+		return spec, fmt.Errorf("lint structural input facts: %w", err)
 	}
 	if spec.Store == nil || spec.Config == "" {
-		return spec, fmt.Errorf("ABAP lint structural input facts are incomplete")
+		return spec, fmt.Errorf("lint structural input facts are incomplete")
 	}
 	return spec, nil
 }
@@ -208,7 +218,7 @@ func configuredLintCompiler(root string, other storecheck.Compiler, engine store
 					return snapshot, err
 				}
 				if changed {
-					return snapshot, fmt.Errorf("ABAP lint structural inputs changed during resolution; retry")
+					return snapshot, fmt.Errorf("lint structural inputs changed during resolution; retry")
 				}
 				snapshot, err = capture()
 				if err != nil {

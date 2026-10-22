@@ -1,6 +1,8 @@
-// Optional TS-HA checker linkage. No generated zlnt sources are copied or tracked.
+// Optional TS-HA/TS-HG checker linkage. Generated core sources stay external.
 import {createHash} from "node:crypto";
-import {existsSync, readFileSync} from "node:fs";
+import {copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync} from "node:fs";
+import {execFileSync} from "node:child_process";
+import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 
 export function lintFolders(root, lib) {
@@ -79,6 +81,91 @@ func init() {
  if err := json.Unmarshal([]byte(${JSON.stringify(JSON.stringify(spec))}), &spec); err != nil { panic(err) }
  makeLintCompiler = func(root string, other storecheck.Compiler) (*storelint.Compiler, string) {
   return configuredLintCompiler(root, other, newLintEngine(), spec), spec.Config
+ }
+}
+`;
+}
+
+// Library output from abapiti --target go --go-package abaplint. Validate early,
+// before the expensive OSG frontend. The module path is fixed by abapiti; its
+// package name may vary, so the bridge always imports it with an explicit alias.
+export function goLintLibrary(lib) {
+  const path = resolve(lib);
+  const mod = readFileSync(join(path, "go.mod"), "utf8");
+  const api = readFileSync(join(path, "library.go"), "utf8");
+  if (!/^module\s+zabaplint\s*$/m.test(mod) || !/^package\s+(?!main\b)\w+\s*$/m.test(api)) {
+    throw new Error("--lint-lib for go requires abapiti's library output: --target go --go-package abaplint (module zabaplint)");
+  }
+  return path;
+}
+
+export function lintBuildOptions(args) {
+  const option = name => {
+    const at = args.indexOf(name);
+    const value = at < 0 ? args.find(a => a.startsWith(name + "="))?.slice(name.length + 1) : args[at + 1];
+    if ((at >= 0 || value !== undefined) && (!value || value.startsWith("--"))) throw new Error(`${name} requires a value`);
+    return value;
+  };
+  const lib = option("--lint-lib");
+  const engine = option("--lint-engine") ?? "abap";
+  if (!["abap", "go"].includes(engine)) throw new Error("build --lint-engine must be abap or go");
+  if (args.includes("--echo") && lib) throw new Error("--lint-lib requires the full OSGo build, not --echo");
+  if (engine === "go" && !lib) throw new Error("--lint-engine go requires --lint-lib PATH");
+  return {engine, lib: lib && (engine === "go" ? goLintLibrary(lib) : lib)};
+}
+
+// Run a build against a disposable modfile. Neither go.mod/go.sum nor the
+// generated external library is copied into OSG or changed by this linkage.
+export function withGoLintModule(goRoot, lib, build) {
+  if (!lib) return build([]);
+  const dir = mkdtempSync(join(tmpdir(), "osd-go-lint-module-"));
+  const mod = join(dir, "go.mod");
+  try {
+    copyFileSync(join(goRoot, "go.mod"), mod);
+    if (existsSync(join(goRoot, "go.sum"))) copyFileSync(join(goRoot, "go.sum"), join(dir, "go.sum"));
+    execFileSync("go", ["mod", "edit", `-modfile=${mod}`, "-require=zabaplint@v0.0.0", `-replace=zabaplint=${lib}`], {cwd: goRoot, env: {...process.env, GOWORK: "off", GOPROXY: "off"}});
+    return build([`-modfile=${mod}`]);
+  } finally {
+    rmSync(dir, {recursive: true, force: true});
+  }
+}
+
+export function goLintEngineGo(spec) {
+  return `package main
+import (
+ "encoding/json"
+ lint "zabaplint"
+ "osg/gogen/objstore"
+ "osg/gogen/storecheck"
+ "osg/gogen/storelint"
+)
+type goLintLibrary struct { checker lint.Checker }
+func (l *goLintLibrary) Prime(files, deps []objstore.LintFile, config string) {
+ convert := func(input []objstore.LintFile) []lint.File {
+  out := make([]lint.File, 0, len(input))
+  for _, f := range input { out = append(out, lint.File{Filename: f.Filename, Raw: f.Raw}) }
+  return out
+ }
+ l.checker.Prime(convert(files), convert(deps), config)
+}
+func (l *goLintLibrary) Update(target string, raw *string) { l.checker.Update(target, raw) }
+func (l *goLintLibrary) Check(target string) []storelint.Issue {
+ issues := l.checker.Check(target)
+ out := make([]storelint.Issue, 0, len(issues))
+ for _, i := range issues { out = append(out, storelint.Issue{Filename: i.Filename, Key: i.Key, Message: i.Message, Row: i.Row, Column: i.Column}) }
+ return out
+}
+func (l *goLintLibrary) Stats() storelint.Stats {
+ r := l.checker.Stats()
+ return storelint.Stats{Updates: r.Updates, Noops: r.Noops, IndexedObjects: r.IndexedObjects,
+  ReaderVisits: r.ReaderVisits, DirtiedObjects: r.DirtiedObjects, ParseRuns: r.ParseRuns, ParseObjects: r.ParseObjects}
+}
+func newGoLintEngine() storelint.Engine { return storelint.NewGoEngine(&goLintLibrary{}) }
+func init() {
+ var spec lintSpec
+ if err := json.Unmarshal([]byte(${JSON.stringify(JSON.stringify(spec))}), &spec); err != nil { panic(err) }
+ makeGoLintCompiler = func(root string, other storecheck.Compiler) (*storelint.Compiler, string) {
+  return configuredLintCompiler(root, other, newGoLintEngine(), spec), spec.Config
  }
 }
 `;

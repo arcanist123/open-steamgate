@@ -14,9 +14,9 @@ import (
 )
 
 func TestLintSelection(t *testing.T) {
-	for _, value := range []string{"", "node", " NODE ", "abap"} {
+	for _, value := range []string{"", "node", " NODE ", "abap", "go", " GO "} {
 		selected, err := selectedLintEngine(value)
-		if err != nil || selected != "node" && selected != "abap" {
+		if err != nil || selected != "node" && selected != "abap" && selected != "go" {
 			t.Fatalf("%q: %q %v", value, selected, err)
 		}
 	}
@@ -132,5 +132,31 @@ func TestLintPackDiscoveryAndLayerChanges(t *testing.T) {
 	// New ordinary files, including sibling includes, stay incremental.
 	if lintNeedsLayers(root, lintSpec{}, objstore.LintSnapshot{Files: []objstore.LintFile{{Filename: "/base/ztest.clas.abap"}, {Filename: "/base/ztest.clas.locals_def.abap"}}}) {
 		t.Fatal("ordinary addition became structural")
+	}
+}
+
+func TestGoLintSelectionAndMissingBuild(t *testing.T) {
+	other := &storelint.Compiler{}
+	if got := selectCheckCompiler("/tree", other, "node"); got != other {
+		t.Fatal("default compiler changed")
+	}
+	saved := makeGoLintCompiler
+	defer func() { makeGoLintCompiler = saved }()
+	makeGoLintCompiler = func(root string, delegate storecheck.Compiler) (*storelint.Compiler, string) {
+		if root != "/tree" || delegate != other {
+			t.Fatal("wrong factory inputs")
+		}
+		return &storelint.Compiler{Other: delegate, Engine: storelint.Engine{Name: "go"}}, ""
+	}
+	selected := selectCheckCompiler("/tree", other, "go")
+	if selected == other {
+		t.Fatal("Go CHECKRUN fell back")
+	}
+	c := selected.(*storelint.Compiler)
+	req := storecheck.Request{Command: "CHECKRUN", Known: true, SourceType: true, Exists: true,
+		Input: storecheck.Input{Root: "/tree", Type: "PROG", Name: "ZTEST", Logical: []string{"/src/ztest.prog.abap"}}}
+	result, err := storecheck.Run(c, req)
+	if err != nil || !strings.Contains(result.Scalars["EV_JSON"], "notProcessed") || !strings.Contains(result.Scalars["EV_JSON"], "Go lint engine not compiled") {
+		t.Fatal(result, err)
 	}
 }

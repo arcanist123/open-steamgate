@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Actual ADT reports, including URI/coordinate mapping and the ABAP serializer.
 import assert from "node:assert/strict";
+import {lintOrigin} from "./lint-origin.mjs";
 import {readFileSync, mkdirSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {parseArgs} from "node:util";
@@ -42,10 +43,11 @@ function report(xml, uri) {
   });
   return {status: attr(r, "status"), issues, ...(attr(r, "statusText") !== undefined ? {statusText: attr(r, "statusText")} : {})};
 }
+let originEngine;
 const readOrigin = () => {
-  const log = readFileSync(values["abap-log"], "utf8");
-  assert.equal((log.match(/lint-engine=abap prime=1 files=/g) ?? []).length, 1, "origin gate: expected exactly one successful prime in this server's log");
-  return (log.match(/lint-engine=abap check=\d+ issues=\d+ elapsed=/g) ?? []).length;
+  const origin = lintOrigin(readFileSync(values["abap-log"], "utf8"), originEngine);
+  originEngine = origin.engine;
+  return origin.checks;
 };
 const sessions = [new Session(values.abap), new Session(values.node)];
 let mismatches = 0;
@@ -61,7 +63,7 @@ async function compare(c, label) {
     results.push(report(response.body, c.uri));
     if (values.out) writeFileSync(join(values.out, `${label}-${engine === 0 ? "abap" : "node"}.xml`), response.body);
   }
-  assert.equal(readOrigin(), before + 1, "origin gate: request did not complete exactly one ABAP facade check (use an otherwise idle server)");
+  assert.equal(readOrigin(), before + 1, "origin gate: request did not complete exactly one in-process engine check (use an otherwise idle server)");
   try {
     for (const result of results) {
       assert.equal(result.status, "processed", JSON.stringify(result));
