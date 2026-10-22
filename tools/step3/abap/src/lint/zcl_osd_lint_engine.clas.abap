@@ -31,6 +31,7 @@ CLASS zcl_osd_lint_engine DEFINITION PUBLIC FINAL CREATE PRIVATE.
     CLASS-DATA go_registry TYPE REF TO zcl_lnt_registry.
     CLASS-DATA gt_readers TYPE tt_reader.
     CLASS-METHODS index_object IMPORTING io_object TYPE REF TO zif_lnt_object.
+    CLASS-METHODS drop_readers IMPORTING io_object TYPE REF TO zif_lnt_object.
     CLASS-METHODS index_registry.
     CLASS-METHODS column
       IMPORTING io_position TYPE REF TO zcl_lnt_position
@@ -124,6 +125,19 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     ENDDO.
   ENDMETHOD.
 
+  METHOD drop_readers.
+    DATA lv_index TYPE i.
+    DATA ls_reader TYPE ty_reader.
+    lv_index = lines( gt_readers ).
+    WHILE lv_index > 0.
+      READ TABLE gt_readers INTO ls_reader INDEX lv_index.
+      IF ls_reader-object = io_object.
+        DELETE gt_readers INDEX lv_index.
+      ENDIF.
+      lv_index = lv_index - 1.
+    ENDWHILE.
+  ENDMETHOD.
+
   METHOD index_object.
     DATA lo_files TYPE REF TO zlnt_runtime_arra_c22708faf2e3.
     DATA lo_item TYPE REF TO object.
@@ -134,7 +148,7 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     DATA ls_reader TYPE ty_reader.
     DATA lt_words TYPE SORTED TABLE OF string WITH UNIQUE KEY table_line.
     DATA lv_word TYPE string.
-    DELETE gt_readers WHERE object = io_object.
+    drop_readers( io_object ).
     lo_files = io_object->get_files( ).
     lo_files->dense( ).
     LOOP AT lo_files->items INTO lo_item.
@@ -166,6 +180,8 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     DATA lt_queue TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
     DATA lt_reached TYPE SORTED TABLE OF string WITH UNIQUE KEY table_line.
     DATA lt_dirty TYPE STANDARD TABLE OF REF TO zif_lnt_object WITH DEFAULT KEY.
+    DATA lv_seen TYPE abap_bool.
+    DATA lo_seen TYPE REF TO zif_lnt_object.
     DATA ls_reader TYPE ty_reader.
     DATA lv_index TYPE i.
     IF go_registry IS NOT BOUND.
@@ -199,7 +215,7 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     lv_name = to_upper( lo_file->get_object_name( ) ).
     lo_object = go_registry->find_object_for_file( i_file = lo_file ).
     IF lo_old IS BOUND AND lo_old <> lo_object.
-      DELETE gt_readers WHERE object = lo_old.
+      drop_readers( lo_old ).
     ENDIF.
     IF lo_object IS BOUND.
       index_object( lo_object ).
@@ -212,8 +228,14 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
       READ TABLE lt_queue INTO lv_word INDEX lv_index.
       lv_index = lv_index + 1.
       LOOP AT gt_readers INTO ls_reader WHERE word = lv_word.
-        READ TABLE lt_dirty WITH KEY table_line = ls_reader-object TRANSPORTING NO FIELDS.
-        IF sy-subrc = 0.
+        lv_seen = abap_false.
+        LOOP AT lt_dirty INTO lo_seen.
+          IF lo_seen = ls_reader-object.
+            lv_seen = abap_true.
+            EXIT.
+          ENDIF.
+        ENDLOOP.
+        IF lv_seen = abap_true.
           CONTINUE.
         ENDIF.
         APPEND ls_reader-object TO lt_dirty.
