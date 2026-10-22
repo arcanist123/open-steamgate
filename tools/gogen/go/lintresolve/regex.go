@@ -8,7 +8,7 @@ import (
 
 // Compile accepts a deliberately portable JS-without-flags subset. Reject
 // constructs whose JS/RE2 meanings differ rather than guessing at runtime.
-// $ and dot are translated because JS also recognizes CR/LS/PS line endings.
+// Dot excludes all JS line terminators; Match compares UTF-16 units.
 func Compile(source string, insensitive bool) (*regexp.Regexp, error) {
 	var out strings.Builder
 	inClass := false
@@ -50,7 +50,7 @@ func Compile(source string, insensitive bool) (*regexp.Regexp, error) {
 			}
 		}
 		if !inClass && c == '$' {
-			out.WriteString(`(?:\z|[\n\r\x{2028}\x{2029}]\z)`)
+			out.WriteString(`\z`)
 			continue
 		}
 		if !inClass && c == '.' {
@@ -64,8 +64,7 @@ func Compile(source string, insensitive bool) (*regexp.Regexp, error) {
 		out.WriteByte(c)
 	}
 	pattern := out.String()
-	// ASCII source case-insensitivity: expand literals rather than RE2's Unicode
-	// fold (which additionally folds Kelvin sign and long s, unlike legacy JS /i).
+	// Match maps non-ASCII input units before RE2 case folding.
 	if insensitive {
 		pattern = "(?i)" + pattern
 	}
@@ -76,16 +75,50 @@ func Compile(source string, insensitive bool) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-func matches(patterns []*regexp.Regexp, value string, insensitive bool) bool {
-	if insensitive {
-		value = strings.NewReplacer("K", "\x00", "ſ", "\x00").Replace(value)
+// regexUnits gives RE2 the same units as legacy JS regexes. The accepted
+// sources contain only ASCII literals: all other non-line-terminator units
+// have identical membership in their character classes. Astral code points
+// contribute two units; Kelvin/long-s cannot fold into ASCII under JS /i.
+func regexUnits(value string) string {
+	var b strings.Builder
+	for _, c := range value {
+		switch {
+		case c < 128 || c == 0x2028 || c == 0x2029:
+			b.WriteRune(c)
+		case c > 0xffff:
+			b.WriteRune(0xe000)
+			b.WriteRune(0xe000)
+		default:
+			b.WriteRune(0xe000)
+		}
 	}
+	return b.String()
+}
+
+func matches(patterns []*regexp.Regexp, value string, _ bool) bool {
+	value = regexUnits(value)
 	for _, re := range patterns {
 		if re.MatchString(value) {
 			return true
 		}
 	}
 	return false
+}
+
+// ExclusionFilter shares logical-path and JS-regex semantics with capture.
+// The callback accepts store-relative paths without the leading slash.
+func ExclusionFilter(root string, r *Rules) (func(string) bool, error) {
+	patterns, err := patterns(r.Excluded, false)
+	if err != nil {
+		return nil, err
+	}
+	return func(file string) bool {
+		path := "/" + file
+		if r.System {
+			path = logical(root, file, r)
+		}
+		return matches(patterns, path, false)
+	}, nil
 }
 
 func patterns(sources []string, insensitive bool) ([]*regexp.Regexp, error) {

@@ -13,10 +13,6 @@ import (
 
 func TestCriticLateDeclaredPackRoot(t *testing.T) {
 	root := t.TempDir()
-	realResolve := Resolve
-	resolves := 0
-	Resolve = func(root string) (Spec, error) { resolves++; return realResolve(root) }
-	defer func() { Resolve = realResolve }()
 	write := func(file, raw string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, file)), 0700); err != nil {
@@ -39,10 +35,14 @@ func TestCriticLateDeclaredPackRoot(t *testing.T) {
 	write("src/zdep.intf.abap", "INTERFACE zdep PUBLIC. METHODS old_method. ENDINTERFACE.")
 	write("packs/late/osd-pack.json", `{"name":"late","abap":["src","addon"]}`)
 	write("packs/late/src/zother.prog.abap", "REPORT zother.")
-	spec, err := Resolve(root)
+	spec := buildSpec(t, root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	realResolve := Resolve
+	resolves := 0
+	Resolve = func(root string) (Spec, error) { resolves++; return realResolve(root) }
+	t.Cleanup(func() { Resolve = realResolve })
 	var registry []objstore.LintFile
 	engine := storelint.Engine{
 		Prime:  func(files []objstore.LintFile, _ string) { registry = append([]objstore.LintFile{}, files...) },

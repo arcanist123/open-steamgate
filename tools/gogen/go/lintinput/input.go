@@ -46,7 +46,11 @@ func Structure(root string, spec Spec) (string, bool, error) {
 		changed = changed || value != expected
 	}
 	// Detect new/removed packs too, not only edits to manifests known at build.
-	for _, place := range spec.Places {
+	places := spec.Places
+	if spec.Rules != nil {
+		places = nil
+	} // Guard already checked the complete manifest inventory.
+	for _, place := range places {
 		at := filepath.Join(root, place)
 		candidates := []string{filepath.Join(at, "osd-pack.json")}
 		entries, err := os.ReadDir(at)
@@ -121,6 +125,13 @@ func newWithCache(root string, other storecheck.Compiler, engine storelint.Engin
 			changed = changed || (initialized && membership != previousMembership) || (!initialized && spec.LibraryPlaces != nil)
 			capture := func() (objstore.LintSnapshot, error) {
 				if spec.Store != nil {
+					if spec.Rules != nil {
+						filter, err := lintresolve.ExclusionFilter(root, spec.Rules)
+						if err != nil {
+							return objstore.LintSnapshot{}, err
+						}
+						return cache.CaptureFiltered(root, spec.Store, spec.Hidden, filter)
+					}
 					return cache.Capture(root, spec.Store, spec.Hidden)
 				}
 				return objstore.CaptureLint(spec.Hidden)

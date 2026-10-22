@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -43,6 +44,13 @@ func CaptureLintView(root string, cfg *Config, hidden []string) (LintSnapshot, e
 // Capture retains content only; membership and ordered digest are rebuilt every time.
 // Callers serialize access (lintinput uses the storelint compiler mutex).
 func (cache *LintCache) Capture(root string, cfg *Config, hidden []string) (LintSnapshot, error) {
+	return cache.CaptureFiltered(root, cfg, hidden, nil)
+}
+
+// CaptureFiltered accepts the fixed-generation resolver's JS-compatible logical
+// exclusion policy. All reads, hidden proofs, cache identity and errors remain
+// owned by this package. A nil filter retains the store's default exclusions.
+func (cache *LintCache) CaptureFiltered(root string, cfg *Config, hidden []string, filter func(string) bool) (LintSnapshot, error) {
 	var excluded []*regexp.Regexp
 	for _, pattern := range cfg.Excluded {
 		re, err := regexp.Compile(pattern)
@@ -51,10 +59,10 @@ func (cache *LintCache) Capture(root string, cfg *Config, hidden []string) (Lint
 		}
 		excluded = append(excluded, re)
 	}
-	return captureLintView(root, cfg, excluded, hidden, cache)
+	return captureLintView(root, cfg, excluded, hidden, cache, filter)
 }
 
-func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hidden []string, cache *LintCache) (LintSnapshot, error) {
+func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hidden []string, cache *LintCache, filters ...func(string) bool) (LintSnapshot, error) {
 	out := LintSnapshot{Root: rootPath}
 	skip := map[string]bool{}
 	for _, file := range hidden {
@@ -74,7 +82,7 @@ func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hi
 		}
 		if !root.Library {
 			var err error
-			files, err = lintWalkInfo(rootPath, root.Path, excluded, infos)
+			files, err = lintWalkFiltered(rootPath, root.Path, excluded, infos, filters...)
 			if err != nil {
 				return out, err
 			}
@@ -104,6 +112,10 @@ func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hi
 
 // Like storeWalk, but IO failures must never become a clean, partial registry.
 func lintWalkInfo(base, dir string, patterns []*regexp.Regexp, infos map[string]os.FileInfo) ([]string, error) {
+	return lintWalkFiltered(base, dir, patterns, infos)
+}
+
+func lintWalkFiltered(base, dir string, patterns []*regexp.Regexp, infos map[string]os.FileInfo, filters ...func(string) bool) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(base, dir))
 	if os.IsNotExist(err) {
 		return nil, nil // optional roots (notably local/tmp) may not exist yet
@@ -112,6 +124,7 @@ func lintWalkInfo(base, dir string, patterns []*regexp.Regexp, infos map[string]
 		return nil, err
 	}
 	var files []string
+	sort.Slice(entries, func(i, j int) bool { return JSStringLess(entries[i].Name(), entries[j].Name()) })
 	for _, entry := range entries { // ReadDir is sorted, like Node's walk
 		if entry.Name() == "node_modules" || entry.Name() == ".git" {
 			continue
@@ -122,7 +135,7 @@ func lintWalkInfo(base, dir string, patterns []*regexp.Regexp, infos map[string]
 			return nil, err
 		}
 		if info.IsDir() {
-			children, err := lintWalkInfo(base, file, patterns, infos)
+			children, err := lintWalkFiltered(base, file, patterns, infos, filters...)
 			if err != nil {
 				return nil, err
 			}
@@ -132,6 +145,9 @@ func lintWalkInfo(base, dir string, patterns []*regexp.Regexp, infos map[string]
 		excluded := false
 		for _, re := range patterns {
 			excluded = excluded || re.MatchString("/"+file)
+		}
+		if len(filters) > 0 && filters[0] != nil {
+			excluded = filters[0](file)
 		}
 		if !excluded {
 			if infos != nil {

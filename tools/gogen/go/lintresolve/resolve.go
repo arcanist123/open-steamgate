@@ -113,7 +113,11 @@ func Resolve(root string, r *Rules) (Facts, error) {
 			if r.System && (filepath.Base(file) == ".osd-layer.json" || filepath.Base(file) == ".abapgit.xml") {
 				continue
 			}
-			if !matches(includes, full, false) || strings.HasSuffix(file, ".clas.testclasses.abap") || matches(excludes, full, true) {
+			included := false
+			for _, re := range includes {
+				included = included || re.MatchString(full)
+			}
+			if !included || strings.HasSuffix(file, ".clas.testclasses.abap") || matches(excludes, full, true) {
 				continue
 			}
 			path := base
