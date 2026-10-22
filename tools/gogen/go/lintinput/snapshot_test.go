@@ -105,7 +105,18 @@ func TestCachedCheckRunRefusesDependencyEdit(t *testing.T) {
 	time.Sleep(2100 * time.Millisecond)
 	cfg := &objstore.Config{Roots: []objstore.Root{{Path: "src"}}}
 	mutate := false
-	engine := storelint.Engine{Prime: func([]objstore.LintFile, string) {}, Update: func(string, *string) {}, Check: func(string) []storelint.Issue {
+	saved := map[string]string{}
+	engine := storelint.Engine{Prime: func(files []objstore.LintFile, _ string) {
+		for _, file := range files {
+			saved[file.Filename] = file.Raw
+		}
+	}, Update: func(file string, raw *string) {
+		if raw == nil {
+			delete(saved, file)
+		} else {
+			saved[file] = *raw
+		}
+	}, Check: func(file string) []storelint.Issue {
 		if mutate {
 			file := filepath.Join(root, dep)
 			info, err := os.Stat(file)
@@ -119,7 +130,7 @@ func TestCachedCheckRunRefusesDependencyEdit(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		return []storelint.Issue{{Message: "must not escape stale check"}}
+		return []storelint.Issue{{Filename: file, Key: "dependency", Message: "engine dependency: " + saved["/"+dep]}}
 	}}
 	c := New(root, nil, engine, Spec{Config: "{}", Store: cfg})
 	c.Logf = nil
@@ -136,7 +147,8 @@ func TestCachedCheckRunRefusesDependencyEdit(t *testing.T) {
 		t.Fatal(rows, err)
 	}
 	mutate = false
-	if _, _, err := c.CheckRun(context.Background(), in); err != nil {
-		t.Fatal("next check must sync edited bytes", err)
+	rows, _, err = c.CheckRun(context.Background(), in)
+	if err != nil || len(rows) != 1 || rows[0].MESSAGE != "engine dependency: new bytes" || saved["/"+dep] != "new bytes" {
+		t.Fatal("next check must sync edited bytes into engine and diagnostics", rows, saved, err)
 	}
 }

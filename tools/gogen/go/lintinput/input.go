@@ -158,7 +158,7 @@ func NeedsLayers(root string, spec Spec, snapshot objstore.LintSnapshot) bool {
 }
 
 func New(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec) *storelint.Compiler {
-	return newWithCache(root, other, engine, spec, &objstore.LintCache{})
+	return newWithCache(root, other, engine, spec, statCacheFromEnv())
 }
 
 func newWithCache(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec, cache *objstore.LintCache) *storelint.Compiler {

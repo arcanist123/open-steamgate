@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+func coherentTestFS(string) (int64, error) { return 0xef53, nil }
+
 func TestLintCacheMutations(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "src"), 0700); err != nil {
@@ -23,7 +25,7 @@ func TestLintCacheMutations(t *testing.T) {
 	write("REPORT z.")
 	time.Sleep(2100 * time.Millisecond)
 	cfg := &Config{Roots: []Root{{Path: "src"}}}
-	cache := &LintCache{}
+	cache := &LintCache{fsType: coherentTestFS}
 	capture := func() LintSnapshot {
 		t.Helper()
 		got, err := cache.Capture(root, cfg, nil)
@@ -128,7 +130,7 @@ func TestLintCacheRacyWindow(t *testing.T) {
 			case "future":
 				observed = time.Unix(0, min(id.modified, id.changed)).Add(-time.Second)
 			}
-			cache := &LintCache{entries: map[string]lintContent{file: {raw: "cached marker", identity: id, observed: observed}}}
+			cache := &LintCache{fsType: coherentTestFS, entries: map[string]lintContent{file: {raw: "cached marker", identity: id, observed: observed}}}
 			if scenario == "disabled" {
 				cache.Granularity = -1
 			}
@@ -161,11 +163,26 @@ func TestLintCacheSymlinkRetarget(t *testing.T) {
 	if err := os.Symlink("a", link); err != nil {
 		t.Skip(err)
 	}
+	time.Sleep(2100 * time.Millisecond)
 	cfg := &Config{Libs: []Root{{Library: true, Files: []string{"link.prog.abap"}}}}
-	cache := &LintCache{}
+	cache := &LintCache{fsType: coherentTestFS}
 	before, err := cache.Capture(root, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	info, err := os.Stat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lintIdentity(info); !ok {
+		t.Skip("platform always reads")
+	}
+	initial := cache.entries[link]
+	if _, err := cache.Capture(root, cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	if initial.raw != "a" || cache.entries[link].observed != initial.observed {
+		t.Fatal("symlink fixture was not reusable")
 	}
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
@@ -196,7 +213,7 @@ func TestLintCacheReadRace(t *testing.T) {
 	if err := os.WriteFile(file, []byte("changed size"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	cache := &LintCache{}
+	cache := &LintCache{fsType: coherentTestFS}
 	reader := cache.begin()
 	if _, err := reader.read(file, before); err == nil {
 		t.Fatal("racing read accepted")
@@ -226,9 +243,72 @@ func TestLintCacheFutureMtime(t *testing.T) {
 	// ctime is safely old relative to the observation; only future mtime
 	// prevents reuse. Test independently from the recent-ctime case above.
 	observed := time.Unix(0, id.changed).Add(3 * time.Second)
-	cache := &LintCache{entries: map[string]lintContent{file: {raw: "cached marker", identity: id, observed: observed}}}
+	cache := &LintCache{fsType: coherentTestFS, entries: map[string]lintContent{file: {raw: "cached marker", identity: id, observed: observed}}}
 	got, err := cache.begin().read(file, nil)
 	if err != nil || got.raw != "REPORT z." {
 		t.Fatal("future mtime reused", got, err)
+	}
+}
+
+func TestLintCacheHardLinkAndRecreate(t *testing.T) {
+	root := t.TempDir()
+	file, alias := filepath.Join(root, "z.prog.abap"), filepath.Join(root, "alias")
+	if err := os.WriteFile(file, []byte("old bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(file, alias); err != nil {
+		t.Skip(err)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	cache := &LintCache{fsType: coherentTestFS}
+	cfg := &Config{Libs: []Root{{Library: true, Files: []string{"z.prog.abap"}}}}
+	before, err := cache.Capture(root, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lintIdentity(info); !ok {
+		t.Skip("platform always reads")
+	}
+	initial := cache.entries[file]
+	if _, err := cache.Capture(root, cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	if initial.raw != "old bytes" || cache.entries[file].observed != initial.observed {
+		t.Fatal("hard-link fixture was not reusable")
+	}
+	if err := os.WriteFile(alias, []byte("new bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := cache.Capture(root, cfg, nil)
+	if err != nil || before.Digest == after.Digest || after.Files[0].Raw != "new bytes" {
+		t.Fatal("hard-link edit missed", after, err)
+	}
+	// Warm the edited inode too, so delete/recreate also starts from a hit.
+	time.Sleep(2100 * time.Millisecond)
+	if _, err := cache.Capture(root, cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	initial = cache.entries[file]
+	if _, err := cache.Capture(root, cfg, nil); err != nil {
+		t.Fatal(err)
+	}
+	if cache.entries[file].observed != initial.observed {
+		t.Fatal("recreate fixture was not reusable")
+	}
+	// Delete/recreate without an intervening capture must not reuse the old
+	// pathname's entry; the alias keeps the deleted inode alive.
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("end bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recreated, err := cache.Capture(root, cfg, nil)
+	if err != nil || recreated.Digest == after.Digest || recreated.Files[0].Raw != "end bytes" {
+		t.Fatal("delete/recreate missed", recreated, err)
 	}
 }

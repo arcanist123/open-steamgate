@@ -46,7 +46,7 @@ drift. A refusal is `EV_ERROR`, never a panic. No import of go/abap, no Session.
 
 `LintCache.Capture` shares the uncached `CaptureLintView` traversal and ordered
 content digest. A compiler owns one cache under its mutex; no process-global
-cache or store active-version proof changes. On Linux, regular files reuse raw
+cache or store active-version proof changes. On Linux, allowlisted regular files reuse raw
 bytes and SHA-256 only when device, inode, size, mode, mtime and ctime all match
 and both timestamps predate the cached read's start by more than two seconds.
 The walk supplies project stats; explicit library entries are statted separately.
@@ -59,7 +59,17 @@ The default covers timestamp granularity up to two seconds; callers using
 coarser filesystems must increase `LintCache.Granularity`, or set it negative to
 force full reads. A nil cache also forces full reads. Other operating systems
 and unsupported file identities always read until their change-time identity
-has a tested implementation. Coherent stat metadata and a filesystem clock
-consistent with the host are required for reuse; remote filesystems that can
-return stale stat metadata should use full reads. This remains a two-pass
-freshness check, not an atomic filesystem transaction.
+has a tested implementation. Linux `statfs` must identify ext2/3/4, XFS,
+Btrfs, tmpfs, ZFS or F2FS. Every capture memoizes probes by containing directory
+and followed-file device; it probes the file to follow symlinks into other
+mounts. Nested/bind mounts thus get their own filesystem decision. NFS,
+CIFS/SMB, 9p, FUSE, unknown types and probe failures always read. Overlayfs is
+excluded because its type cannot establish coherence of the backing layers.
+
+`lintinput.New` reads `OSD_LINT_STAT_CACHE=auto|off` (default auto) and
+`OSD_LINT_STAT_CACHE_WINDOW` (Go duration >=2s, default 2s) once at construction.
+Off or invalid settings select full reads; the window never overrides the
+allowlist. A filesystem clock consistent with the host is still required for
+reuse. Full reads preserve open/read semantics, not stronger coherence than the
+filesystem provides. This remains a two-pass freshness check, not an atomic
+filesystem transaction.

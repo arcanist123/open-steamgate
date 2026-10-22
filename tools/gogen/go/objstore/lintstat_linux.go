@@ -19,3 +19,9 @@ func lintIdentity(info os.FileInfo) (fileIdentity, bool) {
 	}
 	return fileIdentity{uint64(stat.Dev), stat.Ino, stat.Size, stat.Mode, stat.Mtim.Nano(), stat.Ctim.Nano()}, true
 }
+
+func lintFilesystemType(file string) (int64, error) {
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(file, &stat)
+	return int64(uint32(stat.Type)), err
+}

@@ -706,7 +706,8 @@ for startup refresh and structural resolution; failure explicitly refuses.
 
 ### CHECKRUN freshness content cache
 
-The Go host's `lintinput.New` owns a per-compiler `objstore.LintCache` behind
+Both in-process lint adapters (ABAP/TS-HA and Go library) use the Go host's
+`lintinput.New`, which owns a per-compiler `objstore.LintCache` behind
 `storelint.Compiler`'s mutex. Before checking, and again after checking/restoring
 SOURCE, it still captures ordered membership, config/pack guards, library
 namespaces and hidden files. Stable Linux regular files reuse bytes and their
@@ -719,9 +720,28 @@ changed membership/order still uses the existing re-prime decision.
 A conservative two-second timestamp window covers coarse timestamps: both file
 times must be older than the **cached read's start** minus the window. Recent or
 future timestamps force reads; after the window expires a fresh read must first
-establish a safe entry. `LintCache.Granularity` can be enlarged for a coarser
-filesystem, or set negative to disable reuse. Reuse assumes coherent stat data
-and filesystem/host clocks; use full reads for filesystems without that contract.
+establish a safe entry. On Linux, `statfs` must also identify an allowlisted
+local filesystem: ext2/3/4, XFS, Btrfs, tmpfs, ZFS, or F2FS. Each capture caches
+this decision per containing directory and followed-file device, probing the
+file itself so symlinks and nested/bind mounts get the target filesystem's
+policy. This adds one probe per directory/device, not per ordinary file, and
+re-evaluates mounts on every capture. NFS, CIFS/SMB, 9p, FUSE, unknown types,
+and probe failures always open/read. Overlayfs also always reads: its type
+does not establish the metadata coherence of its backing layers.
+
+Production settings are read **once at `lintinput.New`** (restart to change):
+
+- `OSD_LINT_STAT_CACHE=auto|off`, default `auto`: auto applies the filesystem
+  allowlist and timestamp checks; off forces unconditional full reads.
+- `OSD_LINT_STAT_CACHE_WINDOW=5s`, for example: a Go duration of at least `2s`
+  overrides the default two-second window for coarser timestamps. It cannot
+  enable reuse on an unproven filesystem. Invalid mode/window values log a
+  warning and force full reads.
+
+Direct Go callers can still enlarge `LintCache.Granularity`, or set it negative
+to disable reuse. Reuse assumes filesystem/host clocks agree. Full reads retain
+the filesystem's open/read semantics, including NFS close-to-open validation;
+they cannot repair a filesystem configured for incoherent data caching.
 See `tools/gogen/go/objstore/README.md` for the fallback details.
 
 The after-check snapshot becomes a stat/name/guard pass for stable files, but
@@ -751,3 +771,19 @@ These are warm synthetic filesystem measurements, not the i10 HTTP benchmark.
 The benchmark's `full-read` mode isolates cache savings in the new code;
 comparison with the original commit additionally includes avoiding competing
 object maps when filenames are identical.
+
+Critic #836 filesystem-policy measurement on the same Linux amd64 / i5-3570K,
+Go 1.26.0, ext filesystem (`statfs` type `0xef53`), median of three 1 s runs
+of the existing `BenchmarkFreshness3000` fixture:
+
+| Cached host path, no-op engine | Before filesystem check | After | Delta |
+| --- | ---: | ---: | ---: |
+| One freshness snapshot | 39.98 ms | 41.27 ms | +1.29 ms (+3.2%) |
+| Compiler CHECKRUN | 78.22 ms | 83.57 ms | +5.35 ms (+6.8%) |
+| Store CHECKRUN, including index | 95.26 ms | 89.59 ms | -5.67 ms (-5.9%) |
+
+The fixture has 30 containing directories/devices, so auto adds 30 `statfs`
+probes per snapshot. These are end-to-end before/after samples, not isolated
+syscall timings; the store decrease illustrates run-to-run noise. Full-read
+snapshot medians were 188.91 ms before and 191.39 ms after. The i10 HTTP gate
+remains unmeasured by this synthetic benchmark.
