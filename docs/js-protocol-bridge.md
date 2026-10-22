@@ -107,3 +107,10 @@ structural frontend data, generated session state, or identifier. Unknown and
 identifier-like binary values (including packed addresses, GUIDs and handles)
 must be zeroed or deterministically regenerated, followed by another stock SAP
 GUI acceptance run. A clean text/UUID regex scan alone is not this audit.
+
+## Optional osgo host
+
+The Go-only osgo runtime can opt into native listeners; see
+[native protocols](native-protocols.md) for dependency licensing, switches,
+measured parity and the remaining authentication/session/DIAG gaps. The JS
+host and its default listeners are unchanged.

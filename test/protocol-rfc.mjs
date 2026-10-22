@@ -7,7 +7,6 @@ import {
   decodeRfcFieldChain,
   encodeAdtCutResponse,
   encodeAdtHttpResponse,
-  encodeRfcFieldChain,
   encodeUtf16le,
   parseAdtHttpRequest,
   wrapRfcResponse,

@@ -14,7 +14,7 @@ import {cutRequest, requestXml, appc, dataRecord, logonPacket, responseXml} from
 const base = `http://127.0.0.1:${process.env.STG_PORT}`;
 const port = Number(process.env.STG_RFC_PORT);
 if (!port || !process.env.STG_PORT) throw new Error("run under osd-heavy.sh");
-mkdirSync(".local/native-protocols", {recursive: true});
+mkdirSync(".local/native-protocols/no-executables", {recursive: true});
 const children = new Set();
 process.on("exit", () => { for (const child of children) child.kill(); });
 async function stop(child) {
@@ -23,9 +23,9 @@ async function stop(child) {
 }
 async function host(native) {
   const fd = openSync(`.local/native-protocols/osgo-${native ? "native" : "js"}.log`, "w");
-  const child = spawn(resolve("tools/gogen/.out/osgo"), ["-adt", "-diag", "-lint-engine", "go", "-port", process.env.STG_PORT, "-root", process.cwd(), ...(native ? ["-rfc"] : [])], {stdio: ["ignore", fd, fd]});
+  const child = spawn(resolve("tools/gogen/.out/osgo"), ["-adt", "-diag", "-lint-engine", "go", "-port", process.env.STG_PORT, "-root", process.cwd(), ...(native ? ["-rfc"] : [])], {stdio: ["ignore", fd, fd], env: {...process.env, PATH: resolve(".local/native-protocols/no-executables")}});
   children.add(child); closeSync(fd);
-  for (let i = 0; i < 300; i++) {
+  for (let i = 0; i < 3000; i++) {
     if (child.exitCode !== null) throw new Error(`osgo exited ${child.exitCode}`);
     try { if ((await fetch(base + "/health")).ok) return child; } catch {}
     await pause(100);
@@ -72,19 +72,27 @@ async function wireSession() {
     return results;
   } finally { socket.destroy(); }
 }
-const result = {};
+const result = {runtimeNodeInPath: false};
 for (const mode of ["js","native"]) {
   const child = await host(mode === "native");
   let bridge;
   try {
     if (mode === "js") { bridge = createRfcAdtServer({backend: base, port, host: "127.0.0.1", rfcAuthMode: "demo"}); await bridge.listen(); }
     result[mode] = {publicClient: await publicClient(), wire: await wireSession()};
+    if (mode === "native") {
+      const check = spawn(process.execPath,["test/conformance/run.mjs","--base",base,"--tags","adt","--json",".local/native-protocols/http-conformance.json"]);
+      let output = ""; check.stdout.on("data", b => output += b); check.stderr.on("data", b => output += b);
+      const [code] = await once(check,"exit"); result.httpConformance = {code,output};
+    }
   } finally {
     if (bridge) await new Promise(r => bridge.server.close(r));
     await stop(child);
   }
 }
 result.equal = result.js.wire.map((r,i) => r.status === result.native.wire[i].status && r.body === result.native.wire[i].body);
+result.checkrunProcessed = result.native.wire[1].body.includes('chkrun:status="processed"') && result.native.wire[1].body.includes('Implement method &quot;broken&quot;');
+// Persist the final verdicts as well as responses; public-client failures are
+// failures even when the independent wire session matches.
 writeFileSync(".local/native-protocols/session.json", JSON.stringify(result,null,2)+"\n");
 console.log(JSON.stringify({...result,js:{...result.js,wire:result.js.wire.map(({body,...r})=>r)},native:{...result.native,wire:result.native.wire.map(({body,...r})=>r)}},null,2));
-if (!result.equal.every(Boolean)) process.exitCode = 1;
+if (!result.equal.every(Boolean) || !result.checkrunProcessed || result.httpConformance?.code || result.js.publicClient.code || result.native.publicClient.code) process.exitCode = 1;

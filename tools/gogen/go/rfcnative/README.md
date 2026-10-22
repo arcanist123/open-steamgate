@@ -21,3 +21,7 @@ logoff on disconnect are not provided by this pinned API. This is an opt-in
 compatibility path, not full JS security/session parity.
 
 Validation: `go test -race ./rfcnative`, `go vet ./rfcnative`.
+
+Detailed parity and URI/header admission gaps: [native protocols](../../../../docs/native-protocols.md).
+Successful-response CSRF token rotation differs from JS; stale-token retry
+is retained by the dependency. The local HTTP seam supplies stateful sessions.

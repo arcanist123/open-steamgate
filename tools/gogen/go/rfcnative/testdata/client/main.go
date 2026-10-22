@@ -13,6 +13,12 @@ import (
 )
 
 func main() {
+	if run() {
+		os.Exit(1)
+	}
+}
+
+func run() bool {
 	port, err := strconv.Atoi(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -22,7 +28,7 @@ func main() {
 	c, err := rfc.Open(ctx, rfc.Destination{Host: "127.0.0.1", Port: port, Service: fmt.Sprintf("sapdp%02d", port%100), Client: "001", User: "DEVELOPER", Password: "demo", Language: "E", OperationTimeout: 5 * time.Second})
 	if err != nil {
 		fmt.Printf("open: %v\n", err)
-		os.Exit(1)
+		return true
 	}
 	defer c.Close(context.Background())
 	s, err := c.Pin(ctx)
@@ -30,6 +36,7 @@ func main() {
 		panic(err)
 	}
 	defer s.Close()
+	failed := false
 	for _, request := range []struct{ path, method, body string }{
 		{"/sap/bc/adt/discovery", "GET", ""},
 		{"/sap/bc/adt/checkruns?reporters=abapCheckRun", "POST", `<chkrun:checkObjectList xmlns:chkrun="http://www.sap.com/adt/checkrun"/>`},
@@ -41,9 +48,11 @@ func main() {
 		}})
 		if err != nil {
 			fmt.Printf("%s: %v\n", request.path, err)
+			failed = true
 			continue
 		}
 		raw, _ := json.Marshal(result)
 		fmt.Println(string(raw))
 	}
+	return failed
 }
