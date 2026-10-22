@@ -5,16 +5,17 @@
 directory is outside `abap_transpile.json`'s `src/test/gen` inputs and
 `abaplint.jsonc`'s global files, and has no discoverable pack manifest. Normal
 `npm test`, transpilation and default packs therefore do not load the external
-`zcl_lnt_*` references. Slice 1 links it into the HTTP host only on request.
+`zcl_lnt_*` references. Both native engines are optional build inputs. Go is the runtime default when
+its library is linked; otherwise Node is selected. Explicit ABAP remains available.
 
 `prime(files,deps,config)` replaces one static registry, parsing once through
 `ZCL_LNT_REGISTRY_RUN`. A failed prime clears the previous registry. `check`
 resolves the file's owning object and returns its ordered issues, including
 issues in other includes of that object. Missing prime/file/object raises
 `ZCX_OSD_LINT_ENGINE`, never a successful empty result. Callers must serialize
-access and own the relevant ABAP statics; the slice 1 host policy is below.
-`update` explicitly raises: generated `update_file` exists,
-but dependent invalidation and overlay restoration belong to the next slice.
+access and own the relevant ABAP statics. `update` supports saved byte edits,
+dependent invalidation, add/remove and inline overlay restoration (Slice 2).
+The original Slice-1 update refusal is superseded.
 
 ## Pins and generated member names
 
@@ -31,8 +32,8 @@ were resolved from that build's `names.json` and `native/lib` declarations:
 | `zcl_lnt_position` | `get_row()` → `f`; `get_col()` → ref to `zlnt_runtime_opti_8df4f98f9a3a` (checked `has`, `number_special`, then `value`) |
 | `zlnt_runtime_tele_970d5104e5f4` | `now()` → elapsed milliseconds as `f`, using the build's wrapping runtime clock |
 
-Also verified but deliberately unused: Registry `update_file(i_file)` and
-`remove_file(i_file)` return ref to `zif_lnt_registry`; RegistryRun
+Registry `update_file(i_file)` and `remove_file(i_file)` return ref to
+`zif_lnt_registry` and are used by Slice 2. Only RegistryRun
 `report_0493(i_reg_f149)` runs a whole-registry report. `find_issues_object`
 performs dirty-aware parsing internally. No parse/report call is made by the
 facade between the two unchanged checks.
@@ -208,6 +209,10 @@ build settings or library checkout are edited by these checks.
 
 ## Slice 1: opt-in saved CHECKRUN in the serving OSGo process
 
+Historical slice boundary: its restart-only, SOURCE-refusal and check-poisoning
+policies are superseded by Slice 2. Build/origin instructions remain useful;
+current lifecycle behavior is described below.
+
 Build from a normally prepared checkout (packs/libs fetched and `gen/` current).
 The external full zlnt folder stays outside Git. From this repository root:
 
@@ -252,23 +257,24 @@ The existing 30-second CHECKRUN context is checked before/after ABAP execution;
 it cannot preempt generated ABAP mid-call.
 
 Every check verifies the entire ordered corpus identity before and after the
-ABAP call, including metadata, libraries and hidden files. Source edits, new or
-removed files, a different root, or an active-generation change require restart
-and re-prime. Config guards cover `abaplint.jsonc`, `abap_transpile.json`,
-`libs.lock.json` and the selected packs' manifests; changed config or file
-membership/order requires a rebuild. Adding/removing packs or changing layer
-selection likewise requires rebuilding the store facts; this slice does not
-rediscover roots in a running server. Guard/IO failures, missing prime or target,
-and ABAP panics produce `notProcessed` with a reason, never a clean report.
-A failed ABAP call poisons that engine until restart.
+engine call, including metadata, libraries and hidden files. Saved byte edits
+update incrementally. Config/pack/layer changes and competing membership/order
+changes resolve inputs and re-prime. Library directory membership is watched;
+additions/removals re-run the original Node globs/exclusions before re-prime.
+A changed input during checking returns `notProcessed` with a retry reason.
+Missing prime/target and guard/IO failures explicitly refuse. A thrown check
+can recover after successful restoration; failed prime/update/restore poisons
+the registry until restart. The original Slice-1 restart/rebuild-only policy
+and poisoning after any check failure are superseded.
 
 `check` selects the saved logical filename for the requested class include (or
 INTF/PROG/INCL main source), then calls `ZCL_OSD_LINT_ENGINE=>CHECK`. Ordered
 issues, including duplicates and issues in sibling includes, map to severity
 `E`, unchanged start row/column and message. URI mapping mirrors `diagnosticUri`
 and `frameUri`, including class namespace escaping, include resources, INCL's
-own URI and fallback to the triggering source. The existing Go inline SOURCE
-refusal and dictionary-presence behavior remain in `storecheck`. DDLS/SRVD
+own URI and fallback to the triggering source. Inline SOURCE uses the serialized
+install/check/restore lifecycle in Slice 2; the original SOURCE refusal is
+superseded. Dictionary-presence behavior remains in `storecheck`. DDLS/SRVD
 source checks explicitly refuse here; DDLS generator diagnostics and AMDP
 portability warnings are not supplied by the translated core. AMDP report
 parity remains a separate acceptance gap, alongside the pin and warm-mode gaps.
@@ -358,7 +364,8 @@ nine unreachable-code findings in generated echo-library methods; no required
 check is suppressed or modified. The neutral touched packages pass vet.
 
 Slice 1's restart/source refusals above are historical. Slice 2 below replaces
-them. Warm checks, the .73 pin, DDLS/AMDP and measurements remain separate gates.
+them. See the measured acceptance record below; warm-mode/closure acceptance,
+the .73 pin and DDLS/AMDP remain separate gaps.
 
 ## Slice 2: edits and inline SOURCE without restarting
 
@@ -366,7 +373,8 @@ The ABAP provider keeps the saved snapshot bytes and the same private
 Session/Statics and mutex. Before each CHECKRUN it captures the current saved
 corpus, removes deleted files in the old order, then updates/adds changed files
 in the current order through `ZCL_OSD_LINT_ENGINE=>UPDATE`. A content change or
-ordinary file addition/removal does not re-prime. A generation switch between
+ordinary file addition/removal does not re-prime unless it changes competing
+file membership/order or a library namespace. A generation switch between
 requests is accepted; the store still rejects a switch, write or source/config
 change during a request with a retry reason. The explicitly selected Node
 snapshot provider and ordinary CHECK/OUTLINE retain their existing behavior.
@@ -522,10 +530,11 @@ source checks against the supplied zlnt declarations; ABAP stays ASCII and withi
 The gogen workflow runs the bridge/gate Node tests and the neutral checker
 packages under vet and race tests.
 
-These are local unit/source checks, not native execution parity evidence. Dell/i10
-must build the full zlnt-linked executable and run both Slice-2 HTTP modes against
-the actual .73 Node host, preserving mismatches and timing/memory evidence.
-Slice 1's 24/24 gate at `5055acad` does not establish edit/overlay parity.
+These local unit/source checks are distinct from the measured i10 HTTP gates
+recorded below. Clean/broken saved and overlay parity passed on both engines;
+real saved-edit HTTP remains unmeasured because the ADT write route was skipped.
+Slice 1's 24/24 gate at `5055acad` alone did not establish edit/overlay parity.
+
 Remaining work: Node warm-check mode/closure acceptance and warm measurements;
 engine .56 -> .73 migration/parity beyond these fixtures; DDLS generator
 diagnostics; AMDP portability warnings and their ADT report mapping.
@@ -623,9 +632,9 @@ a fresh server/log. Preserve mismatches against the actual OSG Node version
 (.73), separately from the translated core pin (.56). Record cold prime time,
 warm unchanged checks, saved edits and overlay install/check/restore times plus
 retained memory. M1's 48 s batch result motivates this path; it does not prove
-warm latency or HTTP equality for the new library. Full generated-core linkage,
-real HTTP gates and latency/memory measurements are dell's remaining acceptance
-work; they were deliberately not run during this implementation.
+warm latency or HTTP equality for the new library. The original implementation
+statement that linkage, HTTP gates and measurements were unrun is superseded
+by the following measured acceptance record.
 
 Focused local checks (small doubles, no full generated core):
 
@@ -636,3 +645,61 @@ node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
 (cd ../abapiti-tshg && GOPROXY=off go test ./tsfront \
   -run '^TestRegistryGo(Library|ReadPolicy)$' -count=1)
 ```
+
+
+## Measured acceptance record (i10, 2026-10-22)
+
+These are prior measurements of the revisions named here, not a new full native
+gate for the round-1 fixes. Both engines used translated core **2.120.56** at
+`577f875ebec44cfaf64841cfe71c8ab8dc32622e` against the actual Node host **2.120.73**.
+Each full gate checked 3,028 inputs: **12 clean saved + 12 broken saved + 14
+overlay = 38/38 comparisons**, zero mismatches, one successful prime per
+lifecycle, no sidecar, and ordered diagnostic/status equality. Overlay covered
+clean/broken/clean-again, restoration and a new object absent from disk.
+**Saved-edit HTTP was skipped** for the known OSGo ADT source PUT 404 gap;
+no saved-edit LOCK/PUT/restoration PUT was attempted. This remains an acceptance
+gap even though local capture/sync/engine regressions now exercise disk edits.
+
+| Measurement | ABAP gate 5 | TS-HG Go gate |
+| --- | --- | --- |
+| OSG revision | `733b5c4a7b123fd4bc95195668a0d45518d46d88` | `976b8823d8df05225aa7fafed9f6cf45e8d39c9d` |
+| Emitter | pre-existing full TS-HA native library | abapiti `5b56ecfd411651b01a7a4ef1d9c158a4c7298992` |
+| Emission + native build wall | 355.32 s native build; library emission unmeasured | 49.74 + 84.96 = 134.70 s |
+| Largest build process peak RSS | 26,249 MiB | 6,315 MiB |
+| Cold prime, clean / broken / overlay | 166.238 / 172.602 / 173.611 s | 23.023 / 22.825 / 22.763 s |
+| Completed overlay checks, total | 57.564 s | 21.393 s |
+| Retained server RSS after prime | unmeasured | 1.99–2.08 GiB |
+
+ABAP gate 5 recorded zero facade statement stubs/uncompiled methods. The TS-HG
+library recorded 2,057 classes, 76 interfaces, zero blocking diagnostics and
+zero HIR verification errors, but still has five trapped bodies and 76 HIR trap
+sites; the exercised gate is not evidence that all generated paths work.
+Evidence records are `step3-gate5-answer.md` (run **step3g5**) and
+`step3-gate-go-answer.md` (run **step3go**); archived artifact sets
+`step3-gate5-evidence` and `step3-gate-go-evidence` contain
+`report-pairs-verify.json`, `timing-summary.json`, compile/stub inventories,
+per-check reports and lifecycle logs. These are operator evidence archives,
+not files shipped in this repository.
+
+The subsequent default/resolver revision comprised `7a7d14ce` and `606d0bb3`,
+using retained generated inputs from `976b8823`. Its guarded automatic-Go clean
+saved gate passed **12/12**. Median Go HTTP latency fell **2,343.62 → 252.96 ms**;
+median completed-check latency fell **1,158.24 → 113.99 ms**. Contemporaneous
+Node HTTP median was **21.37 ms**. Before-fix instrumentation measured **93.7 ms
+per full snapshot**, two unnecessary **955.6 ms** resolver calls and four
+snapshots per CHECKRUN. The fixed unchanged path used two snapshots and no
+resolver. That 12/12 rerun does not renew the prior broken/overlay measurements.
+Evidence: `step3-go-default-answer.md`, archive `step3-go-default-evidence`,
+including `timing-summary.json`, `per-check.csv`, `request-stages.json` and CPU
+profiles. The round-1 fixes add namespace detection to each snapshot; their
+local synthetic benchmark is separate from these i10 HTTP measurements.
+
+Resolver/capture/config hashing now live in the self-contained
+[`lintinput`](../gogen/go/lintinput/README.md) package. Directory namespace
+changes trigger canonical Node resolution with the original library globs and
+exclusions, including previously empty/missing configured library folders.
+Directory symlinks explicitly refuse capture; use physical library roots.
+Unchanged duplicates and plain byte edits retain the fast incremental path.
+Competing membership/order changes re-prime in resolved order so the engine's
+selected main file agrees with a fresh registry. Node dependencies are required
+for startup refresh and structural resolution; failure explicitly refuses.
