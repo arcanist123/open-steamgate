@@ -51,21 +51,17 @@ func candidatePath(candidate string) string {
 	return candidate
 }
 
-func Resolve(root string, r *Rules) (Facts, error) {
-	if err := Guard(root, r); err != nil {
-		return Facts{}, err
-	}
-	excluded, err := patterns(r.Excluded, false)
-	if err != nil {
-		return Facts{}, err
-	}
-	cfg := &objstore.Config{Roots: []objstore.Root{}, Libs: []objstore.Root{}, Excluded: r.Excluded}
+// currentRoots applies the fixed root plan to current pack candidate types.
+// Guards and resolution must share this selection: a former root can become
+// a shadow, so build-time Roots cannot decide which shadow stats to skip.
+func currentRoots(root string, r *Rules) ([]objstore.Root, map[string]string, error) {
+	roots := []objstore.Root{}
 	sources := map[string]string{}
 	for _, p := range r.Packs {
 		for _, c := range p.Candidates {
 			kind, err := fileType(at(root, c))
 			if err != nil {
-				return Facts{}, err
+				return nil, nil, err
 			}
 			sources[c] = kind
 		}
@@ -95,15 +91,15 @@ func Resolve(root string, r *Rules) (Facts, error) {
 		return root
 	}
 	if r.Plan == nil {
-		cfg.Roots = append(cfg.Roots, r.Roots...)
+		roots = append(roots, r.Roots...)
 	} else {
 		for _, slot := range r.Plan {
 			if slot.Root != nil {
-				cfg.Roots = append(cfg.Roots, rootFor(*slot.Root))
+				roots = append(roots, rootFor(*slot.Root))
 				continue
 			}
 			if slot.Pack == nil {
-				return Facts{}, fmt.Errorf("rebuild: invalid lint root plan")
+				return nil, nil, fmt.Errorf("rebuild: invalid lint root plan")
 			}
 			p := slot.Pack
 			for _, c := range p.Candidates {
@@ -115,7 +111,7 @@ func Resolve(root string, r *Rules) (Facts, error) {
 					listed = listed || s == candidatePath(c)
 				}
 				if !listed {
-					cfg.Roots = append(cfg.Roots, rootFor(objstore.Root{Path: candidatePath(c), Writable: !r.System, Imported: true, Package: p.Package}))
+					roots = append(roots, rootFor(objstore.Root{Path: candidatePath(c), Writable: !r.System, Imported: true, Package: p.Package}))
 				}
 				if p.Default {
 					break
@@ -123,6 +119,23 @@ func Resolve(root string, r *Rules) (Facts, error) {
 			}
 		}
 	}
+	return roots, sources, nil
+}
+
+func Resolve(root string, r *Rules) (Facts, error) {
+	if err := Guard(root, r); err != nil {
+		return Facts{}, err
+	}
+	excluded, err := patterns(r.Excluded, false)
+	if err != nil {
+		return Facts{}, err
+	}
+	cfg := &objstore.Config{Roots: []objstore.Root{}, Libs: []objstore.Root{}, Excluded: r.Excluded}
+	roots, sources, err := currentRoots(root, r)
+	if err != nil {
+		return Facts{}, err
+	}
+	cfg.Roots = roots
 	places := []string{}
 	groups := map[string]int{}
 	for _, lib := range r.Libraries {

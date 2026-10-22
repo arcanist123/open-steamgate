@@ -1,4 +1,4 @@
-# Native resolver input sweep — PR #838 critic round 1
+# Native resolver input sweep — PR #838 critic rounds 1–2
 
 Audited `lintBuildSpec` through `packAt`/`packsOf`, `rootsOf`, `libraryFiles`,
 `rootPackage`/`userLayersOf`, `layers`/`filesIn`, installed-system and abapGit
@@ -32,7 +32,7 @@ pack place is configured. Stat follows links except strict ZIP overlay checks.
 | Library directory existence, recursive sorted entries, per-entry directory stat; `.git`, `node_modules`, `output` skips | Recomputed by native library walk and lifecycle namespace detection. Missing library roots remain mutable. Same follow-link and directory-read behavior as producer; selected file bytes captured natively. |
 | Library physical/logical path, glob selection, case-insensitive excludes, testclass suffix and installed metadata-name skips | Recomputed natively from guarded compiled patterns/mappings; ordered grouping and duplicates retained. |
 | `layers.filesIn`: ordered roots, recursive sorted entries and per-entry stat; DEVC/web-sidecar exclusion, object identity, later-root wins | Recomputed by native hidden walk, JS-compatible ordering/case/percent decoding. Duplicate lists are computed by Node but not used by `lintBuildSpec`; checker facts preserve duplicates identically. |
-| `layers` shadow scan: `local` existence, sorted children, non-input child stat, recursive directory entries/stats | Recomputed by native topology validation. Shadow report values are unused checker outputs, but read/stat failures must still refuse. |
+| `layers` shadow scan: `local` existence, sorted children, non-input child stat, recursive directory entries/stats | Recomputed by native topology validation using the currently selected roots from the same root-plan helper as `Resolve`, including lifecycle guards. Former pack roots become shadows immediately after candidate reselection. Shadow report values are unused checker outputs, but read/stat failures must still refuse. |
 | Ordered selected source/library file bytes (`walkStoreFiles` and capture) | Native store traversal and strict captured bytes/SHA256. Before/after structural guards and existing retry lifecycle remain in force. |
 
 No pack-validation file input remains outside the manifest, lock and source
@@ -50,3 +50,20 @@ Sweep additions: native refusal checks for shadow traversal failures and ZIP
 overlay links/missing seeded members. Covered by the Node oracle and ZIP
 startup/live CHECKRUN regression. Critic cases cover unnamed DEVC inference,
 BSP removal/file replacement, and exact root-pack keys through fallback changes.
+
+Round-2 audit of every `Rules` consumer in `lintresolve`: `Roots` was the only
+stale selection used as a current decision (shadow exclusions). Its remaining
+use is the legacy no-plan fallback; producer rules always carry a root plan.
+Plan slots, pack candidates/defaults/packages and explicit overrides are policy
+from guarded config/manifests/environment. Candidate types and metadata
+precedence are recomputed by the shared `currentRoots` helper. Library
+folders/globs/exclusions and physical/logical mappings depend on guarded
+config, environment and installed identities; library membership/groups are
+recomputed. Hidden winners and checker files use the resolved roots/libraries.
+Metadata/inference directories and ZIP source/overlay pairs describe fixed
+listed/user layers and guarded installed paths; their file inventories,
+inference, seed targets and link topology are rechecked. Pack optional-folder
+states cover every candidate, independent of the selected root. No additional
+concrete stale-selection defect was found. The committed round-2 oracle fixture
+covers a selected `local/extra` replaced by a dangling link; its lifecycle
+regression covers both mutation before startup and after a healthy CHECKRUN.

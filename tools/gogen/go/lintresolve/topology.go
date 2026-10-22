@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"osg/gogen/objstore"
 )
 
 var overlayMember = regexp.MustCompile(`(?i)\.(clas|intf)\.`)
@@ -30,7 +32,7 @@ func overlayTarget(root, target string, required bool) error {
 	return nil
 }
 
-func topology(root string, r *Rules) error {
+func topology(root string, r *Rules, roots []objstore.Root) error {
 	for _, layer := range r.ZipLayers {
 		if err := overlayTarget(root, layer.Overlay+"/.osd-overlay.txt", false); err != nil {
 			return fmt.Errorf("rebuild: %w", err)
@@ -75,7 +77,7 @@ func topology(root string, r *Rules) error {
 	for _, entry := range entries {
 		candidate := "local/" + entry.Name()
 		listed := false
-		for _, descriptor := range r.Roots {
+		for _, descriptor := range roots {
 			listed = listed || descriptor.Path == candidate
 		}
 		if listed {

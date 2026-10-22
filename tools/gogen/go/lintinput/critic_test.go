@@ -210,3 +210,33 @@ func TestSweepZIPOverlayLifecycle(t *testing.T) {
 		})
 	}
 }
+
+func TestCriticFormerPackRootShadowLifecycle(t *testing.T) {
+	root := criticFixture(t)
+	t.Setenv("OSD_PACKS", "local")
+	criticWrite(t, root, "local/osd-pack.json", `{"name":"p","abap":"extra"}`)
+	target := filepath.Join(root, "local/extra")
+	restore := func() {
+		if err := os.RemoveAll(target); err != nil {
+			t.Fatal(err)
+		}
+		criticWrite(t, root, "local/extra/zextra.prog.abap", "REPORT zextra.")
+	}
+	restore()
+	spec := buildSpec(t, root)
+	selected := false
+	for _, r := range spec.Store.Roots {
+		selected = selected || r.Path == "local/extra"
+	}
+	if !selected {
+		t.Fatal("fixture did not select local/extra")
+	}
+	criticLifecycle(t, root, spec, func() {
+		if err := os.RemoveAll(target); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(root, "absent"), target); err != nil {
+			t.Fatal(err)
+		}
+	}, restore)
+}

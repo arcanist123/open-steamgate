@@ -301,6 +301,23 @@ test("sweep: shadow scan errors and ZIP overlay topology refuse before checking"
   } finally { delete process.env.OSD_LAYERS; }
 });
 
+test("critic 838 round 2: former pack root becomes a broken shadow link", async () => {
+  const root = fixture("critic-former-root-shadow");
+  write(root, "local/osd-pack.json", '{"name":"p","abap":"extra"}');
+  write(root, "local/extra/zextra.prog.abap", "REPORT zextra.");
+  process.env.OSD_PACKS = "local";
+  try {
+    const {rules, facts} = await parity(root, undefined, "former root initial");
+    assert(facts.store.roots.some(r => r.path === "local/extra"));
+    rmSync(join(root, "local/extra"), {recursive: true});
+    symlinkSync(join(root, "absent"), join(root, "local/extra"));
+    await assert.rejects(lintBuildSpec(root), /ENOENT/);
+    const result = native(root, rules);
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(result.stderr, /rebuild: shadow stat failed: local\/extra/);
+  } finally { delete process.env.OSD_PACKS; }
+});
+
 test("regex incompatibilities fail at build time", async () => {
   for (const re of ["(?=x)", "(x)\\1", "\\s", "[[:alpha:]]"]) {
     const root = fixture("regex-" + digest(re).slice(0, 8));
