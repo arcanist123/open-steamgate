@@ -449,7 +449,7 @@ async function setupDatabase(abap, schemas, insert) {
     preview.insert = given;
     if (preview.database === "duckdb") {
       const {DuckDBWasmClient, duckdbSchema, duckdbInserts} = await import("../tools/duckdb-wasm-client.mjs");
-      db = installTrim(new DuckDBWasmClient());
+      db = installTrim(new DuckDBWasmClient({wasmURL: preview.wasmURL}));
       abap.context.databaseConnections["DEFAULT"] = traced(db);
       await db.connect();
       await db.execute(duckdbSchema(schemas));

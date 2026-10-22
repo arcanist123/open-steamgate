@@ -12,4 +12,13 @@ module.exports = {
     library: {type: "commonjs"},
   },
   externals: {vscode: "commonjs vscode"},
+  resolve: {
+    ...preview.resolve,
+    fallback: {
+      ...preview.resolve.fallback,
+      // lib.js imports launcher.js for desktop-only helpers. The browser uses
+      // only its Osd/data-preview helpers, so Node process spawning is never reached.
+      child_process: false,
+    },
+  },
 };

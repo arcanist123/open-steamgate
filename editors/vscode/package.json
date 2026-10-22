@@ -37,6 +37,8 @@
     "onCommand:osd.webReadProbe",
     "onCommand:osd.webVerifyLastTravel",
     "onCommand:osd.webProbeView",
+    "onCommand:osd.webOpenLaunchpad",
+    "onCommand:osd.webDataPreview",
     "onView:osdTree",
     "onView:osdJobs"
   ],
@@ -78,6 +80,16 @@
           "enum": ["auto", "on", "off"],
           "default": "auto",
           "description": "OSD_WARM for a system osd.start launches (docs/warm-compile.md, docs/vscode-extension.md \"Warm\"): a save reaches the running system in well under a second instead of the cold build's several. \"auto\" turns it on when this machine has at least 4 GB of RAM (the prime costs about 0.7 GB); \"on\"/\"off\" always do or never do. Whether it actually primes is still the server's own business -- with the pinned transpiler it stays cold and says why, shown as the status bar's own \"cold: <reason>\"."
+        },
+        "osd.web.database": {
+          "type": "string",
+          "enum": ["sql.js", "duckdb"],
+          "enumDescriptions": [
+            "sql.js; the database is kept in the browser's IndexedDB across reloads.",
+            "DuckDB-Wasm, as on the GitHub Pages preview: Portable AMDP (SQLScript procedures) runs, but the database lives in memory and is reseeded on every reload. The 39 MB engine is fetched beside the extension only when chosen."
+          ],
+          "default": "sql.js",
+          "description": "VS Code for the Web only: the database engine of the in-browser gateway. A change takes effect after a window reload."
         },
         "osd.notebook.rowLimit": {
           "type": "number",
@@ -201,6 +213,9 @@
       {"command": "osd.webReadProbe", "title": "osd: Web read probe"},
       {"command": "osd.webVerifyLastTravel", "title": "osd: Web verify last Travel"},
       {"command": "osd.webProbeView", "title": "osd: Web probe view"},
+      {"command": "osd.webOpenLaunchpad", "title": "osd: Open Fiori Launchpad"},
+      {"command": "osd.webOpenApp", "title": "osd: Open Fiori app"},
+      {"command": "osd.webDataPreview", "title": "osd: Data Preview (F8)", "icon": {"light": "resources/icons/run-console-light.svg", "dark": "resources/icons/run-console-dark.svg"}},
       {"command": "osd.showDumps", "title": "osd: Show short dumps"},
       {"command": "osd.setHanaPassword", "title": "osd: Set database password (HANA)"},
       {"command": "osd.setPostgresPassword", "title": "osd: Set database password (PostgreSQL)"},
@@ -261,10 +276,21 @@
     ],
     "menus": {
       "commandPalette": [
+        {"command": "osd.openJobsPanel", "when": "!isWeb && !osd.web"},
+        {"command": "osd.refreshJobs", "when": "!isWeb && !osd.web"},
+        {"command": "osd.filterJobs", "when": "!isWeb && !osd.web"},
+        {"command": "osd.openJobLog", "when": "!isWeb && !osd.web"},
+        {"command": "osd.openJobOutput", "when": "!isWeb && !osd.web"},
+        {"command": "osd.copyJobKey", "when": "!isWeb && !osd.web"},
+        {"command": "osd.runTitle", "when": "!isWeb && !osd.web"},
+        {"command": "osd.runUnit", "when": "!isWeb && !osd.web"},
         {"command": "osd.webProbe", "when": "isWeb"},
         {"command": "osd.webReadProbe", "when": "isWeb"},
         {"command": "osd.webVerifyLastTravel", "when": "isWeb"},
         {"command": "osd.webProbeView", "when": "isWeb"},
+        {"command": "osd.webOpenLaunchpad", "when": "isWeb"},
+        {"command": "osd.webOpenApp", "when": "false"},
+        {"command": "osd.webDataPreview", "when": "isWeb"},
         {"command": "osd.refreshTree", "when": "!isWeb || osd.web"},
         {"command": "osd.showDumps", "when": "!isWeb && !osd.web"},
         {"command": "osd.setHanaPassword", "when": "!isWeb && !osd.web"},
@@ -280,7 +306,7 @@
         {"command": "osd.classrunWithDebugger", "when": "!isWeb && !osd.web"},
         {"command": "osd.callEntitySetWithDebugger", "when": "!isWeb && !osd.web"},
         {"command": "osd.toggleBreakpoints", "when": "!isWeb && !osd.web"},
-        {"command": "osd.newSqlNotebook", "when": "!isWeb && !osd.web"},
+        {"command": "osd.newSqlNotebook", "when": "(!isWeb && !osd.web) || (isWeb && osd.web)"},
         {"command": "osd.openSample", "when": "!isWeb && !osd.web"},
         {"command": "osd.showRawJobLog", "when": "!isWeb && !osd.web"},
         {"command": "osd.gettingStarted", "when": "!isWeb && !osd.web"},
@@ -327,7 +353,8 @@
         {"command": "osd.classrun", "when": "!isWeb && !osd.web && resourceFilename =~ /\\.(abap|tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/ && osd.editorClassrun", "group": "navigation@1"},
         {"command": "osd.runTitle", "when": "!isWeb && !osd.web && resourceFilename =~ /\\.(abap|tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/ && !osd.editorClassrun", "group": "navigation@1"},
         {"command": "osd.runUnit", "when": "!isWeb && !osd.web && resourceFilename =~ /\\.(abap|tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/ && osd.editorTests", "group": "navigation@1.5"},
-        {"command": "osd.runWithDebugger", "when": "!isWeb && !osd.web && resourceFilename =~ /\\.(abap|tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/", "group": "navigation@2"}
+        {"command": "osd.runWithDebugger", "when": "!isWeb && !osd.web && resourceFilename =~ /\\.(abap|tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/", "group": "navigation@2"},
+        {"command": "osd.webDataPreview", "when": "isWeb && osd.web && resourceFilename =~ /\\.(tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/", "group": "navigation@1"}
       ],
       "view/title": [
         {"command": "osd.refreshJobs", "when": "view == osdJobs", "group": "navigation@1"},
@@ -390,6 +417,7 @@
       {"key": "ctrl+f2", "command": "osd.check", "when": "!isWeb && !osd.web && resourceExtname == .abap && config.osd.keymap == abap"},
       {"key": "ctrl+f3", "command": "osd.activate", "when": "!isWeb && !osd.web && resourceExtname == .abap && config.osd.keymap == abap"},
       {"key": "f8", "command": "osd.run", "when": "!isWeb && !osd.web && resourceFilename =~ /\\.(abap|tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/ && config.osd.keymap == abap && debugState != 'stopped'"},
+      {"key": "f8", "command": "osd.webDataPreview", "when": "isWeb && osd.web && resourceFilename =~ /\\.(tabl\\.xml|ddls\\.asddls|ddls\\.xml)$/ && config.osd.keymap == abap && debugState != 'stopped'"},
       {"key": "f9", "command": "osd.classrun", "when": "!isWeb && !osd.web && resourceExtname == .abap && config.osd.keymap == abap && debugState != 'stopped'"},
       {"key": "ctrl+shift+f10", "command": "testing.runCurrentFile", "when": "!isWeb && !osd.web && resourceExtname == .abap && config.osd.keymap == abap"},
 

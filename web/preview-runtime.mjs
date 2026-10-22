@@ -106,6 +106,14 @@ function response(status, contentType, body) {
 }
 
 export async function readRequest(client, {method, path, search = "", body}, previewFields = {}) {
+  // The SQLScript notebook door, answered the way the Node host answers it
+  // (tools/osd-serve.mjs, mountPortableCells): Portable AMDP over the
+  // gateway's own connection. Only on DuckDB here; on sql.js the request
+  // falls through to the ABAP sandbox, whose answer is its HANA refusal.
+  if (path === "/sap/bc/osd/amdp/cell" && client?.name === "duckdb" && String(method).toUpperCase() === "POST") {
+    const {portableCell} = await import("../tools/sqlscript-to-procedure-ir.mjs");
+    return response(200, "application/json; charset=utf-8", JSON.stringify(await portableCell(decoder.decode(body ?? new Uint8Array()), client)));
+  }
   const json = path === "/osd/sql";
   const match = /^\/sap\/bc\/adt\/datapreview\/(freestyle|ddic|cds)$/.exec(path);
   if (!json && !match) return undefined;

@@ -570,10 +570,15 @@ jobs:
           node tools/osd-link.mjs runtime packages/runtime
           node tools/osd-link.mjs core packages/transpiler/node_modules/@abaplint/core
       - run: npm run bootstrap
+      # The browser entry (vscode.dev): built fresh here, so the Marketplace
+      # archive carries a bundle of this commit (docs/vscode-web.md).
+      - name: Build the VS Code web extension
+        run: npm run web:vscode
       - name: Build the Marketplace VSIX
         run: |
           set -euo pipefail
           export OSD_VSIX_PROFILE=marketplace
+          export OSD_VSIX_WEB=1
           export OSD_VSIX_PRERELEASE=0
           if [[ "$RELEASE_CHANNEL" == prerelease ]]; then export OSD_VSIX_PRERELEASE=1; fi
           npm run vsix 2>&1 | tee "$RUNNER_TEMP/marketplace-build.log"
@@ -600,10 +605,16 @@ jobs:
             echo '::error::Stable Marketplace VSIX contains the prerelease property'
             exit 1
           fi
-          if unzip -p "$vsix" extension/package.json | jq -e 'has("browser")' >/dev/null; then
-            echo '::error::Marketplace profile unexpectedly contains a browser entry'
+          # The browser entry is shipped on purpose (OSD_VSIX_WEB=1 above): the
+          # package must name it and carry the bundle, the wasm and the apps.
+          browser="$(unzip -p "$vsix" extension/package.json | jq -r '.browser // empty')"
+          if [[ "$browser" != "./dist/web/extension.js" ]]; then
+            echo "::error::Marketplace VSIX must carry the browser entry ./dist/web/extension.js, found '$browser'"
             exit 1
           fi
+          for entry in extension/dist/web/extension.js extension/dist/web/duckdb-mvp.wasm extension/dist/web/app/flp.html; do
+            unzip -l "$vsix" "$entry" >/dev/null || { echo "::error::Marketplace VSIX lacks $entry"; exit 1; }
+          done
       - name: Publish the built VSIX to Visual Studio Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
