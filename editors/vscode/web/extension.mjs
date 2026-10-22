@@ -622,7 +622,6 @@ function fioriRuntime(config, urlsInUse) {
   };
   const sweep = (keep) => {
     if (blobs.size <= MEDIA_KEEP) return;
-    for (const one of playing) if (one.paused || one.ended) playing.delete(one);
     const byPath = new Map([...blobs].filter(([, loading]) => loading.url !== undefined).map(([virtual, loading]) => [virtual, loading.url]));
     const candidates = [...byPath].filter(([virtual]) => virtual !== keep);
     let used;

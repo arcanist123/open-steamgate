@@ -170,13 +170,26 @@ export function mediaUrlsInUse(root, urls, byPath, playing) {
     if (!text) return;
     for (const url of urls) if (!used.has(url) && String(text).includes(url)) used.add(url);
   };
-  for (const one of playing) {
-    if (!one.paused && !one.ended) { look(one.src); look(one.currentSrc); }
-  }
+  // Every media element ever played counts, paused or not: play() may still
+  // be waiting for its source, and a paused one may resume. The set holds
+  // only elements a page played, so it stays small.
+  for (const one of playing) { look(one.src); look(one.currentSrc); }
+  // CSSOM rules (insertRule leaves no <style> text). A cross-origin sheet
+  // (the CDN's) cannot be read, and cannot have been given this origin's blob.
+  const sheets = (list) => {
+    for (const sheet of list ?? []) {
+      let rules;
+      try { rules = sheet.cssRules; } catch { continue; }
+      for (const rule of rules ?? []) look(rule.cssText);
+    }
+  };
   const visit = (document, depth) => {
     let all;
     try { all = document.querySelectorAll("*"); } catch { unread(); return; }
+    try { sheets(document.styleSheets); sheets(document.adoptedStyleSheets); } catch { unread(); return; }
     for (const element of all) {
+      // an open shadow tree is a document of its own for this scan
+      if (element.shadowRoot) visit(element.shadowRoot, depth);
       if (used.size === urls.length) return;
       if (element.osdSource !== undefined) look(byPath.get(element.osdSource));
       if (element.osdBackground !== undefined) look(byPath.get(element.osdBackground));
@@ -189,7 +202,8 @@ export function mediaUrlsInUse(root, urls, byPath, playing) {
         try { inner = element.contentDocument; } catch { inner = undefined; }
         // a frame whose document cannot be read is not same-origin and cannot
         // load this origin's blob: URLs
-        if (inner && depth < 8) visit(inner, depth + 1);
+        // deeper than that is not looked into, so it counts as using everything
+        if (inner) { if (depth < 8) visit(inner, depth + 1); else unread(); }
       }
     }
   };

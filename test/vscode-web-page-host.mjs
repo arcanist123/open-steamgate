@@ -265,7 +265,23 @@ describe("vscode web page host: media URLs in use", () => {
     const waiting = element("img", {}, {osdSource: "/sap/bc/x?1"});
     const audio = {paused: false, ended: false, src: c, currentSrc: c};
     expect(check(documentOf(frame, waiting), new Map([["/sap/bc/x?1", a]]), [audio])).to.deep.equal([a, b, c]);
-    expect(check(documentOf(), new Map(), [{...audio, paused: true}])).to.deep.equal([]);
+  });
+  // critic round 5, FIX 1: play() may still be waiting for the source, and a
+  // paused element may resume: anything played keeps its URL
+  it("a played audio keeps its URL while paused or not yet started", () => {
+    const audio = {paused: true, ended: false, src: c, currentSrc: ""};
+    expect(check(documentOf(), new Map(), [audio])).to.deep.equal([c]);
+  });
+  // critic round 5, FIX 2: shadow trees, CSSOM rules, frames past the depth bound
+  it("finds a URL in an open shadow tree and in a CSSOM rule; a frame too deep keeps everything", () => {
+    const host = element("div", {}, {shadowRoot: documentOf(element("img", {src: a}))});
+    expect(check(documentOf(host))).to.deep.equal([a]);
+    const rules = {...documentOf(), styleSheets: [{cssRules: [{cssText: `.x { background: url("${b}"); }`}]},
+      {get cssRules() { throw new Error("cross-origin"); }}]};
+    expect(check(rules)).to.deep.equal([b]);
+    let deep = documentOf(element("img", {src: a}));
+    for (let n = 0; n < 10; n++) deep = documentOf(element("iframe", {}, {contentDocument: deep}));
+    expect(check(deep)).to.deep.equal([a, b, c]);
   });
   it("a document that cannot be read keeps everything", () => {
     expect(check({querySelectorAll() { throw new Error("denied"); }})).to.deep.equal([a, b, c]);
