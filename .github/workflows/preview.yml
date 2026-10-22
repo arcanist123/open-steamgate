@@ -150,9 +150,11 @@ jobs:
       # From Location"; docs/vscode-web.md). It is built after every check and
       # screenshot of the preview above: web:vscode transpiles its own pack
       # selection and rewrites web/generated/, never build/preview itself.
+      # Every pack the preview itself carries (OSD_WEB_PACKS=all), so the
+      # extension's launchpad shows the same tiles as this page's.
       - name: VS Code web extension
         run: |
-          npm run web:vscode
+          OSD_WEB_PACKS=all npm run web:vscode
           npm run web:vscode:stage
       - name: Publish to gh-pages
         # This is deliberately after the browser check and screenshots.  The
