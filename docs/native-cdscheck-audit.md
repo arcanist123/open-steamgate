@@ -16,7 +16,7 @@ needed to compute diagnostic field names, bases, refusals or write eligibility.
 | Node location and branch | Go location / disposition |
 | --- | --- |
 | C52 tokensOf: present node / absent node gives empty text | I45–49 `text`; copied Expression.Text |
-| C53 nodeName: constructor name / empty | I5–8 Expression.Kind; copied by osgExpression |
+| C53 nodeName: constructor name / empty | I5–8 Expression.Kind; copied by the public CDS API |
 | C54 children: children / empty | I7 Children; nil slice is empty |
 | C55 find: match current node, recurse in child order, no match | I20–31 `find` |
 | C56 firstDirect: first matching direct child / undefined | I33–43 `direct`; child order precedes kind order |
@@ -43,7 +43,7 @@ needed to compute diagnostic field names, bases, refusals or write eligibility.
 | C92 TimeType | Metadata only; same field bookkeeping |
 | C93 default type | Metadata only; unknown type does not discard a field |
 | C98–100 parsed data/tree absent | G81–82 returns nil |
-| C101–102 name, SQL name present / absent | G84–88; adapter's empty SQLView represents absent name; pinned core only captures nonempty `[\w/]+` SQL names |
+| C101–102 name, SQL name present / absent | G84–88; nil SQLView falls back to the object name; a pointer to an empty name stays empty (`??`, not truthiness). The public CDS API retains both cases; the pinned parser only captures nonempty `[\w/]+` SQL names |
 | C103 direct view annotations / none | G28–37,171 |
 | C104–105 direct select absent | G89–92; return drops SQL/source/fields just as Node's skip object does |
 | C106 strip trailing source alias, trim, uppercase | G13,103; W10–14 |
@@ -140,3 +140,18 @@ storelint, lintinput; node --test test/native-check-outline.mjs (3 tests);
 the same suite under the heavy-wrapper Mocha runner (3 tests); adapter and
 CHECKRUN differential contract tests (11 tests); suite registry (351 ordinary,
 19 grouped); scoped size budgets (160 budgets); git diff --check.
+
+## Public CDS API follow-up
+
+The adapter is removed in favor of abapiti `da13e34d` (PR #246, based on
+selfhost `8df2b932`) on the same core `9f7f098c`. The bridge calls CDS, DDIC and
+Files directly. SQL names retain nil versus an explicit empty string; only nil
+falls back to the CDS object name. The fact oracle also injects an explicit empty
+snapshot value because the pinned parser only captures nonempty annotation names.
+
+The full linked differential passes 438 CHECKs, 799 OUTLINEs and 47 mutations
+with identical Node/Go hashes and zero mismatches. This extends the previous
+436/797/45 run with absent/empty annotation cases and a same-name generated
+consumer. Focused native and bridge tests, vet/race tests for the policy and
+lifecycle packages, all 160 size budgets, suite registration and leak checks pass.
+No OSG adapter or generated-library SHA-256 pin remains.

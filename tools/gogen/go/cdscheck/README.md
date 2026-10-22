@@ -4,8 +4,9 @@ The diagnostic subset of `parseDDLS`, `viewFieldsOf` and `ddlsIssues`, preservin
 extra issue ordering, source resolution, unsupported view shapes and E/W mapping.
 Inputs come from the original translated CDS parser and dictionary types through
 a copied `Inspector` snapshot. This package does not parse CDS text itself.
-`tools/step3/cds-inspect.mjs` installs the pinned extraction adapter alongside the
-emitted library because upstream Tree deliberately returns no non-ABAP trees.
+The generated bridge uses abapiti PR #246’s CDS, DDIC and Files APIs directly.
+SQLView preserves nil (absent) versus a pointer to an empty name, matching Node’s
+nullish fallback to the CDS object name.
 
 The branch audit is in `docs/native-cdscheck-audit.md`. Table-driven Go tests
 consume the critic's Objects/Expected fact shape; the independent Node differential

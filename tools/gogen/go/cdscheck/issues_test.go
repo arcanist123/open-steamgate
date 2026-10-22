@@ -13,13 +13,15 @@ type factCase struct {
 	Expected []Issue
 }
 
+func stringPtr(s string) *string { return &s }
+
 func ex(kind, text string, children ...Expression) Expression {
 	return Expression{kind, text, children}
 }
 func fixture(elements ...Expression) factCase {
 	root := ex("CDSView", "", ex("CDSSelect", "", append([]Expression{ex("CDSSource", "ztable as t")}, elements...)...))
 	return factCase{Objects: map[string]Object{
-		"DDLS:ZPROBE": {Found: true, Files: []File{{"/src/zprobe.ddls.asddls", "define view zprobe"}}, Tree: &root, SQLView: "ZGEN"},
+		"DDLS:ZPROBE": {Found: true, Files: []File{{"/src/zprobe.ddls.asddls", "define view zprobe"}}, Tree: &root, SQLView: stringPtr("ZGEN")},
 		"TABL:ZTABLE": {Found: true, Components: []string{"MANDT", "ID"}, Keys: []string{"MANDT", "ID"}},
 	}, Expected: []Issue{}}
 }
@@ -208,7 +210,7 @@ func TestPolicyBranches(t *testing.T) {
 				c.Objects["VIEW:ZGEN"] = Object{Found: true, Components: []string{"OLD", "OLDER"}}
 				warn("OLD, OLDER are in the generated view ZGEN and no longer in ZPROBE: whatever reads them breaks when this is generated again")
 			case "no sql name":
-				o.SQLView = ""
+				o.SQLView = nil
 				c.Objects["VIEW:ZPROBE"] = Object{Found: true, Components: []string{"ID"}}
 			case "parse error":
 				c.Objects["DDLS:ZPROBE"] = o
@@ -276,5 +278,27 @@ func TestFactBoundaries(t *testing.T) {
 	}
 	if find(nil, "anything") != nil || annotations(nil) != "" {
 		t.Fatal("nil helper defaults")
+	}
+}
+
+// parseDDLS uses ??, so only absent SQL names fall back to the object name.
+func TestAbsentAndEmptySQLView(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sql  *string
+		want []Issue
+	}{
+		{"absent", nil, []Issue{{"/src/zprobe.ddls.asddls", "W", "OLD is in the generated view ZPROBE and no longer in ZPROBE: whatever reads it breaks when this is generated again"}}},
+		{"empty", stringPtr(""), []Issue{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixture(field("t.ID", ""))
+			o := c.Objects["DDLS:ZPROBE"]
+			o.SQLView = tc.sql
+			c.Objects["DDLS:ZPROBE"] = o
+			c.Objects["VIEW:ZPROBE"] = Object{Found: true, Components: []string{"OLD"}}
+			c.Expected = tc.want
+			checkFacts(t, c)
+		})
 	}
 }
