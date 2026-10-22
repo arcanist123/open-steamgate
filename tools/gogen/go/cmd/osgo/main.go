@@ -488,6 +488,7 @@ func main() {
 	homeDir := flag.String("home", "", "data directory; defaults -db to <home>/osgo.sqlite and makes a fresh directory a full database reset")
 	compilerStatus := flag.Bool("compiler-status", false, "print compiler sidecar status as JSON")
 	version := flag.Bool("version", false, "print release tag and commit")
+	protocols := protocolFlags()
 	adtFlag := flag.Bool("adt", false, "mount /sap/bc/adt through ZCL_OSD_ADT_HANDLER (also OSD_OSGO_ADT=1; default off)")
 	lintEngineFlag := flag.String("lint-engine", os.Getenv("OSD_LINT_ENGINE"), "CHECKRUN engine: node, abap or go (default: go when Go lint library is linked, otherwise node; in-process engines require --lint-lib build)")
 	pprofFlag := flag.Bool("pprof", false, "enable loopback-only profiling (also OSD_PPROF=1)")
@@ -713,6 +714,7 @@ func main() {
 	upgrade := channelRoutes()
 	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
 
+	protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
 	for _, svc := range icfServices {
 		log.Printf("ICF service  on http://localhost:%d%s  (%s)", *port, svc.Path, svc.Handler)
 	}

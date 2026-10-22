@@ -2,16 +2,14 @@ module osg/gogen
 
 go 1.26.0
 
-// open-diag-go develops beside these sibling modules and deliberately keeps
-// v0.0.0 placeholders in its own go.mod. Pin those placeholders for consumers.
-replace github.com/oisee/open-rfc-go v0.0.0 => github.com/oisee/open-rfc-go v0.0.0-20260820234724-6ef4d9eeb9cd
-
+// Pin the sibling placeholder retained by open-diag-go.
 replace github.com/oisee/vibing-steampunk v0.0.0 => github.com/oisee/vibing-steampunk v0.0.0-20260905112959-6e390b1f61ff
 
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/gdamore/tcell/v2 v2.13.10
 	github.com/oisee/open-diag-go v0.0.0-20260928212308-62029ee085bc
+	github.com/oisee/open-rfc-go v0.2.1-0.20261022165448-c620e342404d
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.37.0
 	modernc.org/sqlite v1.60.1
