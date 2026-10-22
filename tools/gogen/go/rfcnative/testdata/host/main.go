@@ -11,6 +11,7 @@ import (
 	"os"
 	"osg/gogen/diagnative"
 	"osg/gogen/rfcnative"
+	"osg/gogen/sysid"
 )
 
 func main() {
@@ -22,21 +23,28 @@ func main() {
 	if err := json.NewDecoder(os.Stdin).Decode(&c); err != nil {
 		panic(err)
 	}
-	env := func(k string) string { return c.Env[k] }
+	env := func(k string) (string, bool) { v, ok := c.Env[k]; return v, ok }
 	logf := func(f string, args ...any) { fmt.Printf(f+"\n", args...) }
 	ctx := context.Background()
+	sid, _, err := sysid.FromEnv(env)
+	if err != nil {
+		panic(err)
+	}
 	if c.Kind == "diag" {
 		port, err := diagnative.Port(true, env)
 		if err != nil {
 			panic(err)
 		}
-		if err := diagnative.Start(ctx, port, []string{"127.0.0.1"}, logf); err != nil {
+		if err := diagnative.Start(ctx, port, sid, []string{"127.0.0.1"}, logf); err != nil {
 			panic(err)
 		}
 	} else {
-		config, err := rfcnative.FromEnv(true, "OSD", env)
+		config, err := rfcnative.FromEnv(true, sid, env)
 		if err != nil {
 			panic(err)
+		}
+		if c.Kind == "check-rfc" {
+			return
 		}
 		target, err := url.Parse(c.Backend)
 		if err != nil {

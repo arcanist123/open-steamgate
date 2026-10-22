@@ -12,16 +12,27 @@ selected and no default HTTP transport is replaced.
 The Apache-2.0 dependency owns RFC, NI, metadata, conversation cookie jars and
 CSRF retry. OSG copies none of that source. See root NOTICE.
 
-Only demo mode is supported: non-demo modes fail before opening listeners.
-Unlike JS demo, this dependency does not validate/decode the RFC caller identity
-or propagate it as the HTTP repository owner. Its configured backend identity
-is used in logon replies. It also registers RFC_GET_STRUCTURE_DEFINITION in
-addition to JS's three FMs. Cross-connection lock-handle adoption and backend
-logoff on disconnect are not provided by this pinned API. This is an opt-in
-compatibility path, not full JS security/session parity.
+`FromEnv` takes an `os.LookupEnv`-style lookup. `STG_RFC_AUTH_MODE` supports
+demo (only when absent) and static; a present empty value is rejected before
+listening. An empty `STG_RFC_PORT` selects port 0, while an absent port uses
+the instance default. A present empty `INSTANCE` cannot derive a port.
+Static requires
+`STG_RFC_USER` and `STG_RFC_PASSWORD`; `STG_RFC_CLIENT` optionally restricts
+the caller's client. These are separate from `STG_ADT_USER/PASSWORD/CLIENT/LANGUAGE`.
+`FromEnv` and `Start` call upstream `Check` synchronously before opening listeners.
+Static logon decoding retains upstream's default 64 KiB limit.
+
+The dependency also registers RFC_GET_STRUCTURE_DEFINITION in addition to JS's
+three FMs. Cross-connection lock-handle adoption and backend logoff on disconnect
+are not provided by this pinned API. Caller identity is not propagated as the
+HTTP repository owner. This remains an opt-in compatibility path.
 
 Validation: `go test -race ./rfcnative`, `go vet ./rfcnative`.
 
-Detailed parity and URI/header admission gaps: [native protocols](../../../../docs/native-protocols.md).
-Successful-response CSRF token rotation differs from JS; stale-token retry
-is retained by the dependency. The local HTTP seam supplies stateful sessions.
+Detailed parity and remaining differences: [native protocols](../../../../docs/native-protocols.md).
+The pinned dependency confines backend origins/headers and retains rotated CSRF
+tokens. The local HTTP seam supplies stateful sessions.
+
+`STG_HOST_NAME` defaults only when absent; an empty value is preserved in
+the backend options. The pinned upstream logon identity still substitutes
+`osd-bridge` for an empty host on the wire.

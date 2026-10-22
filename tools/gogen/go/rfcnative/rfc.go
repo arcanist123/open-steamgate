@@ -19,37 +19,59 @@ import (
 type Config struct {
 	Enabled bool
 	Port    int
-	Backend adtbridge.Backend
+	Options adtbridge.Options
 }
 
-// FromEnv selects the demo profile. Other auth modes must fail closed.
-func FromEnv(enabled bool, sid string, env func(string) string) (Config, error) {
-	c := Config{Enabled: enabled || env("OSD_OSGO_RFC") == "1"}
+// FromEnv validates the same independent RFC and backend identities as JS.
+func FromEnv(enabled bool, sid string, lookup func(string) (string, bool)) (Config, error) {
+	env := func(key, fallback string) string {
+		if value, ok := lookup(key); ok {
+			return value
+		}
+		return fallback
+	}
+	c := Config{Enabled: enabled || env("OSD_OSGO_RFC", "") == "1"}
 	if !c.Enabled {
 		return c, nil
 	}
-	mode := env("STG_RFC_AUTH_MODE")
-	if mode != "" && mode != "demo" {
-		return c, fmt.Errorf("native RFC supports STG_RFC_AUTH_MODE=demo only")
-	}
-	port := env("STG_RFC_PORT")
-	if port == "" {
-		derived, err := instance.Port(33, env("INSTANCE"))
+	port, present := lookup("STG_RFC_PORT")
+	if !present {
+		nn := env("INSTANCE", "00")
+		if nn == "" {
+			return c, fmt.Errorf("INSTANCE must be two digits")
+		}
+		derived, err := instance.Port(33, nn)
 		if err != nil {
 			return c, err
 		}
 		port = strconv.Itoa(derived)
+	}
+	// JS Number("") is zero; only an absent setting selects the default.
+	if port == "" {
+		port = "0"
 	}
 	var err error
 	c.Port, err = strconv.Atoi(port)
 	if err != nil || c.Port < 0 || c.Port > 65535 {
 		return c, fmt.Errorf("invalid STG_RFC_PORT")
 	}
-	c.Backend = adtbridge.Backend{SystemID: sid, HostName: env("STG_HOST_NAME"), User: env("STG_ADT_USER"), Password: env("STG_ADT_PASSWORD"), Client: env("STG_ADT_CLIENT"), Language: env("STG_ADT_LANGUAGE")}
-	if c.Backend.Password != "" && c.Backend.User == "" {
-		return c, fmt.Errorf("STG_ADT_PASSWORD requires STG_ADT_USER")
+	c.Options = adtbridge.Options{
+		Backend:  adtbridge.Backend{URL: "http://127.0.0.1", SystemID: sid, HostName: env("STG_HOST_NAME", "osd-bridge"), User: env("STG_ADT_USER", ""), Password: env("STG_ADT_PASSWORD", ""), Client: env("STG_ADT_CLIENT", ""), Language: env("STG_ADT_LANGUAGE", "")},
+		AuthMode: env("STG_RFC_AUTH_MODE", "demo"), RFCUser: env("STG_RFC_USER", ""), RFCPassword: env("STG_RFC_PASSWORD", ""), RFCClient: env("STG_RFC_CLIENT", ""),
+		Timeout: 30 * time.Second,
+	}
+	if err := check(c.Options); err != nil {
+		return c, err
 	}
 	return c, nil
+}
+
+// check keeps the JS fail-closed contract; upstream also accepts an empty mode.
+func check(options adtbridge.Options) error {
+	if options.AuthMode != "demo" && options.AuthMode != "static" {
+		return fmt.Errorf("%w: RFC auth mode must be demo or static", adtbridge.ErrAuthConfiguration)
+	}
+	return adtbridge.Check(options)
 }
 
 // Start serves the native handler over private loopback: Backend has no custom
@@ -59,12 +81,16 @@ func Start(ctx context.Context, c Config, binds []string, handler http.Handler, 
 	if !c.Enabled {
 		return nil
 	}
+	if err := check(c.Options); err != nil {
+		return err
+	}
 	backend, err := osdbind.ListenAll([]string{osdbind.LoopbackV4}, 0)
 	if err != nil {
 		return err
 	}
-	c.Backend.URL = "http://" + backend[0].Addr().String()
-	options := adtbridge.Options{Backend: c.Backend, Timeout: 30 * time.Second, Log: logf}
+	options := c.Options
+	options.Backend.URL = "http://" + backend[0].Addr().String()
+	options.Log = logf
 	if err := adtbridge.Check(options); err != nil {
 		backend[0].Close()
 		return err
@@ -88,7 +114,7 @@ func Start(ctx context.Context, c Config, binds []string, handler http.Handler, 
 			}
 		}()
 	}
-	logf("native RFC demo listening on %s", osdbind.Describe(listeners))
+	logf("native RFC listening on %s", osdbind.Describe(listeners))
 	return nil
 }
 

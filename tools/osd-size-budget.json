@@ -655,12 +655,12 @@
       "reason": "Native CHECK diagnostic policy port of osd-store-ddls.mjs and the diagnostic subset of parseDDLS/viewFieldsOf. It consumes original CDS expression/dictionary snapshots through an injected inspector; it does not implement a second CDS parser. Initial measured production-line ceiling. Parser facts come directly from the abapiti CDS/DDIC/Files library API; the separate OSG extraction adapter has been removed. PR 839 critic round 1: 41 net production lines preserve per-annotation nonblank calculating classes, first named client/base selection, source-child order, and ECMAScript whitespace semantics. These are the existing diagnostic policy, with no new parser or dependency; the ceiling is the exact measured production size and excludes tests."
     },
     "go:rfcnative": {
-      "lines": 106,
-      "reason": "Native RFC launcher only: pinned Apache dependency owns protocol; this package owns configuration and private HTTP backend lifecycle. Wire replay found missing stateful HTTP session selection; the backend wrapper now supplies the JS default for both requests and CSRF probes."
+      "lines": 130,
+      "reason": "Native RFC launcher only: pinned Apache dependency owns protocol; this package owns configuration and private HTTP backend lifecycle. Wire replay found missing stateful HTTP session selection; the backend wrapper now supplies the JS default for both requests and CSRF probes. Protocol parity: two net production lines wire independent static RFC credentials and synchronous upstream validation before opening listeners; protocol implementation remains upstream. PR 845 review fix: 22 net production lines preserve environment presence for nullish defaults and reject empty auth mode synchronously in both FromEnv and Start, since upstream accepts it as demo."
     },
     "go:diagnative": {
-      "lines": 111,
-      "reason": "DIAG startup adapter over lsd.Serve; fan-in listener avoids concurrent writes to upstream global renderer settings."
+      "lines": 117,
+      "reason": "DIAG startup adapter over lsd.Serve; fan-in listener avoids concurrent writes to upstream global renderer settings. PR 845 review fix: six net production lines use a presence-aware lookup and reject an explicitly empty INSTANCE while retaining truthy DIAG port fallbacks."
     },
     "go:instance": {
       "lines": 18,

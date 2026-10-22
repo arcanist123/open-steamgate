@@ -16,7 +16,8 @@ import (
 )
 
 // Port selects the optional DIAG listener; a negative port means disabled.
-func Port(enabled bool, env func(string) string) (int, error) {
+func Port(enabled bool, lookup func(string) (string, bool)) (int, error) {
+	env := func(key string) string { value, _ := lookup(key); return value }
 	if !enabled && env("OSD_OSGO_DIAG") != "1" {
 		return -1, nil
 	}
@@ -25,7 +26,14 @@ func Port(enabled bool, env func(string) string) (int, error) {
 		text = env("DIAG_PORT")
 	}
 	if text == "" {
-		derived, err := instance.Port(32, env("INSTANCE"))
+		nn, present := lookup("INSTANCE")
+		if !present {
+			nn = "00"
+		}
+		if nn == "" {
+			return 0, fmt.Errorf("INSTANCE must be two digits")
+		}
+		derived, err := instance.Port(32, nn)
 		if err != nil {
 			return 0, err
 		}
@@ -41,7 +49,7 @@ func Port(enabled bool, env func(string) string) (int, error) {
 // Start calls lsd.Serve exactly once: that API sets package-global render state.
 // A fan-in listener lets that one service accept both loopback address families.
 // Call once during host startup, before clients connect.
-func Start(ctx context.Context, port int, binds []string, logf func(string, ...any)) error {
+func Start(ctx context.Context, port int, sid string, binds []string, logf func(string, ...any)) error {
 	if port < 0 {
 		return nil
 	}
@@ -70,7 +78,7 @@ func Start(ctx context.Context, port int, binds []string, logf func(string, ...a
 	}
 	go func() {
 		defer ln.Close()
-		if err := lsd.Serve(ctx, ln, lsd.Options{Stub: "tape", Log: logf}); err != nil {
+		if err := lsd.Serve(ctx, ln, lsd.Options{SID: sid, Stub: "tape", Log: logf}); err != nil {
 			logf("DIAG listener: %v", err)
 		}
 	}()

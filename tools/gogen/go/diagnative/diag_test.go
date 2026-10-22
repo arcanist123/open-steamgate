@@ -24,10 +24,12 @@ func TestPort(t *testing.T) {
 		{map[string]string{"INSTANCE": "bad", "DIAG_PORT": "3296"}, true, 3296, false},
 		{map[string]string{"INSTANCE": "95", "STG_DIAG_PORT": "3297", "DIAG_PORT": "3296"}, true, 3297, false},
 		{map[string]string{"STG_DIAG_PORT": "0", "DIAG_PORT": "123"}, true, 0, false},
+		{map[string]string{"INSTANCE": ""}, true, 0, true},
+		{map[string]string{"STG_DIAG_PORT": "", "DIAG_PORT": "", "INSTANCE": "95"}, true, 3295, false},
 		{map[string]string{"INSTANCE": "-1"}, true, 0, true},
 		{map[string]string{"DIAG_PORT": "65536"}, true, 0, true},
 	} {
-		got, err := Port(tc.enabled, func(k string) string { return tc.env[k] })
+		got, err := Port(tc.enabled, func(k string) (string, bool) { v, ok := tc.env[k]; return v, ok })
 		if (err != nil) != tc.fail || (!tc.fail && got != tc.port) {
 			t.Fatalf("%v: %d %v", tc, got, err)
 		}
@@ -45,7 +47,7 @@ func TestTapeService(t *testing.T) {
 	probe[0].Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := Start(ctx, port, []string{"127.0.0.1", "::1"}, func(string, ...any) {}); err != nil {
+	if err := Start(ctx, port, "QRS", []string{"127.0.0.1", "::1"}, func(string, ...any) {}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
