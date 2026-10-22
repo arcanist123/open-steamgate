@@ -300,7 +300,12 @@ func Call(in map[string]*string) Answer {
 	}
 	started := time.Now()
 	ms := func() string { return strconv.FormatInt(time.Since(started).Milliseconds(), 10) }
-	ix := checkRunIndex(command, typ, name, in["IV_SOURCE"], text("IV_FILTER", ""))
+	var ix *storeIndex
+	if command == "PARSE" {
+		ix = outlineIndex(text("IV_JSON", ""))
+	} else {
+		ix = checkRunIndex(command, typ, name, in["IV_SOURCE"], text("IV_FILTER", ""))
+	}
 	var err error
 	switch command {
 	case "LIST":

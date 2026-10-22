@@ -186,3 +186,82 @@ func TestNativeOutlineTrapIsIsolated(t *testing.T) {
 		t.Fatal("isolated outline poisoned saved checker", err)
 	}
 }
+
+func TestSavedOutlineIdentity(t *testing.T) {
+	for _, version := range []string{"active", "inactive"} {
+		t.Run(version, func(t *testing.T) {
+			c, in, _ := nativeFixture(t)
+			in.Version = version
+			saved, isolated := 0, 0
+			c.Engine.Tree = func(typ, name string) ([]adtoutline.FileTree, bool) { saved++; return nil, true }
+			c.Engine.SnapshotTree = func([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool) {
+				isolated++
+				return nil, true
+			}
+			run := func() {
+				t.Helper()
+				if _, err := c.Outline(context.Background(), in); err != nil {
+					t.Fatal(err)
+				}
+			}
+			run()
+			if saved != 1 || isolated != 0 {
+				t.Fatal(saved, isolated)
+			}
+			// An extra saved include must never leak into a version that omits it.
+			capture := c.Capture
+			c.Capture = func() (objstore.LintSnapshot, error) {
+				s, e := capture()
+				s.Files = append(s.Files, objstore.LintFile{Filename: "/other/ztest.prog.abap", Raw: "REPORT other."})
+				s.Digest += "extra"
+				return s, e
+			}
+			run()
+			if saved != 1 || isolated != 1 {
+				t.Fatal("borrowed a competing file", saved, isolated)
+			}
+			c.Capture = capture
+			// A different active byte snapshot uses an isolated checker even when the
+			// logical filename matches the saved registry exactly.
+			os.WriteFile(filepath.Join(in.Root, "active-copy"), []byte("REPORT active."), 0600)
+			in.Files = []string{"active-copy"}
+			in.Expected = nil
+			run()
+			if saved != 1 || isolated != 2 {
+				t.Fatal(saved, isolated)
+			}
+		})
+	}
+}
+
+func TestSavedOutlineRestore(t *testing.T) {
+	c, in, raw := nativeFixture(t)
+	c.Engine.Tree = func(string, string) ([]adtoutline.FileTree, bool) { *raw = "corrupted"; panic("tree failed") }
+	if _, err := c.Outline(context.Background(), in); err == nil {
+		t.Fatal("missing refusal")
+	}
+	if *raw != "REPORT ztest." {
+		t.Fatal("saved state not restored", *raw)
+	}
+	if _, err := c.Check(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	c.Engine.Prime = func([]objstore.LintFile, string) { panic("restore failed") }
+	if _, err := c.Outline(context.Background(), in); err == nil {
+		t.Fatal("missing restoration refusal")
+	}
+	if _, err := c.Check(context.Background(), in); err == nil || !strings.Contains(err.Error(), "restore failed") {
+		t.Fatal(err)
+	}
+}
+
+func TestSavedOutlineFreshness(t *testing.T) {
+	c, in, _ := nativeFixture(t)
+	c.Engine.Tree = func(string, string) ([]adtoutline.FileTree, bool) {
+		os.WriteFile(filepath.Join(in.Root, in.Files[0]), []byte("changed"), 0600)
+		return nil, true
+	}
+	if _, err := c.Outline(context.Background(), in); err == nil || !strings.Contains(err.Error(), "inputs changed") {
+		t.Fatal(err)
+	}
+}

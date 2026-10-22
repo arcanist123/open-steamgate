@@ -29,6 +29,11 @@ func NewGoEngine(library GoLibrary) Engine {
 		engine.CheckObject = native.CheckObject
 		engine.SnapshotTree = native.SnapshotTree
 	}
+	if saved, ok := library.(interface {
+		Tree(string, string) ([]adtoutline.FileTree, bool)
+	}); ok {
+		engine.Tree = saved.Tree
+	}
 	if cds, ok := library.(interface{ DDLS(string) []Issue }); ok {
 		engine.DDLS = cds.DDLS
 	}

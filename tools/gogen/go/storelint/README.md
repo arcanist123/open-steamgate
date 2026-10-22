@@ -34,8 +34,11 @@ target's expected hashes, revision and live-generation link before answering.
 Native CHECK shares the same mutex and saved snapshot synchronization, uses
 CheckObject (INCL -> PROG), and retains Node's scalar and severity contracts.
 CDS diagnostics come from cdscheck over the pinned original-parser extractor.
-Native OUTLINE uses a separate checker for exactly the host-resolved snapshot,
-then adtoutline builds the document. Both verify snapshot containment/expected
-hashes and full saved inputs before returning. Failed isolated outline parses
-do not alter the persistent registry. The outer store still rejects concurrent
-revision, live-link and expected-file changes.
+Native OUTLINE reuses the saved Tree only when every ABAP filename and byte
+matches the complete host-resolved object, including local/test includes and
+competing directories. Different or missing active-version files use an isolated
+checker. adtoutline builds either document with the same projection. Both paths
+verify containment/expected hashes and full saved inputs before returning.
+Failed isolated parses leave saved state untouched; a failed saved Tree parse
+re-primes the saved baseline before refusing, poisoning only if restoration fails.
+The outer store still rejects concurrent revision, live-link and file changes.

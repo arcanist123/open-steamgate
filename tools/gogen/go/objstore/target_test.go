@@ -33,7 +33,7 @@ func TestTargetIndexMatchesFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer SetStore("", nil, "")
-	SetCompiler(&sourceTestCompiler{}, "")
+	SetCompiler(&indexedNativeCompiler{}, "")
 	defer SetCompiler(nil, "")
 	compare := func() {
 		t.Helper()
@@ -46,6 +46,19 @@ func TestTargetIndexMatchesFull(t *testing.T) {
 			fast := checkRunIndex("CHECKRUN", tc.typ, tc.name, nil, "").find(tc.typ, tc.name)
 			if !reflect.DeepEqual(full, fast) {
 				t.Fatalf("%s %s: full=%+v targeted=%+v", tc.typ, tc.name, full, fast)
+			}
+			for _, command := range []string{"CHECK", "OUTLINE"} {
+				var ix *storeIndex
+				if command == "OUTLINE" {
+					raw, _ := json.Marshal(map[string]string{"kind": "OUTLINE", "type": tc.typ, "name": tc.name})
+					ix = outlineIndex(string(raw))
+				} else {
+					source := "inline"
+					ix = checkRunIndex(command, tc.typ, tc.name, &source, "")
+				}
+				if !reflect.DeepEqual(full, ix.find(tc.typ, tc.name)) {
+					t.Fatalf("%s %s %s differs from full index", command, tc.typ, tc.name)
+				}
 			}
 			if full != nil {
 				a, err := compilerInput(storeBuild(), tc.typ, tc.name, "inactive")
@@ -307,3 +320,8 @@ func TestTargetIndexAdapterSource(t *testing.T) {
 		})
 	}
 }
+
+type indexedNativeCompiler struct{ sourceTestCompiler }
+
+func (*indexedNativeCompiler) SupportsCheckSource() bool { return true }
+func (*indexedNativeCompiler) NativeCheckOutline() bool  { return true }

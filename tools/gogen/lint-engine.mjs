@@ -208,6 +208,12 @@ func (l *goLintLibrary) SnapshotTree(files []objstore.LintFile, config, typ, nam
  input := make([]lint.File, 0, len(files))
  for _, f := range files { input = append(input, lint.File{Filename:f.Filename, Raw:f.Raw}) }
  checker.Prime(input, nil, config)
+ return outlineTrees(&checker,typ,name)
+}
+func (l *goLintLibrary) Tree(typ,name string) ([]adtoutline.FileTree, bool) {
+ return outlineTrees(&l.checker,typ,name)
+}
+func outlineTrees(checker *lint.Checker,typ,name string) ([]adtoutline.FileTree, bool) {
  trees, found := checker.Tree(typ,name)
  pos := func(p lint.Pos) adtoutline.Pos { return adtoutline.Pos{Row:p.Row,Col:p.Col} }
  var node func(lint.Node) adtoutline.Node

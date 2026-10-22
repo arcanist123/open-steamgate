@@ -840,8 +840,10 @@ including empty buffers. Check failures recover after restoration; failed
 updates/restores poison the compiler. The outer store keeps its expected-hash,
 revision and live-link freshness checks. Missing Go linkage keeps delegation.
 
-OUTLINE reads exactly the host-selected active/inactive snapshot and primes an
-isolated checker with the effective config, as the sidecar does. It never lends
+OUTLINE reads exactly the host-selected active/inactive snapshot. When every
+ABAP path and byte matches the complete saved object it reuses the saved Tree;
+otherwise it primes an isolated checker with the effective config, as the
+sidecar does. It never lends
 saved/inactive includes to an active parse. `adtoutline` ports the Node part
 collectors and row encoder, including JSON property order and source links.
 An indexed object without a parser object still has Node's outline shell.
