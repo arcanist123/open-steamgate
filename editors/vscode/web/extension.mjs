@@ -755,12 +755,13 @@ ${fioriRuntime.toString()}
 fioriRuntime(${JSON.stringify(config).replace(/</g, "\\u003c")});</script>`;
   let html = source.replace(/<head>/i, `<head>\n${head}`);
   html = html.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
-  // The page's own CDN tags load in CORS mode too (see fioriRuntime: COEP).
-  html = html.replace(/<(script|link)\b(?![^>]*\bcrossorigin)([^>]*\b(?:src|href)="https:\/\/ui5\.sap\.com\/)/gi,
-    (_, tag, rest) => `<${tag} crossorigin="anonymous"${rest}`);
   // The launchpad's own config script ends before the sandbox bootstrap tag.
   html = html.replace(/<script nonce="[^"]*" src="[^"]*\/sap\/ushell\/bootstrap\/sandbox\.js"/,
     (tag) => `<script nonce="${nonce}">window.osdRebaseApplications();</script>\n  ${tag}`);
+  // The page's own CDN tags load in CORS mode too (see fioriRuntime: COEP).
+  // After the rebase insertion above, whose pattern expects <script nonce=... src=...>.
+  html = html.replace(/<(script|link)\b(?![^>]*\bcrossorigin)([^>]*\b(?:src|href)="https:\/\/ui5\.sap\.com\/)/gi,
+    (_, tag, rest) => `<${tag} crossorigin="anonymous"${rest}`);
   return html;
 }
 
