@@ -8,7 +8,7 @@ replace github.com/oisee/vibing-steampunk v0.0.0 => github.com/oisee/vibing-stea
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/gdamore/tcell/v2 v2.13.10
-	github.com/oisee/open-diag-go v0.0.0-20261022172934-601b751c3561
+	github.com/oisee/open-diag-go v0.0.0-20261022180029-b9a0b534ec1b
 	github.com/oisee/open-rfc-go v0.2.1-0.20261022173244-61d450713a04
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.37.0

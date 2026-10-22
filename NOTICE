@@ -25,7 +25,7 @@ Provenance mapping:
 https://github.com/oisee/open-rfc-go/blob/61d450713a040bc0afc39c4994be6bbfcba5bd79/docs/provenance.md
 
 DIAG links github.com/oisee/open-diag-go at commit
-601b751c3561059fd27c3fd0b3e9e2ad301a3fff (MIT). Its open-rfc-go dependency is
+b9a0b534ec1b4597cb00d17e064ff2580ba97eac (MIT). Its open-rfc-go dependency is
 covered above.
 Distributed native binaries must carry this NOTICE and LICENSES/Apache-2.0.txt.
 The Docker JS source/npm inventory (docker/image/assemble.mjs) is separate;

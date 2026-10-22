@@ -72,8 +72,8 @@ Differences from JS, including limitations of the pinned API:
 ## DIAG reuse
 
 `diagnative` mounts the MIT `open-diag-go/pkg/lsd` service at
-`601b751c3561059fd27c3fd0b3e9e2ad301a3fff`
-(`v0.0.0-20261022172934-601b751c3561`), with `Stub: "tape"`. It can render
+`b9a0b534ec1b4597cb00d17e064ff2580ba97eac`
+(`v0.0.0-20261022180029-b9a0b534ec1b`), with `Stub: "tape"`. It can render
 the tape/shell; no new DIAG stack was built. One fan-in listener feeds both address families to a single
 `lsd.Serve`, avoiding concurrent initialization of its global renderer state.
 
@@ -83,9 +83,9 @@ selected SID: `OSD_SID`, then `STG_ADT_SID`, default `OSD`. Both hosts trim ASCI
 blanks, uppercase it, and reject anything other than three ASCII letters/digits
 starting with a letter. The dependency now rejects malformed hellos.
 
-Differences remain: NI limit is 64 MiB versus JS's 1 MiB; it lacks JS's
-connection cap and initial idle timeout; it waits briefly after EOP before
-closing. The twelve second hold and exit commands are already implemented by
+Since open-diag-go #4 the limits match JS: NI payload 1 MiB, 64 sockets,
+30 s initial and later idle timeout, and after EOP the write side is
+half-closed while reading continues until the peer closes. The twelve second hold and exit commands are already implemented by
 the dependency. Its scrubbed shell is not asserted byte-identical to JS's.
 There was no new field audit or stock SAP GUI acceptance run.
 
