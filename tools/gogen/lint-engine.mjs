@@ -43,6 +43,7 @@ export function lintEngineGo(spec) {
   return `package main
 import (
  "encoding/json"
+ "osg/gogen/lintinput"
  "osg/gogen/abap"
  "osg/gogen/objstore"
  "osg/gogen/storecheck"
@@ -77,10 +78,10 @@ func newLintEngine() storelint.Engine {
  }
 }
 func init() {
- var spec lintSpec
+ var spec lintinput.Spec
  if err := json.Unmarshal([]byte(${JSON.stringify(JSON.stringify(spec))}), &spec); err != nil { panic(err) }
  makeLintCompiler = func(root string, other storecheck.Compiler) (*storelint.Compiler, string) {
-  return configuredLintCompiler(root, other, newLintEngine(), spec), spec.Config
+  return lintinput.New(root, other, newLintEngine(), spec), spec.Config
  }
 }
 `;
@@ -134,6 +135,7 @@ export function goLintEngineGo(spec) {
   return `package main
 import (
  "encoding/json"
+ "osg/gogen/lintinput"
  lint "zabaplint"
  "osg/gogen/objstore"
  "osg/gogen/storecheck"
@@ -162,10 +164,10 @@ func (l *goLintLibrary) Stats() storelint.Stats {
 }
 func newGoLintEngine() storelint.Engine { return storelint.NewGoEngine(&goLintLibrary{}) }
 func init() {
- var spec lintSpec
+ var spec lintinput.Spec
  if err := json.Unmarshal([]byte(${JSON.stringify(JSON.stringify(spec))}), &spec); err != nil { panic(err) }
  makeGoLintCompiler = func(root string, other storecheck.Compiler) (*storelint.Compiler, string) {
-  return configuredLintCompiler(root, other, newGoLintEngine(), spec), spec.Config
+  return lintinput.New(root, other, newGoLintEngine(), spec), spec.Config
  }
 }
 `;

@@ -164,9 +164,7 @@ ENDCLASS.
     writeFileSync(join(dir, "zz_lint.go"), lintEngineGo({config: "{}", hidden: [], files: [], guards: {}}));
     writeFileSync(join(dir, "bridge_test.go"), `package main
 import ("testing"; "osg/gogen/objstore"; "osg/gogen/storecheck"; "osg/gogen/storelint")
-type lintSpec struct {Config string; Hidden, Files []string; Guards map[string]string}
 var makeLintCompiler func(string, storecheck.Compiler) (*storelint.Compiler, string)
-func configuredLintCompiler(string, storecheck.Compiler, storelint.Engine, lintSpec) *storelint.Compiler { return nil }
 func TestBridge(t *testing.T) {
  a, b := newLintEngine(), newLintEngine()
  a.Prime([]objstore.LintFile{{Filename: "/a", Raw: "first"}}, "{}")
@@ -361,9 +359,7 @@ test("Go library bridge links only on request and shares CHECKRUN lifecycle with
     writeFileSync(join(dir, "zz_lint.go"), goLintEngineGo({config: "{}"}));
     writeFileSync(join(dir, "bridge_test.go"), `package main
  import("context";"strings";"testing";"osg/gogen/objstore";"osg/gogen/storecheck";"osg/gogen/storelint")
- type lintSpec struct {Config string}
  var makeGoLintCompiler func(string, storecheck.Compiler) (*storelint.Compiler, string)
- func configuredLintCompiler(_ string, other storecheck.Compiler, engine storelint.Engine, _ lintSpec) *storelint.Compiler { return &storelint.Compiler{Other:other, Engine:engine} }
  func TestBridge(t *testing.T) {
   c, config := makeGoLintCompiler("/tree", nil)
   file := "/src/#x#ztest.clas.locals_def.abap"
