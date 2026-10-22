@@ -45,7 +45,7 @@ func TestTapeService(t *testing.T) {
 	probe[0].Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := Start(ctx, port, []string{"127.0.0.1", "::1"}, func(string, ...any) {}); err != nil {
+	if err := Start(ctx, port, "QRS", []string{"127.0.0.1", "::1"}, func(string, ...any) {}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)

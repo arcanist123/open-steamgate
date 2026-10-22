@@ -19,18 +19,14 @@ import (
 type Config struct {
 	Enabled bool
 	Port    int
-	Backend adtbridge.Backend
+	Options adtbridge.Options
 }
 
-// FromEnv selects the demo profile. Other auth modes must fail closed.
+// FromEnv validates the same independent RFC and backend identities as JS.
 func FromEnv(enabled bool, sid string, env func(string) string) (Config, error) {
 	c := Config{Enabled: enabled || env("OSD_OSGO_RFC") == "1"}
 	if !c.Enabled {
 		return c, nil
-	}
-	mode := env("STG_RFC_AUTH_MODE")
-	if mode != "" && mode != "demo" {
-		return c, fmt.Errorf("native RFC supports STG_RFC_AUTH_MODE=demo only")
 	}
 	port := env("STG_RFC_PORT")
 	if port == "" {
@@ -45,9 +41,13 @@ func FromEnv(enabled bool, sid string, env func(string) string) (Config, error) 
 	if err != nil || c.Port < 0 || c.Port > 65535 {
 		return c, fmt.Errorf("invalid STG_RFC_PORT")
 	}
-	c.Backend = adtbridge.Backend{SystemID: sid, HostName: env("STG_HOST_NAME"), User: env("STG_ADT_USER"), Password: env("STG_ADT_PASSWORD"), Client: env("STG_ADT_CLIENT"), Language: env("STG_ADT_LANGUAGE")}
-	if c.Backend.Password != "" && c.Backend.User == "" {
-		return c, fmt.Errorf("STG_ADT_PASSWORD requires STG_ADT_USER")
+	c.Options = adtbridge.Options{
+		Backend:  adtbridge.Backend{URL: "http://127.0.0.1", SystemID: sid, HostName: env("STG_HOST_NAME"), User: env("STG_ADT_USER"), Password: env("STG_ADT_PASSWORD"), Client: env("STG_ADT_CLIENT"), Language: env("STG_ADT_LANGUAGE")},
+		AuthMode: env("STG_RFC_AUTH_MODE"), RFCUser: env("STG_RFC_USER"), RFCPassword: env("STG_RFC_PASSWORD"), RFCClient: env("STG_RFC_CLIENT"),
+		Timeout: 30 * time.Second,
+	}
+	if err := adtbridge.Check(c.Options); err != nil {
+		return c, err
 	}
 	return c, nil
 }
@@ -59,12 +59,16 @@ func Start(ctx context.Context, c Config, binds []string, handler http.Handler, 
 	if !c.Enabled {
 		return nil
 	}
+	if err := adtbridge.Check(c.Options); err != nil {
+		return err
+	}
 	backend, err := osdbind.ListenAll([]string{osdbind.LoopbackV4}, 0)
 	if err != nil {
 		return err
 	}
-	c.Backend.URL = "http://" + backend[0].Addr().String()
-	options := adtbridge.Options{Backend: c.Backend, Timeout: 30 * time.Second, Log: logf}
+	options := c.Options
+	options.Backend.URL = "http://" + backend[0].Addr().String()
+	options.Log = logf
 	if err := adtbridge.Check(options); err != nil {
 		backend[0].Close()
 		return err
@@ -88,7 +92,7 @@ func Start(ctx context.Context, c Config, binds []string, handler http.Handler, 
 			}
 		}()
 	}
-	logf("native RFC demo listening on %s", osdbind.Describe(listeners))
+	logf("native RFC listening on %s", osdbind.Describe(listeners))
 	return nil
 }
 

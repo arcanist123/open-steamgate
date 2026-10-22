@@ -35,7 +35,7 @@ func (p nativeProtocols) start(sid string, adt bool, binds []string, handler htt
 	if err := rfcnative.Start(context.Background(), rfc, binds, handler, log.Printf); err != nil {
 		log.Fatal(err)
 	}
-	if err := diagnative.Start(context.Background(), diag, binds, log.Printf); err != nil {
+	if err := diagnative.Start(context.Background(), diag, sid, binds, log.Printf); err != nil {
 		log.Fatal(err)
 	}
 	if !rfc.Enabled {

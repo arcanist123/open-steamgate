@@ -10,9 +10,9 @@ configuration. Call once at startup; no runtime reconfiguration is supported.
 
 The existing library renders the tape shell, keepalives, repeat screens, exit
 and a twelve-second hold. Its embedded scrubbed shell differs from JS's shell;
-it is not byte parity. It accepts malformed hellos which JS rejects, allows
-64 MiB NI frames rather than JS's 1 MiB, lacks JS's idle/connection caps, and
-uses its embedded LSD identity rather than the configured OSG SID. No claim
-of strict JS conformance or stock GUI acceptance for this integration is made.
+it is not byte parity. The host passes its selected SID (`OSD_SID`, then
+`STG_ADT_SID`, default `OSD`) into `lsd.Options.SID`; malformed hellos are rejected.
+It still allows 64 MiB NI frames rather than JS's 1 MiB and lacks JS's
+idle/connection caps. No stock GUI acceptance run is claimed.
 
 Validation: `go test -race ./diagnative`, `go vet ./diagnative`.

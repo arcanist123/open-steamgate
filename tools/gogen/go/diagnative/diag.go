@@ -41,7 +41,7 @@ func Port(enabled bool, env func(string) string) (int, error) {
 // Start calls lsd.Serve exactly once: that API sets package-global render state.
 // A fan-in listener lets that one service accept both loopback address families.
 // Call once during host startup, before clients connect.
-func Start(ctx context.Context, port int, binds []string, logf func(string, ...any)) error {
+func Start(ctx context.Context, port int, sid string, binds []string, logf func(string, ...any)) error {
 	if port < 0 {
 		return nil
 	}
@@ -70,7 +70,7 @@ func Start(ctx context.Context, port int, binds []string, logf func(string, ...a
 	}
 	go func() {
 		defer ln.Close()
-		if err := lsd.Serve(ctx, ln, lsd.Options{Stub: "tape", Log: logf}); err != nil {
+		if err := lsd.Serve(ctx, ln, lsd.Options{SID: sid, Stub: "tape", Log: logf}); err != nil {
 			logf("DIAG listener: %v", err)
 		}
 	}()

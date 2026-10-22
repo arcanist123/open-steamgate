@@ -12,16 +12,19 @@ selected and no default HTTP transport is replaced.
 The Apache-2.0 dependency owns RFC, NI, metadata, conversation cookie jars and
 CSRF retry. OSG copies none of that source. See root NOTICE.
 
-Only demo mode is supported: non-demo modes fail before opening listeners.
-Unlike JS demo, this dependency does not validate/decode the RFC caller identity
-or propagate it as the HTTP repository owner. Its configured backend identity
-is used in logon replies. It also registers RFC_GET_STRUCTURE_DEFINITION in
-addition to JS's three FMs. Cross-connection lock-handle adoption and backend
-logoff on disconnect are not provided by this pinned API. This is an opt-in
-compatibility path, not full JS security/session parity.
+`STG_RFC_AUTH_MODE` supports demo (default) and static. Static requires
+`STG_RFC_USER` and `STG_RFC_PASSWORD`; `STG_RFC_CLIENT` optionally restricts
+the caller's client. These are separate from `STG_ADT_USER/PASSWORD/CLIENT/LANGUAGE`.
+`FromEnv` and `Start` call upstream `Check` synchronously before opening listeners.
+Static logon decoding retains upstream's default 64 KiB limit.
+
+The dependency also registers RFC_GET_STRUCTURE_DEFINITION in addition to JS's
+three FMs. Cross-connection lock-handle adoption and backend logoff on disconnect
+are not provided by this pinned API. Caller identity is not propagated as the
+HTTP repository owner. This remains an opt-in compatibility path.
 
 Validation: `go test -race ./rfcnative`, `go vet ./rfcnative`.
 
-Detailed parity and URI/header admission gaps: [native protocols](../../../../docs/native-protocols.md).
-Successful-response CSRF token rotation differs from JS; stale-token retry
-is retained by the dependency. The local HTTP seam supplies stateful sessions.
+Detailed parity and remaining differences: [native protocols](../../../../docs/native-protocols.md).
+The pinned dependency confines backend origins/headers and retains rotated CSRF
+tokens. The local HTTP seam supplies stateful sessions.
