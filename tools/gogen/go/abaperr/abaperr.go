@@ -5,9 +5,13 @@ type HostError struct{ Where, Text string }
 
 func (e HostError) Error() string { return e.Where + ": " + e.Text }
 
-type ArithmeticError struct{ Class, Op string }
+type ArithmeticError struct {
+	Class, Op string
+	// Detail is host-only diagnostic context; Error and ABAP text exclude it.
+	Detail string
+}
 
 func (e ArithmeticError) Error() string { return e.Class + " in " + e.Op }
 func NotCompiled(method, reason string) ArithmeticError {
-	return ArithmeticError{"NOT_COMPILED", method + ": " + reason}
+	return ArithmeticError{Class: "NOT_COMPILED", Op: method + ": " + reason}
 }

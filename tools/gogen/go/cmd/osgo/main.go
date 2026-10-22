@@ -218,10 +218,7 @@ func abapStack(r any) []string {
 }
 
 func dumpText(r any) string {
-	if e, ok := r.(error); ok {
-		return e.Error()
-	}
-	return fmt.Sprint(r)
+	return abap.DumpText(r)
 }
 
 // step runs one ICF request through the shim as a dialog step. The dump, if

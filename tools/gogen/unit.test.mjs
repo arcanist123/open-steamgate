@@ -559,3 +559,53 @@ test("GOGEN_UNIT_TIMEOUT_MS bounds a test process, and a value that is not a pos
     rmSync(dir, {recursive: true, force: true});
   }
 });
+
+test("failed casts preserve ABAP get_text and add diagnostics only to uncaught reports", {timeout: 120000}, () => {
+  const dir = mkdtempSync(join(tmpdir(), "cast-diagnostics-"));
+  try {
+    writeFileSync(join(dir, "zcl_cast_diag.clas.abap"), `CLASS zcl_cast_diag DEFINITION PUBLIC. ENDCLASS.
+CLASS zcl_cast_diag IMPLEMENTATION. ENDCLASS.`);
+    writeFileSync(join(dir, "zcl_cast_target.clas.abap"), `CLASS zcl_cast_target DEFINITION PUBLIC. ENDCLASS. CLASS zcl_cast_target IMPLEMENTATION. ENDCLASS.`);
+    writeFileSync(join(dir, "zcl_cast_diag.clas.testclasses.abap"), `CLASS ltcl_cast DEFINITION FOR TESTING.
+  PRIVATE SECTION.
+    METHODS caught FOR TESTING.
+    METHODS uncaught FOR TESTING.
+    METHODS create_wrong FOR TESTING.
+ENDCLASS.
+CLASS ltcl_cast IMPLEMENTATION.
+  METHOD caught.
+    DATA source TYPE REF TO object.
+    DATA target TYPE REF TO zcl_cast_target.
+    CREATE OBJECT source TYPE zcl_cast_diag.
+    TRY.
+      target ?= source.
+      cl_abap_unit_assert=>fail( ).
+    CATCH cx_sy_move_cast_error INTO DATA(error).
+      cl_abap_unit_assert=>assert_equals( act = error->get_text( ) exp = 'CX_SY_MOVE_CAST_ERROR in ?=' ).
+    ENDTRY.
+  ENDMETHOD.
+  METHOD uncaught.
+    DATA source TYPE REF TO object.
+    DATA target TYPE REF TO zcl_cast_target.
+    CREATE OBJECT source TYPE zcl_cast_diag.
+    target ?= source.
+  ENDMETHOD.
+  METHOD create_wrong.
+    DATA target TYPE REF TO zcl_cast_target.
+    DATA name TYPE string VALUE 'ZCL_CAST_DIAG'.
+    CREATE OBJECT target TYPE (name).
+  ENDMETHOD.
+ENDCLASS.`);
+    const run = spawnSync("node", [join(here, "unit.mjs"), "--fixture", dir, "--no-cache"], {
+      cwd: root, encoding: "utf8", timeout: 110000, maxBuffer: 5e6,
+    });
+    assert.equal(run.status, 1, run.stderr || run.stdout || run.error?.message);
+    const rows = Object.fromEntries(JSON.parse(run.stdout).rows.map(row => [row.method, row]));
+    assert.equal(rows.CAUGHT.status, "SUCCESS", JSON.stringify(rows));
+    for (const [method, op] of [["UNCAUGHT", "?="], ["CREATE_WRONG", "CREATE OBJECT TYPE (ZCL_CAST_DIAG)"]]) {
+      assert.equal(rows[method].status, "FAILED");
+      assert.ok(rows[method].message.startsWith(`CX_SY_MOVE_CAST_ERROR in ${op} [`), rows[method].message);
+      assert.match(rows[method].message, /\*main\.ZCL_CAST_DIAG -> \*main\.ZCL_CAST_TARGET at .*zcl_cast_diag\.clas\.testclasses\.abap:\d+\]$/);
+    }
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});

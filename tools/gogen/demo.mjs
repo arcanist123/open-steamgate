@@ -136,7 +136,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"os"
 	"time"
@@ -174,7 +173,7 @@ func one(r run) (res result) {
 	res.Scene = r.Scene
 	defer func() {
 		if e := recover(); e != nil {
-			res.Error = fmt.Sprint(e)
+			res.Error = abap.DumpText(e)
 		}
 	}()
 	{

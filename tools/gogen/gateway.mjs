@@ -189,7 +189,7 @@ func icfMain(s *abap.Session, file string) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					out = icfResponse{Dump: fmt.Sprint(r), At: abapStack(r)}
+					out = icfResponse{Dump: abap.DumpText(r), At: abapStack(r)}
 				}
 			}()
 			abap.DialogStep(func() {
@@ -234,7 +234,7 @@ func main() {
 	s := &abap.Session{Statics: abap.ProcessStatics}
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("DUMP", r)
+			fmt.Println("DUMP", abap.DumpText(r))
 			fmt.Println("  at", abapStack(r))
 			os.Exit(1)
 		}

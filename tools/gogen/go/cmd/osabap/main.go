@@ -60,7 +60,7 @@ func main() {
 	profiling.Report(profileReports, appProgram, "", func() {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintln(os.Stderr, "osabap:", withoutDB(r))
+				fmt.Fprintln(os.Stderr, "osabap:", abap.DumpText(withoutDB(r)))
 				failed = true
 			}
 		}()

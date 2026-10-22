@@ -20,7 +20,7 @@ func main() {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				out["error"] = fmt.Sprint(r)
+				out["error"] = abap.DumpText(r)
 			}
 		}()
 		if seed := os.Getenv("ZORK_SEED"); seed != "" {

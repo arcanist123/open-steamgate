@@ -5,7 +5,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -37,9 +36,12 @@ func run(c testCase) (v float64, err string) {
 		if r := recover(); r != nil {
 			if e, ok := r.(abap.ArithmeticError); ok {
 				err = e.Class
+				if e.Detail != "" {
+					err += " [" + e.Detail + "]"
+				}
 				return
 			}
-			err = fmt.Sprint(r)
+			err = abap.DumpText(r)
 		}
 	}()
 	return Call(c.Method, &abap.Session{}, c.Args), ""

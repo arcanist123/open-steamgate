@@ -255,13 +255,15 @@ func one(x in) (out string) {
 \t\t\tswitch e := r.(type) {
 \t\t\tcase abap.ArithmeticError:
 \t\t\t\tout = "DUMP " + e.Class + "|" + e.Op
+\t\t\t\tif e.Detail != "" { out += " [" + e.Detail + "]" }
 \t\t\tcase abap.HostError:
 \t\t\t\tout = "DUMP host|" + e.Error()
 \t\t\tdefault:
 \t\t\t\tif x, ok := abap.AsRaised(r); ok {
 \t\t\t\t\tout = "DUMP " + x.Class
+\t\t\t\t\tif x.Caught != nil && x.Caught.Detail != "" { out += " [" + x.Caught.Detail + "]" }
 \t\t\t\t} else {
-\t\t\t\t\tout = fmt.Sprintf("DUMP ?|%v", r)
+\t\t\t\t\tout = fmt.Sprintf("DUMP ?|%s", abap.DumpText(r))
 \t\t\t\t}
 \t\t\t}
 \t\t}
