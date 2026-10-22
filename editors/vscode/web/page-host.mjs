@@ -1,97 +1,200 @@
 // The parts of the web extension's page host that need no VS Code, so the
 // mocha suite (test/vscode-web-page-host.mjs) can drive them: the push
 // channels of one webview panel, the sandbox rewrite of a gateway page's
-// frames, and the file name a W3MI object is stored under beside the bundle.
+// frames, the media cache's check for blob: URLs still in use, and the file
+// name a W3MI object is stored under beside the bundle.
 
-// The push channels (/sap/bc/apc/...) of one webview panel, keyed per socket.
-// A channel belongs to the document that opened it: closeAll() is called when
-// that document ends (the panel is disposed, navigates, or gets new HTML), and
-// an open still waiting for the backend or the channel list then never
-// registers, while a send from the old document's channels is dropped, since
-// the next document numbers its sockets from apc-1 again. An apc-close while
-// the open is still pending cancels it the same way.
-//   backend(): the in-worker gateway (openChannel / channelMessage / closeChannel)
+// The push channels (/sap/bc/apc/...) of one webview panel.
+//
+// A channel belongs to one document. The extension names each document it
+// writes into the panel (newDocument(), called synchronously with the HTML
+// assignment, before the page can run) and the page sends that name with every
+// apc-open / apc-send / apc-close. A message from any other document is
+// ignored. Replacing the HTML or disposing the panel ends the old document at
+// once, before any await: from then on nothing of it can register a channel or
+// reach the page.
+//
+// A channel is keyed by `${doc}:${socket}`, so two documents never share a key,
+// and a key is opened at most once per document (a reused socket id is refused
+// with 1008). Each open re-checks after every await that its document is still
+// the current one and that its key still maps to itself, and it closes only
+// what it opened, through the handle the backend gave it for that open: a
+// stale cleanup cannot reach a live replacement.
+//   backend(): the in-worker gateway (openChannel / channelMessage / closeChannel,
+//     and channelHandle, the entry an openChannel registered)
 //   services(): the generated channel list ({channels})
 //   describe(error): the close reason of a failed handler
-export function pageChannels({backend, services, describe, toPage}) {
+//   newId(): a fresh random document name
+export function pageChannels({backend, services, describe, toPage, newId}) {
+  let current;
   const channels = new Map();
-  let generation = 0;
-  const closeAll = async () => {
-    generation++;
-    const keys = [...channels.keys()];
-    channels.clear();
-    if (keys.length === 0) return;
-    const gateway = await backend();
-    for (const key of keys) await gateway.closeChannel(key).catch(() => undefined);
+  const opened = new Set();
+  // closes one channel through its own handle, once; a channel whose open has
+  // not reached the backend yet is only marked, and that open then stops
+  const shut = (own) => {
+    if (own.closed) return Promise.resolve();
+    own.closed = true;
+    if (!own.started) return Promise.resolve();
+    return backend().then((gateway) => gateway.closeChannel(own.key, own.handle)).catch(() => undefined);
   };
-  const receive = async (key, message) => {
-    const born = generation;
+  const endAll = () => {
+    const owned = [...channels.values()];
+    channels.clear();
+    opened.clear();
+    return Promise.all(owned.map(shut)).then(() => undefined);
+  };
+  // a new document: the old one is dead before this returns
+  const newDocument = () => {
+    current = newId();
+    const ended = endAll();
+    return {doc: current, ended};
+  };
+  // the panel is gone
+  const closeAll = () => {
+    current = undefined;
+    return endAll();
+  };
+  const receive = async (doc, socket, message) => {
+    if (doc === undefined || doc !== current || typeof socket !== "string") return;
+    const key = `${doc}:${socket}`;
     const send = (payload) => {
-      if (generation === born) void toPage({type: "apc", id: message.id, ...payload});
+      if (current === doc) void toPage({type: "apc", doc, id: socket, ...payload});
     };
     if (message.type === "apc-open") {
-      const ticket = {};
-      channels.set(key, ticket);
-      const live = () => channels.get(key) === ticket;
+      if (opened.has(key)) {
+        send({apc: "close", code: 1008, reason: `socket ${socket} was already opened in this document`});
+        return;
+      }
+      opened.add(key);
+      const own = {key, doc, closed: false, started: false, handle: undefined};
+      channels.set(key, own);
+      const live = () => current === doc && channels.get(key) === own && !own.closed;
       const gateway = await backend();
+      if (!live()) return;
       const {channels: known} = await services();
       if (!live()) return;
       const channel = known.find((one) => one.path.toLowerCase() === String(message.path).toLowerCase());
       if (!channel) {
         channels.delete(key);
+        own.closed = true;
         send({apc: "close", code: 1008, reason: `no channel on ${message.path}`});
         return;
       }
-      // openChannel registers the channel before its first await, so a
-      // closeChannel from here on finds it (preview-backend.mjs)
-      await guarded(key, gateway, send, () => gateway.openChannel(key, channel, send), live);
-    } else if (message.type === "apc-send" && channels.has(key)) {
+      // openChannel registers its entry before its first await, so the handle
+      // is there right after the call (preview-backend.mjs)
+      own.started = true;
+      const opening = gateway.openChannel(key, channel, send);
+      own.handle = gateway.channelHandle?.(key);
+      try {
+        await opening;
+      } catch (error) {
+        if (channels.get(key) === own) channels.delete(key);
+        await shut(own);
+        send({apc: "close", code: 1011, reason: await describe(error)});
+        return;
+      }
+      // the document ended (or the socket closed) while the handler opened
+      if (!live()) await shut(own);
+    } else if (message.type === "apc-send") {
+      const own = channels.get(key);
+      if (!own || !own.started || own.closed) return;
       const gateway = await backend();
-      const ticket = channels.get(key);
-      await guarded(key, gateway, send, () => gateway.channelMessage(key, String(message.text), send), () => channels.get(key) === ticket);
-    } else if (message.type === "apc-close" && channels.has(key)) {
+      try {
+        await gateway.channelMessage(key, String(message.text), send);
+      } catch (error) {
+        if (channels.get(key) === own) channels.delete(key);
+        await shut(own);
+        send({apc: "close", code: 1011, reason: await describe(error)});
+      }
+    } else if (message.type === "apc-close") {
+      const own = channels.get(key);
+      if (!own) return;
       channels.delete(key);
-      const gateway = await backend();
-      await gateway.closeChannel(key);
+      await shut(own);
       send({apc: "close", code: message.code ?? 1000, reason: message.reason ?? ""});
     }
   };
-  const guarded = async (key, gateway, send, work, live) => {
-    try { await work(); } catch (error) {
-      if (live()) channels.delete(key);
-      await gateway.closeChannel(key).catch(() => undefined);
-      send({apc: "close", code: 1011, reason: await describe(error)});
-    }
-  };
-  return {receive, closeAll, channels};
+  return {receive, newDocument, closeAll, channels, current: () => current};
 }
 
 // A gateway page may draw a part of itself in a script-less sandboxed srcdoc
 // frame (the WEBGUI's HTML viewer control). Such a frame is made same-origin
 // with the page, so the page runtime can take over its links and forms;
-// without allow-scripts nothing can run in it either way. Only that class of
-// frame: one with srcdoc and no src, whose sandbox tokens (case-insensitive,
-// as the browser reads them) grant neither scripts nor the same origin.
-// Every other frame keeps its isolation.
+// without allow-scripts nothing can run in it either way.
+//
+// Fail safe: a frame is rewritten only when its whole tag reads one way under
+// a strict grammar (names [a-zA-Z-]+, values double-quoted, a name without a
+// value, nothing else; no name twice), it has srcdoc and no src, and its
+// sandbox value is ASCII letters, '-' and spaces only (so no entity can spell
+// a token) and grants neither allow-scripts nor allow-same-origin. Any other
+// frame, odd markup included, is left exactly as it was.
 const TAG = /<iframe\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
-const ATTRIBUTE = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+const STRICT = /^<iframe((?:[ \t\n\f\r]+[a-zA-Z-]+(?:="[^"]*")?)*)[ \t\n\f\r]*\/?>$/i;
+const STRICT_ATTRIBUTE = /[ \t\n\f\r]+([a-zA-Z-]+)(?:="([^"]*)")?/g;
 export function sandboxScriptlessFrames(html) {
   return html.replace(TAG, (tag) => {
+    const strict = STRICT.exec(tag);
+    if (!strict) return tag;
     const attributes = new Map();
     let sandbox;
-    for (const match of tag.slice("<iframe".length, tag.endsWith("/>") ? -2 : -1).matchAll(ATTRIBUTE)) {
+    for (const match of strict[1].matchAll(STRICT_ATTRIBUTE)) {
       const name = match[1].toLowerCase();
-      if (attributes.has(name)) continue;
-      attributes.set(name, match[2] ?? match[3] ?? match[4] ?? "");
+      if (attributes.has(name)) return tag;
+      attributes.set(name, match[2] ?? "");
       if (name === "sandbox") sandbox = match;
     }
     if (!sandbox || !attributes.has("srcdoc") || attributes.has("src")) return tag;
-    const tokens = attributes.get("sandbox").toLowerCase().split(/[\t\n\f\r ]+/);
+    const flags = attributes.get("sandbox");
+    if (!/^[A-Za-z -]*$/.test(flags)) return tag;
+    const tokens = flags.toLowerCase().split(" ");
     if (tokens.includes("allow-scripts") || tokens.includes("allow-same-origin")) return tag;
     const at = "<iframe".length + sandbox.index;
-    const flags = attributes.get("sandbox").trim();
-    return `${tag.slice(0, at)}sandbox="${flags ? `${flags} ` : ""}allow-same-origin"${tag.slice(at + sandbox[0].length)}`;
+    const kept = flags.trim();
+    return `${tag.slice(0, at)} sandbox="${kept ? `${kept} ` : ""}allow-same-origin"${tag.slice(at + sandbox[0].length)}`;
   });
+}
+
+// Whether a document still uses any of the given blob: URLs, for the page
+// runtime's media cache (extension.mjs, fioriRuntime). Serialised into the
+// page with toString(), so it stands alone. A URL counts as used when any
+// element of the document or of a same-origin child frame names it in src,
+// currentSrc, poster, srcset, a style attribute or its inline background, or
+// any <style> text holds it; also while an element still waits for the path
+// (osdSource / osdBackground name a path of byPath, path -> URL), and while a
+// media element that is not in the document plays it. It answers the URLs in
+// use; a document it cannot read counts as using all of them.
+export function mediaUrlsInUse(root, urls, byPath, playing) {
+  const used = new Set();
+  const unread = () => { for (const url of urls) used.add(url); };
+  const look = (text) => {
+    if (!text) return;
+    for (const url of urls) if (!used.has(url) && String(text).includes(url)) used.add(url);
+  };
+  for (const one of playing) {
+    if (!one.paused && !one.ended) { look(one.src); look(one.currentSrc); }
+  }
+  const visit = (document, depth) => {
+    let all;
+    try { all = document.querySelectorAll("*"); } catch { unread(); return; }
+    for (const element of all) {
+      if (used.size === urls.length) return;
+      if (element.osdSource !== undefined) look(byPath.get(element.osdSource));
+      if (element.osdBackground !== undefined) look(byPath.get(element.osdBackground));
+      for (const name of ["src", "poster", "srcset", "style"]) look(element.getAttribute(name));
+      look(element.currentSrc);
+      look(element.style?.backgroundImage);
+      if (element.tagName === "STYLE") look(element.textContent);
+      if (element.tagName === "IFRAME" || element.tagName === "FRAME") {
+        let inner;
+        try { inner = element.contentDocument; } catch { inner = undefined; }
+        // a frame whose document cannot be read is not same-origin and cannot
+        // load this origin's blob: URLs
+        if (inner && depth < 8) visit(inner, depth + 1);
+      }
+    }
+  };
+  visit(root, 0);
+  return used;
 }
 
 // The file a W3MI object's data is stored under in dist/web/media. A "%" in

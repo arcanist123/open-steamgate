@@ -37,14 +37,73 @@ async function mediaCache(frame) {
     const broken = new Image();
     broken.src = url(missing);
     await broken.osdPending;
-    return {cached: bridge.mediaCached(), revoked: bridge.stats.revoked - revoked, missing};
+    const cached = bridge.mediaCached();
+    const revokedNow = bridge.stats.revoked - revoked;
+    const settle = () => new Promise((done) => setTimeout(done, 50));
+    const loadMore = async (from, count) => {
+      for (let n = from; n < from + count; n++) {
+        const image = new Image();
+        image.src = url(`${photo}?osd-more=${n}`);
+        await image.osdPending;
+        image.src = "";
+      }
+    };
+    const readable = (blob) => fetch(blob).then((response) => response.ok, () => false);
+    // critic round 4: a bridged blob URL copied to an element nobody handed
+    // it to (an <img> and a background), the original cleared and removed,
+    // then enough distinct pictures to push the copy past the bound
+    const original = document.body.appendChild(new Image());
+    original.src = url(`${photo}?osd-copy=1`);
+    await original.osdPending;
+    const blob = original.src;
+    const copy = document.body.appendChild(document.createElement("img"));
+    copy.setAttribute("src", blob);
+    const painted = document.body.appendChild(document.createElement("div"));
+    painted.style.backgroundImage = `url("${blob}")`;
+    original.src = "";
+    original.remove();
+    await settle();
+    await loadMore(0, 24);
+    const copyKept = await readable(blob);
+    copy.remove();
+    // and the background copy alone still holds it
+    await loadMore(24, 4);
+    const backgroundKept = await readable(blob);
+    painted.remove();
+    // critic round 4: backgrounds on retained elements, their styles cleared
+    // afterwards: the elements stay, the blobs become evictable
+    const retained = [];
+    for (let n = 0; n < 20; n++) {
+      const one = document.body.appendChild(document.createElement("div"));
+      one.style.backgroundImage = `url("${url(`${photo}?osd-bg=${n}`)}")`;
+      retained.push(one);
+    }
+    for (const until = Date.now() + 30000; Date.now() < until && !retained.every((one) => one.style.backgroundImage.includes("blob:")); ) await settle();
+    const painting = retained.filter((one) => one.style.backgroundImage.includes("blob:")).length;
+    const beforeClear = bridge.stats.revoked;
+    for (const one of retained) one.style.backgroundImage = "";
+    await settle();
+    await loadMore(28, 2);
+    const clearedRevoked = bridge.stats.revoked - beforeClear;
+    const clearedCached = bridge.mediaCached().length;
+    for (const one of retained) one.remove();
+    return {cached, revoked: revokedNow, missing, copyKept, backgroundKept, painting, clearedRevoked, clearedCached,
+      stale: retained.filter((one) => one.osdBackground !== undefined).length};
   });
   if (outcome.error) throw new Error(`media cache: ${outcome.error}`);
   if (outcome.cached.length > 17 || outcome.revoked < 23) {
     throw new Error(`media cache: ${outcome.cached.length} blobs kept, ${outcome.revoked} revoked after 40 distinct pictures`);
   }
   if (outcome.cached.includes(outcome.missing)) throw new Error(`media cache: the failed load ${outcome.missing} is kept`);
-  return `40 distinct pictures: ${outcome.cached.length} blobs kept, ${outcome.revoked} revoked, a failed load not kept`;
+  if (!outcome.copyKept) throw new Error("media cache: a blob URL copied to another <img> was revoked while it showed it");
+  if (!outcome.backgroundKept) throw new Error("media cache: a blob URL copied to a background was revoked while it showed it");
+  if (outcome.painting !== 20) throw new Error(`media cache: ${outcome.painting} of 20 backgrounds painted`);
+  if (outcome.stale > 0 || outcome.clearedCached > 17 || outcome.clearedRevoked < 4) {
+    throw new Error(`media cache: 20 retained elements with cleared styles: ${outcome.stale} still marked, ${outcome.clearedCached} blobs kept, ${outcome.clearedRevoked} revoked`);
+  }
+  return `40 distinct pictures: ${outcome.cached.length} blobs kept, ${outcome.revoked} revoked, a failed load not kept; ` +
+    `a copied blob URL kept while an <img> and then a background showed it; 20 retained elements' cleared backgrounds: ` +
+    `${outcome.clearedRevoked} revoked, ${outcome.clearedCached} kept`;
 }
 
 // The observer works on a changed attribute alone and hooks each frame once:

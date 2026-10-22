@@ -259,9 +259,16 @@ export async function openChannel(id, channel, send) {
     send({apc: "open"});
     await dialogStep(drain);
   }).catch(error => {
-    hosts.delete(id);
+    if (hosts.get(id) === entry) hosts.delete(id);
     throw error;
   });
+}
+
+// The entry openChannel registered for id (it does so before its first
+// await), for a caller that must later close exactly that channel and not a
+// newer one opened under the same id.
+export function channelHandle(id) {
+  return hosts.get(id);
 }
 
 export async function channelMessage(id, text, send) {
@@ -277,9 +284,12 @@ export async function channelMessage(id, text, send) {
   void send;
 }
 
-export async function closeChannel(id) {
-  const entry = hosts.get(id);
-  hosts.delete(id);
+// closeChannel(id) closes whatever is open under id. With a handle (from
+// channelHandle), it closes that channel only, and leaves a different one
+// registered under the same id alone.
+export async function closeChannel(id, handle) {
+  const entry = handle ?? hosts.get(id);
+  if (hosts.get(id) === entry) hosts.delete(id);
   if (entry !== undefined) {
     await entry.mailbox.closeTurn(() => dialogStep(() => entry.host?.close({
       iv_reason: new abap.types.String().set("closed by the page"),

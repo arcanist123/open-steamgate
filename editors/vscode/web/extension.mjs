@@ -8,7 +8,7 @@ import {
 } from "../lib.js";
 import {openDataPreview} from "../data-preview-view.js";
 import {newSqlNotebook, sqlNotebookController, sqlNotebookSerializer} from "../sql-notebook.js";
-import {mediaFileName, pageChannels, sandboxScriptlessFrames} from "./page-host.mjs";
+import {mediaFileName, mediaUrlsInUse, pageChannels, sandboxScriptlessFrames} from "./page-host.mjs";
 
 const SERVICE = "/sap/opu/odata/sap/ZSTG_DEMO_SRV";
 const METADATA = `${SERVICE}/$metadata`;
@@ -574,7 +574,7 @@ function webviewHtml(nonce) {
 // serves files only. Such URLs go to the extension's in-worker gateway over
 // the postMessage bridge; everything else (the UI5 CDN, the app's own files)
 // stays on the browser's own XMLHttpRequest and fetch.
-function fioriRuntime(config) {
+function fioriRuntime(config, urlsInUse) {
   const vscode = acquireVsCodeApi();
   const bridgeFetch = webviewBridge(vscode, "/sap/opu/odata/sap");
   const mount = new URL(config.mount);
@@ -596,12 +596,14 @@ function fioriRuntime(config) {
   // origin; they are fetched over the bridge and handed to the element as a
   // blob: URL. play() waits for the bytes so a page that sets src and plays
   // at once still plays. A failed load is not kept, so the next use retries.
-  // Past MEDIA_KEEP entries, a blob no element shows any more (users: the
-  // elements it was handed to, held weakly) is revoked and forgotten.
+  // Past MEDIA_KEEP entries, a blob is revoked and forgotten only when the
+  // live document provably no longer uses it (page-host.mjs, mediaUrlsInUse:
+  // every element and <style> of the document and its same-origin frames,
+  // and the media elements playing outside it). When in doubt, it is kept.
   const MEDIA_KEEP = 16;
   const blobs = new Map();
-  const users = new Map();
-  const media = (virtual, user) => {
+  const playing = new Set();
+  const media = (virtual) => {
     if (!blobs.has(virtual)) {
       const loading = bridgeFetch(`https://osd.invalid${virtual}`).then(async (response) => {
         if (!response.ok) throw new Error(`${response.status} ${response.statusText} ${(await response.text()).slice(0, 300)}`);
@@ -611,30 +613,30 @@ function fioriRuntime(config) {
         return url;
       });
       blobs.set(virtual, loading);
-      users.set(virtual, new Set());
       loading.then(() => sweep(virtual), (error) => {
         stats.errors.push(`media ${virtual}: ${error?.message ?? error}`);
-        if (blobs.get(virtual) === loading) {
-          blobs.delete(virtual);
-          users.delete(virtual);
-        }
+        if (blobs.get(virtual) === loading) blobs.delete(virtual);
       });
     }
-    users.get(virtual).add(new WeakRef(user));
     return blobs.get(virtual);
   };
-  const shows = (element, virtual, url) => element !== undefined &&
-    (element.osdSource === virtual || element.osdBackground === virtual || element.src === url || element.currentSrc === url ||
-      (element.style?.backgroundImage ?? "").includes(url));
   const sweep = (keep) => {
     if (blobs.size <= MEDIA_KEEP) return;
-    for (const [virtual, loading] of blobs) {
-      if (virtual === keep || loading.url === undefined) continue;
-      const holders = [...users.get(virtual)].map((ref) => ref.deref()).filter((one) => shows(one, virtual, loading.url));
-      if (holders.length > 0) continue;
-      URL.revokeObjectURL(loading.url);
+    for (const one of playing) if (one.paused || one.ended) playing.delete(one);
+    const byPath = new Map([...blobs].filter(([, loading]) => loading.url !== undefined).map(([virtual, loading]) => [virtual, loading.url]));
+    const candidates = [...byPath].filter(([virtual]) => virtual !== keep);
+    let used;
+    try {
+      used = urlsInUse(document, candidates.map(([, url]) => url), byPath, playing);
+    } catch (error) {
+      stats.errors.push(`media sweep: ${error?.message ?? error}`);
+      return;
+    }
+    for (const [virtual, url] of candidates) {
+      if (blobs.size <= MEDIA_KEEP) return;
+      if (used.has(url)) continue;
+      URL.revokeObjectURL(url);
       blobs.delete(virtual);
-      users.delete(virtual);
       stats.revoked++;
     }
   };
@@ -648,7 +650,7 @@ function fioriRuntime(config) {
       const virtual = mediaTypes.includes(type) ? virtualOf(value) : undefined;
       if (virtual !== undefined) {
         this.osdSource = virtual;
-        this.osdPending = media(virtual, this).then((url) => {
+        this.osdPending = media(virtual).then((url) => {
           if (this.osdSource === virtual) descriptor.set.call(this, url);
         }, () => undefined);
         return;
@@ -662,6 +664,7 @@ function fioriRuntime(config) {
   // What played is recorded (and what refused to), so a test can tell a demo
   // that advances in silence from one that plays.
   HTMLMediaElement.prototype.play = function () {
+    playing.add(this);
     const started = this.osdPending ? this.osdPending.then(() => play.call(this)) : play.call(this);
     const source = this.osdSource ?? this.currentSrc;
     started.then(() => stats.played.push(source), (error) => stats.errors.push(`play ${source}: ${error?.message ?? error}`));
@@ -673,6 +676,7 @@ function fioriRuntime(config) {
       this.src = value;
       return;
     }
+    if (name === "src" && mediaTypes.some((type) => this instanceof type)) this.osdSource = undefined;
     if ((name === "src" || name === "href") && cdn(value) && "crossOrigin" in this && this.crossOrigin === null) {
       this.crossOrigin = "anonymous";
     }
@@ -685,19 +689,28 @@ function fioriRuntime(config) {
   const adoptSource = (one) => {
     if (!mediaTypes.some((type) => one instanceof type)) return;
     const value = one.getAttribute("src");
-    if (value && !value.startsWith("blob:") && virtualOf(value) !== undefined && one.osdSource !== virtualOf(value)) one.src = value;
+    const virtual = value && !value.startsWith("blob:") ? virtualOf(value) : undefined;
+    if (virtual !== undefined && one.osdSource !== virtual) one.src = value;
+    // src no longer waits for a path (cleared, or set to a URL the browser loads)
+    else if (virtual === undefined && !value?.startsWith("blob:")) one.osdSource = undefined;
   };
-  // sap.m.Avatar (the Travels photo) paints a background-image instead
+  // sap.m.Avatar (the Travels photo) paints a background-image instead.
+  // osdBackground names the path only while the style still does: once the
+  // blob is painted (or the style changed), the style itself is the evidence.
   const adoptBackground = (one) => {
     const quoted = /url\((?:"([^"]*)"|'([^']*)'|([^)]*))\)/.exec(one.style?.backgroundImage ?? "");
     const source = quoted && (quoted[1] ?? quoted[2] ?? quoted[3]);
     const virtual = source && !source.startsWith("blob:") ? virtualOf(source) : undefined;
-    if (virtual !== undefined) {
-      one.osdBackground = virtual;
-      media(virtual, one).then((url) => {
-        if (one.style.backgroundImage.includes(source)) one.style.backgroundImage = `url("${url}")`;
-      }, () => undefined);
+    if (virtual === undefined) {
+      one.osdBackground = undefined;
+      return;
     }
+    one.osdBackground = virtual;
+    media(virtual).then((url) => {
+      if (one.style.backgroundImage.includes(source)) one.style.backgroundImage = `url("${url}")`;
+    }, () => undefined).finally(() => {
+      if (one.osdBackground === virtual && !one.style.backgroundImage.includes(source)) one.osdBackground = undefined;
+    });
   };
   const adopt = (element) => {
     if (!(element instanceof Element)) return;
@@ -1031,8 +1044,11 @@ function fioriRuntime(config) {
   // preview's service worker does (web/preview-socket.mjs). Other sockets stay
   // the browser's.
   const NativeSocket = window.WebSocket;
+  // Socket ids carry a random name of this run of the runtime, so a reload
+  // of the same document never reuses one (page-host.mjs refuses a reuse).
   const sockets = new Map();
   let socketCount = 0;
+  const runName = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => byte.toString(16).padStart(2, "0")).join("");
   const apcOf = (input) => {
     let url;
     try { url = new URL(String(input), document.baseURI); } catch { return undefined; }
@@ -1046,10 +1062,10 @@ function fioriRuntime(config) {
       Object.assign(this, {url: String(url), readyState: 0, protocol: Array.isArray(protocols) ? (protocols[0] ?? "") : (protocols ?? ""),
         binaryType: "blob", bufferedAmount: 0, extensions: "", onopen: null, onmessage: null, onerror: null, onclose: null,
         CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3});
-      this.id = `apc-${socketCount += 1}`;
+      this.id = `apc-${runName}-${socketCount += 1}`;
       sockets.set(this.id, this);
       stats.sockets.push(path);
-      vscode.postMessage({type: "apc-open", id: this.id, path});
+      vscode.postMessage({type: "apc-open", doc: config.doc, id: this.id, path});
     }
     osdEmit(type, detail) {
       const event = type === "message" ? new MessageEvent("message", {data: detail})
@@ -1073,16 +1089,16 @@ function fioriRuntime(config) {
     }
     send(data) {
       if (this.readyState !== 1) throw new DOMException("the socket is not open", "InvalidStateError");
-      vscode.postMessage({type: "apc-send", id: this.id, text: String(data)});
+      vscode.postMessage({type: "apc-send", doc: config.doc, id: this.id, text: String(data)});
     }
     close(code = 1000, reason = "") {
       if (this.readyState >= 2) return;
       this.readyState = 2;
-      vscode.postMessage({type: "apc-close", id: this.id, code, reason});
+      vscode.postMessage({type: "apc-close", doc: config.doc, id: this.id, code, reason});
     }
   }
   window.addEventListener("message", (event) => {
-    if (event.data?.type === "apc") sockets.get(event.data.id)?.osdReceive(event.data);
+    if (event.data?.type === "apc" && event.data.doc === config.doc) sockets.get(event.data.id)?.osdReceive(event.data);
   });
   const OsdWebSocket = function WebSocket(url, protocols) {
     const path = apcOf(url);
@@ -1144,8 +1160,9 @@ function webviewPage(source, {nonce, cspSource, base, config}) {
   const head = `<meta http-equiv="Content-Security-Policy" content="${csp}">
 <base href="${base}">
 <script nonce="${nonce}">${webviewBridge.toString()}
+${mediaUrlsInUse.toString()}
 ${fioriRuntime.toString()}
-fioriRuntime(${JSON.stringify({...config, cdns: CDNS}).replace(/</g, "\\u003c")});</script>`;
+fioriRuntime(${JSON.stringify({...config, cdns: CDNS}).replace(/</g, "\\u003c")}, mediaUrlsInUse);</script>`;
   const at = source.search(/<head\b[^>]*>/i);
   let html = at < 0 ? `${head}\n${source}`
     : source.slice(0, source.indexOf(">", at) + 1) + `\n${head}` + source.slice(source.indexOf(">", at) + 1);
@@ -1159,8 +1176,8 @@ fioriRuntime(${JSON.stringify({...config, cdns: CDNS}).replace(/</g, "\\u003c")}
   return html;
 }
 
-function fioriPage(source, {nonce, cspSource, appBase, pageBase, mount, hash, apps, page}) {
-  const config = {mount, appBase, hash, page: `/app/${page}`, components: apps.components,
+function fioriPage(source, {nonce, cspSource, appBase, pageBase, mount, hash, apps, page, doc}) {
+  const config = {mount, appBase, hash, page: `/app/${page}`, components: apps.components, doc,
     sandboxConfigPath: apps.sandboxConfigPath, sandboxConfigBody: apps.sandboxConfigBody};
   let html = webviewPage(source, {nonce, cspSource, base: pageBase, config});
   // The launchpad's own config script ends before the sandbox bootstrap tag.
@@ -1179,9 +1196,8 @@ const webviewRootOf = (context, panel) =>
 // an app where a browser would navigate or open a window, an outside address,
 // and its push channels. Every panel of a page gets the same handler.
 function wirePanel(context, panel) {
-  const panelId = nonceOf();
   const toPage = (message) => panel.webview.postMessage(message).then(undefined, () => false);
-  const apc = pageChannels({backend: backendOf, toPage,
+  const apc = pageChannels({backend: backendOf, toPage, newId: nonceOf,
     services: () => import("../../../web/generated/services.mjs"),
     describe: async (error) => (await import("../../../tools/osd-describe.mjs")).describe(error)});
   pageWiring.set(panel, apc);
@@ -1202,7 +1218,8 @@ function wirePanel(context, panel) {
       } else if (message?.type?.startsWith?.("apc-") && typeof message.id === "string") {
         // A page's WebSocket to /sap/bc/apc/... (fioriRuntime's OsdSocket),
         // driven as the preview's service worker drives it (web/preview-worker.mjs).
-        await apc.receive(`${panelId}:${message.id}`, message);
+        // The document's name scopes the socket (page-host.mjs, pageChannels).
+        await apc.receive(message.doc, message.id, message);
       }
     } catch (error) {
       vscode.window.showErrorMessage(`osd: ${String(error?.message ?? error)}`);
@@ -1211,11 +1228,17 @@ function wirePanel(context, panel) {
 }
 
 // The document of a wired panel ends when its HTML is replaced: its channels
-// end with it (page-host.mjs, pageChannels).
+// end with it (page-host.mjs, pageChannels). page(doc) writes the HTML of the
+// new document, which sends doc with its channel messages. Naming the new
+// document and assigning its HTML happen in one synchronous step, so the old
+// document is dead before the new one can run and two overlapping
+// replacements cannot interleave; the old channels close afterwards.
 const pageWiring = new WeakMap();
-async function setPanelHtml(panel, html) {
-  await pageWiring.get(panel)?.closeAll();
-  panel.webview.html = html;
+async function setPanelHtml(panel, page) {
+  const wiring = pageWiring.get(panel);
+  const {doc, ended} = wiring ? wiring.newDocument() : {doc: undefined, ended: Promise.resolve()};
+  panel.webview.html = page(doc);
+  await ended;
 }
 
 // A page the gateway writes (an ICF service: Zork, WEBGUI, the data browser),
@@ -1247,8 +1270,8 @@ async function openGatewayPage(context, request, panel) {
     wirePanel(context, panel);
   }
   const webviewRoot = webviewRootOf(context, panel);
-  await setPanelHtml(panel, webviewPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource,
-    base: webviewRoot + path.slice(1) + query, config: {mount: webviewRoot, appBase: `${webviewRoot}app/`, components: {}}}));
+  await setPanelHtml(panel, (doc) => webviewPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource,
+    base: webviewRoot + path.slice(1) + query, config: {mount: webviewRoot, appBase: `${webviewRoot}app/`, components: {}, doc}}));
   return panel;
 }
 
@@ -1272,9 +1295,9 @@ async function openFioriPage(context, path) {
   }
   const webviewRoot = webviewRootOf(context, panel);
   const appBase = `${webviewRoot}app/`;
-  await setPanelHtml(panel, fioriPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource, appBase,
+  await setPanelHtml(panel, (doc) => fioriPage(source, {nonce: nonceOf(), cspSource: panel.webview.cspSource, appBase,
     pageBase: appBase + page.slice(0, page.lastIndexOf("/") + 1), mount: webviewRoot,
-    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps, page}));
+    hash: hash || (page === "flp.html" ? "#Shell-home" : ""), apps, page, doc}));
   return panel;
 }
 
