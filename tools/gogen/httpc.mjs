@@ -230,6 +230,7 @@ import (
 \t"os"
 
 \t"osg/gogen/abap"
+\t"osg/gogen/castdiag"
 )
 
 type nv struct{ Name, Value string }
@@ -254,14 +255,15 @@ func one(x in) (out string) {
 \t\t\t// the kind of dump, then what it said (not compared)
 \t\t\tswitch e := r.(type) {
 \t\t\tcase abap.ArithmeticError:
-\t\t\t\tout = "DUMP " + e.Class + "|" + e.Op
+\t\t\t\tout = castdiag.WithDetail("DUMP " + e.Class + "|" + e.Op, e.Detail)
 \t\t\tcase abap.HostError:
 \t\t\t\tout = "DUMP host|" + e.Error()
 \t\t\tdefault:
 \t\t\t\tif x, ok := abap.AsRaised(r); ok {
 \t\t\t\t\tout = "DUMP " + x.Class
+\t\t\t\t\tout = castdiag.WithDetail(out, x.DiagnosticDetail())
 \t\t\t\t} else {
-\t\t\t\t\tout = fmt.Sprintf("DUMP ?|%v", r)
+\t\t\t\t\tout = fmt.Sprintf("DUMP ?|%s", castdiag.DumpText(r))
 \t\t\t\t}
 \t\t\t}
 \t\t}

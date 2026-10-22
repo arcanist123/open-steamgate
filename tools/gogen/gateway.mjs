@@ -107,6 +107,7 @@ import (
 	"strings"
 
 	"osg/gogen/abap"
+	"osg/gogen/castdiag"
 )
 
 // one request as the ICF hands it over, and what the handler answered
@@ -189,7 +190,7 @@ func icfMain(s *abap.Session, file string) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					out = icfResponse{Dump: fmt.Sprint(r), At: abapStack(r)}
+					out = icfResponse{Dump: castdiag.DumpText(r), At: abapStack(r)}
 				}
 			}()
 			abap.DialogStep(func() {
@@ -234,7 +235,7 @@ func main() {
 	s := &abap.Session{Statics: abap.ProcessStatics}
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("DUMP", r)
+			fmt.Println("DUMP", castdiag.DumpText(r))
 			fmt.Println("  at", abapStack(r))
 			os.Exit(1)
 		}

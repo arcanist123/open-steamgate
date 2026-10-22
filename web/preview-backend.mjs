@@ -12,7 +12,7 @@ import {apcMailbox} from "../tools/osd-apc-mailbox.mjs";
 import {ensureDemoData} from "../tools/osd-demo-data.mjs";
 import {realNow} from "./preview-runtime.mjs";
 import {Buffer} from "buffer";
-import {seed, buildId, database, demoRows} from "./generated/seed.mjs";
+import {seed, buildId as builtId, database as builtDatabase, demoRows} from "./generated/seed.mjs";
 import {odata as odataServices, packs as packRows, sid as SID} from "./generated/status.mjs";
 import {registry as icfRegistry} from "./generated/icf.mjs";
 import {xref} from "./generated/xref.mjs";
@@ -29,7 +29,17 @@ import {readRequest} from "./preview-runtime.mjs";
 // sy-sysid / sy-mandt / sy-uname from it through tools/osd-identity.mjs, so
 // the ABAP in a service worker knows which system it is exactly as the ABAP
 // in a work process does (backlog G.1b).
-const preview = {seed, buildId, database, stored: undefined, db: undefined, env: {OSD_SID: SID, OSD_DEMO_ROWS: demoRows}};
+// A host may choose the engine at run time instead of at build time: the VS
+// Code web extension (editors/vscode/web/extension.mjs) carries one bundle and
+// a setting, and says which before this module is imported, together with
+// where the DuckDB-Wasm binary is, since a worker of the extension host is not
+// beside it. The build id follows the engine, as it does in the build.
+const host = globalThis.__stgPreviewHost ?? {};
+const database = host.database ?? builtDatabase;
+if (!["sql.js", "duckdb"].includes(database)) throw new Error(`preview database must be sql.js or duckdb, got ${database}`);
+const place = host.place ?? "the service worker";
+const buildId = database === builtDatabase ? builtId : `${builtId}-${database}`;
+const preview = {seed, buildId, database, wasmURL: host.wasmURL, stored: undefined, db: undefined, env: {OSD_SID: SID, OSD_DEMO_ROWS: demoRows}};
 globalThis.__stgPreview = preview;
 
 const {initializeABAP} = await import("../output/init.mjs");
@@ -249,9 +259,16 @@ export async function openChannel(id, channel, send) {
     send({apc: "open"});
     await dialogStep(drain);
   }).catch(error => {
-    hosts.delete(id);
+    if (hosts.get(id) === entry) hosts.delete(id);
     throw error;
   });
+}
+
+// The entry openChannel registered for id (it does so before its first
+// await), for a caller that must later close exactly that channel and not a
+// newer one opened under the same id.
+export function channelHandle(id) {
+  return hosts.get(id);
 }
 
 export async function channelMessage(id, text, send) {
@@ -267,9 +284,12 @@ export async function channelMessage(id, text, send) {
   void send;
 }
 
-export async function closeChannel(id) {
-  const entry = hosts.get(id);
-  hosts.delete(id);
+// closeChannel(id) closes whatever is open under id. With a handle (from
+// channelHandle), it closes that channel only, and leaves a different one
+// registered under the same id alone.
+export async function closeChannel(id, handle) {
+  const entry = handle ?? hosts.get(id);
+  if (hosts.get(id) === entry) hosts.delete(id);
   if (entry !== undefined) {
     await entry.mailbox.closeTurn(() => dialogStep(() => entry.host?.close({
       iv_reason: new abap.types.String().set("closed by the page"),
@@ -363,9 +383,9 @@ function statusSnapshot() {
     database: [
       {section: "Platform", name: "Architecture", value: "browser", note: "service worker; device details not collected"},
       {section: "Database", name: "Engine", value: database === "duckdb" ? "duckdb" : "sql.js",
-        note: database === "duckdb" ? "DuckDB-Wasm in the service worker" : "browser SQLite-compatible backend"},
+        note: database === "duckdb" ? `DuckDB-Wasm in ${place}` : "browser SQLite-compatible backend"},
       {section: "Database", name: "Storage", value: "memory",
-        note: database === "duckdb" ? "volatile; reseeded when the service worker restarts" : "service-worker database; rebuilt with the preview"},
+        note: database === "duckdb" ? `volatile; reseeded when ${place} restarts` : "service-worker database; rebuilt with the preview"},
     ],
   };
 }

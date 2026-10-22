@@ -38,6 +38,10 @@ const {Launcher, ensureMaterializedHome, materializedHomeDir, selectOldHomes, li
   pickInspectorPort, SEED_ID_FILE} = require("./launcher.js");
 const {systemOverviewHtml} = require("./system-overview.js");
 const {requestBlocks, resolveRequest, servicePathOf} = require("./http-lens.js");
+const {dataPreviewHtml, openDataPreview: openDataPreviewView} = require("./data-preview-view.js");
+const {
+  newSqlNotebook: newSqlNotebookView, sqlNotebookController: sqlNotebookControllerView, sqlNotebookSerializer: sqlNotebookSerializerView,
+} = require("./sql-notebook.js");
 
 // Q6a "Notebook SQL, ABAP and SQLScript" (docs/vscode-extension.md): the
 // notebook type a *.osdnb file opens as and the controller for its cells.
@@ -3580,127 +3584,21 @@ async function classrunObject(name, classrunOutput, withDebugger = false, file,
 // that already exists for exactly "run this SQL and hand back a number".
 
 async function openDataPreview(objectType, name, hasMandt, output, options = {}) {
-  const panel = vscode.window.createWebviewPanel("osdDataPreview", `Data Preview ${name}`, vscode.ViewColumn.Beside,
-    {enableScripts: true, retainContextWhenHidden: true});
-  let allClients = false;
-  const load = async () => {
-    const rowLimit = vscode.workspace.getConfiguration("osd").get("dataPreview.rowLimit", 100);
-    const url = vscode.workspace.getConfiguration("osd").get("url", "http://localhost:3030").replace(/\/+$/, "");
-    const controller = options.controller ?? activeController;
-    const launcher = Object.hasOwn(options, "launcher") ? options.launcher : controller?.launcher;
-    const managedUrl = Object.hasOwn(options, "managedUrl") ? options.managedUrl : controller?.managedUrl;
-    const unavailable = dataPreviewAvailability(launcher?.state, managedUrl, url);
-    if (unavailable !== undefined) {
-      panel.webview.html = dataPreviewHtml(name, {error: unavailable.message, start: unavailable.start});
-      return;
-    }
-    panel.webview.html = dataPreviewHtml(name, {loading: true});
-    const statement = dataPreviewQuery(name, {hasMandt, allClients});
-    try {
-      const result = await (options.client?.() ?? osd()).dataPreview(objectType, name, statement, rowLimit);
-      let total;
-      if (result.rows.length >= rowLimit) {
-        try {
-          const count = await (options.client?.() ?? osd()).freestyle(dataPreviewCountQuery(name, {hasMandt, allClients}), 1);
-          const first = count.rows[0] ?? {};
-          total = Number(first.N ?? first.n ?? Object.values(first)[0]);
-        } catch (e) {
-          output.appendLine(`osd data preview ${name}: count failed: ${String(e.message ?? e)}`);
-        }
-      }
-      panel.webview.html = dataPreviewHtml(name, {
-        objectType, columns: result.columns, rows: result.rows, ms: result.ms, generation: result.generation,
-        statement, hasMandt, allClients, status: dataPreviewStatusText(result.rows.length, rowLimit, total),
-      });
-    } catch (e) {
-      const message = dataPreviewError(e, url);
-      output.appendLine(`osd data preview ${name}: ${message}`);
-      panel.webview.html = dataPreviewHtml(name, {error: message});
-    }
-  };
-  panel.webview.onDidReceiveMessage(async (message) => {
-    if (message?.command === "refresh") {
-      await load();
-    } else if (message?.command === "start") {
-      await vscode.commands.executeCommand("osd.start");
-      await load();
-    } else if (message?.command === "toggleAllClients") {
-      allClients = message.value === true;
-      await load();
-    } else if (message?.command === "openNotebook") {
-      await newSqlNotebook(typeof message.statement === "string" ? message.statement : `SELECT * FROM ${name}`);
-    }
+  return openDataPreviewView(objectType, name, hasMandt, {
+    vscode, output,
+    client: options.client ?? (() => osd()),
+    // Read on every (re)load, as before the extraction: Start creates the
+    // launcher, and activeController can change, after the panel opened.
+    systemState: () => {
+      const controller = options.controller ?? activeController;
+      return {
+        launcher: Object.hasOwn(options, "launcher") ? options.launcher : controller?.launcher,
+        managedUrl: Object.hasOwn(options, "managedUrl") ? options.managedUrl : controller?.managedUrl,
+      };
+    },
+    openNotebook: newSqlNotebook,
+    lib: require("./lib.js"),
   });
-  await load();
-}
-
-function dataPreviewShell(name, body) {
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  body { font-family: var(--vscode-font-family, sans-serif); font-size: 13px; padding: 8px; color: var(--vscode-foreground); }
-  .meta { margin-bottom: 8px; opacity: 0.9; }
-  .meta div { margin: 4px 0; }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid var(--vscode-panel-border, #555); padding: 4px 8px; text-align: left; white-space: nowrap; }
-  th { background: var(--vscode-editor-lineHighlightBackground, #2a2a2a); }
-  button { cursor: pointer; }
-  label { user-select: none; cursor: pointer; margin-right: 12px; }
-  .osd-error { color: var(--vscode-errorForeground, #f66); }
-</style>
-</head>
-<body>
-${body}
-</body>
-</html>`;
-}
-
-/** The webview body for `openDataPreview`'s current state: `{loading:
- *  true}` while a fetch is in flight, `{error}` when one failed (F8 on a
- *  DDLS with no database object behind it lands here with the façade's
- *  own message, not a bare 404), or the full shape with `columns` (lib.js
- *  dataPreviewRows' own `{name, label, key}`), `rows`, `status` (lib.js
- *  dataPreviewStatusText), `statement` (what "Open in SQL notebook" seeds
- *  its cell with) and `hasMandt`/`allClients` (the toggle, shown only for
- *  a TABL that carries the field at all). MANDT itself is dropped from
- *  the table while filtered -- every row would show the same value -- and
- *  shown once "all clients" reveals rows that may not share it. */
-function dataPreviewHtml(name, state = {}) {
-  if (state.loading === true) {
-    return dataPreviewShell(name, `<p>loading ${xmlEscapeHtml(name)}...</p>`);
-  }
-  if (state.error !== undefined) {
-    return dataPreviewShell(name, `<p class="osd-error">${xmlEscapeHtml(state.error)}</p>
-${state.start ? '<button id="start">Start system</button> ' : ""}<button id="refresh">Refresh</button>
-<script>
-  const vscode = acquireVsCodeApi();
-  document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({command: "refresh"}));
-  document.getElementById("start")?.addEventListener("click", () => vscode.postMessage({command: "start"}));
-</script>`);
-  }
-  const shown = state.columns.filter((c) => state.allClients || c.name !== "MANDT");
-  const thead = shown.map((c) => `<th title="${xmlEscapeHtml(c.name)}">${xmlEscapeHtml(c.label)}</th>`).join("");
-  const tbody = state.rows.map((row) => `<tr>${shown.map((c) => `<td>${xmlEscapeHtml(cellText(row[c.name]))}</td>`).join("")}</tr>`).join("");
-  const generation = state.generation === undefined ? "" : ` -- ${xmlEscapeHtml(String(state.generation).slice(0, 8))}`;
-  const toggle = state.hasMandt
-    ? `<label><input type="checkbox" id="all-clients"${state.allClients ? " checked" : ""}> all clients</label>`
-    : "";
-  const body = `<div class="meta">
-  <div>${xmlEscapeHtml(state.objectType)} ${xmlEscapeHtml(name)} -- ${xmlEscapeHtml(state.status)} -- ${state.ms} ms${generation}</div>
-  <div>${toggle}<button id="refresh">Refresh</button> <button id="notebook">Open in SQL notebook</button></div>
-</div>
-<table><thead><tr>${thead}</tr></thead><tbody>${tbody}</tbody></table>
-<script>
-  const vscode = acquireVsCodeApi();
-  document.getElementById("refresh").addEventListener("click", () => vscode.postMessage({command: "refresh"}));
-  document.getElementById("notebook").addEventListener("click", () =>
-    vscode.postMessage({command: "openNotebook", statement: ${JSON.stringify(state.statement)}}));
-  const allClients = document.getElementById("all-clients");
-  if (allClients) allClients.addEventListener("change", () => vscode.postMessage({command: "toggleAllClients", value: allClients.checked}));
-</script>`;
-  return dataPreviewShell(name, body);
 }
 
 // ---- Q2b "Runner": a CodeLens "▶ Call <Set>" above each
@@ -4589,25 +4487,7 @@ function message(alert, dir, item) {
 // SQLScript uses the AMDP sandbox. All run in the same serving osd.
 
 function sqlNotebookSerializer() {
-  return {
-    deserializeNotebook(content) {
-      const text = Buffer.from(content).toString("utf8");
-      const cells = notebookFromJson(text).map((c) => new vscode.NotebookCellData(
-        c.kind === "markdown" ? vscode.NotebookCellKind.Markup : vscode.NotebookCellKind.Code,
-        c.value,
-        c.language,
-      ));
-      return new vscode.NotebookData(cells);
-    },
-    serializeNotebook(data) {
-      const cells = data.cells.map((c) => ({
-        kind: c.kind === vscode.NotebookCellKind.Markup ? "markdown" : "code",
-        language: c.languageId,
-        value: c.value,
-      }));
-      return Buffer.from(notebookToJson(cells), "utf8");
-    },
-  };
+  return sqlNotebookSerializerView(vscode, (text) => Buffer.from(text, "utf8"));
 }
 
 /** Bundled notebooks work against the demo seed. The book's hello class
@@ -4650,64 +4530,12 @@ async function openSample(context, controller) {
   }
 }
 
-/** `osd.newSqlNotebook`'s own untitled notebook, and Q7's "Open in SQL
- *  notebook" button -- `statement` is the cell it opens with, ready to
- *  run; the command palette and SQL tree node use the base status example. */
 async function newSqlNotebook(statement) {
-  const data = new vscode.NotebookData(sqlNotebookStarter(statement).map((cell) => new vscode.NotebookCellData(
-    cell.kind === "markdown" ? vscode.NotebookCellKind.Markup : vscode.NotebookCellKind.Code,
-    cell.value, cell.language)));
-  const doc = await vscode.workspace.openNotebookDocument(NOTEBOOK_TYPE, data);
-  await vscode.window.showNotebookDocument(doc);
+  return newSqlNotebookView(vscode, NOTEBOOK_TYPE, statement);
 }
 
 function sqlNotebookController(output) {
-  const controller = vscode.notebooks.createNotebookController("osd-sql-kernel", NOTEBOOK_TYPE, "osd notebook");
-  controller.supportedLanguages = ["sql", "abap", "sqlscript"];
-  controller.supportsExecutionOrder = true;
-  let executionOrder = 0;
-  controller.executeHandler = (cells) => {
-    for (const cell of cells) runNotebookCell(controller, cell, ++executionOrder, output);
-  };
-  return controller;
-}
-
-async function runNotebookCell(controller, cell, executionOrder, output) {
-  const execution = controller.createNotebookCellExecution(cell);
-  execution.executionOrder = executionOrder;
-  execution.start(Date.now());
-  try {
-    const source = cell.document.getText();
-    if (cell.document.languageId === "abap") {
-      const result = await osd().notebookAbap(notebookAbapSource(source));
-      await execution.replaceOutput([new vscode.NotebookCellOutput([
-        vscode.NotebookCellOutputItem.text(result.text ?? "", "text/plain"),
-      ])]);
-      execution.end(result.ok === true, Date.now());
-    } else {
-      let result;
-      if (cell.document.languageId === "sqlscript") {
-        result = await osd().amdpCell(source);
-        if (result.error !== undefined) throw new Error(result.error);
-      } else {
-        const rowLimit = vscode.workspace.getConfiguration("osd").get("notebook.rowLimit", 100);
-        result = await osd().freestyle(source, rowLimit);
-      }
-      const html = `${result.engine ? `<p>${htmlEscape(result.engine)}</p>` : ""}${freestyleTableHtml(result.columns, result.rows, {ms: result.ms, generation: result.generation})}`;
-      await execution.replaceOutput([
-        new vscode.NotebookCellOutput(freestyleOutputItems(html).map(({mime, value}) =>
-          vscode.NotebookCellOutputItem.text(value, mime))),
-      ]);
-      execution.end(true, Date.now());
-    }
-  } catch (e) {
-    const message = String(e.message ?? e);
-    output.appendLine(`osd ${cell.document.languageId}: ${message}`);
-    await execution.replaceOutput([
-      new vscode.NotebookCellOutput([vscode.NotebookCellOutputItem.error({name: "osd", message})]),
-    ]);
-    execution.end(false, Date.now());
-  }
+  return sqlNotebookControllerView(vscode, {output, client: () => osd()});
 }
 
 // B0: a window that started the system stops it on the way out, rather than

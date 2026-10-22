@@ -2,14 +2,16 @@
 // Playwright drives one persistent Chromium profile through a page reload.
 import {spawn} from "node:child_process";
 import {createHash} from "node:crypto";
-import {mkdtemp, readFile, rm, stat} from "node:fs/promises";
+import {copyFile, mkdir, mkdtemp, readFile, rm, stat} from "node:fs/promises";
 import {createServer} from "node:net";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {runInNewContext} from "node:vm";
 import {chromium} from "@playwright/test";
+import {fioriTiles} from "./test-web-tiles.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const shots = process.env.OUT_DIR || "/tmp/osd-shots";
 const extension = join(root, "editors/vscode");
 const source = await readFile(join(extension, "web/extension.mjs"), "utf8");
 
@@ -100,6 +102,7 @@ async function freePort() {
 }
 
 const temp = await mkdtemp(join(tmpdir(), "osd-vscode-web-"));
+const workspace = join(temp, "workspace");
 const port = await freePort();
 const origin = `http://localhost:${port}`;
 let server;
@@ -160,6 +163,45 @@ async function openProbeView(page) {
   throw new Error("Probe webview did not open");
 }
 
+async function openWorkspaceFile(page, name) {
+  const explorer = page.locator(".explorer-folders-view .monaco-list-row").filter({hasText: name}).first();
+  await explorer.waitFor({timeout: 30000});
+  await explorer.dblclick();
+  await page.locator(".editor-instance .monaco-editor").first().waitFor({timeout: 30000});
+}
+
+async function runPaletteCommand(page, title) {
+  await page.keyboard.press("Control+Shift+P");
+  const input = page.locator(".quick-input-widget input").first();
+  await input.waitFor({timeout: 30000});
+  await input.fill(`>${title}`);
+  const choice = page.locator(".quick-input-list .monaco-list-row").filter({hasText: title}).first();
+  await choice.waitFor({timeout: 30000});
+  await choice.click();
+}
+
+async function frameWithText(page, text, timeout = 120000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      const body = await frame.locator("body").textContent({timeout: 500}).catch(() => "");
+      if (body?.includes(text)) return frame;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+  }
+  throw new Error(`No webview frame contained ${JSON.stringify(text)}`);
+}
+
+async function acceptNotebookTrust(page) {
+  const trust = page.locator(".monaco-text-button").filter({hasText: "Open Notebook"}).first();
+  await trust.waitFor({state: "visible", timeout: 5000}).catch(() => undefined);
+  if (await trust.isVisible()) {
+    const remember = page.locator("text=Don't ask me again").first();
+    if (await remember.isVisible()) await remember.click();
+    await trust.click();
+  }
+}
+
 async function webviewResult(frame, marker) {
   await frame.waitForFunction((name) => {
     const text = document.querySelector("#result")?.textContent ?? "";
@@ -170,10 +212,107 @@ async function webviewResult(frame, marker) {
   return JSON.parse(value.slice(marker.length + 1));
 }
 
+
+// The Fiori webview: the frame whose document is the UI5 page (VS Code nests
+// it inside its own webview host frames).
+async function fioriFrame(page, test, arg, what, timeout = 180000) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      const ok = await frame.evaluate(test, arg).catch(() => false);
+      if (ok) return frame;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+  }
+  const stats = [];
+  for (const frame of page.frames()) {
+    const one = await frame.evaluate(() => window.osdBridge?.stats && JSON.stringify(window.osdBridge.stats)).catch(() => undefined);
+    if (one) stats.push(one);
+  }
+  throw new Error(`${what} did not appear in a webview; bridge stats: ${stats.join(" | ").slice(0, 3000)}`);
+}
+
+const bridgeStats = (frame) => frame.evaluate(() => JSON.parse(JSON.stringify(window.osdBridge.stats)));
+
+async function fioriChecks(page) {
+  await mkdir(shots, {recursive: true});
+  await page.keyboard.press("Control+Shift+P");
+  const input = page.locator(".quick-input-widget input").first();
+  await input.fill(">osd: Open Fiori Launchpad");
+  await page.locator(".quick-input-list .monaco-list-row").filter({hasText: "osd: Open Fiori Launchpad"}).first().click();
+  const tiles = ["Travels", "Bookings", "Flight analytics", "System status"];
+  const launchpad = await fioriFrame(page, (names) => !!window.osdBridge && names.every((name) =>
+    [...document.querySelectorAll(".sapUshellTile, .sapMGT")].some((tile) => tile.textContent.includes(name))), tiles, "Launchpad tiles");
+  for (const name of tiles) {
+    if (!await launchpad.locator(".sapUshellTile, .sapMGT").filter({hasText: name}).first().isVisible()) throw new Error(`Tile ${name} not visible`);
+  }
+  await page.screenshot({path: join(shots, "fiori-launchpad.png")});
+  console.log(`Fiori launchpad in a webview: tiles ${tiles.join(", ")}; ${join(shots, "fiori-launchpad.png")}`);
+  await launchpad.locator(".sapUshellTile, .sapMGT").filter({hasText: "Travels"}).first().click();
+  const hasRow = (wanted) => [...document.querySelectorAll(".sapMListTblRow, tr")].some((row) => row.textContent.includes(wanted));
+  await launchpad.waitForFunction(hasRow, "T0001", {timeout: 180000});
+  if (!(await launchpad.evaluate(() => window.location.hash)).startsWith("#Travel-manage")) throw new Error("Tile click did not navigate to #Travel-manage");
+  await page.screenshot({path: join(shots, "fiori-travels.png")});
+  // A row written through the page's own fetch (the bridge the app's model
+  // uses) must show in the list report after Go, and in other features.
+  const created = await launchpad.evaluate(async () => {
+    const service = "../sap/opu/odata/sap/ZSTG_DEMO_SRV/";
+    const token = (await fetch(service, {headers: {"x-csrf-token": "fetch"}})).headers.get("x-csrf-token");
+    const id = "A" + Array.from(crypto.getRandomValues(new Uint8Array(7)), (byte) => (byte % 36).toString(36).toUpperCase()).join("");
+    const answer = await fetch(`${service}TravelSet`, {method: "POST", headers: {"content-type": "application/json", "x-csrf-token": token},
+      body: JSON.stringify({TravelId: id, Description: `Fiori webview ${id}`})});
+    return {status: answer.status, id};
+  });
+  if (created.status !== 201) throw new Error(`Fiori webview POST: ${created.status}`);
+  const go = launchpad.locator("button").filter({hasText: /^Go$/}).first();
+  await go.click();
+  await launchpad.waitForFunction(hasRow, created.id, {timeout: 60000});
+  await page.screenshot({path: join(shots, "fiori-travels-created.png")});
+  // The app's own Create flow (non-draft object page in create mode): the
+  // POST travels in a $batch through the XMLHttpRequest replacement.
+  const typed = "A" + Array.from(crypto.getRandomValues(new Uint8Array(7)), (byte) => (byte % 36).toString(36).toUpperCase()).join("");
+  await launchpad.getByRole("button", {name: "Create", exact: true}).first().focus();
+  await page.keyboard.press("Enter");
+  const travelField = launchpad.getByRole("textbox", {name: "Travel", exact: true});
+  await travelField.waitFor({timeout: 60000});
+  await travelField.fill(typed);
+  await launchpad.getByRole("textbox", {name: "Description", exact: true}).fill(`Typed in Fiori ${typed}`);
+  await launchpad.getByRole("button", {name: "Create", exact: true}).last().focus();
+  await page.keyboard.press("Enter");
+  await launchpad.getByRole("heading", {name: `Typed in Fiori ${typed}`}).first().waitFor({timeout: 60000});
+  // display mode after the save answered: Edit replaces the footer's Create
+  await launchpad.getByRole("button", {name: "Edit", exact: true}).first().waitFor({timeout: 60000});
+  await page.screenshot({path: join(shots, "fiori-object-created.png")});
+  created.typed = typed;
+  const stats = await bridgeStats(launchpad);
+  if (stats.bridgedSync.length) throw new Error(`Synchronous gateway requests: ${JSON.stringify(stats.bridgedSync)}`);
+  console.log(`Travels list report: T0001 and ${created.id} (page fetch) listed; ${typed} created through the app's Create; bridged ${stats.bridged}, ` +
+    `sync answered locally ${JSON.stringify(stats.localSync)}, sync to CDN/files ${stats.nativeSync.length}, errors ${JSON.stringify(stats.errors)}`);
+  return created;
+}
+
+async function fioriFromTree(page, ids) {
+  const tree = page.locator(".pane-body .monaco-list-row");
+  await tree.filter({hasText: /^Apps \([1-9]/}).first().click();
+  const app = tree.filter({hasText: "stg.travel"}).first();
+  await app.waitFor({timeout: 30000});
+  await app.click();
+  const frame = await fioriFrame(page, (wanted) => !!window.osdBridge && window.location.hash.startsWith("#Travel-manage") &&
+    wanted.every((id) => [...document.querySelectorAll(".sapMListTblRow, tr")].some((row) => row.textContent.includes(id))), ids, "Travels app from the tree");
+  await page.screenshot({path: join(shots, "fiori-tree-app.png")});
+  return frame;
+}
+await mkdir(workspace, {recursive: true});
+await copyFile(join(root, "src/ddic/zstg_demo.tabl.xml"), join(workspace, "zstg_demo.tabl.xml"));
+await copyFile(join(extension, "examples/demo.osdnb"), join(workspace, "demo.osdnb"));
+await copyFile(join(extension, "examples/abap-amdp.osdnb"), join(workspace, "abap-amdp.osdnb"));
+
 try {
   server = spawn("npx", ["-y", "@vscode/test-web", "--browser", "none",
     "--quality", "stable", "--extensionDevelopmentPath", extension,
-    "--testRunnerDataDir", process.env.OSD_WEB_TEST_DATA_DIR ?? join(temp, "vscode"), "--port", String(port)], {
+    "--testRunnerDataDir", process.env.OSD_WEB_TEST_DATA_DIR ?? join(temp, "vscode"), "--port", String(port),
+    workspace], {
     cwd: root,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -214,6 +353,58 @@ try {
     throw new Error(`Web read probe failed: ${JSON.stringify(read)}`);
   }
   console.log(`Worker reads: SELECT ${read.rows} rows, DDIC ${read.ddic}, cap ${read.cap}, invalid ${read.invalid}`);
+
+  // OSD_WEB_TEST_DB=duckdb: from here switch osd.web.database through the UI
+  // and check the DuckDB-Wasm gateway (scripts/test-web-duckdb.mjs) instead of
+  // the sql.js checks below, which the default run covers and which rely on
+  // IndexedDB persistence across reloads.
+  const duckdbOnly = process.env.OSD_WEB_TEST_DB === "duckdb";
+  if (duckdbOnly) {
+    const {duckdbPass} = await import("./test-web-duckdb.mjs");
+    const duck = await duckdbPass({page, command, runPaletteCommand, fioriFrame, acceptNotebookTrust,
+      shots: process.env.OUT_DIR || "/tmp/osd-shots"});
+    console.log(`First $metadata: sql.js ${probe.activationToMetadataMs} ms, duckdb ${duck.activationToMetadataMs} ms`);
+  }
+  if (!duckdbOnly) {
+
+  await openWorkspaceFile(page, "zstg_demo.tabl.xml");
+  await runPaletteCommand(page, "osd: Data Preview (F8)");
+  const previewFrame = await frameWithText(page, "Open in SQL notebook");
+  const previewText = await previewFrame.locator("body").textContent();
+  if (!previewText.includes("TRAVEL_ID") || !previewText.includes("T0001") ||
+      !previewText.includes("Open in SQL notebook") || !/-- \d+ rows? --/.test(previewText)) {
+    throw new Error(`F8 Data Preview output is incomplete: ${previewText.slice(0, 1000)}`);
+  }
+  const shots = process.env.OUT_DIR ?? "/tmp/osd-shots";
+  await mkdir(shots, {recursive: true});
+  await previewFrame.locator("#notebook").waitFor({timeout: 30000});
+  await page.screenshot({path: join(shots, "web-data-preview.png"), fullPage: true});
+  console.log("F8 Data Preview: webview columns, T0001 row, status, notebook action");
+
+  await openWorkspaceFile(page, "demo.osdnb");
+  await acceptNotebookTrust(page);
+  await page.getByText("SELECT travel_id, description, status, seats FROM zstg_demo ORDER BY travel_id").first().click();
+  await page.keyboard.press("Shift+Enter");
+  const notebookFrame = await frameWithText(page, "raw JSON");
+  const notebookText = await notebookFrame.locator("body").textContent();
+  if (!notebookText.includes("TRAVEL_ID") || !notebookText.includes("DESCRIPTION") ||
+      !notebookText.includes("T0001") || !notebookText.includes("raw JSON")) {
+    throw new Error(`SQL notebook output is incomplete: ${notebookText.slice(0, 1000)}`);
+  }
+  await page.screenshot({path: join(shots, "web-sql-notebook.png"), fullPage: true});
+  console.log("SQL notebook: HTML table header, T0001 row, raw JSON output");
+
+  await openWorkspaceFile(page, "abap-amdp.osdnb");
+  await acceptNotebookTrust(page);
+  await page.getByText("DATA lt_demo TYPE").first().click();
+  await page.keyboard.press("Shift+Enter");
+  await page.getByText("abap notebook cells are not available in the browser").first().waitFor({timeout: 30000});
+  const sqlscriptEditor = page.locator(".notebook-editor .monaco-editor").filter({hasText: "SELECT 6*7 AS answer"}).last();
+  await sqlscriptEditor.locator(".view-lines").click();
+  await page.keyboard.press("Shift+Enter");
+  await page.getByText("sqlscript notebook cells are not available in the browser").first().waitFor({timeout: 30000});
+  await page.screenshot({path: join(shots, "web-notebook-unavailable.png"), fullPage: true});
+  console.log("Browser notebooks: ABAP and SQLScript cells explain that they are unavailable");
 
   await page.reload({waitUntil: "domcontentloaded"});
   await page.locator(".monaco-workbench").waitFor({timeout: 120000});
@@ -284,25 +475,65 @@ try {
     if (!serviceDetails) await new Promise((resolveWait) => setTimeout(resolveWait, 500));
   }
   if (!serviceDetails) throw new Error("Single click did not open the service details panel");
+  const created = await fioriChecks(page);
+  // Every launchpad tile, against what the GitHub Pages preview shows for it
+  // (scripts/test-web-tiles.mjs). Tiles of packs this build left out are listed as such.
+  const {channels, services} = await import("../web/generated/services.mjs");
+  const packs = [...new Set([...channels, ...services].map((one) => one.pack).filter(Boolean))];
+  for (const tile of await fioriTiles(page, {shots, fioriFrame, packs})) {
+    console.log(`Tile ${tile.tile}: ${tile.after}${tile.shot ? `; ${tile.shot}` : ""}`);
+  }
+  // The row the app wrote is the extension's: the probe view, another
+  // webview over the same worker gateway, reads it.
+  // Focus is inside the Fiori webview now; switch tabs with the mouse.
+  await page.locator(".tabs-container .tab").filter({hasText: "OSD web gateway"}).first().click();
+  const other = await fioriFrame(page, () => !!document.querySelector("#run") && !!window.osdBridge?.fetch, undefined, "Probe view", 60000);
+  for (const id of [created.id, created.typed]) {
+    const seen = await other.evaluate(async (wanted) => {
+      const response = await window.osdBridge.fetch(`TravelSet('${wanted}')?$format=json`);
+      return {status: response.status, id: response.status === 200 ? (await response.json()).d.TravelId : undefined};
+    }, id);
+    if (seen.status !== 200 || seen.id !== id) throw new Error(`Probe view did not see the Fiori row: ${JSON.stringify(seen)}`);
+  }
+  console.log(`Probe view reads both Fiori rows: ${created.id}, ${created.typed}`);
+  await page.reload({waitUntil: "domcontentloaded"});
+  await page.locator(".monaco-workbench").waitFor({timeout: 120000});
+  // The reload restores the open OSD view; clicking its activity icon would
+  // close it, so focus the view by its command.
+  await page.keyboard.press("Control+Shift+P");
+  await page.locator(".quick-input-widget input").first().fill(">OSD: Focus on System View");
+  await page.locator(".quick-input-list .monaco-list-row").filter({hasText: "OSD: Focus on System View"}).first().click();
+  await tree.filter({hasText: "In-browser gateway"}).first().waitFor({timeout: 120000});
+  await fioriFromTree(page, [created.id, created.typed]);
+  console.log(`After reload, tree App node stg.travel: Travels list shows ${created.id} and ${created.typed}`);
   await page.keyboard.press("Control+Shift+P");
   const palette = page.locator(".quick-input-widget input").first();
   await palette.fill(">osd: Web probe");
   const choices = page.locator(".quick-input-list .monaco-list-row");
   await choices.filter({hasText: "osd: Web probe"}).first().waitFor({timeout: 30000});
   await palette.fill(">osd:");
-  const webCommands = ["osd: Web probe", "osd: Web read probe", "osd: Web verify last Travel", "osd: Web probe view", "osd: Refresh the view (no rebuild)"];
+  const webCommands = ["osd: Web probe", "osd: Web read probe", "osd: Web verify last Travel", "osd: Web probe view",
+    "osd: Open Fiori Launchpad", "osd: Data Preview (F8)", "osd: New SQL notebook", "osd: Refresh the view (no rebuild)"];
   for (const title of webCommands) await choices.filter({hasText: title}).first().waitFor({timeout: 30000});
   await page.locator(".quick-input-widget .quick-input-progress.done").waitFor({timeout: 30000});
   const paletteRows = await choices.allTextContents();
-  const allowed = [...webCommands, "OSD: Focus on System View"];
+  // prepareAbapgitZip is registered by the browser entry too (it builds the zip in memory).
+  const allowed = [...webCommands, "OSD: Focus on System View", "osd: Prepare abapGit zip"];
   const unexpected = paletteRows.filter((row) => !allowed.some((title) => row.includes(title)));
   if (unexpected.length || paletteRows.length !== allowed.length) {
     throw new Error(`Desktop-only or missing OSD commands in the web palette: ${JSON.stringify(paletteRows)}`);
   }
   await page.keyboard.press("Escape");
-  console.log("OSD tree: generation, grouped demo OData, service details; desktop commands hidden");
+  await page.locator(".quick-input-widget").first().waitFor({state: "hidden", timeout: 30000});
+  console.log("OSD tree: generation, grouped demo OData, service details; web commands available");
 
+  await runPaletteCommand(page, "osd: New SQL notebook");
+  await acceptNotebookTrust(page);
+  await page.locator("text=SELECT * FROM zosd_sys UP TO 10 ROWS").first().waitFor({timeout: 30000});
+  await page.screenshot({path: join(shots, "web-new-sql-notebook.png"), fullPage: true});
+  console.log("New SQL notebook: untitled notebook opened with runnable starter cell");
 
+  } // !duckdbOnly
 } catch (error) {
   console.error(error);
   console.error("Workbench text:", (await page?.locator("body").innerText().catch(() => ""))?.slice(-3000));

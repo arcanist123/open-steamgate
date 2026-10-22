@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"osg/gogen/abap"
+	"osg/gogen/castdiag"
 )
 
 func main() {
@@ -20,7 +21,7 @@ func main() {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				out["error"] = fmt.Sprint(r)
+				out["error"] = castdiag.DumpText(r)
 			}
 		}()
 		if seed := os.Getenv("ZORK_SEED"); seed != "" {

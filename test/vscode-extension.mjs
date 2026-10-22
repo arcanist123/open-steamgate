@@ -141,7 +141,7 @@ function vscodeStub(settings = {}) {
         const disposeListeners = [];
         const panel = {
           args,
-          webview: {html: "", onDidReceiveMessage: () => ({dispose() {}})},
+          webview: {html: "", onDidReceiveMessage(listener) { this.receive = listener; return {dispose() {}}; }},
           onDidDispose: (listener) => { disposeListeners.push(listener); return {dispose() {}}; },
           disposed: false,
           dispose() { this.disposed = true; for (const listener of disposeListeners) listener(); },
@@ -184,7 +184,7 @@ describe("editors/vscode: the extension's logic", function () {
   it("shows Check and Activate before Run and Debug for supported source objects", () => {
     const {contributes} = JSON.parse(readFileSync(path.join(ROOT, "editors/vscode/package.json"), "utf8"));
     const menu = contributes.menus["editor/title"];
-    expect(menu.map(({command}) => command)).to.deep.equal(["osd.check", "osd.activate", "osd.classrun", "osd.runTitle", "osd.runUnit", "osd.runWithDebugger"]);
+    expect(menu.map(({command}) => command)).to.deep.equal(["osd.check", "osd.activate", "osd.classrun", "osd.runTitle", "osd.runUnit", "osd.runWithDebugger", "osd.webDataPreview"]);
     for (const [command, name] of [["osd.check", "check"], ["osd.activate", "activate"],
       ["osd.classrun", "run-console"], ["osd.runTitle", "run-console"],
       ["osd.run", "run-console"], ["osd.runUnit", "beaker"]]) {
@@ -2704,6 +2704,24 @@ describe("editors/vscode: the extension's logic", function () {
     expect(api.panels[0].webview.html).to.contain("Start system");
   });
 
+  it("Q7: Refresh after Start reads the controller's launcher again, not the one the panel opened with", async () => {
+    const api = vscodeStub({url: "http://localhost:3531"});
+    const {openDataPreview} = loadExtension(api);
+    const controller = {launcher: undefined, managedUrl: "http://localhost:3531"};
+    controller.launcher = {state: "stopped"};
+    let calls = 0;
+    await openDataPreview("TABL", "ZOSD_FLEET_VOY", false, {appendLine() {}}, {
+      controller,
+      client: () => ({dataPreview: async () => { calls++; return {columns: [{name: "VOYAGE_ID", label: "Voyage", key: true}], rows: [], ms: 1}; }}),
+    });
+    expect(calls).to.equal(0);
+    expect(api.panels[0].webview.html).to.contain("Start system");
+    controller.launcher = {state: "running"};
+    await api.panels[0].webview.receive({command: "refresh"});
+    expect(calls).to.equal(1);
+    expect(api.panels[0].webview.html).to.contain("0 rows");
+  });
+
   it("Q7: an external URL remains usable, and a successful empty table is not an error", async () => {
     for (const state of ["stopped", "starting", "stopping"]) {
       const api = vscodeStub({url: "http://localhost:4545"});
@@ -3537,9 +3555,11 @@ describe("editors/vscode: Services tree (grouping, sorting, URLs, normalization)
       expect(commands.get(external).title).to.match(/in External Browser$/);
     }
     const palette = manifest.contributes.menus.commandPalette;
-    for (const command of ["osd.newSqlNotebook", "osd.openSample", "osd.showRawJobLog"]) {
+    for (const command of ["osd.openSample", "osd.showRawJobLog"]) {
       expect(palette.find((m) => m.command === command)?.when, command).to.equal("!isWeb && !osd.web");
     }
+    expect(palette.find((m) => m.command === "osd.newSqlNotebook")?.when)
+      .to.equal("(!isWeb && !osd.web) || (isWeb && osd.web)");
     for (const command of ["osd.openHostDoorExternal", "osd.openServiceRowExternal", "osd.openServiceMetadataExternal"]) {
       expect(palette.find((m) => m.command === command)?.when, command).to.equal("false");
     }
