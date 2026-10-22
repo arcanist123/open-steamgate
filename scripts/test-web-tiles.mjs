@@ -16,6 +16,72 @@ const UI5 = [
 ];
 
 const sleep = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
+
+// The page runtime's media cache stays bounded while a document shows one
+// distinct gateway picture after another, and a failed load is not kept.
+async function mediaCache(frame) {
+  const outcome = await frame.evaluate(async () => {
+    const bridge = window.osdBridge;
+    const photo = bridge.stats.media.find((one) => /PhotoSet\(.*\/\$value$/.test(one));
+    if (!photo) return {error: `no PhotoSet $value among ${JSON.stringify(bridge.stats.media)}`};
+    const url = (virtual) => new URL(`../${virtual.slice(1)}`, document.baseURI).href;
+    const revoked = bridge.stats.revoked;
+    for (let n = 0; n < 40; n++) {
+      const image = new Image();
+      image.src = url(`${photo}?osd-n=${n}`);
+      await image.osdPending;
+      if (!image.src.startsWith("blob:")) return {error: `picture ${n} not loaded: ${image.src}`};
+      image.src = "";
+    }
+    const missing = photo.replace(/PhotoSet\(.*\)/, "PhotoSet('OSD-NO-SUCH-PHOTO')");
+    const broken = new Image();
+    broken.src = url(missing);
+    await broken.osdPending;
+    return {cached: bridge.mediaCached(), revoked: bridge.stats.revoked - revoked, missing};
+  });
+  if (outcome.error) throw new Error(`media cache: ${outcome.error}`);
+  if (outcome.cached.length > 17 || outcome.revoked < 23) {
+    throw new Error(`media cache: ${outcome.cached.length} blobs kept, ${outcome.revoked} revoked after 40 distinct pictures`);
+  }
+  if (outcome.cached.includes(outcome.missing)) throw new Error(`media cache: the failed load ${outcome.missing} is kept`);
+  return `40 distinct pictures: ${outcome.cached.length} blobs kept, ${outcome.revoked} revoked, a failed load not kept`;
+}
+
+// The observer works on a changed attribute alone and hooks each frame once:
+// style changes on an ancestor of a frame scan nothing and hook nothing.
+async function observerWork(frame) {
+  const outcome = await frame.evaluate(async () => {
+    const stats = window.osdBridge.stats;
+    const before = {scans: stats.scans, frameHooks: stats.frameHooks, frames: document.querySelectorAll("iframe").length};
+    for (let n = 0; n < 30; n++) {
+      document.body.style.outlineWidth = `${n % 2}px`;
+      await new Promise((done) => setTimeout(done, 0));
+    }
+    return {before, after: {scans: stats.scans, frameHooks: stats.frameHooks}};
+  });
+  const {before, after} = outcome;
+  if (!(before.frames > 0)) throw new Error("observer: the page has no frame");
+  if (after.scans !== before.scans || after.frameHooks !== before.frameHooks || before.frameHooks < before.frames) {
+    throw new Error(`observer: 30 style changes on <body> over ${before.frames} frame(s): scans ${before.scans} -> ${after.scans}, frame hooks ${before.frameHooks} -> ${after.frameHooks}`);
+  }
+  return `30 style changes on <body>: no rescan, ${after.frameHooks} frame hook(s) for ${before.frames} frame(s)`;
+}
+
+// A demo's music: loaded over the bridge, decoded and playing, and no media
+// or play error recorded by the page runtime.
+async function audioPlays(frame, what) {
+  let state;
+  for (const until = Date.now() + 60000; Date.now() < until; await sleep(500)) {
+    state = await frame.evaluate(() => ({media: window.osdBridge.mediaState(), stats: JSON.parse(JSON.stringify(window.osdBridge.stats))}));
+    if (state.media.some((one) => !one.paused && one.time > 0 && one.ready >= 2 && one.error === 0)) break;
+  }
+  const errors = state.stats.errors.filter((one) => /^(?:media|play) /.test(one) && !/AbortError|interrupted/.test(one));
+  if (errors.length > 0) throw new Error(`${what}: ${errors.join("; ")}`);
+  if (state.stats.played.length === 0) throw new Error(`${what}: nothing played (media ${JSON.stringify(state.stats.media)})`);
+  const playing = state.media.find((one) => !one.paused && one.time > 0 && one.ready >= 2 && one.error === 0);
+  if (!playing) throw new Error(`${what}: no audio playing: ${JSON.stringify(state.media)}`);
+  return `audio ${playing.source} playing at ${playing.time.toFixed(1)} s`;
+}
 const slug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 export async function fioriTiles(page, {shots, fioriFrame, packs, only, survey = false}) {
@@ -83,7 +149,7 @@ export async function fioriTiles(page, {shots, fioriFrame, packs, only, survey =
         let pictures = 0;
         for (const until = Date.now() + 60000; pictures === 0 && Date.now() < until; await sleep(500)) pictures = await decoded();
         if (pictures === 0) throw new Error("Travels: no PhotoSet picture decoded");
-        note += `; ${pictures} PhotoSet picture(s) decoded`;
+        note += `; ${pictures} PhotoSet picture(s) decoded; ${await mediaCache(launchpad)}`;
       }
       results.push({tile: app.tile, after: note, shot: await shot(app.tile)});
     });
@@ -120,6 +186,7 @@ export async function fioriTiles(page, {shots, fioriFrame, packs, only, survey =
       const next = await fioriFrame(page, () => !!window.osdBridge && /okcode=ZOSD_NOTE/i.test(document.baseURI) &&
         document.body.innerText.length > 0, undefined, "WEBGUI after the command field");
       await next.waitForFunction(() => document.body.innerText.includes("Session notepad"), undefined, {timeout: 60000});
+      const observed = await observerWork(next);
       // and a form of the transaction itself: a line added to the notepad
       const line = `web extension ${Date.now()}`;
       // a form POST with target="_top" (method, body and hidden session
@@ -129,7 +196,7 @@ export async function fioriTiles(page, {shots, fioriFrame, packs, only, survey =
       await viewer.locator("#note-form #add").click();
       await fioriFrame(page, (wanted) => !!window.osdBridge && [...document.querySelectorAll("iframe")].some((frame) =>
         frame.contentDocument?.body?.innerText.includes(wanted)), line, "WEBGUI notepad line");
-      return "ZOSD_NOTE from the command field (Session notepad), then Add (form POST): the line is listed";
+      return `ZOSD_NOTE from the command field (Session notepad), then Add (form POST): the line is listed; ${observed}`;
     }},
     {tile: "System information", title: "System information", ready: "transpiled", async act() {
       return "runtime row 'ABAP transpiled to JavaScript'";
@@ -143,12 +210,12 @@ export async function fioriTiles(page, {shots, fioriFrame, packs, only, survey =
     {tile: "Vivid Vibes", title: "VIVID VIBES", ready: "Click START", pack: "o4d", async act(frame) {
       await frame.getByText("START DEMO").first().click();
       await frame.waitForFunction(() => /Part 1\/2 \| Bar: [1-9]/.test(document.body.innerText), undefined, {timeout: 120000});
-      return "START: 'Part 1/2 | Bar: n' advancing over the push channel";
+      return `START: 'Part 1/2 | Bar: n' advancing over the push channel; ${await audioPlays(frame, "Vivid Vibes")}`;
     }},
     {tile: "LSD", title: "LSD", ready: "press PLAY", pack: "lsd", async act(frame) {
       await frame.getByText("Play").first().click();
       await frame.waitForFunction(() => /Playing\s+\d+:\d+.*screen [1-9]\d* \//.test(document.body.innerText), undefined, {timeout: 120000});
-      return "Play: 'Playing m:ss - screen n / N' over the push channel";
+      return `Play: 'Playing m:ss - screen n / N' over the push channel; ${await audioPlays(frame, "LSD")}`;
     }},
   ];
   for (const one of icf.filter((tile) => wanted(tile.tile))) {
@@ -163,6 +230,9 @@ export async function fioriTiles(page, {shots, fioriFrame, packs, only, survey =
       const after = await one.act(frame);
       const stats = await fioriFrame(page, () => !!window.osdBridge && !window["sap-ushell-config"], undefined, one.tile)
         .then((current) => current.evaluate(() => JSON.parse(JSON.stringify(window.osdBridge.stats))));
+      // a picture or a sound the page asked for and did not get fails the tile
+      const failed = stats.errors.filter((error) => /^media /.test(error));
+      if (failed.length > 0) throw new Error(`${one.tile}: ${failed.join("; ")}`);
       results.push({tile: one.tile, after: `${after}; media ${stats.media.length}, sockets ${stats.sockets.length}`, shot: await shot(one.tile)});
       await closeTab(one.title);
     });
