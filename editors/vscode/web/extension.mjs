@@ -64,7 +64,13 @@ const ENGINE_LABEL = {"sql.js": "sql.js + IndexedDB", duckdb: "DuckDB-Wasm (in m
 // DuckDB; any other scheme is read through the workspace file system.
 async function duckdbWasmURL() {
   const uri = vscode.Uri.joinPath(extensionUri, "dist", "web", "duckdb-mvp.wasm");
-  if (uri.scheme === "http" || uri.scheme === "https") return uri.toString(true);
+  if (uri.scheme === "http" || uri.scheme === "https") {
+    // DuckDB's loader does not settle on a 404: ask first, so a missing file
+    // is an error that names it rather than a gateway that never answers
+    const head = await fetch(uri.toString(true), {method: "HEAD"});
+    if (!head.ok) throw new Error(`DuckDB-Wasm: ${uri.toString(true)} answered ${head.status}; osd.web.database = duckdb needs dist/web/duckdb-mvp.wasm beside extension.js`);
+    return uri.toString(true);
+  }
   const bytes = await vscode.workspace.fs.readFile(uri);
   return URL.createObjectURL(new Blob([bytes], {type: "application/wasm"}));
 }
