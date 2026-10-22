@@ -1,6 +1,6 @@
 // Optional TS-HA/TS-HG checker linkage. Generated core sources stay external.
 import {createHash} from "node:crypto";
-import {copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync} from "node:fs";
+import {copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync} from "node:fs";
 import {execFileSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
@@ -25,9 +25,17 @@ export async function lintBuildSpec(root) {
     .filter(file => !skip.has(file) && /\.(abap|xml|asddls)$/.test(file)).map(file => "/" + file);
   // The same effective JSON as lint-oracle --export-adt-config, not lint rules.
   const config = JSON.stringify(configuredRegistry(store).registry.getConfig().get());
+  const packs = packsOf(root);
+  const packSources = {};
+  for (const pack of packs) for (const candidate of pack.abapCandidates) {
+    let type = "missing";
+    try { type = statSync(candidate).isDirectory() ? "directory" : "other"; }
+    catch (error) { if (!["ENOENT", "ENOTDIR"].includes(error.code)) throw error; }
+    packSources[relative(root, candidate)] = type;
+  }
   const guards = {};
   for (const file of ["abaplint.jsonc", "abap_transpile.json", "libs.lock.json",
-    ...packsOf(root).map(pack => relative(root, join(pack.dir, "osd-pack.json")))]) {
+    ...packs.map(pack => relative(root, join(pack.dir, "osd-pack.json")))]) {
     guards[file] = createHash("sha256").update(readFileSync(join(root, file))).digest("hex");
   }
   const facts = await storeConfig(root, {store, storeModule: new URL("../osd-store.mjs", import.meta.url).href});
@@ -35,7 +43,7 @@ export async function lintBuildSpec(root) {
   const {roots, libs, excluded} = facts;
   const places = placesOf(root).map(path => relative(root, path));
   const libraryPlaces = libraryFiles(root, undefined, {includeMissing: true}).map(lib => relative(root, lib.dir));
-  return {config, hidden, files, guards, places, libraryPlaces, store: {roots, libs, excluded}};
+  return {config, hidden, files, guards, places, libraryPlaces, packSources, store: {roots, libs, excluded}};
 }
 
 // Typed calls stay in package main beside the generated ABAP classes.

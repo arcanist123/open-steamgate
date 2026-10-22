@@ -22,6 +22,7 @@ type Spec struct {
 	Config        string
 	Hidden, Files []string
 	Guards        map[string]string
+	PackSources   map[string]string
 	Places        []string
 	LibraryPlaces []string
 	Store         *objstore.Config
@@ -52,7 +53,10 @@ var Resolve = func(root string) (Spec, error) {
 
 func Structure(root string, spec Spec) (string, bool, error) {
 	guards := map[string]string{}
-	changed := false
+	sources, changed, err := packSources(root, spec.PackSources)
+	if err != nil {
+		return "", false, err
+	}
 	for file, expected := range spec.Guards {
 		bytes, err := os.ReadFile(filepath.Join(root, file))
 		if err != nil && !os.IsNotExist(err) {
@@ -99,10 +103,11 @@ func Structure(root string, spec Spec) (string, bool, error) {
 		}
 	}
 	raw, _ := json.Marshal(struct {
-		Guards map[string]string
-		Store  *objstore.Config
-		Hidden []string
-	}{guards, spec.Store, spec.Hidden})
+		Guards      map[string]string
+		PackSources map[string]string
+		Store       *objstore.Config
+		Hidden      []string
+	}{guards, sources, spec.Store, spec.Hidden})
 	return fmt.Sprintf("%x", sha256.Sum256(raw)), changed, nil
 }
 
