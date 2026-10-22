@@ -737,7 +737,12 @@ function vsixManifestXml(pkg, prerelease = false) {
   const description = escapeXml(pkg.description ?? "");
   const vscodeEngine = escapeXml(pkg.engines?.vscode ?? "*");
   const categories = escapeXml((pkg.categories ?? []).join(","));
-  const tags = escapeXml((pkg.keywords ?? []).join(","));
+  // A package with a browser entry is a web extension: vsce marks it with the
+  // __web_extension tag and the WebExtension property, and the Marketplace and
+  // vscode.dev read those (not the manifest's browser field) to offer it in
+  // VS Code for the Web. Without them vscode.dev says "not available".
+  const web = typeof pkg.browser === "string" && pkg.browser !== "";
+  const tags = escapeXml([...(pkg.keywords ?? []), ...(web ? ["__web_extension"] : [])].join(","));
   const extensionKind = escapeXml((pkg.extensionKind ?? ["workspace"]).join(","));
   const source = escapeXml(typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url ?? "");
   const support = escapeXml(typeof pkg.bugs === "string" ? pkg.bugs : pkg.bugs?.url ?? "");
@@ -763,6 +768,7 @@ function vsixManifestXml(pkg, prerelease = false) {
       <Property Id="Microsoft.VisualStudio.Services.Branding.Color" Value="${escapeXml(pkg.galleryBanner?.color ?? "")}" />
       <Property Id="Microsoft.VisualStudio.Services.Branding.Theme" Value="${escapeXml(pkg.galleryBanner?.theme ?? "")}" />
       <Property Id="Microsoft.VisualStudio.Services.GitHubFlavoredMarkdown" Value="true" />
+${web ? '      <Property Id="Microsoft.VisualStudio.Code.WebExtension" Value="true" />' : ""}
 ${prerelease ? '      <Property Id="Microsoft.VisualStudio.Code.PreRelease" Value="true" />' : ""}
     </Properties>
   </Metadata>
