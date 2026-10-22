@@ -874,3 +874,15 @@ nor coordinate normalization hides mismatches. Other is a panic-only sentinel.
 The ordinary registered suite independently tests original Node parse trees
 against the outline port and runs the native lifecycle/refusal tests without
 requiring a generated library.
+
+PR #841's retained HTTP benchmark compared different response scopes:
+“OUTLINE bytes and normalized CHECK verdict/diagnostic fragments matched in
+all 90 baseline and 90 after pairs.” CHECK comparison replaces the displayed
+elapsed time and excludes the surrounding editor HTML; native CHECK is
+advertised independently of ACTIVATE, so complete editor pages differ. The
+reported timing medians describe the pre-review implementation, which also
+reused saved outline trees. That reuse was removed after the external-macro
+counterexample; those medians are historical evidence, not measurements of
+the corrected implementation. The current change retains targeted index
+construction for linked native CHECK and PARSE OUTLINE. The linked differential
+separately compares complete CHECK scalars/ordered issues and OUTLINE bytes.
