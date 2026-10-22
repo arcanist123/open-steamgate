@@ -5,6 +5,8 @@ import {execFileSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 
+import {lintRules} from "./lint-rules.mjs";
+
 export function lintFolders(root, lib) {
   if (!lib) return [];
   const path = resolve(lib);
@@ -43,7 +45,9 @@ export async function lintBuildSpec(root) {
   const {roots, libs, excluded} = facts;
   const places = placesOf(root).map(path => relative(root, path));
   const libraryPlaces = libraryFiles(root, undefined, {includeMissing: true}).map(lib => relative(root, lib.dir));
-  return {config, hidden, files, guards, places, libraryPlaces, packSources, store: {roots, libs, excluded}};
+  const spec = {config, hidden, files, guards, places, libraryPlaces, packSources, store: {roots, libs, excluded}};
+  spec.rules = lintRules(root, spec, packs);
+  return spec;
 }
 
 // Typed calls stay in package main beside the generated ABAP classes.
