@@ -187,6 +187,12 @@ export function packAt(root, dir) {
       exclude: [s.exclude ?? []].flat().map((e) => String(e)),
     };
   });
+  const abapCandidates = (declaredAbap ?? ["src", "."]).filter(f => f !== null && f !== false).map(f => join(dir, f));
+  // Default DDIC follows the first existing ABAP folder. Guard every possible
+  // fallback path, including the no-ABAP case, as candidates change natively.
+  if (declared.ddic === undefined) {
+    for (const candidate of [dir, ...abapCandidates]) directoryRequirements.push(join(candidate, "ddic"));
+  }
   return {
     root,
     sources,
@@ -205,7 +211,7 @@ export function packAt(root, dir) {
     // abapGit's default and "." is a pack that is itself a repository folder
     abap: declaredAbap === undefined ? abap.slice(0, 1) : abap,
     // Keep absent candidates too: checker capture watches directory creation.
-    abapCandidates: (declaredAbap ?? ["src", "."]).filter(f => f !== null && f !== false).map(f => join(dir, f)),
+    abapCandidates,
     data: inside(declared.data, "data"),
     ddic: inside(declared.ddic, join(relative(dir, abap[0] ?? dir), "ddic")),
     webapp: inside(declared.webapp, "webapp"),

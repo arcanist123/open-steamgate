@@ -1,6 +1,8 @@
 package lintinput
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -140,5 +142,71 @@ func TestCriticRootPackLifecycle(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Fatal(calls)
+	}
+}
+
+func TestSweepZIPOverlayLifecycle(t *testing.T) {
+	for _, link := range []bool{false, true} {
+		t.Run(fmt.Sprint(link), func(t *testing.T) {
+			root := criticFixture(t)
+			var raw bytes.Buffer
+			archive := zip.NewWriter(&raw)
+			for name, content := range map[string]string{
+				".abapgit.xml":          "<abapGit><STARTING_FOLDER>/src/</STARTING_FOLDER></abapGit>",
+				"src/package.devc.xml":  "<DEVCLASS>ZZIP</DEVCLASS>",
+				"src/zcl_zip.clas.abap": "CLASS zcl_zip DEFINITION PUBLIC. ENDCLASS.",
+			} {
+				w, err := archive.Create(name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := w.Write([]byte(content)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := archive.Close(); err != nil {
+				t.Fatal(err)
+			}
+			criticWrite(t, root, "layer.zip", raw.String())
+			t.Setenv("OSD_LAYERS", "layer.zip")
+			spec := buildSpec(t, root)
+			overlay := ""
+			for _, r := range spec.Store.Roots {
+				if r.OverlayOf != "" {
+					overlay = filepath.Join(root, r.Path)
+				}
+			}
+			if overlay == "" {
+				t.Fatal("no overlay")
+			}
+			target := filepath.Join(overlay, "zcl_zip.clas.abap")
+			content, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			criticLifecycle(t, root, spec, func() {
+				if link {
+					if err := os.Rename(overlay, overlay+"-saved"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(overlay+"-saved", overlay); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Remove(target); err != nil {
+					t.Fatal(err)
+				}
+			}, func() {
+				if link {
+					if err := os.Remove(overlay); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Rename(overlay+"-saved", overlay); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.WriteFile(target, content, 0600); err != nil {
+					t.Fatal(err)
+				}
+			})
+		})
 	}
 }

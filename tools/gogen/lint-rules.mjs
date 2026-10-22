@@ -107,6 +107,7 @@ export function lintRules(root, facts, packs) {
       const file = join(dir, name); metadata[file] = hash(resolve(root, file));
     }
   }
+  const zipLayers = overrides.filter(r => r.overlayOf).map(r => ({source: r.overlayOf, overlay: r.path}));
   const mappings = [];
   for (const l of system?.layers ?? []) {
     const dir = layerDir(root, l);
@@ -114,7 +115,7 @@ export function lintRules(root, facts, packs) {
     mappings.push({physical: rel(root, dir), logical: rel(root, logicalSystemPath(root, dir, system))});
   }
   const rules = {version: 1, config: facts.config, roots: facts.store.roots, plan, overrides, excluded: facts.store.excluded,
-    libraries, packs: selected, places: facts.places, factGuards: facts.guards, guards, environment, metadataDirs, metadata, inference, states, manifests, mappings, system: !!system};
+    libraries, packs: selected, places: facts.places, factGuards: facts.guards, guards, environment, metadataDirs, metadata, inference, states, zipLayers, manifests, mappings, system: !!system};
   // Actually compile in Go RE2 as part of the build. Unsupported JS constructs
   // fail here, before a binary with silently different exclusions can be made.
   execFileSync("go", ["run", "./cmd/lintresolve", "--validate"], {

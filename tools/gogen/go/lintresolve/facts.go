@@ -36,12 +36,18 @@ type Pack struct {
 	Package    string   `json:"package"`
 }
 
+type ZipLayer struct {
+	Source  string `json:"source"`
+	Overlay string `json:"overlay"`
+}
+
 type Mapping struct {
 	Physical string `json:"physical"`
 	Logical  string `json:"logical"`
 }
 
 type Rules struct {
+	ZipLayers    []ZipLayer         `json:"zipLayers"`
 	Inference    map[string]string  `json:"inference"`
 	MetadataDirs []string           `json:"metadataDirs"`
 	Metadata     map[string]string  `json:"metadata"`

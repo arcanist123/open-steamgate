@@ -169,5 +169,5 @@ func Guard(root string, r *Rules) error {
 	if !reflect.DeepEqual(found, r.Manifests) {
 		return fmt.Errorf("rebuild: pack set or manifest changed")
 	}
-	return nil
+	return topology(root, r)
 }

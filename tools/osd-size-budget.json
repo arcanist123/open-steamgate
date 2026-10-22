@@ -639,8 +639,8 @@
       "reason": "2026-10-22: independent host cast context capture and report formatter; narrow carrier seams, no go/abap dependency."
     },
     "go:lintresolve": {
-      "lines": 743,
-      "reason": "Fixed-generation checker input policy: portable regex validation, structural rebuild guards, ordered library selection and whole-object layer hiding. No generated engine or runtime discovery dependency. Critic #838 finding 3: ten production lines keep the exact packSources candidate key separate from the normalized root descriptor path. This spelling conversion belongs with existing root-plan resolution; no discovery or dependency is added."
+      "lines": 844,
+      "reason": "Fixed-generation checker input policy: portable regex validation, structural rebuild guards, ordered library selection and whole-object layer hiding. No generated engine or runtime discovery dependency. Critic #838 finding 3: ten production lines keep the exact packSources candidate key separate from the normalized root descriptor path. This spelling conversion belongs with existing root-plan resolution; no discovery or dependency is added. Critic #838 input sweep: 101 production lines add ZIP overlay seed/link and local shadow-read refusal validation in topology.go plus the embedded ZIP source/overlay descriptors. These checks belong to the existing fixed-policy guard boundary and use only filesystem APIs; splitting them into a separate package would expose internal path/walk helpers without isolating another capability."
     },
     "go:cmd/lintresolve": {
       "lines": 63,

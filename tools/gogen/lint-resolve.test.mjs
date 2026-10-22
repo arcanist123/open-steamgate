@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {execFileSync, spawnSync} from "node:child_process";
 import {createHash} from "node:crypto";
-import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync} from "node:fs";
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {dirname, join, relative, resolve} from "node:path";
 import {after, test} from "node:test";
@@ -258,6 +258,47 @@ test("critic 838: root pack keeps empty candidate key through membership mutatio
     rmSync(join(root, "src"), {recursive: true});
     await parity(root, rules, "root pack falls back to dot");
   } finally { delete process.env.OSD_PACKS; }
+});
+
+test("sweep: optional DDIC requirements cover every mutable ABAP fallback", async () => {
+  const root = fixture("sweep-ddic");
+  write(root, "packs/late/osd-pack.json", '{"name":"late"}');
+  const {rules} = await parity(root, undefined, "default DDIC before fallback switch");
+  write(root, "packs/late/src/znew.prog.abap", "REPORT znew.");
+  await parity(root, rules, "new ABAP candidate without DDIC");
+  write(root, "packs/late/src/ddic/znew.tabl.xml", "<xml/>");
+  await lintBuildSpec(root); // Optional folder is valid; fixed structural policy requires rebuilding.
+  assert.match(native(root, rules).stderr, /rebuild/);
+});
+
+test("sweep: shadow scan errors and ZIP overlay topology refuse before checking", async () => {
+  const shadow = fixture("sweep-shadow");
+  const {rules: shadowRules} = await lintBuildSpec(shadow);
+  symlinkSync(join(shadow, "absent"), join(shadow, "local-broken"));
+  mkdirSync(join(shadow, "local"));
+  renameSync(join(shadow, "local-broken"), join(shadow, "local/broken"));
+  await assert.rejects(lintBuildSpec(shadow), /ENOENT/);
+  assert.match(native(shadow, shadowRules).stderr, /rebuild/);
+
+  const root = fixture("sweep-zip");
+  const source = join(scratch, "sweep-zip-source");
+  write(source, ".abapgit.xml", abapgitXml());
+  write(source, "src/package.devc.xml", "<DEVCLASS>ZZIP</DEVCLASS>");
+  write(source, "src/zcl_zip.clas.abap", "CLASS zcl_zip DEFINITION PUBLIC. ENDCLASS.");
+  write(root, "layer.zip", zipInProcess(source));
+  process.env.OSD_LAYERS = "layer.zip";
+  try {
+    const {rules} = await parity(root, undefined, "sweep ZIP initial");
+    const overlay = rules.roots.find(r => r.overlayOf).path;
+    const target = join(root, overlay, "zcl_zip.clas.abap");
+    rmSync(target);
+    assert.match(native(root, rules).stderr, /rebuild/); // Node would seed it again.
+    await parity(root, undefined, "fresh Node reseeds missing overlay member");
+    renameSync(join(root, overlay), join(root, overlay + "-saved"));
+    symlinkSync(join(root, overlay + "-saved"), join(root, overlay));
+    await assert.rejects(lintBuildSpec(root), /redirected through a link/);
+    assert.match(native(root, rules).stderr, /rebuild/);
+  } finally { delete process.env.OSD_LAYERS; }
 });
 
 test("regex incompatibilities fail at build time", async () => {
