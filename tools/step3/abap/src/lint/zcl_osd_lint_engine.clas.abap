@@ -27,7 +27,7 @@ CLASS zcl_osd_lint_engine DEFINITION PUBLIC FINAL CREATE PRIVATE.
              word TYPE string,
              object TYPE REF TO zif_lnt_object,
            END OF ty_reader,
-           tt_reader TYPE SORTED TABLE OF ty_reader WITH NON-UNIQUE KEY word.
+           tt_reader TYPE STANDARD TABLE OF ty_reader WITH DEFAULT KEY.
     CLASS-DATA go_registry TYPE REF TO zcl_lnt_registry.
     CLASS-DATA gt_readers TYPE tt_reader.
     CLASS-METHODS index_object IMPORTING io_object TYPE REF TO zif_lnt_object.
@@ -165,7 +165,7 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
     ls_reader-object = io_object.
     LOOP AT lt_words INTO lv_word.
       ls_reader-word = lv_word.
-      INSERT ls_reader INTO TABLE gt_readers.
+      APPEND ls_reader TO gt_readers.
     ENDLOOP.
   ENDMETHOD.
 
