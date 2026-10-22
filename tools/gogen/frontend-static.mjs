@@ -52,6 +52,7 @@ export function resolveStatic(owner, attr, ctx, deps, write = false) {
   for (const at of staticOwners) {
     const a = clasDef(ctx.reg, at)?.getAttributes().getStatic().find((x) => upper(x.getName()) === attr);
     if (!a) continue;
+    // @ts-expect-error -- abapiti form pending
     /** @type {import("@abaplint/core").Objects.Class | undefined} */ const pool = ctx.reg.getObject("CLAS", at.split(":")[0]);
     const friendName = ctx.className.split(":").at(-1);
     /** @type {readonly string[]} */ const friends = clasDef(ctx.reg, at)?.getFriends?.() ?? [];
