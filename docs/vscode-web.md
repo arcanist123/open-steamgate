@@ -1,6 +1,6 @@
-# VS Code for the Web gateway, tree, and webview transport probe
+# VS Code for the Web: open-steamgate in vscode.dev
 
-The development and test-web `browser` entry of `editors/vscode/package.json` runs a separate extension in the VS Code web extension host. `npm run vsix:marketplace` removes that entry from its staged package until the web extension is ready for Marketplace distribution. It bundles the prebuilt ABAP gateway and sql.js into one web worker script. The desktop `main` entry remains `extension.js`.
+The `browser` entry of `editors/vscode/package.json` runs a separate extension in the VS Code web extension host. It bundles the prebuilt ABAP gateway and sql.js into one web worker script, beside its Fiori apps, media and the lazily loaded DuckDB-Wasm. The desktop `main` entry remains `extension.js`. The Marketplace package carries the browser entry when it is built with `OSD_VSIX_WEB=1`, as the release workflow does. A local `npm run vsix:marketplace` without it still strips the entry, so a stale `dist/` never ships by accident. Such a package is marked as a web extension: the `__web_extension` tag and `web` among its ExtensionKind values, as `vsce` writes them.
 
 On activation, the web entry imports the preview backend, restores its sql.js database from IndexedDB, starts the gateway, and requests `$metadata`. It does not open an HTTP listener. `osd: Web probe` calls `handleRequest` in that worker: another `$metadata` GET (200), CSRF fetch, a uniquely named `TravelSet` POST (201), and a GET of the created row (200). **OSD Web Probe** output reports both activation start to the activation request's `$metadata` response and probe command start to its own `$metadata` response. `osd: Web verify last Travel` reads that row after a reload.
 
