@@ -16,17 +16,70 @@ DATA gv_prime TYPE i.
 DATA gv_check1 TYPE i.
 DATA gv_check2 TYPE i.
 DATA gv_check TYPE i.
+DATA gv_bytes TYPE xstring.
+DATA gv_msg TYPE string.
+DATA gv_list TYPE string.
+DATA gv_path TYPE string.
+DATA gv_round TYPE i.
+DATA gt_paths TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
+DATA gs_file TYPE zcl_osd_lint_engine=>ty_file.
 
 START-OF-SELECTION.
   IF p_files IS INITIAL OR p_config IS INITIAL OR p_target IS INITIAL.
     RAISE EXCEPTION TYPE zcx_osd_lint_engine EXPORTING iv_reason =
       `usage: --files LIST --deps LIST --config JSON --target FILENAME -allow-read DIR`.
   ENDIF.
-  PERFORM read_raw USING p_config CHANGING gv_config.
-  PERFORM read_files USING p_files CHANGING gt_files.
-  IF p_deps IS NOT INITIAL.
-    PERFORM read_files USING p_deps CHANGING gt_deps.
+  CLEAR gv_bytes.
+  OPEN DATASET p_config FOR INPUT IN BINARY MODE MESSAGE gv_msg.
+  IF sy-subrc <> 0.
+    RAISE EXCEPTION TYPE zcx_osd_lint_engine EXPORTING iv_reason = |cannot read { p_config }: { gv_msg }|.
   ENDIF.
+  READ DATASET p_config INTO gv_bytes.
+  CLOSE DATASET p_config.
+  gv_config = cl_abap_codepage=>convert_from( gv_bytes ).
+  DO 2 TIMES.
+    gv_round = sy-index.
+    IF gv_round = 1.
+      gv_list = p_files.
+    ELSE.
+      gv_list = p_deps.
+    ENDIF.
+    IF gv_list IS INITIAL.
+      CONTINUE.
+    ENDIF.
+    CLEAR gv_bytes.
+    OPEN DATASET gv_list FOR INPUT IN BINARY MODE MESSAGE gv_msg.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE zcx_osd_lint_engine EXPORTING iv_reason = |cannot read { gv_list }: { gv_msg }|.
+    ENDIF.
+    READ DATASET gv_list INTO gv_bytes.
+    CLOSE DATASET gv_list.
+    gv_list = cl_abap_codepage=>convert_from( gv_bytes ).
+    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>cr_lf(1) IN gv_list WITH ``.
+    CLEAR gt_paths.
+    SPLIT gv_list AT cl_abap_char_utilities=>newline INTO TABLE gt_paths.
+    LOOP AT gt_paths INTO gv_path.
+      IF gv_path IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      CLEAR gs_file.
+      CLEAR gv_bytes.
+      OPEN DATASET gv_path FOR INPUT IN BINARY MODE MESSAGE gv_msg.
+      IF sy-subrc <> 0.
+        RAISE EXCEPTION TYPE zcx_osd_lint_engine EXPORTING iv_reason = |cannot read { gv_path }: { gv_msg }|.
+      ENDIF.
+      READ DATASET gv_path INTO gv_bytes.
+      CLOSE DATASET gv_path.
+      gs_file-raw = cl_abap_codepage=>convert_from( gv_bytes ).
+      gs_file-filename = gv_path.
+      REPLACE ALL OCCURRENCES OF `\` IN gs_file-filename WITH `/`.
+      IF gv_round = 1.
+        APPEND gs_file TO gt_files.
+      ELSE.
+        APPEND gs_file TO gt_deps.
+      ENDIF.
+    ENDLOOP.
+  ENDDO.
   REPLACE ALL OCCURRENCES OF `\` IN p_target WITH `/`.
   gv_before = zlnt_runtime_tele_970d5104e5f4=>now( ).
   zcl_osd_lint_engine=>prime( it_files = gt_files it_deps = gt_deps iv_config = gv_config ).
@@ -53,35 +106,3 @@ START-OF-SELECTION.
     ENDLOOP.
   ENDDO.
   WRITE: / |# ms prime={ gv_prime } check1={ gv_check1 } check2={ gv_check2 }|.
-
-FORM read_raw USING iv_path TYPE string CHANGING cv_raw TYPE string.
-  DATA lv_bytes TYPE xstring.
-  DATA lv_message TYPE string.
-  OPEN DATASET iv_path FOR INPUT IN BINARY MODE MESSAGE lv_message.
-  IF sy-subrc <> 0.
-    RAISE EXCEPTION TYPE zcx_osd_lint_engine
-      EXPORTING iv_reason = |cannot read { iv_path }: { lv_message }|.
-  ENDIF.
-  READ DATASET iv_path INTO lv_bytes.
-  CLOSE DATASET iv_path.
-  cv_raw = cl_abap_codepage=>convert_from( lv_bytes ).
-ENDFORM.
-
-FORM read_files USING iv_list TYPE string CHANGING ct_files TYPE zcl_osd_lint_engine=>tt_file.
-  DATA lv_list TYPE string.
-  DATA lt_paths TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
-  DATA lv_path TYPE string.
-  DATA ls_file TYPE zcl_osd_lint_engine=>ty_file.
-  PERFORM read_raw USING iv_list CHANGING lv_list.
-  REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>cr_lf(1) IN lv_list WITH ``.
-  SPLIT lv_list AT cl_abap_char_utilities=>newline INTO TABLE lt_paths.
-  LOOP AT lt_paths INTO lv_path.
-    IF lv_path IS INITIAL.
-      CONTINUE.
-    ENDIF.
-    PERFORM read_raw USING lv_path CHANGING ls_file-raw.
-    ls_file-filename = lv_path.
-    REPLACE ALL OCCURRENCES OF `\` IN ls_file-filename WITH `/`.
-    APPEND ls_file TO ct_files.
-  ENDLOOP.
-ENDFORM.
