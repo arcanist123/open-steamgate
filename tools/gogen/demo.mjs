@@ -136,12 +136,12 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"os"
 	"time"
 
 	"osg/gogen/abap"
+	"osg/gogen/castdiag"
 )
 
 type run struct {
@@ -174,7 +174,7 @@ func one(r run) (res result) {
 	res.Scene = r.Scene
 	defer func() {
 		if e := recover(); e != nil {
-			res.Error = fmt.Sprint(e)
+			res.Error = castdiag.DumpText(e)
 		}
 	}()
 	{

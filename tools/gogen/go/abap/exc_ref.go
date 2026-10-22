@@ -9,7 +9,7 @@ func CaughtException(r any) *Exception {
 		return &Exception{Class: x.Class, Obj: x.Obj}
 	}
 	e, _ := AsError(r)
-	return &Exception{Class: e.Class, Op: e.Op}
+	return &Exception{Class: e.Class, Op: e.Op, Detail: e.Detail}
 }
 
 // ExceptionRef widens a caught value without inventing a surrogate CX type.

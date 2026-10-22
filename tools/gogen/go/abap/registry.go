@@ -1,6 +1,7 @@
 package abap
 
 import (
+	"osg/gogen/castdiag"
 	"osg/gogen/dyncall"
 	"reflect"
 	"strings"
@@ -30,7 +31,8 @@ func CreateAs[T any](s *Session, name string) T {
 		panic(ArithmeticError{Class: "CX_SY_CREATE_OBJECT_ERROR", Op: "CREATE OBJECT TYPE (" + name + ")"})
 	}
 	if _, fits := c.zero.(T); !fits {
-		panic(ArithmeticError{Class: "CX_SY_MOVE_CAST_ERROR", Op: "CREATE OBJECT TYPE (" + name + ")"})
+		var z T
+		panic(ArithmeticError{Class: "CX_SY_MOVE_CAST_ERROR", Op: "CREATE OBJECT TYPE (" + name + ")", Detail: castdiag.Context(c.zero, z)})
 	}
 	return c.make(s).(T)
 }
@@ -73,7 +75,7 @@ func Cast[T any](v any) T {
 	}
 	t, ok := v.(T)
 	if !ok {
-		panic(ArithmeticError{Class: "CX_SY_MOVE_CAST_ERROR", Op: "?="})
+		panic(ArithmeticError{Class: "CX_SY_MOVE_CAST_ERROR", Op: "?=", Detail: castdiag.Context(v, z)})
 	}
 	return t
 }
