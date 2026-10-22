@@ -16,7 +16,8 @@ import (
 )
 
 // Port selects the optional DIAG listener; a negative port means disabled.
-func Port(enabled bool, env func(string) string) (int, error) {
+func Port(enabled bool, lookup func(string) (string, bool)) (int, error) {
+	env := func(key string) string { value, _ := lookup(key); return value }
 	if !enabled && env("OSD_OSGO_DIAG") != "1" {
 		return -1, nil
 	}
@@ -25,7 +26,14 @@ func Port(enabled bool, env func(string) string) (int, error) {
 		text = env("DIAG_PORT")
 	}
 	if text == "" {
-		derived, err := instance.Port(32, env("INSTANCE"))
+		nn, present := lookup("INSTANCE")
+		if !present {
+			nn = "00"
+		}
+		if nn == "" {
+			return 0, fmt.Errorf("INSTANCE must be two digits")
+		}
+		derived, err := instance.Port(32, nn)
 		if err != nil {
 			return 0, err
 		}

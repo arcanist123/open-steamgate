@@ -21,14 +21,14 @@ func protocolFlags() nativeProtocols {
 }
 
 func (p nativeProtocols) start(sid string, adt bool, binds []string, handler http.Handler) (int, int) {
-	rfc, err := rfcnative.FromEnv(*p.rfc, sid, os.Getenv)
+	rfc, err := rfcnative.FromEnv(*p.rfc, sid, os.LookupEnv)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if rfc.Enabled && !adt {
 		log.Fatal("-rfc requires -adt / OSD_OSGO_ADT=1")
 	}
-	diag, err := diagnative.Port(*p.diag, os.Getenv)
+	diag, err := diagnative.Port(*p.diag, os.LookupEnv)
 	if err != nil {
 		log.Fatal(err)
 	}

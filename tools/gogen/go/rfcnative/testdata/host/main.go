@@ -23,10 +23,10 @@ func main() {
 	if err := json.NewDecoder(os.Stdin).Decode(&c); err != nil {
 		panic(err)
 	}
-	env := func(k string) string { return c.Env[k] }
+	env := func(k string) (string, bool) { v, ok := c.Env[k]; return v, ok }
 	logf := func(f string, args ...any) { fmt.Printf(f+"\n", args...) }
 	ctx := context.Background()
-	sid, _, err := sysid.FromEnv(func(k string) (string, bool) { v, ok := c.Env[k]; return v, ok })
+	sid, _, err := sysid.FromEnv(env)
 	if err != nil {
 		panic(err)
 	}

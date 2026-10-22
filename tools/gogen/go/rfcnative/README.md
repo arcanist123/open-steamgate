@@ -12,7 +12,11 @@ selected and no default HTTP transport is replaced.
 The Apache-2.0 dependency owns RFC, NI, metadata, conversation cookie jars and
 CSRF retry. OSG copies none of that source. See root NOTICE.
 
-`STG_RFC_AUTH_MODE` supports demo (default) and static. Static requires
+`FromEnv` takes an `os.LookupEnv`-style lookup. `STG_RFC_AUTH_MODE` supports
+demo (only when absent) and static; a present empty value is rejected before
+listening. An empty `STG_RFC_PORT` selects port 0, while an absent port uses
+the instance default. A present empty `INSTANCE` cannot derive a port.
+Static requires
 `STG_RFC_USER` and `STG_RFC_PASSWORD`; `STG_RFC_CLIENT` optionally restricts
 the caller's client. These are separate from `STG_ADT_USER/PASSWORD/CLIENT/LANGUAGE`.
 `FromEnv` and `Start` call upstream `Check` synchronously before opening listeners.
@@ -28,3 +32,7 @@ Validation: `go test -race ./rfcnative`, `go vet ./rfcnative`.
 Detailed parity and remaining differences: [native protocols](../../../../docs/native-protocols.md).
 The pinned dependency confines backend origins/headers and retains rotated CSRF
 tokens. The local HTTP seam supplies stateful sessions.
+
+`STG_HOST_NAME` defaults only when absent; an empty value is preserved in
+the backend options. The pinned upstream logon identity still substitutes
+`osd-bridge` for an empty host on the wire.

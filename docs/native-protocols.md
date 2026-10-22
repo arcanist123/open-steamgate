@@ -164,6 +164,6 @@ code. Those failures are retained. A separately labelled
 `go test -race -vet=off ./cmd/osgo` passes; it exercises host tests but does not
 replace the failed vet result. No CI workflow or required check is disabled.
 
-Size budgets are exact physical production lines: rfcnative 108, diagnative
-111. Command glue has an explicitly reasoned package budget; main.go remains
+Size budgets are exact physical production lines: rfcnative 130, diagnative
+117. Command glue has an explicitly reasoned package budget; main.go remains
 at the existing 800-line file ceiling. The size checker and leak scanner pass.
