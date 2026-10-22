@@ -87,8 +87,8 @@
       "reason": "Compute explicit user read grants and pin sandbox handles before constructing any ABAP report; expose granting parameters and the opt-out in help. Native profiling: startup-only label selection in go/profiling."
     },
     "go:cmd/osgo": {
-      "lines": 1383,
-      "reason": "ADT on osgo: /sap/bc/adt mount behind -adt, compiler sidecar status and storecompiler wiring, the ADT session bound per request (adt_session.go: USE_SESSION around the dialog step; generated symbols keep it in cmd/osgo), SYSTEM IDENTITY from the selected SID with Node's ADT client/user/full-name/language derivation; the ADT logoff route and the ENQ kernel hooks over go/adtenq (adt_enq.go) Fix critic findings: generated-only ADT session binding fallback for echo builds, and request-local ENQ handle retention with Pin/Unpin/DropContext around the complete dialog step.; ADT steps keyed by their *abap.Session for the ENQ hooks (carving the ADT host glue into its own package is queued) Sidecar round 2 injects the lazy storecompiler adapter beside the existing compiler status wiring; six lines in cmd/osgo are the only host-lifecycle growth. #39 round 2: bind the status refresh Session to DialogStepIn.; ADT steps: KERNEL_LOCK host lifecycle (go/adtlock) around HTTP and APC steps, the dump re-panicked after cleanup, SYSTEM facts through abap.StoreHook (go/adtsystem) Native profiling: startup-only label selection in go/profiling. #709 review round 2: request-local callback lets the actual ADT/OData dispatchers label matched templates/model names after validation; host labels accepted ICF and static routes without reading raw segments."
+      "lines": 1472,
+      "reason": "ADT on osgo: /sap/bc/adt mount behind -adt, compiler sidecar status and storecompiler wiring, the ADT session bound per request (adt_session.go: USE_SESSION around the dialog step; generated symbols keep it in cmd/osgo), SYSTEM IDENTITY from the selected SID with Node's ADT client/user/full-name/language derivation; the ADT logoff route and the ENQ kernel hooks over go/adtenq (adt_enq.go) Fix critic findings: generated-only ADT session binding fallback for echo builds, and request-local ENQ handle retention with Pin/Unpin/DropContext around the complete dialog step.; ADT steps keyed by their *abap.Session for the ENQ hooks (carving the ADT host glue into its own package is queued) Sidecar round 2 injects the lazy storecompiler adapter beside the existing compiler status wiring; six lines in cmd/osgo are the only host-lifecycle growth. #39 round 2: bind the status refresh Session to DialogStepIn.; ADT steps: KERNEL_LOCK host lifecycle (go/adtlock) around HTTP and APC steps, the dump re-panicked after cleanup, SYSTEM facts through abap.StoreHook (go/adtsystem) Native profiling: startup-only label selection in go/profiling. #709 review round 2: request-local callback lets the actual ADT/OData dispatchers label matched templates/model names after validation; host labels accepted ICF and static routes without reading raw segments. Step3 slice1: startup-only opt-in selection and build-spec/config guards beside the generated typed ABAP bridge; registry lifecycle and diagnostic mapping are isolated in storelint. main.go remains within its 800-line ceiling."
     },
     "go:cmd/storecmp": {
       "lines": 220,
@@ -147,8 +147,8 @@
       "reason": "recorded by --update"
     },
     "go:objstore": {
-      "lines": 2116,
-      "reason": "Per-request SYSTEM provider, passed explicitly and called outside the store mutex; nil preserves the existing protocol byte for byte."
+      "lines": 2214,
+      "reason": "Per-request SYSTEM provider, passed explicitly and called outside the store mutex; nil preserves the existing protocol byte for byte. Step3 slice1: CaptureLint reads a complete immutable store-view snapshot under the existing mutex, including sorted roots, hidden-layer identity, library lists and strict IO refusals. Engine/session ownership and diagnostic policy remain outside objstore in storelint."
     },
     "go:reportargs": {
       "lines": 210,
@@ -625,6 +625,10 @@
     "tools/gogen/frontend-expressions-calls.mjs": {
       "lines": 234,
       "reason": "abapiti casts round 2 2026-10-21: every JSDoc cast the branch added over origin/main is gone; main's expression text is back, with an abapiti-form-pending @ts-expect-error line where tsc rejects it (isStmt now returns boolean, so a StatementNode is no longer narrowed to never after a failed check); executable text unchanged (execdiff clean). abapiti casts 2026-10-21: casts abapiti checks at run time replaced by main's text plus an abapiti-form-pending @ts-expect-error line, or by declared types; executable text unchanged (execdiff clean). tscheck 2026-10-20: the file is under // @ts-check; the added lines are JSDoc parameter/return types and type casts, executable text unchanged (execdiff clean). Chain E6a on Q1/T1/K4a: source/call helpers moved byte-identically; fieldOf comes from T1, SQL source helpers come from E6a; exact physical line count."
+    },
+    "go:storelint": {
+      "lines": 248,
+      "reason": "Step3 slice1: neutral saved-CHECKRUN compiler with injected ABAP callbacks, single-prime lifecycle, serialized checks, corpus identity guards, explicit refusals and Node-compatible diagnostic mapping; no ABAP runtime dependency."
     }
   },
   "readmeMissing": [

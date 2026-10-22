@@ -1,19 +1,19 @@
-# Step 3, slice 0: persistent lint engine
+# Step 3: persistent lint engine
 
 `abap/src/lint/` contains `ZCL_OSD_LINT_ENGINE` and its refusal exception;
 `abap/zosd_lint_probe.prog.abap` is the standalone OSGo report. This tools
 directory is outside `abap_transpile.json`'s `src/test/gen` inputs and
 `abaplint.jsonc`'s global files, and has no discoverable pack manifest. Normal
 `npm test`, transpilation and default packs therefore do not load the external
-`zcl_lnt_*` references. Nothing is added to the HTTP host in this slice.
+`zcl_lnt_*` references. Slice 1 links it into the HTTP host only on request.
 
 `prime(files,deps,config)` replaces one static registry, parsing once through
 `ZCL_LNT_REGISTRY_RUN`. A failed prime clears the previous registry. `check`
 resolves the file's owning object and returns its ordered issues, including
 issues in other includes of that object. Missing prime/file/object raises
 `ZCX_OSD_LINT_ENGINE`, never a successful empty result. Callers must serialize
-access and own the relevant ABAP statics; there is no session/cache-identity
-policy here yet. `update` explicitly raises: generated `update_file` exists,
+access and own the relevant ABAP statics; the slice 1 host policy is below.
+`update` explicitly raises: generated `update_file` exists,
 but dependent invalidation and overlay restoration belong to the next slice.
 
 ## Pins and generated member names
@@ -205,3 +205,157 @@ implementations with empty class blocks to keep this inexpensive; it checks
 the adapter's signatures/types and syntax, not generated implementation bodies
 or native execution. It also checks the probe and abapGit metadata. No normal
 build settings or library checkout are edited by these checks.
+
+## Slice 1: opt-in saved CHECKRUN in the serving OSGo process
+
+Build from a normally prepared checkout (packs/libs fetched and `gen/` current).
+The external full zlnt folder stays outside Git. From this repository root:
+
+```sh
+ZLNT=$(realpath ../zlnt/out)
+OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh node tools/gogen/osgo.mjs \
+  --lint-lib "$ZLNT/native/lib"
+```
+
+This extends `compileOsg`'s usual layer/library folders with the external zlnt
+folder and `tools/step3/abap/src/lint`, and emits `zz_lint.go` next to the
+compiled classes. Without `--lint-lib`, neither folder is loaded and that file
+contains no linkage. The binary remains `tools/gogen/.out/osgo`. Normal builds
+and ordinary CHECK/OUTLINE still use their existing providers.
+
+`-lint-engine=abap` (or `OSD_LINT_ENGINE=abap`) selects `storelint.Compiler` for
+CHECKRUN. An explicit flag overrides the environment; the default is `node`.
+There is no fallback to Node for an opted-in source CHECKRUN. Selecting ABAP
+on a binary built without `--lint-lib` keeps the server running, with source
+CHECKRUN returning `notProcessed` and a rebuild instruction in `statusText`.
+
+The build embeds the effective config returned by the real `configuredRegistry`
+(the same JSON object that `lint-oracle.mjs --export-adt-config` prints), plus
+the Node store's ordered file membership and hidden-layer decisions. At startup,
+Go reads bytes from the configured object-store roots and library file lists;
+ABAP, XML and ASDDLS files retain the leading `/` used by Node's registry.
+Libraries are checkable inputs, as in `buildRegistry`, rather than dependencies.
+The Go list must match the build's Node list exactly before priming. The
+zlnt implementation itself is compiled code, not an additional registry input.
+
+Prime runs once, synchronously before HTTP readiness. The generated bridge owns
+one private `abap.Session` and `abap.Statics`, retained by closures for the
+server's lifetime. `storelint.Compiler` serializes prime/check with its mutex.
+The caller is already inside the HTTP work process; the bridge makes direct
+typed ABAP calls without starting a dialog step, reacquiring `WorkProcess`,
+re-entering HTTP, or borrowing the request's Session. The store still releases
+its mutex around the compiler and performs its normal stale-result checks.
+The existing 30-second CHECKRUN context is checked before/after ABAP execution;
+it cannot preempt generated ABAP mid-call.
+
+Every check verifies the entire ordered corpus identity before and after the
+ABAP call, including metadata, libraries and hidden files. Source edits, new or
+removed files, a different root, or an active-generation change require restart
+and re-prime. Config guards cover `abaplint.jsonc`, `abap_transpile.json`,
+`libs.lock.json` and the selected packs' manifests; changed config or file
+membership/order requires a rebuild. Adding/removing packs or changing layer
+selection likewise requires rebuilding the store facts; this slice does not
+rediscover roots in a running server. Guard/IO failures, missing prime or target,
+and ABAP panics produce `notProcessed` with a reason, never a clean report.
+A failed ABAP call poisons that engine until restart.
+
+`check` selects the saved logical filename for the requested class include (or
+INTF/PROG/INCL main source), then calls `ZCL_OSD_LINT_ENGINE=>CHECK`. Ordered
+issues, including duplicates and issues in sibling includes, map to severity
+`E`, unchanged start row/column and message. URI mapping mirrors `diagnosticUri`
+and `frameUri`, including class namespace escaping, include resources, INCL's
+own URI and fallback to the triggering source. The existing Go inline SOURCE
+refusal and dictionary-presence behavior remain in `storecheck`. DDLS/SRVD
+source checks explicitly refuse here; DDLS generator diagnostics and AMDP
+portability warnings are not supplied by the translated core. AMDP report
+parity remains a separate acceptance gap, alongside the pin and warm-mode gaps.
+
+### HTTP differential gate and proof of execution origin
+
+Use an otherwise idle ABAP server and a **fresh, truncated log for each start**.
+The log records one successful `lint-engine=abap prime=1 files=...`, then an
+entry and completion line for each direct facade check, with a monotonic check
+counter, issue count and elapsed time. A failure has no completion line.
+The diff script requires that log and checks one completed invocation per POST.
+
+For the stronger no-sidecar gate, run a copy of the binary in a directory with
+no `osd` sidecar beside it. A nonexistent `OSGO_SIDECAR` alone is insufficient:
+discovery also searches beside the executable.
+
+```sh
+mkdir -p .local/step3/abap-only
+cp tools/gogen/.out/osgo .local/step3/abap-only/osgo
+OSGO_SIDECAR="$PWD/.local/step3/no-sidecar" OSD_HEAVY_RANGE=80-89 \
+  tools/osd-heavy.sh .local/step3/abap-only/osgo \
+  -adt -lint-engine=abap -root "$PWD" \
+  2> .local/step3/osgo-abap.log
+```
+
+Start the normal Node ADT host over the **same saved corpus, libraries, layers
+and config**. Set `ABAP_URL` and `NODE_URL` to the respective loopback origins
+using the actual ports reported by their launchers. The script uses the
+conformance HTTP Session for CSRF/cookies and its namespace-aware response XML
+reader; it does not compare a standalone CLI dump.
+
+```sh
+node tools/step3/checkrun-diff.mjs \
+  --abap "$ABAP_URL" --node "$NODE_URL" \
+  --abap-log .local/step3/osgo-abap.log \
+  --variant clean --out .local/step3/http-clean
+```
+
+It always includes `ZCL_OSD_ADT_LOGOFF`, requires zero issues for `clean`, and
+checks each object twice by default. `--objects objects.json` accepts additional
+absolute ADT URIs or records such as
+`{"uri":"/sap/bc/adt/oo/classes/zcl_osd_adt_uri","issues":0}`; `minIssues` is
+also supported. `--repeat N` controls repetitions. Reports must be `processed`;
+the exact ordered `(severity,line,column,message,uri)` tuples must match. No
+message, coordinate, URI, ordering or duplicate normalization is performed.
+`--out` retains both XML responses and parsed JSON. Mismatches exit nonzero.
+
+Repeat with a disposable complete saved-store copy containing the broken logoff
+mutation from `prepare-corpus.mjs` (`step3_undefined = 1.` immediately before
+the `valid_id` assignment). Start **both servers on that broken corpus before
+priming**, use a new ABAP log, and run:
+
+```sh
+node tools/step3/checkrun-diff.mjs \
+  --abap "$ABAP_URL" --node "$NODE_URL" \
+  --abap-log .local/step3/osgo-abap.log \
+  --variant broken --out .local/step3/http-broken
+```
+
+`broken` requires a diagnostic naming `step3_undefined` on both engines, so two
+empty reports cannot pass. Both variants use the same ADT class URI; they are
+separate server lifecycles, not an overlay update. The earlier frozen M1 kit
+alone is not a runnable ADT store: retain the full root/config/library layout
+for this HTTP gate. Preserve any mismatch against OSG's actual .73 Node host;
+a .56 engine-oracle match does not establish .73 product parity.
+
+### Cheap local checks and remaining work
+
+```sh
+(cd tools/gogen/go && GOPROXY=off go test -race ./storelint ./objstore ./storecheck ./storecompiler)
+(cd tools/gogen/go && GOPROXY=off go vet ./storelint ./objstore ./storecheck ./storecompiler)
+(cd tools/gogen/go && GOPROXY=off go build ./storelint ./objstore ./storecheck ./storecompiler)
+node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
+```
+
+The first Node test compiles a small ABAP implementation with the actual public
+facade declaration and verifies the typed bridge and private persistent statics
+without zlnt. The second uses synthetic HTTP servers to test report equality,
+the nonzero broken gate, and execution-origin refusal. Go tests cover mapping,
+refusals, corpus/config changes, serialization and delegation. These checks do
+not substitute for dell's full zlnt build and clean/broken real HTTP gate.
+
+The local echo host also builds and its Go tests pass with existing sibling
+library sources read-only (`OSG_HOME` points to that prepared tree). This clone
+does not have its own pinned `.local/lars` sources. `go vet ./cmd/osgo` reports
+nine unreachable-code findings in generated echo-library methods; no required
+check is suppressed or modified. The neutral touched packages pass vet.
+
+Slice 2 must implement saved edits and overlay/inline SOURCE, including empty
+and new-object buffers, dependent invalidation and restoration after failures;
+match Node warm-mode closure behavior; and migrate/verify the .73 pin. It must
+also close the DDLS/AMDP report gaps and measure end-to-end warm latency and
+retained memory including the identity guards added here.

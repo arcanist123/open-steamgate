@@ -75,7 +75,7 @@ const {cockpitAppsOf} = await import(`${home}/tools/osd-cockpit-apps.mjs`);
 for (const app of cockpitAppsOf(home, layerFolders)) for (const f of walk(app.dir)) hidden.add(f);
 
 /** every class, interface and function group of the layers and libraries, compiled (a statement outside the subset is a stub) */
-export function compileOsg() {
+export function compileOsg({extraFolders = []} = {}) {
   // a pack that fetches a folder and has not: a smaller system than its
   // manifest describes, refused as osd-build.mjs's prepare() refuses it,
   // rather than compiled from whatever is on disk
@@ -86,9 +86,10 @@ export function compileOsg() {
     e.missing = missing;
     throw e;
   }
-  const objects = [...new Set([...layers, ...libs].flatMap(walk).filter((f) => !hidden.has(f) && (/\.(clas|intf)\.abap$/.test(f) || /\.fugr\.xml$/.test(f)) && !f.includes("testclasses")).map((f) => f.split("/").pop().split(".")[0]))];
+  const folders = [...layers, ...libs, ...extraFolders];
+  const objects = [...new Set(folders.flatMap(walk).filter((f) => !hidden.has(f) && (/\.(clas|intf)\.abap$/.test(f) || /\.fugr\.xml$/.test(f)) && !f.includes("testclasses")).map((f) => f.split("/").pop().split(".")[0]))];
   const t0 = performance.now();
-  const program = compileProgram({folders: [...layers, ...libs], objects, tolerant: true, skip: (path) => hidden.has(path)});
+  const program = compileProgram({folders, objects, tolerant: true, skip: (path) => hidden.has(path)});
   const summary = `front end: ${program.classes.length} classes, ${program.partial.length} statement stubs, ${program.skipped.length} methods not compiled, ${program.broken.length} objects with syntax errors (${Math.round(performance.now() - t0)} ms)`;
   return {program, summary: `${summary}\nlayers: ${layerFolders.join(", ")}${overridden.length ? `; overridden: ${overridden.map((o) => `${o.object} by ${o.winner}`).join(", ")}` : ""}`};
 }

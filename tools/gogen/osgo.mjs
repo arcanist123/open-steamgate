@@ -18,9 +18,15 @@ import {join, relative} from "node:path";
 import {columnRegistry, compileProgram} from "./frontend.mjs";
 import {home} from "./home.mjs";
 import {adtSourceHash} from "../osd-adt-gogen-gate.mjs";
+import {lintFolders, lintBuildSpec, lintEngineGo} from "./lint-engine.mjs";
 
 const here = import.meta.dirname;
 const echo = process.argv.includes("--echo");
+const lintLibIndex = process.argv.indexOf("--lint-lib");
+const lintLib = lintLibIndex < 0 ? undefined : process.argv[lintLibIndex + 1];
+if (lintLibIndex >= 0 && (!lintLib || lintLib.startsWith("--"))) throw new Error("--lint-lib PATH is required");
+if (echo && lintLib) throw new Error("--lint-lib requires the full OSGo build, not --echo");
+const extraFolders = lintFolders(home, lintLib);
 const dir = join(here, "go", "cmd", "osgo");
 const out = join(here, ".out", echo ? "osgo-echo" : "osgo");
 const reportPath = `${out}-compile-report.json`;
@@ -58,7 +64,7 @@ if (echo) {
     process.exit(2);
   }
   if (stale) console.warn(`osgo: WARNING ${stale}`);
-  const built = compileOsg();
+  const built = compileOsg({extraFolders});
   program = built.program;
   console.log(built.summary);
   const db = await osgDatabase(program);
@@ -121,6 +127,10 @@ writeFileSync(join(dir, "zz_store.json"), store);
 // the table registry as JSON, the column registry a dynamic WHERE parser reads
 writeFileSync(join(dir, "zz_tables.json"), JSON.stringify(columnRegistry(program), null, 1));
 const has = (fn) => go.includes(`\nfunc ${fn}(`);
+if (lintLib && (!has("ZCL_OSD_LINT_ENGINE_PRIME") || !has("ZCL_OSD_LINT_ENGINE_CHECK"))) {
+  throw new Error("ABAP lint facade methods were not compiled");
+}
+writeFileSync(join(dir, "zz_lint.go"), lintEngineGo(lintLib ? await lintBuildSpec(home) : undefined));
 // the system status of the binary (ultra/json, status.mjs / go/cmd/osgo/status.go):
 // what it serves, and the generation it is
 {
