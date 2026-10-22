@@ -29,8 +29,7 @@ func TestCollateIsLocaleCompare(t *testing.T) {
 	}
 }
 
-// CAPABILITIES names what this host does, so the editor draws no Check or
-// Activate button here; discovery is independent of the source tree
+// CAPABILITIES names what this host does; discovery is independent of the source tree
 func TestStoreCapabilities(t *testing.T) {
 	cmd := "CAPABILITIES"
 	if a := Call(map[string]*string{"IV_COMMAND": &cmd}); a.Scalars["EV_ERROR"] != "" || a.Scalars["EV_NOTE"] != strings.Join(Capabilities, " ") {
@@ -100,6 +99,33 @@ func TestSearchLimitMatchesJavaScriptNumber(t *testing.T) {
 	} {
 		if got := storeSearchLimit(test.input); got != test.want && !(math.IsNaN(got) && math.IsNaN(test.want)) {
 			t.Errorf("limit(%#v) = %v, want %v", test.input, got, test.want)
+		}
+	}
+}
+
+type nativeCapabilityCompiler struct {
+	testCompiler
+	linked bool
+}
+
+func (c *nativeCapabilityCompiler) SupportsCheckSource() bool { return c.linked }
+
+func TestStoreNativeCheckCapability(t *testing.T) {
+	defer SetCompiler(nil, "")
+	cmd := "CAPABILITIES"
+	for _, linked := range []bool{false, true} {
+		SetCompiler(&nativeCapabilityCompiler{linked: linked}, "")
+		caps := strings.Fields(Call(map[string]*string{"IV_COMMAND": &cmd}).Scalars["EV_NOTE"])
+		has := func(command string) bool {
+			for _, c := range caps {
+				if c == command {
+					return true
+				}
+			}
+			return false
+		}
+		if has("CHECK") != linked || has("ACTIVATE") {
+			t.Fatalf("linked=%v capabilities=%v", linked, caps)
 		}
 	}
 }

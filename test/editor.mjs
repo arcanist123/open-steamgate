@@ -1,6 +1,7 @@
 import {expect} from "chai";
 import {readFileSync} from "node:fs";
 import {startServer} from "./start.mjs";
+import {givenText, fill} from "../tools/osd-destination.mjs";
 
 // The editor screen (backlog G.8, /sap/bc/osd/edit/): pick an object, change
 // its source, check it, activate it -- in a browser, with no JavaScript.
@@ -132,21 +133,38 @@ describe("the editor", function () {
   });
 
   it("draws the buttons the host says it can do, and on Node that is all three", async () => {
-    // STORE CAPABILITIES decides them: OSGo cannot check or activate, and
-    // a button that could only ever be refused is not drawn there. Save is
-    // every host's; Check and Activate come as a pair, because both need the
-    // compiler. Only an inline server has the Node store in this process, so
-    // only there is "all three" a fact this test can hold the page to; a
-    // server in another process (OSGo under tools/gogen/parity.mjs) is held
-    // to what every host must draw.
+    // Hosts advertise Check and Activate independently.
     const page = await (await fetch(`${BASE}?type=CLAS&name=${OBJECT}&change=x`)).text();
     const has = (v) => page.includes(`value="${v}">`);
     expect(has("save"), "Save is every host's").to.equal(true);
-    expect(has("check"), "Check and Activate come together").to.equal(has("activate"));
     if (globalThis.abap?.context?.RFCDestinations?.STORE !== undefined) {
       expect(page).to.contain('value="check">Check</button>');
       expect(page).to.contain('value="save">Save</button>');
       expect(page).to.contain('value="activate">Activate</button>');
+    }
+  });
+
+  it("shows native Check without advertising Activate", async function () {
+    const destinations = globalThis.abap?.context?.RFCDestinations;
+    if (destinations?.STORE === undefined) this.skip();
+    const real = destinations.STORE;
+    destinations.STORE = {
+      call: async (name, signature) => {
+        if (givenText(signature, "IV_COMMAND") === "CAPABILITIES") {
+          fill(signature, {EV_NOTE: "LIST READ WRITE CHECK"});
+          return;
+        }
+        return real.call(name, signature);
+      },
+    };
+    try {
+      const page = await (await fetch(`${BASE}?type=CLAS&name=${OBJECT}&change=x`)).text();
+      expect(page).to.contain('value="check">Check</button>');
+      expect(page).to.not.contain('value="activate">');
+      expect(page).to.contain("Activation requires rebuilding");
+      expect(page).to.not.contain("not check or activate");
+    } finally {
+      destinations.STORE = real;
     }
   });
 

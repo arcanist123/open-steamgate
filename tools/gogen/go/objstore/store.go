@@ -238,11 +238,13 @@ func Call(in map[string]*string) Answer {
 		a.Scalars["EV_NOTE"] = strings.Join(Commands, " ")
 		return a
 	case "CAPABILITIES":
-		// what this host can do, for a screen that draws a button only for
-		// a command named here (ZCL_OSD_EDIT): no CHECK and no ACTIVATE,
-		// since this binary carries no compiler and is a built generation.
-		// Node answers all five (tools/osd-store-destination.mjs).
-		a.Scalars["EV_NOTE"] = strings.Join(Capabilities, " ")
+		// Native CHECK is independent of sidecar discovery. A built host still
+		// cannot activate changed sources without rebuilding its generation.
+		caps := append([]string(nil), Capabilities...)
+		if native, ok := compilerState.provider.(interface{ SupportsCheckSource() bool }); ok && native.SupportsCheckSource() {
+			caps = append(caps, "CHECK")
+		}
+		a.Scalars["EV_NOTE"] = strings.Join(caps, " ")
 		return a
 	case "SYSTEM":
 		kind := text("IV_TYPE", "")
