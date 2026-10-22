@@ -235,11 +235,19 @@ func abs64(v int64) int64 {
 type Exception struct {
 	Class  string
 	Op     string
-	Detail string // host-only diagnostic context, excluded from Text/get_text
+	Detail string `json:"-" xml:"-"` // host-only diagnostic context
 	Obj    any    // the object of a RAISE EXCEPTION, nil for the runtime's own
 }
 
-func (e *Exception) Text() string { return e.Class + " in " + e.Op }
+func (e *Exception) Text() string  { return e.Class + " in " + e.Op }
+func (e *Exception) Error() string { return e.Text() }
+func (e *Exception) DiagnosticDetail() string {
+	if e == nil {
+		return ""
+	}
+	return e.Detail
+}
+func (r *Rethrown) DiagnosticCause() (string, any) { return "", r.V }
 
 // Ptr passes a value that is not a variable where a pointer is expected (a
 // composite IMPORTING by reference given an expression).

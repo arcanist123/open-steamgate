@@ -571,6 +571,7 @@ CLASS zcl_cast_diag IMPLEMENTATION. ENDCLASS.`);
     METHODS caught FOR TESTING.
     METHODS uncaught FOR TESTING.
     METHODS create_wrong FOR TESTING.
+    METHODS rethrow_widened FOR TESTING.
 ENDCLASS.
 CLASS ltcl_cast IMPLEMENTATION.
   METHOD caught.
@@ -590,6 +591,19 @@ CLASS ltcl_cast IMPLEMENTATION.
     CREATE OBJECT source TYPE zcl_cast_diag.
     target ?= source.
   ENDMETHOD.
+  METHOD rethrow_widened.
+    DATA source TYPE REF TO object.
+    DATA target TYPE REF TO zcl_cast_target.
+    DATA widened TYPE REF TO cx_root.
+    CREATE OBJECT source TYPE zcl_cast_diag.
+    TRY.
+      target ?= source.
+    CATCH cx_sy_move_cast_error INTO DATA(error).
+      widened = error.
+      cl_abap_unit_assert=>assert_equals( act = widened->get_text( ) exp = 'CX_SY_MOVE_CAST_ERROR in ?=' ).
+      RAISE EXCEPTION widened.
+    ENDTRY.
+  ENDMETHOD.
   METHOD create_wrong.
     DATA target TYPE REF TO zcl_cast_target.
     DATA name TYPE string VALUE 'ZCL_CAST_DIAG'.
@@ -602,6 +616,8 @@ ENDCLASS.`);
     assert.equal(run.status, 1, run.stderr || run.stdout || run.error?.message);
     const rows = Object.fromEntries(JSON.parse(run.stdout).rows.map(row => [row.method, row]));
     assert.equal(rows.CAUGHT.status, "SUCCESS", JSON.stringify(rows));
+    assert.equal(rows.RETHROW_WIDENED.status, "FAILED");
+    assert.match(rows.RETHROW_WIDENED.message, /^UNCAUGHT_EXCEPTION CX_SY_MOVE_CAST_ERROR \[\*main\.ZCL_CAST_DIAG -> \*main\.ZCL_CAST_TARGET at .*zcl_cast_diag\.clas\.testclasses\.abap:\d+\]$/);
     for (const [method, op] of [["UNCAUGHT", "?="], ["CREATE_WRONG", "CREATE OBJECT TYPE (ZCL_CAST_DIAG)"]]) {
       assert.equal(rows[method].status, "FAILED");
       assert.ok(rows[method].message.startsWith(`CX_SY_MOVE_CAST_ERROR in ${op} [`), rows[method].message);

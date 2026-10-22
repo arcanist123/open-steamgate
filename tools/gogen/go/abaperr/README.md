@@ -8,5 +8,7 @@ This package has no imports and go/abap aliases both types for identity.
 `ArithmeticError.Detail` is optional host diagnostic context. `Error()` and
 `abap.Exception.Text()`/`TextOf()` exclude it so ABAP `get_text` and semantic
 comparisons retain their text. Uncaught-exception reporters, including bridge
-`main` functions such as step4b, should use `abap.DumpText(recovered)` to append
+`main` functions such as step4b, should use `castdiag.DumpText(recovered)` to append
 ` [detail]`; it also handles caught/rethrown and materialised kernel exceptions.
+
+Detail is excluded from JSON/XML encoding; castdiag consumes DiagnosticDetail.

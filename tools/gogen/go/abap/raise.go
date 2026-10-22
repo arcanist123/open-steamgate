@@ -100,6 +100,10 @@ func Raise(obj any, class string) *Raised {
 	if e, ok := obj.(*Exception); ok {
 		return &Raised{Obj: e.Obj, Class: e.Class, Caught: e}
 	}
+	if root, ok := obj.(interface{ GetKernelException() *Exception }); ok && root.GetKernelException() != nil {
+		e := root.GetKernelException()
+		return &Raised{Obj: obj, Class: e.Class, Caught: e}
+	}
 	if class == "" {
 		class = ClassOf(obj)
 		if class == "" {
@@ -211,4 +215,15 @@ func CctorGuard(class string, done *bool) {
 		Repanic(CctorDump{Class: class, Cause: cause}, debug.Stack())
 	}
 	panic(r)
+}
+
+// DiagnosticDetail exposes only host context, retaining Error/get_text behavior.
+func (r *Raised) DiagnosticDetail() string {
+	if r != nil && r.Caught != nil {
+		return r.Caught.Detail
+	}
+	return ""
+}
+func (e CctorDump) DiagnosticCause() (string, any) {
+	return "RUNTIME_ERROR in " + e.Class + "=>CLASS_CONSTRUCTOR: ", e.Cause
 }

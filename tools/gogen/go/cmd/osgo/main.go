@@ -41,6 +41,7 @@ import (
 
 	"osg/gogen/abap"
 	"osg/gogen/apc"
+	"osg/gogen/castdiag"
 	"osg/gogen/compiler"
 	"osg/gogen/objstore"
 	"osg/gogen/osdbind"
@@ -218,7 +219,7 @@ func abapStack(r any) []string {
 }
 
 func dumpText(r any) string {
-	return abap.DumpText(r)
+	return castdiag.DumpText(r)
 }
 
 // step runs one ICF request through the shim as a dialog step. The dump, if

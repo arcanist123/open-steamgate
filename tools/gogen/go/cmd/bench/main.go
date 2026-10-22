@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"osg/gogen/abap"
+	"osg/gogen/castdiag"
 )
 
 type testCase struct {
@@ -35,13 +36,10 @@ func run(c testCase) (v float64, err string) {
 	defer func() {
 		if r := recover(); r != nil {
 			if e, ok := r.(abap.ArithmeticError); ok {
-				err = e.Class
-				if e.Detail != "" {
-					err += " [" + e.Detail + "]"
-				}
+				err = castdiag.WithDetail(e.Class, e.Detail)
 				return
 			}
-			err = abap.DumpText(r)
+			err = castdiag.DumpText(r)
 		}
 	}()
 	return Call(c.Method, &abap.Session{}, c.Args), ""

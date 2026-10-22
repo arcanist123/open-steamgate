@@ -16,6 +16,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"osg/gogen/abap"
+	"osg/gogen/castdiag"
 	"osg/gogen/filepick"
 	"osg/gogen/profiling"
 	"osg/gogen/readgrant"
@@ -60,7 +61,7 @@ func main() {
 	profiling.Report(profileReports, appProgram, "", func() {
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Fprintln(os.Stderr, "osabap:", abap.DumpText(withoutDB(r)))
+				fmt.Fprintln(os.Stderr, "osabap:", castdiag.DumpText(withoutDB(r)))
 				failed = true
 			}
 		}()
