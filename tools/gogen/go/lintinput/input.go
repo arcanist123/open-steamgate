@@ -115,11 +115,11 @@ func Structure(root string, spec Spec) (string, bool, error) {
 // membership only if it can change a layer winner or expose a hidden object.
 func NeedsLayers(root string, spec Spec, snapshot objstore.LintSnapshot) bool {
 	key := func(file string) string {
-		parts := strings.Split(strings.ToLower(filepath.Base(file)), ".")
-		if len(parts) < 3 || strings.HasSuffix(file, ".devc.xml") {
+		identity := storelint.ObjectIdentity(file)
+		if strings.HasSuffix(identity, ".DEVC") {
 			return ""
 		}
-		return strings.Join(parts[:2], ".")
+		return identity
 	}
 	dirs := map[string]string{}
 	now, before, hidden := map[string]bool{}, map[string]bool{}, map[string]bool{}
