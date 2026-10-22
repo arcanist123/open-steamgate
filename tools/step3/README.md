@@ -354,8 +354,132 @@ does not have its own pinned `.local/lars` sources. `go vet ./cmd/osgo` reports
 nine unreachable-code findings in generated echo-library methods; no required
 check is suppressed or modified. The neutral touched packages pass vet.
 
-Slice 2 must implement saved edits and overlay/inline SOURCE, including empty
-and new-object buffers, dependent invalidation and restoration after failures;
-match Node warm-mode closure behavior; and migrate/verify the .73 pin. It must
-also close the DDLS/AMDP report gaps and measure end-to-end warm latency and
-retained memory including the identity guards added here.
+Slice 1's restart/source refusals above are historical. Slice 2 below replaces
+them. Warm checks, the .73 pin, DDLS/AMDP and measurements remain separate gates.
+
+## Slice 2: edits and inline SOURCE without restarting
+
+The ABAP provider keeps the saved snapshot bytes and the same private
+Session/Statics and mutex. Before each CHECKRUN it captures the current saved
+corpus, removes deleted files in the old order, then updates/adds changed files
+in the current order through `ZCL_OSD_LINT_ENGINE=>UPDATE`. A content change or
+ordinary file addition/removal does not re-prime. A generation switch between
+requests is accepted; the store still rejects a switch, write or source/config
+change during a request with a retry reason. The default Go/Node snapshot path
+and ordinary CHECK/OUTLINE retain their existing behavior.
+
+The facade uses zlnt `update_file`, `add_file` and `remove_file`, then parses.
+Its retained lexical reader index follows Node's `OBJECT_NAME_PATTERN`, including
+mentions in comments, strings and metadata. It reindexes the changed object,
+removes stale object identities and dirties the transitive reader closure before
+parsing. Both sides of an overlay use this exact update path. This implements
+saved-registry invalidation; it does not select or implement the separate Node
+warm-check mode.
+
+A SOURCE request resolves the saved main/include filename, or the first
+writable root's `osd/<name>.<type>.abap` filename for a new object, matching Node.
+An empty buffer is an update, distinct from removal. Under the checker mutex,
+Go installs the overlay, calls ABAP CHECK, and restores the exact original bytes
+(or removes a temporary new file) in a defer before checking input identity and
+logging completion. Saved snapshots never adopt the overlay. A thrown check
+returns `notProcessed`; after successful restoration the next request can run.
+A failed update, restore or re-prime poisons the registry and requires restart,
+since its state cannot be proven. No file is written for SOURCE.
+
+Config guards, pack discovery and potential layer-winner changes select a full
+re-prime fallback. `tools/step3/lint-inputs.mjs` reuses the real Node store/layer
+resolver and `configuredRegistry`, exporting facts without checking source.
+The ABAP engine is then fully re-primed with those facts; the processed report's
+`statusText` says `ABAP lint: full re-prime after structural layer/config change`.
+This structural fallback requires Node and the checkout's dependencies; if
+unavailable, `notProcessed` explicitly says full re-prime needs structural input
+resolution. Ordinary saved edits, file additions/removals without shadowing, and
+overlays do not invoke Node or the compiler sidecar. Newly resolved checker roots
+do not republish the runtime or replace the Go object's store build/active-version
+facts; installing/routing new pack objects still belongs to host publication.
+
+A full re-prime that exceeds the existing 30-second CHECKRUN context reports
+the structural fallback and timeout; retry uses the completed primed registry.
+Snapshot capture still reads/hashes the whole saved corpus before and after a
+check. The Go baseline retains one saved byte copy in addition to the ABAP
+registry and its reader index. End-to-end latency and retained memory must be
+measured on the full native build; this slice makes no warm-latency claim.
+
+### Slice 2 HTTP gates
+
+Build with `--lint-lib` and start an otherwise idle ABAP host and the normal
+Node host as in Slice 1, over the same clean saved corpus/config and a fresh
+ABAP log. The hosts may share a disposable source root or use identical copies.
+Do not restart either host between phases. Keep the Node runtime pinned to its
+already compiled clean output when preparing a disposable tree, as in the
+Slice-1 gate; checking an intentionally broken saved draft must not trigger a
+runtime rebuild.
+
+```sh
+node tools/step3/checkrun-diff.mjs \
+  --abap "$ABAP_URL" --node "$NODE_URL" \
+  --abap-log .local/step3/osgo-abap.log \
+  --mode overlay --out .local/step3/http-overlay
+
+node tools/step3/checkrun-diff.mjs \
+  --abap "$ABAP_URL" --node "$NODE_URL" \
+  --abap-log .local/step3/osgo-abap.log \
+  --mode saved-edit --out .local/step3/http-saved-edit
+```
+
+Overlay mode GETs and compares the hosts' saved logoff source, then POSTs inline
+base64 clean -> broken (`step3_undefined`) -> clean text. After **each** overlay,
+a saved CHECKRUN must be clean, proving broken diagnostics do not survive
+restoration. It also checks a brand-new `ZCL_STEP3_OVERLAY_NEW` class, requiring
+GET 404 before and after, and verifies the saved logoff bytes remain identical.
+Each round has seven exact comparisons; the default two rounds yield 14.
+The temporary class URI must be absent before starting.
+
+Saved-edit mode supports writes: it uses the conformance kit's stateful Session,
+LOCK/accessMode=MODIFY, PUT source/main with lockHandle, and UNLOCK. It writes
+clean -> broken -> clean on both hosts and checks after each phase (six exact
+comparisons with default repetitions). Finally it attempts restoration and
+unlock on **both** hosts even if a check or one host's cleanup fails. Use a
+disposable clean tree; original text is restored, while draft/history metadata
+can record the test writes. Neither mode activates or republishes a generation.
+
+Both modes require processed reports, exact ordered diagnostic tuples and
+status text, a nonempty broken diagnostic naming `step3_undefined`, one startup
+prime and exactly one completed direct ABAP check per comparison. They retain
+XML/JSON with `--out`; failures exit nonzero. Default `--mode saved` preserves
+the original clean/broken saved-corpus gate. `--repeat N` controls repetitions.
+
+### Local evidence and remaining acceptance work
+
+Cheap checks for Slice 2:
+
+```sh
+(cd tools/gogen/go && GOPROXY=off go test -race \
+  ./storelint ./objstore ./storecheck ./storecompiler ./cmd/osgo)
+(cd tools/gogen/go && GOPROXY=off go vet \
+  ./storelint ./objstore ./storecheck ./storecompiler)
+node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
+# Reuse the focused source-check commands above for open-abap and v750.
+git diff --check
+```
+
+Go tests cover remove/update/add order, overlay/check/restore order for existing
+and new objects, empty text, thrown checks and retries, restore failure poisoning,
+config re-prime status, pack/shadow discovery, generation changes, serialization,
+and unchanged Node refusals. Node tests exercise the typed update/remove bridge,
+the real Node registry's transitive invalidation and finally restoration, actual
+structural fact export, and synthetic HTTP overlay/write gates including cleanup
+after mismatches and HTTP failures. The facade passes focused open-abap/v750
+source checks against the supplied zlnt declarations; ABAP stays ASCII and within
+255 columns.
+
+The gogen workflow runs the bridge/gate Node tests and the neutral checker
+packages under vet and race tests.
+
+These are local unit/source checks, not native execution parity evidence. Dell/i10
+must build the full zlnt-linked executable and run both Slice-2 HTTP modes against
+the actual .73 Node host, preserving mismatches and timing/memory evidence.
+Slice 1's 24/24 gate at `5055acad` does not establish edit/overlay parity.
+Remaining work: Node warm-check mode/closure acceptance and warm measurements;
+engine .56 -> .73 migration/parity beyond these fixtures; DDLS generator
+diagnostics; AMDP portability warnings and their ADT report mapping.
