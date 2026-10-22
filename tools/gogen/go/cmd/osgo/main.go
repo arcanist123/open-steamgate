@@ -489,6 +489,7 @@ func main() {
 	compilerStatus := flag.Bool("compiler-status", false, "print compiler sidecar status as JSON")
 	version := flag.Bool("version", false, "print release tag and commit")
 	adtFlag := flag.Bool("adt", false, "mount /sap/bc/adt through ZCL_OSD_ADT_HANDLER (also OSD_OSGO_ADT=1; default off)")
+	lintEngineFlag := flag.String("lint-engine", os.Getenv("OSD_LINT_ENGINE"), "CHECKRUN engine: node, abap or go (default: go when Go lint library is linked, otherwise node; in-process engines require --lint-lib build)")
 	pprofFlag := flag.Bool("pprof", false, "enable loopback-only profiling (also OSD_PPROF=1)")
 	pprofAddr := flag.String("pprof-addr", "", "separate profiling listener (default 127.0.0.1:6060)")
 	root := flag.String("root", osgRoot, "the checkout whose webapp/ is served")
@@ -500,6 +501,10 @@ func main() {
 	tlsCert := flag.String("tls-cert", "", "the certificate (PEM) for -tls-port")
 	tlsKey := flag.String("tls-key", "", "its private key (PEM)")
 	flag.Parse()
+	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
+	if lintErr != nil {
+		log.Fatal(lintErr)
+	}
 	if *compilerStatus {
 		raw, err := compiler.StatusJSON(context.Background(), compiler.Options{Root: *root, Version: releaseTag})
 		if err == nil {
@@ -578,7 +583,7 @@ func main() {
 
 	compilerClient := compiler.New(compiler.Options{Root: *root, Version: releaseTag})
 	defer compilerClient.Close()
-	objstore.SetCompiler(storecompiler.Adapter{Client: compilerClient}, liveGeneration(*root))
+	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
 
 	if *dbFile == "" {
 		if err := abap.OpenDB(dbScript); err != nil {

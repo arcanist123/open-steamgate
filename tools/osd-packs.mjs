@@ -199,6 +199,8 @@ export function packAt(root, dir) {
     // one folder unless the manifest names several, in its order; "src" is
     // abapGit's default and "." is a pack that is itself a repository folder
     abap: declaredAbap === undefined ? abap.slice(0, 1) : abap,
+    // Keep absent candidates too: checker capture watches directory creation.
+    abapCandidates: (declaredAbap ?? ["src", "."]).filter(f => f !== null && f !== false).map(f => join(dir, f)),
     data: inside(declared.data, "data"),
     ddic: inside(declared.ddic, join(relative(dir, abap[0] ?? dir), "ddic")),
     webapp: inside(declared.webapp, "webapp"),

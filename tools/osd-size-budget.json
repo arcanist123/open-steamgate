@@ -14,6 +14,10 @@
     "tools/gogen/js/abap.mjs"
   ],
   "budgets": {
+    "go:lintinput": {
+      "lines": 338,
+      "reason": "Self-contained checker input resolver/capture extracted from cmd/osgo for isolated tests and build caching. Review #834: library namespace fingerprints watch configured empty/missing folders and trigger canonical glob/exclusion resolution before capture; this is checker input resolution, independent of generated engines. Review #834 round 2: 35 production lines above 303 watch the existence/type of every declared pack ABAP candidate, including absent folders, using the canonical resolver facts. This is the same input-resolution boundary; a separate package would expose a single private stat loop without isolating another capability."
+    },
     "go:dyncall": {
       "lines": 74,
       "reason": "Extract dynamic static method name/signature dispatch from go/abap; generic host values and injected exception/refusal callbacks keep the package independent of ABAP binding glue."
@@ -87,8 +91,8 @@
       "reason": "Compute explicit user read grants and pin sandbox handles before constructing any ABAP report; expose granting parameters and the opt-out in help. Native profiling: startup-only label selection in go/profiling. 2026-10-22: one import wires the host-only castdiag reporter at the existing uncaught boundary."
     },
     "go:cmd/osgo": {
-      "lines": 1383,
-      "reason": "ADT on osgo: /sap/bc/adt mount behind -adt, compiler sidecar status and storecompiler wiring, the ADT session bound per request (adt_session.go: USE_SESSION around the dialog step; generated symbols keep it in cmd/osgo), SYSTEM IDENTITY from the selected SID with Node's ADT client/user/full-name/language derivation; the ADT logoff route and the ENQ kernel hooks over go/adtenq (adt_enq.go) Fix critic findings: generated-only ADT session binding fallback for echo builds, and request-local ENQ handle retention with Pin/Unpin/DropContext around the complete dialog step.; ADT steps keyed by their *abap.Session for the ENQ hooks (carving the ADT host glue into its own package is queued) Sidecar round 2 injects the lazy storecompiler adapter beside the existing compiler status wiring; six lines in cmd/osgo are the only host-lifecycle growth. #39 round 2: bind the status refresh Session to DialogStepIn.; ADT steps: KERNEL_LOCK host lifecycle (go/adtlock) around HTTP and APC steps, the dump re-panicked after cleanup, SYSTEM facts through abap.StoreHook (go/adtsystem) Native profiling: startup-only label selection in go/profiling. #709 review round 2: request-local callback lets the actual ADT/OData dispatchers label matched templates/model names after validation; host labels accepted ICF and static routes without reading raw segments."
+      "lines": 1438,
+      "reason": "ADT on osgo: /sap/bc/adt mount behind -adt, compiler sidecar status and storecompiler wiring, the ADT session bound per request (adt_session.go: USE_SESSION around the dialog step; generated symbols keep it in cmd/osgo), SYSTEM IDENTITY from the selected SID with Node's ADT client/user/full-name/language derivation; the ADT logoff route and the ENQ kernel hooks over go/adtenq (adt_enq.go) Fix critic findings: generated-only ADT session binding fallback for echo builds, and request-local ENQ handle retention with Pin/Unpin/DropContext around the complete dialog step.; ADT steps keyed by their *abap.Session for the ENQ hooks (carving the ADT host glue into its own package is queued) Sidecar round 2 injects the lazy storecompiler adapter beside the existing compiler status wiring; six lines in cmd/osgo are the only host-lifecycle growth. #39 round 2: bind the status refresh Session to DialogStepIn.; ADT steps: KERNEL_LOCK host lifecycle (go/adtlock) around HTTP and APC steps, the dump re-panicked after cleanup, SYSTEM facts through abap.StoreHook (go/adtsystem) Native profiling: startup-only label selection in go/profiling. #709 review round 2: request-local callback lets the actual ADT/OData dispatchers label matched templates/model names after validation; host labels accepted ICF and static routes without reading raw segments. Step3 slice1: startup-only opt-in selection and build-spec/config guards beside the generated typed ABAP bridge; registry lifecycle and diagnostic mapping are isolated in storelint. main.go remains within its 800-line ceiling. Step3 slice2: structural config/pack/shadow detection and the existing Node fact resolver replace restart-only guards; startup selection and the generated ABAP adapter stay here, while incremental updates, overlay restoration and diagnostic mapping remain in storelint. No frontend/runner or HTTP dispatcher growth. TS-HG lint engine: ten lines of additional startup factory/selection glue for go beside abap; the generated bridge owns external package types and storelint still owns checker behavior. No frontend, runner or HTTP dispatcher growth. TS-HG default: nine lines choose go when the bridge is linked (logged once) and keep known duplicate files off the Node layer resolver, which had cost two child processes per CHECKRUN; selection stays beside the other startup glue. Review #834: extract resolver, capture, duplicate detection and config hashing to lintinput (195 command lines removed). The complete original PR added 250 command lines, not nine."
     },
     "go:cmd/storecmp": {
       "lines": 220,
@@ -147,8 +151,8 @@
       "reason": "recorded by --update"
     },
     "go:objstore": {
-      "lines": 2116,
-      "reason": "Per-request SYSTEM provider, passed explicitly and called outside the store mutex; nil preserves the existing protocol byte for byte."
+      "lines": 2251,
+      "reason": "Per-request SYSTEM provider, passed explicitly and called outside the store mutex; nil preserves the existing protocol byte for byte. Step3 slice1: CaptureLint reads a complete immutable store-view snapshot under the existing mutex, including sorted roots, hidden-layer identity, library lists and strict IO refusals. Engine/session ownership and diagnostic policy remain outside objstore in storelint. Step3 slice2: capture independently resolved checker facts without mutating active-version proofs; resolve new SOURCE object targets and accept between-request generation changes only for ABAP CHECKRUN. Concurrent-change guards and the default Node snapshot path remain intact."
     },
     "go:reportargs": {
       "lines": 210,
@@ -551,8 +555,8 @@
       "reason": "PR #709 review: clear pprof labels at persistent reader and Unix/Windows exit watcher entry points. Fix1: optional logicalPath per snapshot file and optional saved CHECK mode preserve contract v1; per-occurrence mappings permit multiple logical includes backed by one shared digest file."
     },
     "go:storecheck": {
-      "lines": 204,
-      "reason": "recorded by --update"
+      "lines": 227,
+      "reason": "recorded by --update Step3 slice2: optional source/report provider capabilities preserve default Node SOURCE refusals while supporting ABAP overlays and structural re-prime statusText; this remains protocol orchestration with no registry implementation."
     },
     "go:storecompiler": {
       "lines": 77,
@@ -625,6 +629,10 @@
     "tools/gogen/frontend-expressions-calls.mjs": {
       "lines": 234,
       "reason": "abapiti casts round 2 2026-10-21: every JSDoc cast the branch added over origin/main is gone; main's expression text is back, with an abapiti-form-pending @ts-expect-error line where tsc rejects it (isStmt now returns boolean, so a StatementNode is no longer narrowed to never after a failed check); executable text unchanged (execdiff clean). abapiti casts 2026-10-21: casts abapiti checks at run time replaced by main's text plus an abapiti-form-pending @ts-expect-error line, or by declared types; executable text unchanged (execdiff clean). tscheck 2026-10-20: the file is under // @ts-check; the added lines are JSDoc parameter/return types and type casts, executable text unchanged (execdiff clean). Chain E6a on Q1/T1/K4a: source/call helpers moved byte-identically; fieldOf comes from T1, SQL source helpers come from E6a; exact physical line count."
+    },
+    "go:storelint": {
+      "lines": 512,
+      "reason": "Step3 slice1: neutral saved-CHECKRUN compiler with injected ABAP callbacks, single-prime lifecycle, serialized checks, corpus identity guards, explicit refusals and Node-compatible diagnostic mapping; no ABAP runtime dependency. Step3 slice2: saved snapshot diffs, serialized overlay install/check/restore, recoverable check exceptions, mutation-failure poisoning, structural re-prime and winner selection belong to this existing checker lifecycle package; no ABAP runtime dependency or default Node checker logic is added. Step3 overlay performance: 33 lines above the prior ceiling for the optional scalar Stats callback, counter deltas and install/check/restore timings. These observe this package's existing serialized lifecycle; reader indexing and parsing policy stay in ABAP. Splitting this small instrumentation into another package would expose private compiler state without isolating a new capability. TS-HG lint engine: 43 lines above the prior ceiling for shared engine identity/error/origin labels and the neutral GoLibrary adapter in go.go. The Go path reuses this package's existing compiler lifecycle and URI mapping; splitting the adapter into a package would expose that same small callback contract without isolating independent behavior. Reader indexing remains in the external generated library, and no generated core or ABAP runtime dependency is added. Review #834: 42 lines compare per-object ordered membership before applying append/remove updates. This belongs with saved synchronization because the compiler must keep its engine registry equivalent to its baseline; unchanged duplicate byte edits stay incremental. Review #834 round 2: 15 net production lines share the exact abaplint filename identity decoding with lintinput while retaining physical filenames for ordered membership. This belongs with the existing competing-object comparison; no new engine or runtime dependency."
     },
     "go:castdiag": {
       "lines": 36,

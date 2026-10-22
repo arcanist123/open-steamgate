@@ -33,7 +33,7 @@ type Input struct {
 	Logical                               []string
 	Source                                *string
 	CheckRun                              bool
-	Include                               string
+	Include, Target                       string
 }
 
 // CheckMode selects ordinary saved syntax checking or the ADT report contract.
@@ -88,22 +88,32 @@ type Report struct {
 func NotProcessed(reason string) Result {
 	return Result{Scalars: map[string]string{"EV_JSON": encode(Report{"notProcessed", []ReportIssue{}, reason})}}
 }
-func Processed(issues []Issue) Result {
+func Processed(issues []Issue) Result { return processed(issues, "") }
+func processed(issues []Issue, statusText string) Result {
 	rows := make([]ReportIssue, 0, len(issues))
 	for _, issue := range issues {
 		rows = append(rows, ReportIssue{issue.Severity, issue.LINE, issue.COL, issue.MESSAGE, issue.URI})
 	}
-	return Result{Scalars: map[string]string{"EV_JSON": encode(Report{"processed", rows, ""})}}
+	return Result{Scalars: map[string]string{"EV_JSON": encode(Report{"processed", rows, statusText})}}
+}
+
+// SourceCompiler is implemented only by the opt-in ABAP engine. The ordinary
+// Node snapshot adapter retains its saved-draft contract.
+type SourceCompiler interface{ SupportsSource() bool }
+type ReportCompiler interface {
+	CheckRun(context.Context, Input) ([]Issue, string, error)
 }
 
 // Run never consults store state and never owns the provider's lifecycle.
 func Run(provider Compiler, req Request) (Result, error) {
+	sourceCompiler, ok := provider.(SourceCompiler)
+	overlay := req.Command == "CHECKRUN" && req.Filter == "SOURCE" && req.SourceType && ok && sourceCompiler.SupportsSource()
 	r := Result{Scalars: map[string]string{}, Issues: []Issue{}}
 	if req.Command == "CHECKRUN" {
 		if !req.Known {
 			return NotProcessed("object type " + req.Type + " is not supported"), nil
 		}
-		if !req.Exists {
+		if !req.Exists && !overlay {
 			return NotProcessed(req.Type + " " + req.Name + " does not exist"), nil
 		}
 		if !req.SourceType {
@@ -114,7 +124,7 @@ func Run(provider Compiler, req Request) (Result, error) {
 			return r, nil
 		}
 	}
-	if req.Command == "CHECKRUN" && req.Filter == "SOURCE" {
+	if req.Command == "CHECKRUN" && req.Filter == "SOURCE" && !overlay {
 		return NotProcessed("CHECKRUN with IV_FILTER=SOURCE requires a saved draft; write the draft first"), nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -169,19 +179,32 @@ func Run(provider Compiler, req Request) (Result, error) {
 	}
 	input := req.Input
 	input.CheckRun = req.Command == "CHECKRUN"
-	// Saved CHECKRUN ignores a buffer unless SOURCE was requested (refused above).
-	if input.CheckRun {
+	// Saved CHECKRUN ignores a buffer unless the selected engine accepts SOURCE.
+	if overlay && input.Source == nil {
+		empty := ""
+		input.Source = &empty
+	}
+	if input.CheckRun && !overlay {
 		input.Source = nil
 	}
-	issues, err := provider.Check(ctx, input)
+	var issues []Issue
+	var statusText string
+	if reporter, ok := provider.(ReportCompiler); ok && input.CheckRun {
+		issues, statusText, err = reporter.CheckRun(ctx, input)
+	} else {
+		issues, err = provider.Check(ctx, input)
+	}
 	if req.Command == "CHECKRUN" {
 		if err != nil {
+			if statusText != "" {
+				err = fmt.Errorf("%s; %w", statusText, err)
+			}
 			if errors.Is(err, ErrCompilerAbsent) {
 				err = errors.New("CHECKRUN needs the compiler sidecar; none is available")
 			}
 			return NotProcessed(err.Error()), nil
 		}
-		return Processed(issues), nil
+		return processed(issues, statusText), nil
 	}
 	if errors.Is(err, ErrCompilerAbsent) {
 		return req.Fallback, req.FallbackError

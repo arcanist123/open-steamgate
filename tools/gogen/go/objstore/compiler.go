@@ -33,6 +33,7 @@ func compilerInput(ix *storeIndex, typ, name, version string) (CompilerInput, er
 		return in, storeNotFound(typ, name)
 	}
 	in.Name = e.Name
+	in.Target = e.File
 	for _, file := range storeFilesOf(e) {
 		if version == "active" {
 			if _, proven := storeActiveBytes(file); proven {
@@ -75,6 +76,19 @@ func captureCompiler(ix *storeIndex, command, typ, name, include string, source 
 	} else {
 		req.Input.Version = version
 	}
+	if !req.Exists && command == "CHECKRUN" && filter == "SOURCE" && req.SourceType {
+		if capable, ok := compilerState.provider.(storecheck.SourceCompiler); ok && capable.SupportsSource() {
+			req.Input = CompilerInput{Root: storeState.root, Generation: compilerState.generation, Type: typ, Name: name, Version: version}
+			req.InputError = nil
+			for _, root := range storeState.cfg.Roots {
+				if root.Writable {
+					ext := map[string]string{"CLAS": ".clas.abap", "INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap"}[typ]
+					req.Input.Target = filepath.ToSlash(filepath.Join(root.Path, "osd", strings.ReplaceAll(strings.ToLower(name), "/", "#")+ext))
+					break
+				}
+			}
+		}
+	}
 	req.Input.Include = include
 	if source != nil && command != "PARSE" {
 		value := *source
@@ -105,7 +119,9 @@ func runCompiler(ix *storeIndex, a *Answer, command, typ, name, include string, 
 	currentInfo, currentErr := os.Lstat(live)
 	currentTarget, _ := os.Readlink(live)
 	if liveErr == nil {
-		stale = stale || currentErr != nil || !os.SameFile(liveInfo, currentInfo) || liveTarget != currentTarget || (req.SourceType && provider != nil && filepath.Base(liveTarget) != generation)
+		capable, abapEngine := provider.(storecheck.SourceCompiler)
+		selectedABAP := command == "CHECKRUN" && abapEngine && capable.SupportsSource()
+		stale = stale || currentErr != nil || !os.SameFile(liveInfo, currentInfo) || liveTarget != currentTarget || (req.SourceType && provider != nil && !selectedABAP && filepath.Base(liveTarget) != generation)
 	} else if !os.IsNotExist(liveErr) || !os.IsNotExist(currentErr) {
 		stale = true
 	}

@@ -18,9 +18,12 @@ import {join, relative} from "node:path";
 import {columnRegistry, compileProgram} from "./frontend.mjs";
 import {home} from "./home.mjs";
 import {adtSourceHash} from "../osd-adt-gogen-gate.mjs";
+import {lintFolders, lintBuildSpec, lintEngineGo, lintBuildOptions, goLintEngineGo, withGoLintModule} from "./lint-engine.mjs";
 
 const here = import.meta.dirname;
 const echo = process.argv.includes("--echo");
+const {engine: lintEngine, lib: lintLib} = lintBuildOptions(process.argv.slice(2));
+const extraFolders = lintEngine === "abap" ? lintFolders(home, lintLib) : [];
 const dir = join(here, "go", "cmd", "osgo");
 const out = join(here, ".out", echo ? "osgo-echo" : "osgo");
 const reportPath = `${out}-compile-report.json`;
@@ -58,7 +61,7 @@ if (echo) {
     process.exit(2);
   }
   if (stale) console.warn(`osgo: WARNING ${stale}`);
-  const built = compileOsg();
+  const built = compileOsg({extraFolders});
   program = built.program;
   console.log(built.summary);
   const db = await osgDatabase(program);
@@ -121,6 +124,11 @@ writeFileSync(join(dir, "zz_store.json"), store);
 // the table registry as JSON, the column registry a dynamic WHERE parser reads
 writeFileSync(join(dir, "zz_tables.json"), JSON.stringify(columnRegistry(program), null, 1));
 const has = (fn) => go.includes(`\nfunc ${fn}(`);
+if (lintEngine === "abap" && lintLib && (!has("ZCL_OSD_LINT_ENGINE_PRIME") || !has("ZCL_OSD_LINT_ENGINE_CHECK"))) {
+  throw new Error("ABAP lint facade methods were not compiled");
+}
+const lintSpec = lintLib ? await lintBuildSpec(home) : undefined;
+writeFileSync(join(dir, "zz_lint.go"), lintEngine === "go" ? goLintEngineGo(lintSpec) : lintEngineGo(lintSpec));
 // the system status of the binary (ultra/json, status.mjs / go/cmd/osgo/status.go):
 // what it serves, and the generation it is
 {
@@ -255,7 +263,8 @@ mkdirSync(join(here, ".out"), {recursive: true});
 try { execFileSync("gofmt", ["-w", dir], {stdio: ["ignore", "pipe", "pipe"]}); } catch (e) { console.log(`gofmt: ${String(e.stderr).split("\n").slice(0, 10).join("\n")}`); process.exit(1); }
 const t1 = performance.now();
 try {
-  execFileSync("go", ["build", "-o", out, "./cmd/osgo"], {cwd: join(here, "go"), stdio: ["ignore", "pipe", "pipe"], env: {...process.env, GOPROXY: "off"}});
+  withGoLintModule(join(here, "go"), lintEngine === "go" ? lintLib : undefined, modArgs =>
+    execFileSync("go", ["build", ...modArgs, "-o", out, "./cmd/osgo"], {cwd: join(here, "go"), stdio: ["ignore", "pipe", "pipe"], env: {...process.env, GOWORK: "off", GOPROXY: "off"}}));
 } catch (e) {
   const lines = String(e.stderr).split("\n").filter((l) => /\.(go|abap):\d/.test(l) || /^#/.test(l));
   console.log(`go build failed; first:\n${lines.slice(0, 25).join("\n")}`);

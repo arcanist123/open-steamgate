@@ -258,3 +258,39 @@ func TestCompilerDoesNotLockStoreAndRejectsStaleResults(t *testing.T) {
 		}
 	}
 }
+
+type sourceTestCompiler struct{ testCompiler }
+
+func (*sourceTestCompiler) SupportsSource() bool { return true }
+
+func TestABAPSourceCaptureNewObjectAndMissingInclude(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for file, source := range map[string]string{"abap_transpile.json": "{}", "src/ztest.clas.abap": "CLASS ztest DEFINITION PUBLIC. ENDCLASS. CLASS ztest IMPLEMENTATION. ENDCLASS."} {
+		if err := os.WriteFile(filepath.Join(root, file), []byte(source), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := SetStore(root, []byte(`{"roots":[{"path":"src","writable":true}]}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	defer SetStore("", nil, "")
+	c := &sourceTestCompiler{}
+	SetCompiler(c, "old-generation")
+	defer SetCompiler(nil, "")
+	if err := os.MkdirAll(filepath.Join(root, "build"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("by-input/new-generation", filepath.Join(root, "build/live")); err != nil {
+		t.Fatal(err)
+	}
+	ptr := func(s string) *string { return &s }
+	for _, tc := range []struct{ name, include, target string }{{"ZNEW", "main", "src/osd/znew.clas.abap"}, {"ZTEST", "macros", "src/ztest.clas.abap"}} {
+		a := Call(map[string]*string{"IV_COMMAND": ptr("CHECKRUN"), "IV_TYPE": ptr("CLAS"), "IV_NAME": ptr(tc.name), "IV_INCLUDE": ptr(tc.include), "IV_FILTER": ptr("SOURCE"), "IV_SOURCE": ptr("")})
+		if !strings.Contains(a.Scalars["EV_JSON"], `"status":"processed"`) || c.request.Source == nil || *c.request.Source != "" || c.request.Target != tc.target || c.request.Include != tc.include {
+			t.Fatal(a, c.request)
+		}
+	}
+}

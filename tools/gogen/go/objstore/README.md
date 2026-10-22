@@ -16,7 +16,12 @@ answer as STALE_RESULT; saved target bytes are rechecked after the call too.
 CHECKRUN uses Node's shared report builder, including AMDP portability warnings,
 and ignores optional includes for saved-source syntax checks. Standalone CHECK
 and PARSE refusals remain unchanged. IV_SOURCE still requires a saved draft on
-the Go snapshot path; `tools/gogen/storecmp.mjs` ratchets that contract-v1 gap.
+the default Go snapshot path; `tools/gogen/storecmp.mjs` ratchets that contract-v1 gap.
+The opt-in ABAP lint provider accepts CHECKRUN SOURCE, including an absent object
+or class include. Capture retains the saved main filename, or the first writable
+root's `osd/<name>` target for a new object, without creating it. Generation
+changes between ABAP CHECKRUN requests are accepted; changes during a request
+still reject the result. Ordinary CHECK/OUTLINE keep their snapshot guards.
 
 SYSTEM is tree-independent. `CallWithSystem(in, provider)` uses the explicitly
 passed request's `SystemProvider`, whose `System(kind, name, input)` method
