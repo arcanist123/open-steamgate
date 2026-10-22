@@ -730,7 +730,7 @@ export function stagedExtensions(dir) {
   return [...found];
 }
 
-function vsixManifestXml(pkg, prerelease = false) {
+export function vsixManifestXml(pkg, prerelease = false) {
   const escapeXml = (value) => String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   const publisher = pkg.publisher ?? "oisee";
   const displayName = escapeXml(pkg.displayName ?? pkg.name);

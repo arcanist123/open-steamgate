@@ -5,7 +5,7 @@ import {copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSyn
 import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {createReadStream} from "node:fs";
-import {stampStagedPackage} from "../scripts/build-vsix.mjs";
+import {stampStagedPackage, vsixManifestXml} from "../scripts/build-vsix.mjs";
 import {root, timeVsixTests} from "./helpers/vsix.mjs";
 const {writeTar, unpackTar} = createRequire(import.meta.url)("../editors/vscode/launcher.js");
 
@@ -89,5 +89,23 @@ describe("packaging version stamp", function () {
     } finally {
       rmSync(scratch, {recursive: true, force: true});
     }
+  });
+});
+
+// The Marketplace and vscode.dev read these two marks, not the browser field:
+// without them vscode.dev refused 0.7.2109 as "not available in VS Code for
+// the Web" although the package carried the bundle.
+describe("VSIX manifest: web extension marks", function () {
+  const pkg = {name: "open-steamgate", publisher: "oisee", version: "0.7.1", keywords: ["abap"],
+    engines: {vscode: "^1.101.0"}, extensionKind: ["workspace", "ui"]};
+  it("a package with a browser entry is a web extension", function () {
+    const xml = vsixManifestXml({...pkg, browser: "./dist/web/extension.js"}, true);
+    expect(xml).to.contain('<Property Id="Microsoft.VisualStudio.Code.WebExtension" Value="true" />');
+    expect(xml).to.match(/<Tags>[^<]*\b__web_extension\b[^<]*<\/Tags>/);
+  });
+  it("a package without one is not", function () {
+    const xml = vsixManifestXml(pkg, true);
+    expect(xml).not.to.contain("Microsoft.VisualStudio.Code.WebExtension");
+    expect(xml).not.to.contain("__web_extension");
   });
 });
