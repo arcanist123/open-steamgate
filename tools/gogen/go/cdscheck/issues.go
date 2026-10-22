@@ -37,6 +37,19 @@ func annotations(n *Expression) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// Node tests each annotation independently and chooses the first nonblank class.
+func hasCalculatingClass(n *Expression) bool {
+	for _, c := range n.Children {
+		if c.Kind == "CDSAnnotation" {
+			m := virtualBy.FindStringSubmatch(normalize(c.Text))
+			if m != nil && strings.TrimSpace(m[1]) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
 func upper(s string) string   { return strings.ToUpper(s) }
 func compact(s string) string { return spaces.ReplaceAllString(s, "") }
 func validCast(s string) bool {
@@ -111,7 +124,7 @@ func parse(obj Object, name string, inspect Inspector) (v *view, err error) {
 		cast := direct(el, "CDSCast")
 		if cast != nil && virtualAnno.MatchString(annos) {
 			field := upper(alias)
-			if field == "" || virtualBy.FindStringSubmatch(annos) == nil {
+			if field == "" || !hasCalculatingClass(el) {
 				v.skip = "virtual element without an alias or a calculating class"
 				return &view{skip: v.skip}, nil
 			}
