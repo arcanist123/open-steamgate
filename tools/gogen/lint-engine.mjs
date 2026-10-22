@@ -110,11 +110,11 @@ export function goLintLibrary(lib) {
   if (!/^module\s+zabaplint\s*$/m.test(mod) || !/^package\s+(?!main\b)\w+\s*$/m.test(api)) {
     throw new Error("--lint-lib for go requires abapiti's library output: --target go --go-package abaplint (module zabaplint)");
   }
-  if (!/func \(c \*Checker\) CheckObject\(/.test(api) || !/func \(c \*Checker\) Tree\(/.test(api)) {
-    throw new Error("Go lint library requires abapiti 0a11cd3c CheckObject/Tree API (core 2.120.73)");
+  for (const method of ["CheckObject", "Tree", "CDS", "DDIC", "Files"]) {
+    if (!api.includes(`func (c *Checker) ${method}(`)) {
+      throw new Error(`Go lint library requires abapiti da13e34d ${method} API (core 2.120.73)`);
+    }
   }
-  const inspector = existsSync(join(path, "osg_inspect.go")) ? readFileSync(join(path, "osg_inspect.go"), "utf8") : api;
-  if (!inspector.includes("OSGInspect(")) throw new Error("Go lint library needs the CDS extraction adapter: node tools/step3/cds-inspect.mjs PATH");
   return path;
 }
 
@@ -179,14 +179,19 @@ func (l *goLintLibrary) Check(target string) []storelint.Issue {
 }
 func (l *goLintLibrary) DDLS(name string) []storelint.Issue {
  inspect:=func(typ,name string) cdscheck.Object {
-  o:=l.checker.OSGInspect(typ,name)
-  out:=cdscheck.Object{Found:o.Found,SQLView:o.SQLView,Components:o.Components,Keys:o.Keys}
-  for _,f:=range o.Files { out.Files=append(out.Files,cdscheck.File{Filename:f.Filename,Raw:f.Raw}) }
-  var expr func(lint.OSGExpression) cdscheck.Expression
-  expr=func(n lint.OSGExpression) cdscheck.Expression {
-   e:=cdscheck.Expression{Kind:n.Kind,Text:n.Text}; for _,c:=range n.Children { e.Children=append(e.Children,expr(c)) };return e
+  files,found:=l.checker.Files(typ,name)
+  out:=cdscheck.Object{Found:found}
+  for _,f:=range files { out.Files=append(out.Files,cdscheck.File{Filename:f.Filename,Raw:f.Raw}) }
+  if typ=="TABL" || typ=="VIEW" { out.Components,out.Keys,out.Found=l.checker.DDIC(typ,name) }
+  if typ=="DDLS" {
+   tree,sql,found:=l.checker.CDS(name);out.SQLView,out.Found=sql,found
+   var expr func(lint.Expression) cdscheck.Expression
+   expr=func(n lint.Expression) cdscheck.Expression {
+    e:=cdscheck.Expression{Kind:n.Kind,Text:n.Text}; for _,c:=range n.Children { e.Children=append(e.Children,expr(c)) };return e
+   }
+   if tree!=nil { tree:=expr(*tree);out.Tree=&tree }
   }
-  if o.Tree!=nil { tree:=expr(*o.Tree);out.Tree=&tree };return out
+  return out
  }
  out:=[]storelint.Issue{}
  for _,i:=range cdscheck.Issues(name,inspect) { out=append(out,storelint.Issue{Filename:i.Filename,Key:"cds",Severity:i.Severity,Message:i.Message,Row:1,Column:1}) }
@@ -203,6 +208,12 @@ func (l *goLintLibrary) SnapshotTree(files []objstore.LintFile, config, typ, nam
  input := make([]lint.File, 0, len(files))
  for _, f := range files { input = append(input, lint.File{Filename:f.Filename, Raw:f.Raw}) }
  checker.Prime(input, nil, config)
+ return outlineTrees(&checker,typ,name)
+}
+func (l *goLintLibrary) Tree(typ,name string) ([]adtoutline.FileTree, bool) {
+ return outlineTrees(&l.checker,typ,name)
+}
+func outlineTrees(checker *lint.Checker,typ,name string) ([]adtoutline.FileTree, bool) {
  trees, found := checker.Tree(typ,name)
  pos := func(p lint.Pos) adtoutline.Pos { return adtoutline.Pos{Row:p.Row,Col:p.Col} }
  var node func(lint.Node) adtoutline.Node

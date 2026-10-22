@@ -33,7 +33,7 @@ func TestTargetIndexMatchesFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer SetStore("", nil, "")
-	SetCompiler(&sourceTestCompiler{}, "")
+	SetCompiler(&indexedNativeCompiler{}, "")
 	defer SetCompiler(nil, "")
 	compare := func() {
 		t.Helper()
@@ -46,6 +46,19 @@ func TestTargetIndexMatchesFull(t *testing.T) {
 			fast := checkRunIndex("CHECKRUN", tc.typ, tc.name, nil, "").find(tc.typ, tc.name)
 			if !reflect.DeepEqual(full, fast) {
 				t.Fatalf("%s %s: full=%+v targeted=%+v", tc.typ, tc.name, full, fast)
+			}
+			for _, command := range []string{"CHECK", "OUTLINE"} {
+				var ix *storeIndex
+				if command == "OUTLINE" {
+					raw, _ := json.Marshal(map[string]string{"kind": "OUTLINE", "type": tc.typ, "name": tc.name})
+					ix = outlineIndex(string(raw))
+				} else {
+					source := "inline"
+					ix = checkRunIndex(command, tc.typ, tc.name, &source, "")
+				}
+				if !reflect.DeepEqual(full, ix.find(tc.typ, tc.name)) {
+					t.Fatalf("%s %s %s differs from full index", command, tc.typ, tc.name)
+				}
 			}
 			if full != nil {
 				a, err := compilerInput(storeBuild(), tc.typ, tc.name, "inactive")
@@ -305,5 +318,77 @@ func TestTargetIndexAdapterSource(t *testing.T) {
 				t.Fatal("overlay source lost, including empty buffer")
 			}
 		})
+	}
+}
+
+type indexedNativeCompiler struct{ sourceTestCompiler }
+
+func (*indexedNativeCompiler) SupportsCheckSource() bool { return true }
+func (*indexedNativeCompiler) NativeCheckOutline() bool  { return true }
+
+// Exercise the public dispatcher and observe which builder it actually reaches.
+// Output parity alone cannot distinguish a targeted build from a full rebuild.
+func TestTargetIndexNativePublicCalls(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "src"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{"abap_transpile.json", "src/ztest.clas.abap", "src/ztest.intf.abap", "src/ztest.prog.abap", "src/other.prog.abap"} {
+		if err := os.WriteFile(filepath.Join(root, file), []byte("saved"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := SetStore(root, []byte(`{"roots":[{"path":"src","writable":true}]}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	defer SetStore("", nil, "")
+	provider := &indexedNativeCompiler{}
+	SetCompiler(provider, "")
+	defer SetCompiler(nil, "")
+	ptr := func(s string) *string { return &s }
+	for _, typ := range []string{"CLAS", "INTF", "PROG", "INCL"} {
+		for _, tc := range []struct {
+			name, command, version string
+			source                 *string
+		}{
+			{"check-saved", "CHECK", "", nil},
+			{"check-empty", "CHECK", "", ptr("")},
+			{"check-inline", "CHECK", "", ptr("unsaved")},
+			{"outline-active", "PARSE", "active", nil},
+			{"outline-inactive", "PARSE", "inactive", nil},
+		} {
+			t.Run(typ+"/"+tc.name, func(t *testing.T) {
+				raw, _ := json.Marshal(map[string]string{"kind": "OUTLINE", "type": typ, "name": "ZTEST", "version": tc.version})
+				storeState.mu.Lock()
+				req := captureCompiler(storeBuild(), tc.command, typ, "ZTEST", "main", tc.source, "", string(raw))
+				storeState.mu.Unlock()
+				full, err := storecheck.Run(provider, req)
+				if err != nil || full.Scalars["EV_ERROR"] != "" {
+					t.Fatalf("invalid full fixture: %+v %v", full, err)
+				}
+				var builds []string
+				storeState.mu.Lock()
+				storeIndexBuilt = func(target string) { builds = append(builds, target) }
+				storeState.mu.Unlock()
+				defer func() {
+					storeState.mu.Lock()
+					storeIndexBuilt = nil
+					storeState.mu.Unlock()
+				}()
+				answer := Call(map[string]*string{"IV_COMMAND": ptr(tc.command), "IV_TYPE": ptr(typ), "IV_NAME": ptr("ZTEST"), "IV_INCLUDE": ptr("main"), "IV_SOURCE": tc.source, "IV_JSON": ptr(string(raw))})
+				ext, _ := storeTypeExt(typ)
+				if !reflect.DeepEqual(builds, []string{"ZTEST" + ext}) {
+					t.Fatalf("index builds = %q, want target %q", builds, "ZTEST"+ext)
+				}
+				if answer.Scalars["EV_ERROR"] != "" || !reflect.DeepEqual(answer.Issues, full.Issues) {
+					t.Fatalf("full=%+v Call=%+v", full, answer)
+				}
+				for key, value := range full.Scalars {
+					if answer.Scalars[key] != value {
+						t.Fatalf("%s: full=%q Call=%q", key, value, answer.Scalars[key])
+					}
+				}
+			})
+		}
 	}
 }

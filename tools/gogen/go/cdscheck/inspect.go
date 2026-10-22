@@ -11,7 +11,7 @@ type Object struct {
 	Found            bool
 	Files            []File
 	Tree             *Expression
-	SQLView          string
+	SQLView          *string // nil is absent; a pointer to "" is an explicit empty name.
 	Components, Keys []string
 }
 type Inspector func(typ, name string) Object

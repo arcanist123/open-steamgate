@@ -178,8 +178,9 @@ func (c *Compiler) outline(ctx context.Context, in storecheck.Input) (doc json.R
 	if err != nil {
 		return nil, err
 	}
-	// Match configuredRegistry + only the supplied snapshot, as outlineSnapshot
-	// does. A separate Checker avoids lending saved/inactive includes to active.
+	// All ABAP object types share ExpandMacros, which can follow INCLUDE into
+	// other objects (also in class-pool macros and interfaces). Matching own
+	// bytes cannot prove the saved registry equivalent to this isolated snapshot.
 	trees, treeErr := c.snapshotTree(files, in)
 	if treeErr != nil {
 		return nil, treeErr

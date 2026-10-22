@@ -55,6 +55,8 @@ func main(){var inputs []struct{Type,Name,Version string;Files []adtoutline.File
     const select=(fields,annotations="",source="zstg_demo")=>`@AbapCatalog.sqlViewName: 'ZGEN'\n${annotations}\ndefine view zprobe as select from ${source} { ${fields} }`;
     const virtual=(by,type="char(20)",alias="as text")=>`key travel_id, @ObjectModel.virtualElement: true ${by===null?"":`@ObjectModel.virtualElementCalculatedBy: 'ABAP:${by}'`} cast( '' as abap.${type} ) ${alias}`;
     const variants=[
+      select("key travel_id").replace("'ZGEN'", "''"),
+      select("key travel_id").replace("@AbapCatalog.sqlViewName: 'ZGEN'", ""),
       select("key travel_id"),select("key mandt, key travel_id"),select("key mandt as client, key travel_id"),
       select("key mandt as first_client, mandt as second_client, key travel_id"),
       ...[null,"","   ","\ufeff"," ZCL_TEST "].map(by=>select(virtual(by))),
@@ -75,12 +77,21 @@ func main(){var inputs []struct{Type,Name,Version string;Files []adtoutline.File
     ];
     const expr=n=>({Kind:n.get().constructor.name,Text:n.concatTokens(),Children:n.getChildren().filter(c=>c.constructor.name==="ExpressionNode").map(expr)});
     const inputs=[],expected=[];
-    for(const raw of variants){
+    // The pinned parser only captures nonempty SQL names. Also exercise the
+    // public snapshot contract's explicit empty value against Node's ?? policy.
+    variants.push({raw:select("key travel_id"),sqlView:""});
+    for(const variant of variants){
+      const raw=typeof variant==="string"?variant:variant.raw;
       const reg=new lint.Registry();
-      for(const [file,text] of [["zstg_demo.tabl.xml",table],["zgen.view.xml",generated],["zprobe.ddls.asddls",raw]])reg.addFile(new lint.MemoryFile("/src/"+file,text));
+      for(const [file,text] of [["zstg_demo.tabl.xml",table],["zgen.view.xml",generated],["zprobe.view.xml",generated.replaceAll("ZGEN","ZPROBE")],["zprobe.ddls.asddls",raw]])reg.addFile(new lint.MemoryFile("/src/"+file,text));
       reg.parse();
-      const inspect=(typ,name)=>{const o=reg.getObject(typ,name);return o?{Found:true,Files:o.getFiles().map(f=>({Filename:f.getFilename(),Raw:f.getRaw()})),Tree:o.getTree?.()?expr(o.getTree()):null,SQLView:o.getSQLViewName?.()??"",Components:o.parseType?.(reg)?.getComponents?.().map(c=>c.name)??[],Keys:o.listKeys?.(reg)??[]}:{Found:false}};
-      inputs.push({Objects:Object.fromEntries([["DDLS","ZPROBE"],["TABL","ZSTG_DEMO"],["VIEW","ZGEN"]].map(([t,n])=>[t+":"+n,inspect(t,n)]))});
+      if(typeof variant!=="string"){
+        const object=reg.getObject("DDLS","ZPROBE"),parsed=object.getParsedData();
+        object.getParsedData=()=>({...parsed,sqlViewName:variant.sqlView});
+        object.getSQLViewName=()=>variant.sqlView;
+      }
+      const inspect=(typ,name)=>{const o=reg.getObject(typ,name);return o?{Found:true,Files:o.getFiles().map(f=>({Filename:f.getFilename(),Raw:f.getRaw()})),Tree:o.getTree?.()?expr(o.getTree()):null,SQLView:o.getSQLViewName?.()??null,Components:o.parseType?.(reg)?.getComponents?.().map(c=>c.name)??[],Keys:o.listKeys?.(reg)??[]}:{Found:false}};
+      inputs.push({Objects:Object.fromEntries([["DDLS","ZPROBE"],["TABL","ZSTG_DEMO"],["VIEW","ZGEN"],["VIEW","ZPROBE"]].map(([t,n])=>[t+":"+n,inspect(t,n)]))});
       expected.push(ddlsIssues(reg,reg.getObject("DDLS","ZPROBE")).map(i=>({Filename:i.file??"",Severity:i.severity,Message:i.message})));
     }
     const scratch=mkdtempSync(join(tmpdir(),"cds-oracle-"));

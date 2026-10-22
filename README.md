@@ -1,6 +1,16 @@
 # open-steamgate
 
+<p align="center">
+  <img src="docs/images/hero-cloudbound-cabin.jpg" alt="Open SteamGate: a developer in a steampunk airship cabin, the gateway's arches in the clouds outside" width="100%">
+</p>
+
 **An ABAP application server you can clone.**
+
+Part of the steampunk family:
+[vsp](https://github.com/oisee/vibing-steampunk) (ADT ↔ MCP),
+[abapiti](https://github.com/oisee/abapiti) (TypeScript and WASM to ABAP),
+[open-rfc-go](https://github.com/oisee/open-rfc-go) (RFC) and
+[open-diag-go](https://github.com/oisee/open-diag-go) (SAP GUI DIAG).
 
 ## TL;DR — run it
 

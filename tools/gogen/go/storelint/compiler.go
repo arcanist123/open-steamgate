@@ -41,6 +41,7 @@ type Engine struct {
 	Update       func(string, *string)
 	Stats        func() Stats
 	CheckObject  func(string, string) ([]Issue, bool)
+	Tree         func(string, string) ([]adtoutline.FileTree, bool)
 	SnapshotTree func([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool)
 	DDLS         func(string) []Issue
 }
