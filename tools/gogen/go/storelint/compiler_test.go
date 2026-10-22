@@ -374,3 +374,39 @@ func TestOverlayWorkLogs(t *testing.T) {
 		}
 	}
 }
+
+func TestSavedRootAndIncludeGuards(t *testing.T) {
+	for _, mode := range []string{"root", "include"} {
+		t.Run(mode, func(t *testing.T) {
+			c, req, _, _ := fixture()
+			if err := c.Prime(`{"rules":{}}`); err != nil {
+				t.Fatal(err)
+			}
+			if mode == "root" {
+				req.Input.Root = "/other"
+			} else {
+				req.Input.Include = "unknown"
+			}
+			if r := runReport(t, c, *req); r.Status != "notProcessed" {
+				t.Fatal(r)
+			}
+		})
+	}
+}
+
+func TestSavedIncludeMapping(t *testing.T) {
+	parts := map[string]string{"main": ".clas.abap", "definitions": ".clas.locals_def.abap", "implementations": ".clas.locals_imp.abap", "macros": ".clas.macros.abap", "testclasses": ".clas.testclasses.abap"}
+	logical := []string{}
+	for _, suffix := range parts {
+		logical = append(logical, "src/#ns#z"+suffix)
+	}
+	for include, suffix := range parts {
+		target, err := targetFile(storecheck.Input{Type: "CLAS", Name: "/NS/Z", Include: include, Logical: logical})
+		if err != nil || target != "/src/#ns#z"+suffix {
+			t.Fatalf("%s: %s %v", include, target, err)
+		}
+	}
+	if _, err := targetFile(storecheck.Input{Type: "CLAS", Include: "macros", Logical: []string{"src/z.clas.abap"}}); err == nil {
+		t.Fatal("missing saved include accepted")
+	}
+}

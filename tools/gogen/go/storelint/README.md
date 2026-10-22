@@ -21,3 +21,11 @@ poisons the host compiler. Opted-in CHECKRUN never falls back to the sidecar.
 mirrors Node's URI rules. Origin logs and work counters name the selected
 engine; neither engine identity nor an empty report substitutes for parity
 and performance gates. See [the build and gate guide](../../../step3/README.md).
+
+The saved store fast path changes target enumeration only. `syncSaved` still
+validates all checker inputs before selection, and `unchanged` captures them
+again after the engine returns. Membership identities retained by lintinput
+never replace these observations. This package keeps its ordered competing-file
+comparison, structural winner selection, root/type/include refusals and source
+install/restore lifecycle. The outer objstore boundary still verifies the saved
+target's expected hashes, revision and live-generation link before answering.

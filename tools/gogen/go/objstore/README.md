@@ -37,7 +37,7 @@ API: `SetStore(root string, cfg []byte, reason string) error`;
 `Config`/`Root`, `Answer` with `Row`, `Issue`, `Tally`, `Revision`;
 `Identity`; `Capabilities`.
 
-Invariants: the files are the truth and git the history, no second copy; the index is rebuilt per call; a
+Invariants: the files are the truth and git the history, no second copy; the index is freshly resolved per call (targeted for saved ABAP CHECKRUN); a
 WRITE touches only a file inside a writable root; answers and their order match the Node destination field
 for field (localeCompare order, JSON property order, and the scalar/table envelopes). The frozen proof is
 `test/fixtures/osgo-store/destination-golden.json`: `tools/osgo-store-goldens.mjs` records the Node
@@ -73,3 +73,16 @@ allowlist. A filesystem clock consistent with the host is still required for
 reuse. Full reads preserve open/read semantics, not stronger coherence than the
 filesystem provides. This remains a two-pass freshness check, not an atomic
 filesystem transaction.
+
+Saved CHECKRUN on a source-capable in-process provider uses a targeted index for
+CLAS/INTF/PROG/INCL. Every request freshly reads all project directories, follows
+directory links like the general walker, and stats matching candidates. It
+filters names before unrelated file stat/package work, preserving lexical root
+traversal, exclusions, case handling, project overwrite/library-first precedence,
+INCL aliases and package chains through the shared index builder. Libraries
+still use the configured explicit file lists. There is no retained store index.
+Other commands, source overlays, non-ABAP types and sidecar providers retain
+`storeBuild`. Include reads and expected hashes, store revision/provider checks,
+and build/live identity checks use the unchanged compiler boundary.
+`BenchmarkTargetIndex3000` isolates full versus targeted lookup on 3,000 project
+files; the whole saved request benchmark lives in lintinput.

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"osg/gogen/objstore"
@@ -114,47 +113,7 @@ func Structure(root string, spec Spec) (string, bool, error) {
 // Ordinary file additions/removals use the direct update bridge. Re-resolve
 // membership only if it can change a layer winner or expose a hidden object.
 func NeedsLayers(root string, spec Spec, snapshot objstore.LintSnapshot) bool {
-	key := func(file string) string {
-		identity := storelint.ObjectIdentity(file)
-		if strings.HasSuffix(identity, ".DEVC") {
-			return ""
-		}
-		return identity
-	}
-	dirs := map[string]string{}
-	now, before, hidden := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	for _, file := range spec.Files {
-		before[file] = true
-	}
-	for _, file := range spec.Hidden {
-		hidden[key(file)] = true
-		if _, err := os.Stat(filepath.Join(root, file)); os.IsNotExist(err) {
-			return true
-		}
-	}
-	for _, file := range snapshot.Files {
-		now[file.Filename] = true
-		object, dir := key(file.Filename), filepath.Dir(file.Filename)
-		if object == "" {
-			continue
-		}
-		// Existing duplicates (including project/library overlap) already went
-		// through Node's layer resolution. Only a new competing file needs it
-		// again; otherwise every capture starts a Node resolver unnecessarily.
-		if previous, exists := dirs[object]; exists && filepath.Dir(previous) != dir && (!before[previous] || !before[file.Filename]) {
-			return true
-		}
-		dirs[object] = file.Filename
-		if !before[file.Filename] && hidden[object] {
-			return true
-		}
-	}
-	for file := range before {
-		if !now[file] && hidden[key(file)] {
-			return true
-		}
-	}
-	return false
+	return newMembership(spec).needs(root, spec, snapshot)
 }
 
 func New(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec) *storelint.Compiler {
@@ -166,6 +125,7 @@ func newWithCache(root string, other storecheck.Compiler, engine storelint.Engin
 	root = absolute
 	var previousMembership string
 	initialized := false
+	members := newMembership(spec)
 	return &storelint.Compiler{Other: other, Engine: engine, Logf: log.Printf,
 		Capture: func() (objstore.LintSnapshot, error) {
 			if rootErr != nil {
@@ -193,13 +153,14 @@ func newWithCache(root string, other storecheck.Compiler, engine storelint.Engin
 				return snapshot, err
 			}
 			// File edits retain the existing config/layer decisions.
-			resolvedInputs := changed || NeedsLayers(root, spec, snapshot)
+			resolvedInputs := changed || members.needs(root, spec, snapshot)
 			if resolvedInputs {
 				resolved, resolveErr := Resolve(root)
 				if resolveErr != nil {
 					return snapshot, resolveErr
 				}
 				spec = resolved
+				members = newMembership(spec)
 				structure, changed, err = Structure(root, spec)
 				if err != nil {
 					return snapshot, err
@@ -224,6 +185,7 @@ func newWithCache(root string, other storecheck.Compiler, engine storelint.Engin
 					return snapshot, fmt.Errorf("lint library membership changed during resolution; retry")
 				}
 			}
+			members = members.advance(snapshot)
 			previousMembership, initialized = membership, true
 			structure += ":" + membership
 			spec.Files = spec.Files[:0]

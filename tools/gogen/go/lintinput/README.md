@@ -61,3 +61,17 @@ host freshness cost; these are not HTTP or real lint engine latency figures.
 ```sh
 go test ./lintinput -run '^$' -bench BenchmarkFreshness3000 -benchmem -benchtime=1s -count=3
 ```
+
+Saved CHECKRUN retains a physical membership set, canonical object identities,
+per-object directory counts and hidden identities across successful snapshots.
+The delta compares names without reclassifying survivors; additions use the
+shared `storelint.ObjectIdentity` decoder. New cross-directory competitors,
+hidden winner changes, and removal/rename of a competing file force canonical
+resolution. Ordinary additions/includes/removals remain incremental. Content
+hashes do not key this state. Resolution replaces the retained layer facts;
+failed captures never advance membership. Ordered competing membership remains
+checked separately by storelint before updating its engine registry.
+
+`BenchmarkMembershipDelta3000` compares rebuilding these facts with retaining
+and advancing them across captures. `BenchmarkFreshness3000` measures the whole
+saved store CHECKRUN (both captures and final guards) on the same 3,000-file tree.
