@@ -232,13 +232,7 @@ func Issues(name string, inspect Inspector) []Issue {
 	}
 	generated := inspect("VIEW", v.sql)
 	if generated.Found {
-		fields := map[string]bool{}
-		for _, f := range v.fields {
-			fields[upper(f)] = true
-		}
-		if v.mandt {
-			fields["MANDT"] = true
-		}
+		fields := viewFields(v)
 		var gone []string
 		for _, c := range generated.Components {
 			c = upper(c)
@@ -258,4 +252,25 @@ func Issues(name string, inspect Inspector) []Issue {
 		out = append(out, issue("W", "the view asks to be written and is not: "+v.why))
 	}
 	return out
+}
+
+// viewFields is viewFieldsOf's default client=true branch, projected to names.
+// Keep the first named client column and exclude any additional client aliases.
+func viewFields(v *view) map[string]bool {
+	fields := map[string]bool{}
+	named := "MANDT"
+	found := false
+	for i, f := range v.fields {
+		if v.mandt && v.bases[i] == "MANDT" {
+			if !found {
+				named, found = f, true
+			}
+			continue
+		}
+		fields[upper(f)] = true
+	}
+	if v.mandt {
+		fields[upper(named)] = true
+	}
+	return fields
 }
