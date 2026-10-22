@@ -9,7 +9,7 @@ require (
 	github.com/coder/websocket v1.8.14
 	github.com/gdamore/tcell/v2 v2.13.10
 	github.com/oisee/open-diag-go v0.0.0-20260928212308-62029ee085bc
-	github.com/oisee/open-rfc-go v0.2.1-0.20260916163431-274c0c912ddb
+	github.com/oisee/open-rfc-go v0.2.1-0.20261022165448-c620e342404d
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.37.0
 	modernc.org/sqlite v1.60.1

@@ -19,8 +19,8 @@ The private RFC HTTP backend remains IPv4 loopback even with a public bind.
 ## RFC seam and licensing
 
 `rfcnative` mounts `github.com/oisee/open-rfc-go/pkg/adtbridge`, pinned at
-`274c0c912ddb93ebbf07b2b5768bbdf97d4104cf`
-(`v0.2.1-0.20260916163431-274c0c912ddb`). Backend exposes only TLS transport
+`c620e342404d0ea23f6da9b63bfbe97cc7c6e258`
+(`v0.2.1-0.20261022165448-c620e342404d`). Backend exposes only TLS transport
 configuration, not a custom RoundTripper. The adapter therefore starts a
 private ephemeral loopback HTTP server with osgo's own handler. The dependency
 owns each conversation's cookie jar and CSRF fetch/retry. The HTTP seam supplies
@@ -49,16 +49,11 @@ Differences from JS, including limitations of the pinned API:
   identity is used in the logon response. Static RFC authentication is absent.
 - No shared lock-handle adoption between RFC connections or backend logoff on
   disconnect. Cookies remain per conversation.
-- CSRF fetch and stale-token retry work, but a successful response's rotated
-  token is not retained. The existing cookie/CSRF wire assertion catches this:
-  the next call sends `token-2` where JS sends `token-rotated`.
-- The library resolves tunneled URIs against the backend without JS's admission
-  checks and copies caller authorization/cookie/Host headers. Absolute or
-  authority-relative URIs can select another origin. The public Backend API
-  offers no request-admission/custom-transport hook to constrain this. Thus the
-  native dependency is not a security-equivalent replacement for JS when
-  exposed to untrusted callers; keep this measured limitation in the opt-in
-  compatibility assessment.
+- Since open-rfc-go#10 (`c620e342`) the bridge confines every request and
+  redirect to the backend origin and base path, rejects absolute and
+  authority-relative URIs before applying credentials, ignores caller
+  Authorization/Cookie/Host headers, and adopts a rotated CSRF token from
+  successful responses.
 - Metadata is not identical. The public `open-rfc-go/rfc` client cannot perform
   the recursive ADT request against either bridge at these pins. The probe
   reports JS's APPC response-pending error and native's unimplemented classic

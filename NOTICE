@@ -1,7 +1,7 @@
 open-steamgate native Go protocol dependencies
 
 The optional osgo RFC listener links github.com/oisee/open-rfc-go at commit
-274c0c912ddb93ebbf07b2b5768bbdf97d4104cf, Apache License, Version 2.0.
+c620e342404d0ea23f6da9b63bfbe97cc7c6e258, Apache License, Version 2.0.
 It is not relicensed under open-steamgate's MIT license.
 
 open-rfc-go
@@ -22,7 +22,7 @@ trademarks of SAP SE or its affiliates. open-rfc-go is an independent project
 and is not affiliated with, sponsored by, or endorsed by SAP SE.
 
 Provenance mapping:
-https://github.com/oisee/open-rfc-go/blob/274c0c912ddb93ebbf07b2b5768bbdf97d4104cf/docs/provenance.md
+https://github.com/oisee/open-rfc-go/blob/c620e342404d0ea23f6da9b63bfbe97cc7c6e258/docs/provenance.md
 
 DIAG links github.com/oisee/open-diag-go at commit 62029ee085bc (MIT),
 as already pinned for osabap. Its open-rfc-go dependency is covered above.
