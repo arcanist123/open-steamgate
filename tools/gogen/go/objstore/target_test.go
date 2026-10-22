@@ -1,11 +1,15 @@
 package objstore
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"osg/gogen/storecheck"
 )
 
 func TestTargetIndexMatchesFull(t *testing.T) {
@@ -19,20 +23,27 @@ func TestTargetIndexMatchesFull(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, file := range []string{"abap_transpile.json", "base/a/ZTEST.clas.abap", "base/z/ztest.clas.abap", "overlay/ztest.clas.abap", "overlay/ztest.clas.macros.abap", "overlay/zzzexcluded/ztest.clas.abap", "lib/ztest.clas.abap", "lib/zdep.intf.abap", "base/zprog.prog.abap", "base/#ns#ztest.clas.abap"} {
+	for _, file := range []string{"abap_transpile.json", "base/a/ZTEST.clas.abap", "base/z/ztest.clas.abap", "overlay/ztest.clas.abap", "overlay/ztest.clas.macros.abap", "overlay/zzzexcluded/ztest.clas.abap", "lib/ztest.clas.abap", "lib/zdep.intf.abap", "base/zprog.prog.abap", "base/#ns#ztest.clas.abap",
+		// Exact extensions remain required, including for library candidates.
+		"overlay/zı.prog.abap", "overlay/zß.prog.abap", "overlay/zK.prog.abap", "overlay/zẞ.prog.abap", "overlay/zi.prog.ABAP", "lib/lı.intf.abap", "lib/lß.intf.abap", "lib/lK.intf.abap", "lib/lẞ.intf.abap", "lib/li.intf.ABAP"} {
 		write(file)
 	}
-	cfg := []byte(`{"roots":[{"path":"base","writable":true},{"path":"overlay","writable":true}],"libs":[{"path":"lib","library":true,"files":["lib/ztest.clas.abap","lib/zdep.intf.abap"]}],"excluded":["excluded"]}`)
+	cfg := []byte(`{"roots":[{"path":"base","writable":true},{"path":"overlay","writable":true}],"libs":[{"path":"lib","library":true,"files":["lib/ztest.clas.abap","lib/zdep.intf.abap","lib/lı.intf.abap","lib/lß.intf.abap","lib/lK.intf.abap","lib/lẞ.intf.abap","lib/li.intf.ABAP"]}],"excluded":["excluded"]}`)
 	if err := SetStore(root, cfg, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer SetStore("", nil, "")
+	SetCompiler(&sourceTestCompiler{}, "")
+	defer SetCompiler(nil, "")
 	compare := func() {
 		t.Helper()
-		for _, tc := range []struct{ typ, name string }{{"CLAS", "ZTEST"}, {"CLAS", "/NS/ZTEST"}, {"INTF", "ZDEP"}, {"INCL", "ZPROG"}, {"PROG", "MISSING"}} {
+		for _, tc := range []struct{ typ, name string }{{"CLAS", "ZTEST"}, {"CLAS", "/NS/ZTEST"}, {"INTF", "ZDEP"}, {"INCL", "ZPROG"}, {"PROG", "MISSING"}, {"PROG", "ZI"}, {"PROG", "Zß"}, {"PROG", "ZK"}, {"PROG", "Zẞ"}, {"INTF", "LI"}, {"INTF", "Lß"}, {"INTF", "LK"}, {"INTF", "Lẞ"}} {
 			ext, _ := storeTypeExt(tc.typ)
 			full := storeBuild().find(tc.typ, tc.name)
-			fast := storeBuildFor(storeFileOf(tc.name)+ext).find(tc.typ, tc.name)
+			if full == nil && tc.name != "MISSING" {
+				t.Fatalf("invalid fixture: %s %s missing from full index", tc.typ, tc.name)
+			}
+			fast := checkRunIndex("CHECKRUN", tc.typ, tc.name, nil, "").find(tc.typ, tc.name)
 			if !reflect.DeepEqual(full, fast) {
 				t.Fatalf("%s %s: full=%+v targeted=%+v", tc.typ, tc.name, full, fast)
 			}
@@ -41,7 +52,7 @@ func TestTargetIndexMatchesFull(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				b, err := compilerInput(storeBuildFor(storeFileOf(tc.name)+ext), tc.typ, tc.name, "inactive")
+				b, err := compilerInput(storeBuildFor(strings.ReplaceAll(tc.name, "/", "#")+ext), tc.typ, tc.name, "inactive")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -143,5 +154,88 @@ func TestTargetIndexAdmission(t *testing.T) {
 	SetCompiler(&testCompiler{}, "")
 	if checkRunIndex("CHECKRUN", "PROG", "Z", nil, "").find("PROG", "OTHER") == nil {
 		t.Fatal("sidecar lost fallback")
+	}
+}
+
+func TestTargetIndexCanonicalWinner(t *testing.T) {
+	for _, library := range []bool{false, true} {
+		t.Run(map[bool]string{false: "project", true: "library"}[library], func(t *testing.T) {
+			for _, competing := range []bool{false, true} {
+				t.Run(map[bool]string{false: "missing", true: "wrong-winner"}[competing], func(t *testing.T) {
+					root := t.TempDir()
+					for _, dir := range []string{"base", "overlay"} {
+						if err := os.Mkdir(filepath.Join(root, dir), 0700); err != nil {
+							t.Fatal(err)
+						}
+					}
+					files := map[string]string{"abap_transpile.json": "{}", "overlay/zı.prog.abap": "REPORT zi. WRITE 'overlay'."}
+					if competing {
+						files["base/zi.prog.abap"] = "REPORT zi. WRITE 'base'."
+					}
+					for f, s := range files {
+						if err := os.WriteFile(filepath.Join(root, f), []byte(s), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					cfg := Config{Roots: []Root{{Path: "base"}, {Path: "overlay"}}}
+					if library {
+						cfg.Roots = nil
+						cfg.Libs = []Root{{Path: "overlay", Library: true, Files: []string{"overlay/zı.prog.abap"}}}
+						if competing {
+							cfg.Libs = append(cfg.Libs, Root{Path: "base", Library: true, Files: []string{"base/zi.prog.abap"}})
+						}
+					}
+					config, err := json.Marshal(cfg)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := SetStore(root, config, ""); err != nil {
+						t.Fatal(err)
+					}
+					defer SetStore("", nil, "")
+					full := storeBuild().find("PROG", "ZI")
+					fast := storeBuildFor(storeFileOf("ZI")+".prog.abap").find("PROG", "ZI")
+					t.Logf("full=%+v targeted=%+v", full, fast)
+					if full == nil || full.File != "overlay/zı.prog.abap" {
+						t.Fatal("invalid fixture")
+					}
+					if !reflect.DeepEqual(full, fast) {
+						t.Fatalf("target index disagrees with full for valid canonical identity ZI")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestTargetIndexSavedCheckCanonicalName(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "src"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for f, s := range map[string]string{"abap_transpile.json": "{}", "src/zı.prog.abap": "REPORT zi."} {
+		if err := os.WriteFile(filepath.Join(root, f), []byte(s), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := SetStore(root, []byte(`{"roots":[{"path":"src"}]}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	defer SetStore("", nil, "")
+	provider := &sourceTestCompiler{}
+	SetCompiler(provider, "")
+	defer SetCompiler(nil, "")
+	storeState.mu.Lock()
+	req := captureCompiler(storeBuild(), "CHECKRUN", "PROG", "ZI", "main", nil, "", "")
+	storeState.mu.Unlock()
+	full, err := storecheck.Run(provider, req)
+	if err != nil || !strings.Contains(full.Scalars["EV_JSON"], `"status":"processed"`) {
+		t.Fatalf("invalid full fixture: %+v %v", full, err)
+	}
+	ptr := func(s string) *string { return &s }
+	fast := Call(map[string]*string{"IV_COMMAND": ptr("CHECKRUN"), "IV_TYPE": ptr("PROG"), "IV_NAME": ptr("ZI")})
+	t.Logf("full=%s; targeted=%s", full.Scalars["EV_JSON"], fast.Scalars["EV_JSON"])
+	if full.Scalars["EV_JSON"] != fast.Scalars["EV_JSON"] {
+		t.Fatal("saved CHECKRUN changes its public result")
 	}
 }

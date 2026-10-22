@@ -259,7 +259,7 @@ func storeBuildFor(target string) *storeIndex {
 			}
 		}
 		for _, file := range files {
-			if target != "" && !strings.EqualFold(filepath.Base(file), target) {
+			if target != "" && !storeTargetMatches(filepath.Base(file), target) {
 				continue
 			}
 			name := file[strings.LastIndex(file, "/")+1:]

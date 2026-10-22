@@ -16,10 +16,24 @@ func checkRunIndex(command, typ, name string, source *string, filter string) *st
 		switch typ {
 		case "CLAS", "INTF", "PROG", "INCL":
 			ext, _ := storeTypeExt(typ)
-			return storeBuildFor(storeFileOf(name) + ext)
+			// Keep the requested identity: lowercasing is lossy for names such
+			// as capital sharp S and Kelvin sign.
+			return storeBuildFor(strings.ReplaceAll(name, "/", "#") + ext)
 		}
 	}
 	return storeBuild()
+}
+
+// Match the full builder's exact extension admission and canonical object name.
+// Unicode simple folding is not the identity relation defined by storeNameOf.
+func storeTargetMatches(name, target string) bool {
+	for _, typ := range storeTypes {
+		if typ.SameFileAs == "" && strings.HasSuffix(target, typ.Ext) {
+			return strings.HasSuffix(name, typ.Ext) &&
+				storeNameOf(strings.TrimSuffix(name, typ.Ext)) == storeNameOf(strings.TrimSuffix(target, typ.Ext))
+		}
+	}
+	return false
 }
 
 // ReadDir supplies the same lexical traversal as storeWalk. Stat directories
@@ -37,7 +51,7 @@ func storeTargetWalk(base, dir, target string, out []string) []string {
 		}
 		rel := filepath.ToSlash(filepath.Join(dir, name))
 		isDir := entry.IsDir()
-		if entry.Type()&os.ModeSymlink != 0 || strings.EqualFold(name, target) {
+		if entry.Type()&os.ModeSymlink != 0 || storeTargetMatches(name, target) {
 			info, err := os.Stat(filepath.Join(base, rel))
 			if err != nil {
 				continue
@@ -48,7 +62,7 @@ func storeTargetWalk(base, dir, target string, out []string) []string {
 			out = storeTargetWalk(base, rel, target, out)
 			continue
 		}
-		if !strings.EqualFold(name, target) {
+		if !storeTargetMatches(name, target) {
 			continue
 		}
 		skip := false
