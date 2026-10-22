@@ -178,15 +178,10 @@ func (c *Compiler) outline(ctx context.Context, in storecheck.Input) (doc json.R
 	if err != nil {
 		return nil, err
 	}
-	// Reuse only a byte-identical, complete ABAP object. Active snapshots with
-	// different or missing includes still need an isolated configured registry.
-	var trees []adtoutline.FileTree
-	var treeErr error
-	if c.Engine.Tree != nil && c.matchesSaved(files, in) {
-		trees, treeErr = c.savedTree(in)
-	} else {
-		trees, treeErr = c.snapshotTree(files, in)
-	}
+	// All ABAP object types share ExpandMacros, which can follow INCLUDE into
+	// other objects (also in class-pool macros and interfaces). Matching own
+	// bytes cannot prove the saved registry equivalent to this isolated snapshot.
+	trees, treeErr := c.snapshotTree(files, in)
 	if treeErr != nil {
 		return nil, treeErr
 	}
@@ -211,51 +206,5 @@ func (c *Compiler) snapshotTree(files []objstore.LintFile, in storecheck.Input) 
 		}
 	}()
 	trees, _ = c.Engine.SnapshotTree(files, c.config, registryType(in.Type), in.Name)
-	return trees, nil
-}
-
-// Match every ABAP file, including local/test includes and competing layer
-// files. XML is not an ABAP tree input. Exact paths prevent borrowing a main
-// file or an include from a different directory with the same object name.
-func (c *Compiler) matchesSaved(files []objstore.LintFile, in storecheck.Input) bool {
-	if len(files) == 0 {
-		return false
-	}
-	switch registryType(in.Type) {
-	case "CLAS", "INTF", "PROG":
-	default:
-		return false
-	}
-	wanted := strings.ToUpper(in.Name) + "." + registryType(in.Type)
-	saved := map[string]string{}
-	for _, f := range c.baseline.Files {
-		if strings.HasSuffix(f.Filename, ".abap") && ObjectIdentity(f.Filename) == wanted {
-			saved[f.Filename] = f.Raw
-		}
-	}
-	if len(saved) != len(files) {
-		return false
-	}
-	for _, f := range files {
-		raw, ok := saved[f.Filename]
-		if !ok || raw != f.Raw {
-			return false
-		}
-		delete(saved, f.Filename)
-	}
-	return len(saved) == 0
-}
-
-// A failed saved-tree parse may have mutated lazy parser state. Restore the
-// registry before returning the refusal, just as overlays restore saved bytes.
-// If restoration fails the outer trap poisons the compiler.
-func (c *Compiler) savedTree(in storecheck.Input) (trees []adtoutline.FileTree, err error) {
-	defer func() {
-		if value := recover(); value != nil {
-			c.Engine.Prime(c.baseline.Files, c.config)
-			err = fmt.Errorf("%s lint engine outline failed: %v", c.label(), value)
-		}
-	}()
-	trees, _ = c.Engine.Tree(registryType(in.Type), in.Name)
 	return trees, nil
 }

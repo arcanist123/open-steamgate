@@ -840,12 +840,13 @@ including empty buffers. Check failures recover after restoration; failed
 updates/restores poison the compiler. The outer store keeps its expected-hash,
 revision and live-link freshness checks. Missing Go linkage keeps delegation.
 
-OUTLINE reads exactly the host-selected active/inactive snapshot. When every
-ABAP path and byte matches the complete saved object it reuses the saved Tree;
-otherwise it primes an isolated checker with the effective config, as the
-sidecar does. It never lends
-saved/inactive includes to an active parse. `adtoutline` ports the Node part
-collectors and row encoder, including JSON property order and source links.
+OUTLINE reads exactly the host-selected active/inactive snapshot into an
+isolated checker with the effective config, as the sidecar does. All ABAP
+object types share a macro parser that can read external PROG sources through
+INCLUDE, including class-pool macros and interface sources. Matching every
+own-object path and byte does not make the saved registry equivalent. No object
+type currently has a proven safe saved-Tree fast path. `adtoutline` ports the
+Node part collectors and row encoder, including JSON property order and source links.
 An indexed object without a parser object still has Node's outline shell.
 
 ```sh
@@ -866,7 +867,9 @@ per-type counts so absent types cannot masquerade as coverage. It compares
 complete CHECK scalars/RFC issues and both active/inactive OUTLINE document
 bytes against the Node producers. Synthetic mutations add every source type,
 edited/broken/empty source, local and test classes sharing method names,
-macros, include removal/addition and inline restoration. Neither issue sorting
+macros, include removal/addition and inline restoration. External-macro fixtures
+for PROG/INCL/CLAS/INTF assert that full and isolated outlines differ, then
+require exact native/isolated equality for both versions. Neither issue sorting
 nor coordinate normalization hides mismatches. Other is a panic-only sentinel.
 The ordinary registered suite independently tests original Node parse trees
 against the outline port and runs the native lifecycle/refusal tests without

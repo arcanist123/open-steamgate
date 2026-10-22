@@ -119,6 +119,32 @@ export async function differential({root=process.cwd(),library,out}) {
       }
       updateRegistryFiles(registry,[[Filename,undefined]]);
     }
+    // Cross-object macros: full saved trees differ from the isolated contract
+    // even when every own-object path and byte matches. Exercise both versions
+    // and all formerly admitted types, including class-pool macro includes.
+    for(const type of ["PROG","INCL","CLAS","INTF"]) {
+      const suffix=type==="INCL"?"prog":type.toLowerCase();
+      const Raw=["PROG","INCL"].includes(type)?"REPORT zprobe.\nINCLUDE zmac.\ndecl.":type==="CLAS"?
+        "CLASS zprobe DEFINITION PUBLIC. PUBLIC SECTION. decl. ENDCLASS. CLASS zprobe IMPLEMENTATION. ENDCLASS.":
+        "INTERFACE zprobe PUBLIC. INCLUDE zmac. decl. ENDINTERFACE.";
+      const own=[{Filename:`/src/zprobe.${suffix}.abap`,Raw}];
+      if(type==="CLAS")own.push({Filename:"/src/zprobe.clas.macros.abap",Raw:"INCLUDE zmac."});
+      const external={Filename:"/src/zmac.prog.abap",Raw:`DEFINE decl.\n${["PROG","INCL"].includes(type)?"FORM do_it.\nENDFORM.":"METHODS do_it."}\nEND-OF-DEFINITION.`};
+      const full=[...own,external];
+      for(const f of full)writeFileSync(join(root,f.Filename.slice(1)),f.Raw);
+      await call({Command:"prime",Root:root,Config:spec.config,Files:full});
+      // Ensure the fixture still distinguishes a full registry parse from an
+      // isolated parse; a silently inert macro would not protect this boundary.
+      const outline=async input=>{
+        const reg=new lint.Registry(new lint.Config(spec.config));
+        for(const f of input)reg.addFile(new lint.MemoryFile(f.Filename,f.Raw));
+        reg.parse();
+        return JSON.stringify(await PARSE_KINDS.OUTLINE({find:()=>({name:"ZPROBE"}),registry:()=>reg,withActiveSources:(_e,fn)=>fn(reg)},{type,name:"ZPROBE",version:"inactive"}));
+      };
+      assert.notEqual(await outline(full),await outline(own),`external macro fixture is inert: ${type}`);
+      for(const version of ["active","inactive"])await run({type,name:"ZPROBE"},own,{version,onlyOutline:true,label:"external-macro"});
+      counts.mutations++;
+    }
     // Dictionary extraction: disappearing generated fields, missing keys,
     // analytical writes, virtual/cast refusals, and annotation case/spacing.
     const dictionary=[

@@ -187,77 +187,60 @@ func TestNativeOutlineTrapIsIsolated(t *testing.T) {
 	}
 }
 
-func TestSavedOutlineIdentity(t *testing.T) {
-	for _, version := range []string{"active", "inactive"} {
-		t.Run(version, func(t *testing.T) {
-			c, in, _ := nativeFixture(t)
-			in.Version = version
-			saved, isolated := 0, 0
-			c.Engine.Tree = func(typ, name string) ([]adtoutline.FileTree, bool) { saved++; return nil, true }
-			c.Engine.SnapshotTree = func([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool) {
-				isolated++
-				return nil, true
-			}
-			run := func() {
-				t.Helper()
+// Even byte-identical complete objects must use the isolated parser: the saved
+// registry can expand macros from external INCLUDEs for every ABAP object type.
+func TestNativeOutlineNeverBorrowsExternalMacros(t *testing.T) {
+	for _, typ := range []string{"PROG", "INCL", "CLAS", "INTF"} {
+		for _, version := range []string{"active", "inactive"} {
+			t.Run(typ+"/"+version, func(t *testing.T) {
+				c, in, _ := nativeFixture(t)
+				in.Type, in.Version = typ, version
+				logical := "ztest." + strings.ToLower(registryType(typ)) + ".abap"
+				in.Logical = []string{logical}
+				source := "REPORT ztest.\nINCLUDE zmac.\ndecl."
+				if typ == "CLAS" {
+					source = "INCLUDE zmac. CLASS ztest DEFINITION PUBLIC. PUBLIC SECTION. decl. ENDCLASS. CLASS ztest IMPLEMENTATION. ENDCLASS."
+				} else if typ == "INTF" {
+					source = "INTERFACE ztest PUBLIC. INCLUDE zmac. decl. ENDINTERFACE."
+				}
+				if err := os.WriteFile(filepath.Join(in.Root, in.Files[0]), []byte(source), 0600); err != nil {
+					t.Fatal(err)
+				}
+				in.Expected[in.Files[0]] = fmt.Sprintf("%x", sha256.Sum256([]byte(source)))
+				capture := c.Capture
+				c.Capture = func() (objstore.LintSnapshot, error) {
+					s, err := capture()
+					s.Files[0].Filename = "/" + logical
+					s.Files = append(s.Files, objstore.LintFile{Filename: "/zmac.prog.abap", Raw: "DEFINE decl. FORM do_it. ENDFORM. END-OF-DEFINITION."})
+					s.Digest += "external-macro"
+					return s, err
+				}
+				saved, isolated := 0, 0
+				c.Engine.Tree = func(string, string) ([]adtoutline.FileTree, bool) {
+					saved++
+					panic("saved tree can contain externally expanded declarations")
+				}
+				c.Engine.SnapshotTree = func(files []objstore.LintFile, _ string, gotType, name string) ([]adtoutline.FileTree, bool) {
+					isolated++
+					if gotType != registryType(typ) || name != in.Name || len(files) != 1 || files[0].Filename != "/"+logical || files[0].Raw != source {
+						t.Fatalf("wrong isolated input: %s %s %+v", gotType, name, files)
+					}
+					return nil, true
+				}
 				if _, err := c.Outline(context.Background(), in); err != nil {
 					t.Fatal(err)
 				}
-			}
-			run()
-			if saved != 1 || isolated != 0 {
-				t.Fatal(saved, isolated)
-			}
-			// An extra saved include must never leak into a version that omits it.
-			capture := c.Capture
-			c.Capture = func() (objstore.LintSnapshot, error) {
-				s, e := capture()
-				s.Files = append(s.Files, objstore.LintFile{Filename: "/other/ztest.prog.abap", Raw: "REPORT other."})
-				s.Digest += "extra"
-				return s, e
-			}
-			run()
-			if saved != 1 || isolated != 1 {
-				t.Fatal("borrowed a competing file", saved, isolated)
-			}
-			c.Capture = capture
-			// A different active byte snapshot uses an isolated checker even when the
-			// logical filename matches the saved registry exactly.
-			os.WriteFile(filepath.Join(in.Root, "active-copy"), []byte("REPORT active."), 0600)
-			in.Files = []string{"active-copy"}
-			in.Expected = nil
-			run()
-			if saved != 1 || isolated != 2 {
-				t.Fatal(saved, isolated)
-			}
-		})
+				if saved != 0 || isolated != 1 {
+					t.Fatalf("saved=%d isolated=%d", saved, isolated)
+				}
+			})
+		}
 	}
 }
 
-func TestSavedOutlineRestore(t *testing.T) {
-	c, in, raw := nativeFixture(t)
-	c.Engine.Tree = func(string, string) ([]adtoutline.FileTree, bool) { *raw = "corrupted"; panic("tree failed") }
-	if _, err := c.Outline(context.Background(), in); err == nil {
-		t.Fatal("missing refusal")
-	}
-	if *raw != "REPORT ztest." {
-		t.Fatal("saved state not restored", *raw)
-	}
-	if _, err := c.Check(context.Background(), in); err != nil {
-		t.Fatal(err)
-	}
-	c.Engine.Prime = func([]objstore.LintFile, string) { panic("restore failed") }
-	if _, err := c.Outline(context.Background(), in); err == nil {
-		t.Fatal("missing restoration refusal")
-	}
-	if _, err := c.Check(context.Background(), in); err == nil || !strings.Contains(err.Error(), "restore failed") {
-		t.Fatal(err)
-	}
-}
-
-func TestSavedOutlineFreshness(t *testing.T) {
+func TestNativeOutlineFreshness(t *testing.T) {
 	c, in, _ := nativeFixture(t)
-	c.Engine.Tree = func(string, string) ([]adtoutline.FileTree, bool) {
+	c.Engine.SnapshotTree = func([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool) {
 		os.WriteFile(filepath.Join(in.Root, in.Files[0]), []byte("changed"), 0600)
 		return nil, true
 	}
