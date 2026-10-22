@@ -62,6 +62,7 @@
     "web:vscode": "node scripts/build-vscode-web.mjs",
     "web:vscode:test": "node scripts/test-web-probe.mjs",
     "web:vscode:stage": "node scripts/stage-vscode-web.mjs",
+    "web:vscode:serve": "node scripts/serve-vscode-web.mjs",
     "web:preview:duckdb": "node tools/osd-build.mjs --publish && OSD_PREVIEW_DB=duckdb node scripts/build-preview.mjs",
     "web:serve": "node scripts/serve-build.mjs",
     "e2e:preview": "npm run web:preview && playwright test --config playwright.preview.config.mjs",

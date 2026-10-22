@@ -487,6 +487,30 @@ function fioriRuntime(config) {
   const bridgeFetch = webviewBridge(vscode, "/sap/opu/odata/sap");
   const mount = new URL(config.mount);
   const stats = {bridged: 0, bridgedSync: [], localSync: [], nativeSync: [], errors: []};
+  // vscode.dev is cross-origin isolated and so is every webview frame in it
+  // (COEP require-corp). The UI5 CDN answers CORS (access-control-allow-origin
+  // *) but sends no Cross-Origin-Resource-Policy, so a plain <script>, <link>
+  // or <img> from it is blocked there, and only a CORS-mode load passes. UI5
+  // creates those elements itself (ui5loader, theming), so every one aimed at
+  // the CDN is switched to crossorigin="anonymous" before its URL is set.
+  // Harmless where the page is not isolated (desktop, @vscode/test-web).
+  const cdn = (value) => {
+    try { return new URL(String(value), document.baseURI).origin === "https://ui5.sap.com"; } catch { return false; }
+  };
+  for (const [type, attribute] of [[HTMLScriptElement, "src"], [HTMLLinkElement, "href"], [HTMLImageElement, "src"]]) {
+    const descriptor = Object.getOwnPropertyDescriptor(type.prototype, attribute);
+    Object.defineProperty(type.prototype, attribute, {...descriptor, set(value) {
+      if (cdn(value) && this.crossOrigin === null) this.crossOrigin = "anonymous";
+      descriptor.set.call(this, value);
+    }});
+  }
+  const setAttribute = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if ((name === "src" || name === "href") && cdn(value) && "crossOrigin" in this && this.crossOrigin === null) {
+      this.crossOrigin = "anonymous";
+    }
+    return setAttribute.call(this, name, value);
+  };
   // A virtual path of the gateway, or undefined for a URL the browser loads.
   const virtualOf = (input) => {
     let url;
@@ -697,6 +721,9 @@ ${fioriRuntime.toString()}
 fioriRuntime(${JSON.stringify(config).replace(/</g, "\\u003c")});</script>`;
   let html = source.replace(/<head>/i, `<head>\n${head}`);
   html = html.replace(/<script\b(?![^>]*\bnonce=)/gi, `<script nonce="${nonce}"`);
+  // The page's own CDN tags load in CORS mode too (see fioriRuntime: COEP).
+  html = html.replace(/<(script|link)\b(?![^>]*\bcrossorigin)([^>]*\b(?:src|href)="https:\/\/ui5\.sap\.com\/)/gi,
+    (_, tag, rest) => `<${tag} crossorigin="anonymous"${rest}`);
   // The launchpad's own config script ends before the sandbox bootstrap tag.
   html = html.replace(/<script nonce="[^"]*" src="[^"]*\/sap\/ushell\/bootstrap\/sandbox\.js"/,
     (tag) => `<script nonce="${nonce}">window.osdRebaseApplications();</script>\n  ${tag}`);
