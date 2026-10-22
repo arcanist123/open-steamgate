@@ -170,6 +170,25 @@ describe("web worker read engine", function () {
     expect(new TextDecoder().decode(cds.body)).to.match(/dataPreview:name="TRAVELID" dataPreview:camelCaseName="TravelId"[^/]*dataPreview:keyAttribute="true"/);
   });
 
+  it("answers the SQLScript cell door with Portable AMDP on DuckDB only", async () => {
+    const {DuckDBDatabaseClient} = await import("../tools/duckdb-client.mjs");
+    const duck = new DuckDBDatabaseClient({path: ":memory:"});
+    await duck.connect();
+    const cell = (on) => readRequest(on, {method: "POST", path: "/sap/bc/osd/amdp/cell",
+      body: new TextEncoder().encode("lt = SELECT 6*7 AS answer FROM dummy;\nSELECT * FROM :lt;")});
+    try {
+      const answer = await cell(duck);
+      const json = JSON.parse(new TextDecoder().decode(answer.body));
+      expect(answer.status).to.equal(200);
+      expect(json).to.include({status: "ok", rows: "1", engine: "Portable AMDP (limited) on duckdb", system_db: "duckdb"});
+      expect(JSON.parse(json.result)[0]).to.deep.equal({ANSWER: 42});
+    } finally {
+      await duck.disconnect();
+    }
+    // sql.js falls through to the ABAP sandbox and its HANA refusal
+    expect(await cell(client)).to.equal(undefined);
+  });
+
   it("returns no rows for SQL zero limits with the actual SQLite adapter", async () => {
     const actual = new SQLiteDatabaseClient();
     const previousAbap = globalThis.abap;
