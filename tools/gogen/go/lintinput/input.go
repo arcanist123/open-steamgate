@@ -158,6 +158,10 @@ func NeedsLayers(root string, spec Spec, snapshot objstore.LintSnapshot) bool {
 }
 
 func New(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec) *storelint.Compiler {
+	return newWithCache(root, other, engine, spec, &objstore.LintCache{})
+}
+
+func newWithCache(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec, cache *objstore.LintCache) *storelint.Compiler {
 	absolute, rootErr := filepath.Abs(root)
 	root = absolute
 	var previousMembership string
@@ -180,7 +184,7 @@ func New(root string, other storecheck.Compiler, engine storelint.Engine, spec S
 			changed = changed || (initialized && membership != previousMembership) || (!initialized && spec.LibraryPlaces != nil)
 			capture := func() (objstore.LintSnapshot, error) {
 				if spec.Store != nil {
-					return objstore.CaptureLintView(root, spec.Store, spec.Hidden)
+					return cache.Capture(root, spec.Store, spec.Hidden)
 				}
 				return objstore.CaptureLint(spec.Hidden)
 			}

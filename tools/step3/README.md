@@ -703,3 +703,51 @@ Unchanged duplicates and plain byte edits retain the fast incremental path.
 Competing membership/order changes re-prime in resolved order so the engine's
 selected main file agrees with a fresh registry. Node dependencies are required
 for startup refresh and structural resolution; failure explicitly refuses.
+
+### CHECKRUN freshness content cache
+
+The Go host's `lintinput.New` owns a per-compiler `objstore.LintCache` behind
+`storelint.Compiler`'s mutex. Before checking, and again after checking/restoring
+SOURCE, it still captures ordered membership, config/pack guards, library
+namespaces and hidden files. Stable Linux regular files reuse bytes and their
+SHA-256 by device/inode/size/mode/mtime-ns/ctime-ns identity. Changed files are
+read and hashed, with pre/post-read identity comparison. Non-Linux platforms
+retain full reads. No watcher, directory-mtime shortcut or active-version cache
+is used. Identical ordered filenames also skip competing-object map allocation;
+changed membership/order still uses the existing re-prime decision.
+
+A conservative two-second timestamp window covers coarse timestamps: both file
+times must be older than the **cached read's start** minus the window. Recent or
+future timestamps force reads; after the window expires a fresh read must first
+establish a safe entry. `LintCache.Granularity` can be enlarged for a coarser
+filesystem, or set negative to disable reuse. Reuse assumes coherent stat data
+and filesystem/host clocks; use full reads for filesystems without that contract.
+See `tools/gogen/go/objstore/README.md` for the fallback details.
+
+The after-check snapshot becomes a stat/name/guard pass for stable files, but
+still hashes edits and racy files. This preserves the existing content-based
+stale-result comparison, including same-byte rewrites. A separate unconditional
+stat-only verifier would either reject harmless metadata edits or need the same
+content fallback. The store index remains rebuilt per request: the lint digest
+is not a safe index cache key (non-lint extensions, package declarations,
+`local/tmp/tadir.json`, library existence and store configuration also matter).
+
+`go test ./lintinput -run '^$' -bench BenchmarkFreshness3000 -benchmem
+-benchtime=1s -count=3` from `tools/gogen/go` measures synthetic 3,000-file / 13.2 MB
+snapshots, compiler CHECKRUN, and store CHECKRUN. The engine is a no-op, so these
+measure freshness/host overhead, not HTTP or engine execution latency.
+
+Measured on Linux amd64 / Intel i5-3570K, Go 1.26.0, median of three benchmark
+runs (1 s target per run; 300 project + 2,700 library files, aged beyond the
+window). The original column runs the same fixture against `f9e208ab`:
+
+| Host path, no-op engine | Original | Cached | Speedup |
+| --- | ---: | ---: | ---: |
+| One freshness snapshot | 186.78 ms | 35.59 ms | 5.25x |
+| Compiler CHECKRUN | 393.63 ms | 76.33 ms | 5.16x |
+| Store CHECKRUN, including index | 411.88 ms | 93.31 ms | 4.41x |
+
+These are warm synthetic filesystem measurements, not the i10 HTTP benchmark.
+The benchmark's `full-read` mode isolates cache savings in the new code;
+comparison with the original commit additionally includes avoiding competing
+object maps when filenames are identical.

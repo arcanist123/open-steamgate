@@ -29,6 +29,11 @@ func ObjectIdentity(filename string) string {
 // first main file is the same one a fresh registry would select. Byte edits
 // and unchanged duplicates keep the incremental path.
 func competingOrderChanged(before, after []objstore.LintFile) bool {
+	// Content changes cannot change registry order. Avoid allocating two
+	// object maps on the overwhelmingly common identical-membership path.
+	if slices.EqualFunc(before, after, func(a, b objstore.LintFile) bool { return a.Filename == b.Filename }) {
+		return false
+	}
 	group := func(files []objstore.LintFile) map[string][]string {
 		out := map[string][]string{}
 		for _, f := range files {

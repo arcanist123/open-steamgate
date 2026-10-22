@@ -28,3 +28,18 @@ measures detection separately on 3,000 files in 30 subdirectories:
 ```sh
 go test ./lintinput -run '^$' -bench BenchmarkLibrarySnapshot3000 -benchmem -benchtime=2s -count=3
 ```
+
+Each `New` compiler now owns an `objstore.LintCache`. Ordinary captures continue
+all structural guards, namespace walks, hidden-file hashing and layer checks;
+only stable file content reads/hashes are reused. Both before/after snapshots
+use this path, and the after-check pass still reads changed or racy files.
+See objstore's README for identity, timestamp-window and platform fallbacks.
+`BenchmarkFreshness3000` compares full reads and cached capture on a 3,000-file,
+13.2 MB synthetic tree (300 project and 2,700 library files). It measures one
+snapshot, the compiler CHECKRUN path, and the store CHECKRUN path including the
+index build and final target/revision guards. The engine is a no-op to isolate
+host freshness cost; these are not HTTP or real lint engine latency figures.
+
+```sh
+go test ./lintinput -run '^$' -bench BenchmarkFreshness3000 -benchmem -benchtime=1s -count=3
+```

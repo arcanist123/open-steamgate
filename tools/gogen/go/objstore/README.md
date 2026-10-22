@@ -43,3 +43,23 @@ for field (localeCompare order, JSON property order, and the scalar/table envelo
 `test/fixtures/osgo-store/destination-golden.json`: `tools/osgo-store-goldens.mjs` records the Node
 destination, `tools/gogen/go/objstore/golden_test.go` compares Go, and `test/osgo-store-goldens.mjs` fails on
 drift. A refusal is `EV_ERROR`, never a panic. No import of go/abap, no Session.
+
+`LintCache.Capture` shares the uncached `CaptureLintView` traversal and ordered
+content digest. A compiler owns one cache under its mutex; no process-global
+cache or store active-version proof changes. On Linux, regular files reuse raw
+bytes and SHA-256 only when device, inode, size, mode, mtime and ctime all match
+and both timestamps predate the cached read's start by more than two seconds.
+The walk supplies project stats; explicit library entries are statted separately.
+Changed/racy files are read and hashed, with another stat to reject a read-time
+identity change. Each capture replaces cache membership, evicting absent files.
+
+The timestamp window is racy-git style: eligibility uses the *previous read's*
+start, so waiting alone never makes a potentially racy cached read eligible.
+The default covers timestamp granularity up to two seconds; callers using
+coarser filesystems must increase `LintCache.Granularity`, or set it negative to
+force full reads. A nil cache also forces full reads. Other operating systems
+and unsupported file identities always read until their change-time identity
+has a tested implementation. Coherent stat metadata and a filesystem clock
+consistent with the host are required for reuse; remote filesystems that can
+return stale stat metadata should use full reads. This remains a two-pass
+freshness check, not an atomic filesystem transaction.

@@ -31,12 +31,18 @@ func CaptureLint(hidden []string) (LintSnapshot, error) {
 	if storeState.cfg == nil {
 		return out, fmt.Errorf("ABAP lint: no object store configured")
 	}
-	return captureLintView(storeState.root, storeState.cfg, storeState.excluded, hidden)
+	return captureLintView(storeState.root, storeState.cfg, storeState.excluded, hidden, nil)
 }
 
 // CaptureLintView captures newly resolved layer facts without changing the store
 // or its active-version proofs. Structural resolution never runs a checker.
 func CaptureLintView(root string, cfg *Config, hidden []string) (LintSnapshot, error) {
+	return (*LintCache)(nil).Capture(root, cfg, hidden)
+}
+
+// Capture retains content only; membership and ordered digest are rebuilt every time.
+// Callers serialize access (lintinput uses the storelint compiler mutex).
+func (cache *LintCache) Capture(root string, cfg *Config, hidden []string) (LintSnapshot, error) {
 	var excluded []*regexp.Regexp
 	for _, pattern := range cfg.Excluded {
 		re, err := regexp.Compile(pattern)
@@ -45,24 +51,30 @@ func CaptureLintView(root string, cfg *Config, hidden []string) (LintSnapshot, e
 		}
 		excluded = append(excluded, re)
 	}
-	return captureLintView(root, cfg, excluded, hidden)
+	return captureLintView(root, cfg, excluded, hidden, cache)
 }
 
-func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hidden []string) (LintSnapshot, error) {
+func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hidden []string, cache *LintCache) (LintSnapshot, error) {
 	out := LintSnapshot{Root: rootPath}
 	skip := map[string]bool{}
 	for _, file := range hidden {
 		skip[file] = true
 	}
+	reader := cache.begin()
+	defer reader.finish()
 	hash := sha256.New()
 	encoder := json.NewEncoder(hash)
 	_ = encoder.Encode(cfg)
 	roots := append(append([]Root{}, cfg.Roots...), cfg.Libs...)
 	for _, root := range roots {
 		files := root.Files
+		var infos map[string]os.FileInfo
+		if cache != nil {
+			infos = map[string]os.FileInfo{}
+		}
 		if !root.Library {
 			var err error
-			files, err = lintWalk(rootPath, root.Path, excluded)
+			files, err = lintWalkInfo(rootPath, root.Path, excluded, infos)
 			if err != nil {
 				return out, err
 			}
@@ -71,15 +83,15 @@ func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hi
 			if !(strings.HasSuffix(file, ".abap") || strings.HasSuffix(file, ".xml") || strings.HasSuffix(file, ".asddls")) {
 				continue
 			}
-			bytes, err := os.ReadFile(filepath.Join(rootPath, file))
+			content, err := reader.read(filepath.Join(rootPath, file), infos[file])
 			if err != nil {
 				return out, fmt.Errorf("ABAP lint input %s: %w", file, err)
 			}
 			// Include hidden files in identity: an edit/addition could change
 			// which layer wins and require full layer resolution and re-prime.
-			_ = encoder.Encode([]string{file, storeDigestBytes(bytes)})
+			_ = encoder.Encode([]string{file, content.digest})
 			if !skip[file] {
-				out.Files = append(out.Files, LintFile{Filename: "/" + file, Raw: string(bytes)})
+				out.Files = append(out.Files, LintFile{Filename: "/" + file, Raw: content.raw})
 			}
 		}
 	}
@@ -91,7 +103,7 @@ func captureLintView(rootPath string, cfg *Config, excluded []*regexp.Regexp, hi
 }
 
 // Like storeWalk, but IO failures must never become a clean, partial registry.
-func lintWalk(base, dir string, patterns []*regexp.Regexp) ([]string, error) {
+func lintWalkInfo(base, dir string, patterns []*regexp.Regexp, infos map[string]os.FileInfo) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(base, dir))
 	if os.IsNotExist(err) {
 		return nil, nil // optional roots (notably local/tmp) may not exist yet
@@ -110,7 +122,7 @@ func lintWalk(base, dir string, patterns []*regexp.Regexp) ([]string, error) {
 			return nil, err
 		}
 		if info.IsDir() {
-			children, err := lintWalk(base, file, patterns)
+			children, err := lintWalkInfo(base, file, patterns, infos)
 			if err != nil {
 				return nil, err
 			}
@@ -122,6 +134,9 @@ func lintWalk(base, dir string, patterns []*regexp.Regexp) ([]string, error) {
 			excluded = excluded || re.MatchString("/"+file)
 		}
 		if !excluded {
+			if infos != nil {
+				infos[file] = info
+			}
 			files = append(files, file)
 		}
 	}
