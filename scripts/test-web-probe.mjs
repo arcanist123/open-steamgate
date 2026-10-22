@@ -512,6 +512,14 @@ try {
   await page.screenshot({path: join(shots, "web-new-sql-notebook.png"), fullPage: true});
   console.log("New SQL notebook: untitled notebook opened with runnable starter cell");
 
+  // OSD_WEB_TEST_DB=duckdb: switch osd.web.database through the UI and check
+  // the DuckDB-Wasm gateway (scripts/test-web-duckdb.mjs)
+  if (process.env.OSD_WEB_TEST_DB === "duckdb") {
+    const {duckdbPass} = await import("./test-web-duckdb.mjs");
+    const duck = await duckdbPass({page, command, runPaletteCommand, fioriFrame, openWorkspaceFile, acceptNotebookTrust, shots});
+    console.log(`First $metadata: sql.js ${probe.activationToMetadataMs} ms, duckdb ${duck.activationToMetadataMs} ms`);
+  }
+
 } catch (error) {
   console.error(error);
   console.error("Workbench text:", (await page?.locator("body").innerText().catch(() => ""))?.slice(-3000));
