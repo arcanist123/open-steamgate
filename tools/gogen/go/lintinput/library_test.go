@@ -26,7 +26,7 @@ func TestLibraryMembershipThroughCanonicalResolver(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			// Use the real Node resolver, with its original library glob/exclusions.
+			// Build the policy once; runtime refreshes it natively.
 			repo, err := filepath.Abs("../../../..")
 			if err != nil {
 				t.Fatal(err)
@@ -39,7 +39,7 @@ func TestLibraryMembershipThroughCanonicalResolver(t *testing.T) {
 			write("libs.lock.json", `{"libraries":[]}`)
 			write("src/ztest.prog.abap", "REPORT ztest.")
 			write("lib/src/zdep.clas.abap", "CLASS zdep DEFINITION PUBLIC. ENDCLASS. CLASS zdep IMPLEMENTATION. ENDCLASS.")
-			spec, err := Resolve(root)
+			spec := buildSpec(t, root)
 			if err != nil {
 				t.Fatal(err)
 			}

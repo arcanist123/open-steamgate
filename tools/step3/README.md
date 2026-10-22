@@ -399,17 +399,17 @@ returns `notProcessed`; after successful restoration the next request can run.
 A failed update, restore or re-prime poisons the registry and requires restart,
 since its state cannot be proven. No file is written for SOURCE.
 
-Config guards, pack discovery and potential layer-winner changes select a full
-re-prime fallback. `tools/step3/lint-inputs.mjs` reuses the real Node store/layer
-resolver and `configuredRegistry`, exporting facts without checking source.
-The ABAP engine is then fully re-primed with those facts; the processed report's
-`statusText` says `ABAP lint: full re-prime after structural layer/config change`.
-This structural fallback requires Node and the checkout's dependencies; if
-unavailable, `notProcessed` explicitly says full re-prime needs structural input
-resolution. Ordinary saved edits, file additions/removals without shadowing, and
-overlays do not invoke Node or the compiler sidecar. Newly resolved checker roots
-do not republish the runtime or replace the Go object's store build/active-version
-facts; installing/routing new pack objects still belongs to host publication.
+Build-time `lintBuildSpec` embeds fixed-generation resolver rules and the exact
+publication config. Native `lintresolve` refreshes library selections, pack
+candidate types and layer winners without launching Node. File-selection changes
+select a full re-prime; the processed report retains the existing structural
+re-prime status. Config, lock, manifest, pack-set/place or layer-environment
+changes return `notProcessed` with `rebuild`, as do guarded installed/ZIP/abapGit
+identities. `tools/step3/lint-inputs.mjs` is now a build/test oracle only.
+Ordinary edits and SOURCE overlays retain the incremental lifecycle. Checker
+roots never republish the runtime or replace the object's built/active proofs;
+new compiled routes or generation changes still require a build. This removes
+the direct Node resolver launch; ordinary CHECK/OUTLINE sidecar policy is separate.
 
 A full re-prime that exceeds the existing 30-second CHECKRUN context reports
 the structural fallback and timeout; retry uses the completed primed registry.

@@ -85,7 +85,8 @@
       "test/osgo-storecmp.mjs",
       "test/xstring-buffer.mjs",
       "test/osgo-compiler.mjs",
-      "test/osd-adt-gogen-gate.mjs"
+      "test/osd-adt-gogen-gate.mjs",
+      "test/osgo-lint-resolve.mjs"
     ]
   }
 }

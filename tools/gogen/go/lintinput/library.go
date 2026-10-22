@@ -10,7 +10,7 @@ import (
 )
 
 // libraryMembership reads names/types, not file contents or file metadata.
-// Any namespace change re-runs the canonical Node glob/exclusion resolver;
+// Any namespace change re-runs the embedded native glob/exclusion resolver;
 // excluded additions can cause one harmless resolution, but never enter the
 // checker. Watch configured folders, including empty/missing library roots.
 func libraryMembership(root string, places []string) (string, error) {

@@ -2,55 +2,32 @@
 package lintinput
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"time"
 
+	"osg/gogen/lintresolve"
 	"osg/gogen/objstore"
 	"osg/gogen/storecheck"
 	"osg/gogen/storelint"
 )
 
-type Spec struct {
-	Config        string
-	Hidden, Files []string
-	Guards        map[string]string
-	PackSources   map[string]string
-	Places        []string
-	LibraryPlaces []string
-	Store         *objstore.Config
-}
+// Spec includes build-time rules plus refreshable checker facts.
+type Spec = lintresolve.Facts
 
-// Only structural changes invoke the existing Node layer/config resolver. It
-// returns input facts, never diagnostics. Every prime/check runs in the
-// selected in-process engine.
-var Resolve = func(root string) (Spec, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "node", filepath.Join(root, "tools", "step3", "lint-inputs.mjs"), root)
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		return Spec{}, fmt.Errorf("lint: full re-prime needs structural input resolution: %w", err)
-	}
-	var spec Spec
-	err = json.Unmarshal(out, &spec)
-	if err != nil {
-		return spec, fmt.Errorf("lint structural input facts: %w", err)
-	}
-	if spec.Store == nil || spec.Config == "" {
-		return spec, fmt.Errorf("lint structural input facts are incomplete")
-	}
-	return spec, nil
-}
+// Resolve is an optional test injection. Production binds embedded rules to
+// each compiler instance; no process-global root/rules registry is involved.
+var Resolve func(root string) (Spec, error)
 
 func Structure(root string, spec Spec) (string, bool, error) {
+	if spec.Rules != nil {
+		if err := lintresolve.Guard(root, spec.Rules); err != nil {
+			return "", false, err
+		}
+	}
 	guards := map[string]string{}
 	sources, changed, err := packSources(root, spec.PackSources)
 	if err != nil {
@@ -69,7 +46,11 @@ func Structure(root string, spec Spec) (string, bool, error) {
 		changed = changed || value != expected
 	}
 	// Detect new/removed packs too, not only edits to manifests known at build.
-	for _, place := range spec.Places {
+	places := spec.Places
+	if spec.Rules != nil {
+		places = nil
+	} // Guard already checked the complete manifest inventory.
+	for _, place := range places {
 		at := filepath.Join(root, place)
 		candidates := []string{filepath.Join(at, "osd-pack.json")}
 		entries, err := os.ReadDir(at)
@@ -123,6 +104,7 @@ func New(root string, other storecheck.Compiler, engine storelint.Engine, spec S
 func newWithCache(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec, cache *objstore.LintCache) *storelint.Compiler {
 	absolute, rootErr := filepath.Abs(root)
 	root = absolute
+	spec.Files = append([]string(nil), spec.Files...) // Each compiler owns its retained slice.
 	var previousMembership string
 	initialized := false
 	members := newMembership(spec)
@@ -144,18 +126,29 @@ func newWithCache(root string, other storecheck.Compiler, engine storelint.Engin
 			changed = changed || (initialized && membership != previousMembership) || (!initialized && spec.LibraryPlaces != nil)
 			capture := func() (objstore.LintSnapshot, error) {
 				if spec.Store != nil {
+					if spec.Rules != nil {
+						filter, err := lintresolve.ExclusionFilter(root, spec.Rules)
+						if err != nil {
+							return objstore.LintSnapshot{}, err
+						}
+						return cache.CaptureFiltered(root, spec.Store, spec.Hidden, filter)
+					}
 					return cache.Capture(root, spec.Store, spec.Hidden)
 				}
 				return objstore.CaptureLint(spec.Hidden)
 			}
 			snapshot, err := capture()
-			if err != nil && !changed {
+			if err != nil && !changed && !members.needs(root, spec, snapshot) {
 				return snapshot, err
 			}
 			// File edits retain the existing config/layer decisions.
 			resolvedInputs := changed || members.needs(root, spec, snapshot)
 			if resolvedInputs {
-				resolved, resolveErr := Resolve(root)
+				resolve := Resolve
+				if resolve == nil {
+					resolve = func(root string) (Spec, error) { return lintresolve.Resolve(root, spec.Rules) }
+				}
+				resolved, resolveErr := resolve(root)
 				if resolveErr != nil {
 					return snapshot, resolveErr
 				}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"osg/gogen/lintresolve"
 	"osg/gogen/objstore"
 	"osg/gogen/storelint"
 )
@@ -12,6 +13,8 @@ import (
 // Retained by one compiler under its capture mutex. Physical membership and
 // canonical identities are independent of source digests (and byte edits).
 type membership struct {
+	key    func(string) string
+	layers *membership
 	files  map[string]string
 	dirs   map[string]map[string]int
 	hidden map[string]bool
@@ -26,18 +29,26 @@ func membershipKey(file string) string {
 }
 
 func newMembership(spec Spec) *membership {
-	m := &membership{files: map[string]string{}, dirs: map[string]map[string]int{}, hidden: map[string]bool{}}
+	m := membershipWithKey(spec, membershipKey)
+	if spec.Rules != nil {
+		m.layers = membershipWithKey(spec, lintresolve.CompetitionIdentity)
+	}
+	return m
+}
+
+func membershipWithKey(spec Spec, key func(string) string) *membership {
+	m := &membership{key: key, files: map[string]string{}, dirs: map[string]map[string]int{}, hidden: map[string]bool{}}
 	for _, file := range spec.Files {
 		m.add(file)
 	}
 	for _, file := range spec.Hidden {
-		m.hidden[membershipKey(file)] = true
+		m.hidden[m.key(file)] = true
 	}
 	return m
 }
 
 func (m *membership) add(file string) {
-	key := membershipKey(file)
+	key := m.key(file)
 	m.files[file] = key
 	if key == "" {
 		return
@@ -55,6 +66,13 @@ func (m *membership) needs(root string, spec Spec, snapshot objstore.LintSnapsho
 			return true
 		}
 	}
+	if m.layers != nil {
+		layerSpec := spec
+		layerSpec.Hidden = nil // Original map already observed hidden files above.
+		if m.layers.needs(root, layerSpec, snapshot) {
+			return true
+		}
+	}
 	now := make(map[string]bool, len(snapshot.Files))
 	added := map[string]map[string]bool{}
 	for _, f := range snapshot.Files {
@@ -63,7 +81,7 @@ func (m *membership) needs(root string, spec Spec, snapshot objstore.LintSnapsho
 		if _, exists := m.files[file]; exists {
 			continue
 		}
-		key := membershipKey(file)
+		key := m.key(file)
 		if key == "" {
 			continue
 		}
@@ -95,6 +113,9 @@ func (m *membership) needs(root string, spec Spec, snapshot objstore.LintSnapsho
 }
 
 func (m *membership) advance(snapshot objstore.LintSnapshot) *membership {
+	if m.layers != nil {
+		m.layers.advance(snapshot)
+	}
 	// Reuse identities for survivors; classify only additions. Remove vanished
 	// names so a later recreation is a delta, even with identical content bytes.
 	now := make(map[string]bool, len(snapshot.Files))

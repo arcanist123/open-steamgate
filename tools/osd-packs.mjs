@@ -126,18 +126,22 @@ export function packAt(root, dir) {
     throw new BadPack(dir, error.message);
   }
   const name = String(declared.name ?? basename(dir)).toLowerCase();
-  const inside = (value, fallback) => {
+  // Expose the stat requirements beside validation so native guards cannot
+  // omit a newly added pack folder check. ABAP candidates remain mutable.
+  const directoryRequirements = [];
+  const packDirectory = at => { directoryRequirements.push(at); return isDir(at); };
+  const inside = (value, fallback, mutable = false) => {
     const wanted = value ?? fallback;
     if (wanted === undefined || wanted === null || wanted === false) {
       return undefined;
     }
     const at = join(dir, wanted);
-    return isDir(at) ? at : undefined;
+    return (mutable ? isDir(at) : packDirectory(at)) ? at : undefined;
   };
   // "abap" may name one folder or several; src/ is the abapGit default, and
   // a pack that is itself a repository folder says "." instead
   const declaredAbap = declared.abap === undefined ? undefined : [declared.abap].flat();
-  const abap = (declaredAbap ?? ["src", "."]).map((f) => inside(f)).filter((f) => f !== undefined);
+  const abap = (declaredAbap ?? ["src", "."]).map((f) => inside(f, undefined, true)).filter((f) => f !== undefined);
   // a folder the pack does not carry but fetches: a repository, a commit
   // and a path in it, copied into <pack>/<folder> by tools/osd-fetch.mjs.
   // Declared here so the pack is reproducible from its manifest alone, and
@@ -183,12 +187,19 @@ export function packAt(root, dir) {
       exclude: [s.exclude ?? []].flat().map((e) => String(e)),
     };
   });
+  const abapCandidates = (declaredAbap ?? ["src", "."]).filter(f => f !== null && f !== false).map(f => join(dir, f));
+  // Default DDIC follows the first existing ABAP folder. Guard every possible
+  // fallback path, including the no-ABAP case, as candidates change natively.
+  if (declared.ddic === undefined) {
+    for (const candidate of [dir, ...abapCandidates]) directoryRequirements.push(join(candidate, "ddic"));
+  }
   return {
     root,
     sources,
     // absent folders and stale identities: an unfetched pack is a
     // different system, and it is said rather than built smaller
-    missing: sources.filter((s) => !isDir(s.dir) || !sourceMatches(s, sourceOf(s.dir))),
+    directoryRequirements,
+    missing: sources.filter((s) => !packDirectory(s.dir) || !sourceMatches(s, sourceOf(s.dir))),
     name,
     description: declared.description === undefined ? undefined : String(declared.description),
     dir,
@@ -200,7 +211,7 @@ export function packAt(root, dir) {
     // abapGit's default and "." is a pack that is itself a repository folder
     abap: declaredAbap === undefined ? abap.slice(0, 1) : abap,
     // Keep absent candidates too: checker capture watches directory creation.
-    abapCandidates: (declaredAbap ?? ["src", "."]).filter(f => f !== null && f !== false).map(f => join(dir, f)),
+    abapCandidates,
     data: inside(declared.data, "data"),
     ddic: inside(declared.ddic, join(relative(dir, abap[0] ?? dir), "ddic")),
     webapp: inside(declared.webapp, "webapp"),

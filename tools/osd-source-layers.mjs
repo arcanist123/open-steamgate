@@ -19,16 +19,19 @@ export function declaredPackage(folder) {
   return (textTag(xml, 'DEVCLASS') ?? textTag(xml, 'PACKAGE'))?.toUpperCase();
 }
 export function rootPackage(folder, fallback) {
+  return rootPackageInfo(folder, fallback).package;
+}
+// Keep the inference decision with the algorithm, including unnamed DEVC headers.
+export function rootPackageInfo(folder, fallback) {
   const named = declaredPackage(folder);
-  if (named) return named;
+  if (named) return {package: named, inferred: false};
   const devc = readdirSync(folder).sort().find(n => n !== 'package.devc.xml' && n.endsWith('.devc.xml'));
-  if (devc) return devc.slice(0, -9).toUpperCase();
+  if (devc) return {package: devc.slice(0, -9).toUpperCase(), inferred: false};
   // abapGit omits the root name: SAP asks the importing user. For a standalone
   // one-prefix repository use that prefix; ambiguous repositories need a setting.
   const names = readdirSync(folder).sort().filter(n => /\.(clas|intf|prog)\.(abap|xml)$/.test(n));
   const prefixes = new Set(names.map(n => /^(?:zcl_|zif_|z)?([a-z0-9]+)_/i.exec(n)?.[1]?.toUpperCase()).filter(Boolean));
-  if (prefixes.size === 1) return '$Z' + [...prefixes][0];
-  return fallback;
+  return {package: prefixes.size === 1 ? '$Z' + [...prefixes][0] : fallback, inferred: true};
 }
 function materialize(root, archive) {
   const bytes = readFileSync(archive);

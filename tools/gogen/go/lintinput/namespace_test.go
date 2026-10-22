@@ -34,7 +34,7 @@ func TestCriticEncodedNamespaceOverride(t *testing.T) {
 	write("libs.lock.json", `{"libraries":[]}`)
 	write("src/ztest.prog.abap", "REPORT ztest.")
 	write("lib/src/%23acme%23zif_dep.intf.abap", "INTERFACE /acme/zif_dep PUBLIC. METHODS library_method. ENDINTERFACE.")
-	spec, err := Resolve(root)
+	spec := buildSpec(t, root)
 	if err != nil {
 		t.Fatal(err)
 	}
