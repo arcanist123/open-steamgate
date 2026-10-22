@@ -224,7 +224,10 @@ contains no linkage. The binary remains `tools/gogen/.out/osgo`. Normal builds
 and ordinary CHECK/OUTLINE still use their existing providers.
 
 `-lint-engine=abap` (or `OSD_LINT_ENGINE=abap`) selects `storelint.Compiler` for
-CHECKRUN. An explicit flag overrides the environment; the default is `node`.
+CHECKRUN. An explicit flag overrides the environment. An empty flag/environment selects
+`go` when the binary was built with the Go lint library, otherwise `node`,
+with one startup log line explaining the default selection. Explicit engine
+values retain their behavior, including refusal when their library is absent.
 There is no fallback to Node for an opted-in source CHECKRUN. Selecting ABAP
 on a binary built without `--lint-lib` keeps the server running, with source
 CHECKRUN returning `notProcessed` and a rebuild instruction in `statusText`.
@@ -365,8 +368,8 @@ corpus, removes deleted files in the old order, then updates/adds changed files
 in the current order through `ZCL_OSD_LINT_ENGINE=>UPDATE`. A content change or
 ordinary file addition/removal does not re-prime. A generation switch between
 requests is accepted; the store still rejects a switch, write or source/config
-change during a request with a retry reason. The default Go/Node snapshot path
-and ordinary CHECK/OUTLINE retain their existing behavior.
+change during a request with a retry reason. The explicitly selected Node
+snapshot provider and ordinary CHECK/OUTLINE retain their existing behavior.
 
 The facade uses zlnt `update_file`, `add_file` and `remove_file`.
 Its retained lexical reader index follows Node's `OBJECT_NAME_PATTERN`, including
@@ -527,14 +530,14 @@ Remaining work: Node warm-check mode/closure acceptance and warm measurements;
 engine .56 -> .73 migration/parity beyond these fixtures; DDLS generator
 diagnostics; AMDP portability warnings and their ADT report mapping.
 
-## TS-HG Go engine (opt-in)
+## TS-HG Go engine (optional build, default when linked)
 
 Companion abapiti patch: `5b56ecf` on `feat/tshg-library`, based on
 `selfhost` at `bae64e1`, in the separate `abapiti-tshg` clone.
 
 `-lint-engine=go` (or `OSD_LINT_ENGINE=go`) selects abapiti's direct
-TypeScript → HIR → Go translation of the pinned abaplint core. Node remains the
-default. This is a separate build input from the TS-HA `native/lib` directory:
+TypeScript → HIR → Go translation of the pinned abaplint core. A Go-linked
+binary selects it by default; binaries without Go lint linkage default to Node. This is a separate build input from the TS-HA `native/lib` directory:
 
 ```sh
 # From OSG, using the separate abapiti review branch feat/tshg-library.
@@ -568,8 +571,10 @@ uses a temporary modfile with a local `replace`; tracked `go.mod`/`go.sum` stay
 unchanged. Generated abaplint sources stay in the external directory. Plain
 builds have no import or dependency on that module. The existing
 `--lint-lib native/lib` build still selects ABAP linkage when `--lint-engine`
-is omitted. A Go-linked binary still defaults to Node at runtime. Selecting an
-engine absent from the binary yields `notProcessed`, without fallback.
+is omitted. At runtime, an empty `-lint-engine`/`OSD_LINT_ENGINE` selects Go
+when linked, otherwise Node, and logs the selection and reason once. An explicit
+`-lint-engine=node` retains Node. Explicitly selecting an engine absent from the
+binary yields `notProcessed`, without fallback.
 
 `storelint.NewGoEngine` supplies the same `storecheck.Compiler` lifecycle used
 by ABAP: startup prime, ordered saved-file diffs, structural re-prime, checks

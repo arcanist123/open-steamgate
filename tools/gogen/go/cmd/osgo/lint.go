@@ -32,9 +32,7 @@ var makeLintCompiler = func(_ string, other storecheck.Compiler) (*storelint.Com
 }
 
 // Installed by the optional TS-HG bridge, independently of the ABAP build.
-var makeGoLintCompiler = func(_ string, other storecheck.Compiler) (*storelint.Compiler, string) {
-	return &storelint.Compiler{Other: other, Engine: storelint.Engine{Name: "go"}}, ""
-}
+var makeGoLintCompiler func(string, storecheck.Compiler) (*storelint.Compiler, string)
 
 func selectCheckCompiler(root string, other storecheck.Compiler, selected string) storecheck.Compiler {
 	if selected != "abap" && selected != "go" {
@@ -44,7 +42,10 @@ func selectCheckCompiler(root string, other storecheck.Compiler, selected string
 	if selected == "go" {
 		factory = makeGoLintCompiler
 	}
-	engine, config := factory(root, other)
+	engine, config := &storelint.Compiler{Other: other, Engine: storelint.Engine{Name: selected}}, ""
+	if factory != nil {
+		engine, config = factory(root, other)
+	}
 	if err := engine.Prime(config); err != nil {
 		log.Printf("lint-engine=%s unavailable: %v (CHECKRUN will return notProcessed)", selected, err)
 	}
@@ -55,6 +56,11 @@ func selectedLintEngine(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if value == "" {
 		value = "node"
+		reason := "Go lint library not linked"
+		if makeGoLintCompiler != nil {
+			value, reason = "go", "Go lint library linked"
+		}
+		log.Printf("lint-engine=%s default: %s", value, reason)
 	}
 	if value != "node" && value != "abap" && value != "go" {
 		return "", fmt.Errorf("invalid lint engine %q: use node, abap or go", value)

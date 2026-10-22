@@ -14,10 +14,23 @@ import (
 )
 
 func TestLintSelection(t *testing.T) {
-	for _, value := range []string{"", "node", " NODE ", "abap", "go", " GO "} {
-		selected, err := selectedLintEngine(value)
-		if err != nil || selected != "node" && selected != "abap" && selected != "go" {
-			t.Fatalf("%q: %q %v", value, selected, err)
+	saved := makeGoLintCompiler
+	defer func() { makeGoLintCompiler = saved }()
+	for _, linked := range []bool{false, true} {
+		makeGoLintCompiler = nil
+		wantDefault := "node"
+		if linked {
+			wantDefault = "go"
+			makeGoLintCompiler = func(string, storecheck.Compiler) (*storelint.Compiler, string) {
+				t.Fatal("selection must not construct or prime the engine")
+				return nil, ""
+			}
+		}
+		for value, want := range map[string]string{"": wantDefault, "  ": wantDefault, "node": "node", " NODE ": "node", "abap": "abap", "go": "go", " GO ": "go"} {
+			selected, err := selectedLintEngine(value)
+			if err != nil || selected != want {
+				t.Fatalf("linked=%v %q: got %q %v, want %q", linked, value, selected, err, want)
+			}
 		}
 	}
 	if _, err := selectedLintEngine("automatic"); err == nil {
