@@ -21,11 +21,12 @@ type Facts struct {
 }
 
 type Library struct {
-	Folder   string   `json:"folder"`
-	Dir      string   `json:"dir"`
-	Logical  string   `json:"logical"`
-	Patterns []string `json:"patterns"`
-	Excluded []string `json:"excluded"`
+	ExcludeTestclasses bool     `json:"excludeTestclasses"`
+	Folder             string   `json:"folder"`
+	Dir                string   `json:"dir"`
+	Logical            string   `json:"logical"`
+	Patterns           []string `json:"patterns"`
+	Excluded           []string `json:"excluded"`
 }
 
 type Pack struct {
@@ -41,17 +42,21 @@ type Mapping struct {
 }
 
 type Rules struct {
-	FactGuards  map[string]string  `json:"factGuards"`
-	Version     int                `json:"version"`
-	Config      string             `json:"config"`
-	Roots       []objstore.Root    `json:"roots"`
-	Plan        []Slot             `json:"plan"`
-	Excluded    []string           `json:"excluded"`
-	Libraries   []Library          `json:"libraries"`
-	Packs       []Pack             `json:"packs"`
-	Places      []string           `json:"places"`
-	Guards      map[string]string  `json:"guards"`
-	Environment map[string]*string `json:"environment"`
+	Inference    map[string]string  `json:"inference"`
+	MetadataDirs []string           `json:"metadataDirs"`
+	Metadata     map[string]string  `json:"metadata"`
+	Overrides    []objstore.Root    `json:"overrides"`
+	FactGuards   map[string]string  `json:"factGuards"`
+	Version      int                `json:"version"`
+	Config       string             `json:"config"`
+	Roots        []objstore.Root    `json:"roots"`
+	Plan         []Slot             `json:"plan"`
+	Excluded     []string           `json:"excluded"`
+	Libraries    []Library          `json:"libraries"`
+	Packs        []Pack             `json:"packs"`
+	Places       []string           `json:"places"`
+	Guards       map[string]string  `json:"guards"`
+	Environment  map[string]*string `json:"environment"`
 	// States guard topology (e.g. $TMP existence); unlike guards they need no bytes.
 	States    map[string]string `json:"states"`
 	Manifests map[string]string `json:"manifests"`

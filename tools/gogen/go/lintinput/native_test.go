@@ -29,6 +29,7 @@ func TestNativeResolveAndCheckRunWithoutNode(t *testing.T) {
 	write("abaplint.jsonc", `{"syntax":{"version":"v702"}}`)
 	write("libs.lock.json", `{"libraries":[]}`)
 	write("src/ztest.prog.abap", "REPORT ztest.")
+	write("packs/late/osd-pack.json", `{ "name":"late", "abap":"src" }`)
 	spec := buildSpec(t, root)
 	// Exercise the production per-instance resolver, not the test injection.
 	Resolve = nil
@@ -62,13 +63,44 @@ func TestNativeResolveAndCheckRunWithoutNode(t *testing.T) {
 	if calls != 4 {
 		t.Fatal(calls)
 	}
-	write("abaplint.jsonc", `{"syntax":{"version":"v750"}}`)
-	r, err := storecheck.Run(c, req)
-	if err != nil || !strings.Contains(r.Scalars["EV_JSON"], `"status":"notProcessed"`) || !strings.Contains(r.Scalars["EV_JSON"], "rebuild") || calls != 4 {
-		t.Fatal(r, err, calls)
+	refuse := func(label string) {
+		t.Helper()
+		before := calls
+		r, err := storecheck.Run(c, req)
+		if err != nil || !strings.Contains(r.Scalars["EV_JSON"], `"status":"notProcessed"`) || !strings.Contains(r.Scalars["EV_JSON"], "rebuild") || calls != before {
+			t.Fatal(label, r, err, calls)
+		}
 	}
-	// A refusal doesn't poison a previously healthy registry or accept new config.
-	write("abaplint.jsonc", `{"syntax":{"version":"v702"}}`)
+	for _, file := range []string{"abaplint.jsonc", "abap_transpile.json", "libs.lock.json", "packs/late/osd-pack.json"} {
+		original, err := os.ReadFile(filepath.Join(root, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(file, string(original)+"\n")
+		refuse(file)
+		if err := os.Remove(filepath.Join(root, file)); err != nil {
+			t.Fatal(err)
+		}
+		refuse(file + " missing")
+		write(file, string(original))
+		check()
+	}
+	for _, key := range []string{"OSD_PACKS", "OSD_TMP", "OSD_LAYERS", "OSD_WEB_PACKS", "OSD_LAYER_PACKAGE", "OSD_LAYER_DISCOVERY_ONLY", "OSD_LIB_NEW"} {
+		t.Run(key, func(t *testing.T) { t.Setenv(key, "changed"); refuse(key) })
+	}
+	write("packs/new/osd-pack.json", `{"name":"new"}`)
+	refuse("new pack")
+	if err := os.RemoveAll(filepath.Join(root, "packs/new")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(root, "packs/late"), filepath.Join(root, "packs/renamed")); err != nil {
+		t.Fatal(err)
+	}
+	refuse("renamed pack")
+	if err := os.Rename(filepath.Join(root, "packs/renamed"), filepath.Join(root, "packs/late")); err != nil {
+		t.Fatal(err)
+	}
+	// Refusals do not poison an already healthy registry after restoring guards.
 	check()
 	// Guard mutations during a check still refuse the result.
 	c.Engine.Check = func(string) []storelint.Issue { write("libs.lock.json", "{}\n"); return nil }

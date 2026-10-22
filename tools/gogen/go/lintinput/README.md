@@ -1,11 +1,15 @@
 # lintinput
 
-Resolves Node layer/config facts and captures ordered filesystem inputs for
+Resolves fixed-generation native layer/file facts and captures ordered filesystem inputs for
 `storelint.Compiler`. It imports no generated code and can be tested without
 building osgo or linking either checker. `New` wires capture into an injected
-engine; `Resolve` runs the structural Node resolver, never a checker.
+engine; the optional `Resolve` test seam replaces the per-instance native resolver,
+never a checker. Build-time rules are described in [lintresolve](../lintresolve/README.md).
 
-Config/pack hashing and competing membership detection live here. Ordinary
+Config/pack hashing and competing membership detection live here. Changes to
+fixed policy return `notProcessed` with `rebuild`; file-selection and candidate
+type changes resolve natively. The effective checker config stays build-time exact.
+Ordinary
 saved byte edits retain the resolved decisions and use the incremental bridge.
 The command owns flags, engine selection and generated factory wiring only.
 
@@ -13,7 +17,7 @@ Run `go test -race ./lintinput` from `tools/gogen/go`.
 
 Library namespaces are walked once per normal capture using directory entries,
 without reading source bytes again or statting ordinary files. A namespace
-change invokes Node's canonical glob/exclusion resolution and re-primes.
+change invokes the native embedded glob/exclusion rules and re-primes.
 Changes outside the original globs may cause one conservative resolution but
 cannot add those files to the checker. Configured library folders are watched
 including empty/missing ones; startup resolves once to refresh embedded lists.

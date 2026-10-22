@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"syscall"
 )
@@ -75,6 +76,9 @@ func Manifests(root string, places []string) (map[string]string, error) {
 	return found, nil
 }
 
+var packageSource = regexp.MustCompile(`\.(clas|intf|prog)\.(abap|xml)$`)
+var packagePrefix = regexp.MustCompile(`(?i)^(?:zcl_|zif_|z)?([a-z0-9]+)_`)
+
 func Guard(root string, r *Rules) error {
 	if r == nil || r.Version != 1 {
 		return fmt.Errorf("rebuild: native lint resolver rules are missing or unsupported")
@@ -108,11 +112,55 @@ func Guard(root string, r *Rules) error {
 	for file, want := range r.States {
 		got, err := fileType(at(root, file))
 		if err != nil {
-			return err
+			return fmt.Errorf("rebuild: structural topology %s: %w", file, err)
 		}
 		if got != want {
 			return fmt.Errorf("rebuild: structural topology %s changed", file)
 		}
+	}
+	metadata := map[string]string{}
+	for _, dir := range r.MetadataDirs {
+		entries, err := os.ReadDir(at(root, dir))
+		if os.IsNotExist(err) {
+			return fmt.Errorf("rebuild: root package folder disappeared: %s", dir)
+		}
+		if err != nil {
+			return fmt.Errorf("rebuild: package metadata: %w", err)
+		}
+		if expected, ok := r.Inference[dir]; ok {
+			prefixes := map[string]bool{}
+			for _, entry := range entries {
+				if !packageSource.MatchString(entry.Name()) {
+					continue
+				}
+				match := packagePrefix.FindStringSubmatch(regexUnits(entry.Name()))
+				if match != nil {
+					prefixes[strings.ToUpper(match[1])] = true
+				}
+			}
+			inferred := "__OSGO_FALLBACK__"
+			if len(prefixes) == 1 {
+				for prefix := range prefixes {
+					inferred = "$Z" + prefix
+				}
+			}
+			if inferred != expected {
+				return fmt.Errorf("rebuild: inferred root package changed: %s", dir)
+			}
+		}
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".devc.xml") {
+				file := filepath.ToSlash(filepath.Join(dir, entry.Name()))
+				hash, err := digest(at(root, file))
+				if err != nil {
+					return fmt.Errorf("rebuild: package metadata: %w", err)
+				}
+				metadata[file] = hash
+			}
+		}
+	}
+	if r.Metadata != nil && !reflect.DeepEqual(metadata, r.Metadata) {
+		return fmt.Errorf("rebuild: root package metadata changed")
 	}
 	found, err := Manifests(root, r.Places)
 	if err != nil {

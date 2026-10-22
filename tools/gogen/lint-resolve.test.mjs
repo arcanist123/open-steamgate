@@ -5,6 +5,8 @@ import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rm
 import {tmpdir} from "node:os";
 import {dirname, join, relative, resolve} from "node:path";
 import {after, test} from "node:test";
+import {zipInProcess} from "../osd-abapgit-zip.mjs";
+import {abapgitXml} from "../osd-abapgit-xml.mjs";
 import {lintBuildSpec} from "./lint-engine.mjs";
 
 const repo = resolve(import.meta.dirname, "../..");
@@ -50,7 +52,7 @@ async function parity(root, rules, label) {
   assert.deepEqual(JSON.parse(captured.stdout), orderedInputs, `${label}: ordered (Filename,SHA256(raw))`);
   assert.deepEqual(got, want, label); // Includes byte-exact config, ordered paths and duplicates.
   assert.equal(JSON.stringify(canonical(got)), JSON.stringify(canonical(want)), label);
-  return {rules: rules ?? freshRules, facts: want};
+  return {rules: rules ?? freshRules, facts: want, orderedInputs};
 }
 
 test("fixed rules refresh every ordered fact through library, hidden and pack type mutations", async () => {
@@ -106,6 +108,117 @@ test("each structural guard and environment selector refuses with rebuild", asyn
   }
 });
 
+test("duplicate libraries, default pack fallback, explicit layers and selections", async () => {
+  const root = fixture("selection");
+  const cfg = JSON.parse(readFileSync(join(root, "abap_transpile.json")));
+  cfg.input_folder = ["base", "base", "overlay", "gen"];
+  cfg.libs.push({folder: "/lib", files: "/deps/**"});
+  cfg.libs.push({folder: "/lib", files: [null, false, 12]});
+  write(root, "abap_transpile.json", JSON.stringify(cfg));
+  write(root, "packs/default/osd-pack.json", '{"name":"default","order":1}');
+  write(root, "packs/default/zfallback.prog.abap", "REPORT zfallback.");
+  const {rules} = await parity(root, undefined, "default candidate dot and duplicate library paths");
+  write(root, "packs/default/src/zselected.prog.abap", "REPORT zselected.");
+  await parity(root, rules, "default switches from dot to src");
+  for (const value of ["off", "on"]) {
+    process.env.OSD_TMP = value;
+    await parity(root, undefined, "TMP=" + value);
+    delete process.env.OSD_TMP;
+  }
+  process.env.OSD_WEB_PACKS = "late";
+  try { await parity(root, undefined, "selected packs"); } finally {delete process.env.OSD_WEB_PACKS;}
+  const external = join(scratch, "external-pack");
+  write(external, "osd-pack.json", '{"name":"external"}');
+  write(external, "src/zexternal.prog.abap", "REPORT zexternal.");
+  process.env.OSD_PACKS = external;
+  try { await parity(root, undefined, "pack place is an external pack"); } finally {delete process.env.OSD_PACKS;}
+  const layer = join(scratch, "folder-layer");
+  write(layer, ".abapgit.xml", abapgitXml());
+  write(layer, "src/package.devc.xml", "<DEVCLASS>ZLAYER</DEVCLASS>");
+  write(layer, "src/ztest.clas.xml", "<xml/>");
+  process.env.OSD_LAYERS = layer;
+  try {
+    const {rules} = await parity(root, undefined, "abapGit folder layer");
+    write(layer, ".abapgit.xml", abapgitXml() + "\n");
+    assert.match(native(root, rules).stderr, /rebuild/);
+  } finally {delete process.env.OSD_LAYERS;}
+});
+
+test("listed pack candidates keep generic fallback metadata and TMP filtering position", async () => {
+  const root = fixture("overlap");
+  const cfg = JSON.parse(readFileSync(join(root, "abap_transpile.json")));
+  cfg.input_folder = ["local/tmp", "base", "packs/late/addon", "gen"];
+  write(root, "abap_transpile.json", JSON.stringify(cfg));
+  process.env.OSD_TMP = "off";
+  try {
+    const {rules} = await parity(root, undefined, "listed missing candidate");
+    write(root, "packs/late/addon/zaddon.prog.abap", "REPORT zaddon.");
+    await parity(root, rules, "listed candidate becomes pack root");
+    rmSync(join(root, "packs/late/addon"), {recursive: true});
+    await parity(root, rules, "listed candidate falls back to generic root");
+  } finally {delete process.env.OSD_TMP;}
+});
+
+test("installed physical paths retain logical exclusions and ordered pack slots", async () => {
+  const root = fixture("installed");
+  write(root, "abap_transpile.json", JSON.stringify({input_folder: ["src", "gen"],
+    libs: [{folder: "/.local/lars/lib", exclude_filter: ["/src/skip/"]}], not_in_system: ["/src/skip/"]}));
+  const id = "sha256:" + "a".repeat(64);
+  const layers = [["input", "src"], ["lib", "lib"], ["pack", "last"]].map(([kind, name], order) => ({kind, name, order,
+    digest: id, treeDigest: id, path: `${kind === "lib" ? "libs" : kind === "pack" ? "packs" : "inputs"}/${name}`}));
+  write(root, ".local/system/.osd-system.json", JSON.stringify({digest: id, layers}));
+  for (const l of layers) {
+    const path = ".local/system/" + l.path;
+    write(root, path + "/.osd-layer.json", JSON.stringify(l));
+    write(root, path + "/.abapgit.xml", abapgitXml());
+    write(root, path + "/src/ztest.prog.abap", "REPORT ztest.");
+    write(root, path + "/src/skip/zskip.prog.abap", "REPORT zskip.");
+    if (l.kind === "pack") write(root, path + "/osd-pack.json", '{"name":"last","abap":["src","addon"]}');
+  }
+  const {rules} = await parity(root, undefined, "installed");
+  write(root, ".local/system/packs/last/addon/zextra.prog.abap", "REPORT zextra.");
+  await parity(root, rules, "installed candidate creation");
+  write(root, ".local/system/libs/lib/.osd-layer.json", "{}");
+  assert.match(native(root, rules).stderr, /rebuild/);
+});
+
+test("prepared ZIP layers resolve without materializing and refuse changed archives", async () => {
+  const root = fixture("zip");
+  const source = join(scratch, "zip-source");
+  write(source, ".abapgit.xml", abapgitXml());
+  write(source, "src/package.devc.xml", "<DEVCLASS>ZZIP</DEVCLASS>");
+  write(source, "src/ztest.clas.abap", "CLASS ztest DEFINITION PUBLIC. ENDCLASS. CLASS ztest IMPLEMENTATION. ENDCLASS.");
+  write(source, "src/ztest.clas.xml", "<xml/>");
+  write(root, "layer.zip", zipInProcess(source));
+  process.env.OSD_LAYERS = "layer.zip";
+  try {
+    const {rules} = await parity(root, undefined, "prepared ZIP");
+    const overlay = rules.roots.find(r => r.overlayOf).path;
+    write(root, overlay + "/ztest.clas.abap", "CLASS ztest DEFINITION PUBLIC. ENDCLASS. CLASS ztest IMPLEMENTATION. ENDCLASS.\n");
+    await parity(root, rules, "ZIP overlay byte edit");
+    write(root, "layer.zip", Buffer.concat([readFileSync(join(root, "layer.zip")), Buffer.from("changed")]));
+    assert.match(native(root, rules).stderr, /rebuild/);
+  } finally {delete process.env.OSD_LAYERS;}
+});
+
+test("inferred root package is guarded while ordinary same-prefix additions remain mutable", async () => {
+  const root = fixture("inferred-package");
+  const layer = join(scratch, "inferred-layer");
+  write(layer, ".abapgit.xml", abapgitXml());
+  write(layer, "src/zcl_one_first.clas.abap", "CLASS zcl_one_first DEFINITION PUBLIC. ENDCLASS. CLASS zcl_one_first IMPLEMENTATION. ENDCLASS.");
+  process.env.OSD_LAYERS = layer;
+  try {
+    const {rules} = await parity(root, undefined, "inferred package initial");
+    write(layer, "src/zcl_one_second.clas.abap", "CLASS zcl_one_second DEFINITION PUBLIC. ENDCLASS. CLASS zcl_one_second IMPLEMENTATION. ENDCLASS.");
+    await parity(root, rules, "same package prefix");
+    write(layer, "src/zcl_other_first.clas.abap", "CLASS zcl_other_first DEFINITION PUBLIC. ENDCLASS. CLASS zcl_other_first IMPLEMENTATION. ENDCLASS.");
+    assert.match(native(root, rules).stderr, /rebuild/);
+    rmSync(join(layer, "src/zcl_other_first.clas.abap"));
+    write(layer, "src/package.devc.xml", "<DEVCLASS>ZCHANGED</DEVCLASS>");
+    assert.match(native(root, rules).stderr, /rebuild/);
+  } finally {delete process.env.OSD_LAYERS;}
+});
+
 test("regex incompatibilities fail at build time", async () => {
   for (const re of ["(?=x)", "(x)\\1", "\\s", "[[:alpha:]]"]) {
     const root = fixture("regex-" + digest(re).slice(0, 8));
@@ -122,8 +235,12 @@ test("full checkout disposable copy matches every fact", async t => {
     const parts = relative(repo, path).split("/");
     return !parts.some(p => [".git", "node_modules", ".out"].includes(p)) && !["output", "build"].includes(parts[0]);
   }});
-  const {facts} = await parity(root, undefined, "full checkout");
+  const {facts, rules, orderedInputs} = await parity(root, undefined, "full checkout");
   t.diagnostic(JSON.stringify({roots: facts.store.roots.length, libraryGroups: facts.store.libs.length,
     libraryPlaces: facts.libraryPlaces.length, files: facts.files.length, hidden: facts.hidden.length,
-    guards: Object.keys(facts.guards).length, factsSha256: digest(facts), filesSha256: digest(facts.files), configSha256: digest(facts.config)}));
+    guards: Object.keys(facts.guards).length, selectedPacks: rules.packs.length,
+    libraryFiles: facts.store.libs.reduce((n,lib) => n + lib.files.length, 0),
+    packCandidateTypes: Object.values(facts.packSources).reduce((out,kind) => ({...out, [kind]: (out[kind] ?? 0) + 1}), {}),
+    orderedInputsSha256: digest(orderedInputs),
+    configBytesSha256: createHash("sha256").update(facts.config).digest("hex"), factsSha256: digest(facts), filesSha256: digest(facts.files), configSha256: digest(facts.config)}));
 });

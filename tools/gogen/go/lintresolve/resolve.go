@@ -61,12 +61,35 @@ func Resolve(root string, r *Rules) (Facts, error) {
 			sources[c] = kind
 		}
 	}
+	// rootsOf assigns metadata by path: later pack declarations win, then
+	// explicit user layer metadata wins, even for roots repeated in the list.
+	metadata := map[string]objstore.Root{}
+	for _, p := range r.Packs {
+		for _, c := range p.Candidates {
+			if sources[c] != "directory" {
+				continue
+			}
+			metadata[c] = objstore.Root{Path: c, Writable: !r.System, Imported: true, Package: p.Package}
+			if p.Default {
+				break
+			}
+		}
+	}
+	for _, override := range r.Overrides {
+		metadata[override.Path] = override
+	}
+	rootFor := func(root objstore.Root) objstore.Root {
+		if selected, ok := metadata[root.Path]; ok {
+			return selected
+		}
+		return root
+	}
 	if r.Plan == nil {
 		cfg.Roots = append(cfg.Roots, r.Roots...)
 	} else {
 		for _, slot := range r.Plan {
 			if slot.Root != nil {
-				cfg.Roots = append(cfg.Roots, *slot.Root)
+				cfg.Roots = append(cfg.Roots, rootFor(*slot.Root))
 				continue
 			}
 			if slot.Pack == nil {
@@ -82,7 +105,7 @@ func Resolve(root string, r *Rules) (Facts, error) {
 					listed = listed || s == c
 				}
 				if !listed {
-					cfg.Roots = append(cfg.Roots, objstore.Root{Path: c, Writable: !r.System, Imported: true, Package: p.Package})
+					cfg.Roots = append(cfg.Roots, rootFor(objstore.Root{Path: c, Writable: !r.System, Imported: true, Package: p.Package}))
 				}
 				if p.Default {
 					break
@@ -117,7 +140,7 @@ func Resolve(root string, r *Rules) (Facts, error) {
 			for _, re := range includes {
 				included = included || re.MatchString(full)
 			}
-			if !included || strings.HasSuffix(file, ".clas.testclasses.abap") || matches(excludes, full, true) {
+			if !included || lib.ExcludeTestclasses && strings.HasSuffix(file, ".clas.testclasses.abap") || matches(excludes, full, true) {
 				continue
 			}
 			path := base

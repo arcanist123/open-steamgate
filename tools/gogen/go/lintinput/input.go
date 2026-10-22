@@ -104,6 +104,7 @@ func New(root string, other storecheck.Compiler, engine storelint.Engine, spec S
 func newWithCache(root string, other storecheck.Compiler, engine storelint.Engine, spec Spec, cache *objstore.LintCache) *storelint.Compiler {
 	absolute, rootErr := filepath.Abs(root)
 	root = absolute
+	spec.Files = append([]string(nil), spec.Files...) // Each compiler owns its retained slice.
 	var previousMembership string
 	initialized := false
 	members := newMembership(spec)
