@@ -181,7 +181,7 @@ func (c *Compiler) syncSaved() (string, error) {
 		return "", fmt.Errorf("%s lint: request root differs from primed root", c.label())
 	}
 	status := ""
-	if now.Structure != c.baseline.Structure {
+	if now.Structure != c.baseline.Structure || competingOrderChanged(c.baseline.Files, now.Files) {
 		config := now.Config
 		if config == "" {
 			config = c.config

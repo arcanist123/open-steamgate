@@ -121,8 +121,20 @@ func TestLifecycleAndNoFallback(t *testing.T) {
 	if c.Other.(*otherCompiler).outlines != 1 {
 		t.Fatal("outline not delegated")
 	}
+	// Change captured bytes and require the actual update to reach Check.
+	capture := c.Capture
+	c.Capture = func() (objstore.LintSnapshot, error) {
+		snapshot, err := capture()
+		snapshot.Files[0].Raw = "saved edit"
+		return snapshot, err
+	}
+	observed := "CLASS ztest."
+	c.Engine.Update = func(_ string, raw *string) { observed = *raw }
+	c.Engine.Check = func(target string) []Issue {
+		return []Issue{{Filename: target, Message: observed}}
+	}
 	*digest = "dependent file changed"
-	if r := runReport(t, c, *req); r.Status != "processed" {
+	if r := runReport(t, c, *req); r.Status != "processed" || len(r.Issues) != 1 || r.Issues[0].Message != "saved edit" {
 		t.Fatal(r)
 	}
 	if c.calls != 3 {
