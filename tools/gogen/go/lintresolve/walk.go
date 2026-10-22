@@ -80,6 +80,17 @@ func objectOf(file string) string {
 	return cases.Upper(language.Und).String(parts[1]) + " " + cases.Upper(language.Und).String(parts[0])
 }
 
+// CompetitionIdentity is the layers policy, distinct from the checker's more
+// restricted namespace decoder. Lifecycle detection must conservatively track
+// both identities, or a newly added XML/Unicode/percent-encoded winner is missed.
+func CompetitionIdentity(file string) string {
+	name := strings.ToLower(filepath.Base(file))
+	if strings.HasSuffix(name, ".devc.xml") || webSidecar.MatchString(name) {
+		return ""
+	}
+	return objectOf(file)
+}
+
 func hiddenFiles(root string, folders []string) ([]string, error) {
 	type entry struct{ folder, file string }
 	order := []string{}
@@ -91,11 +102,7 @@ func hiddenFiles(root string, folders []string) ([]string, error) {
 			return nil, err
 		}
 		for _, file := range files {
-			name := strings.ToLower(filepath.Base(file))
-			if strings.HasSuffix(name, ".devc.xml") || webSidecar.MatchString(name) {
-				continue
-			}
-			id := objectOf(file)
+			id := CompetitionIdentity(file)
 			if id == "" {
 				continue
 			}

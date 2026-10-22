@@ -108,3 +108,52 @@ func TestNativeResolveAndCheckRunWithoutNode(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNativeLayerIdentityMutations(t *testing.T) {
+	for _, names := range [][2]string{{"ß", "SS"}, {"a%2eb", "a%2Eb"}, {"p%25q", "p%25q"}} {
+		t.Run(names[0], func(t *testing.T) {
+			root := t.TempDir()
+			write := func(file, raw string) {
+				t.Helper()
+				at := filepath.Join(root, file)
+				if err := os.MkdirAll(filepath.Dir(at), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(at, []byte(raw), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("abap_transpile.json", `{"input_folder":["base","overlay"],"libs":[]}`)
+			write("abaplint.jsonc", `{"syntax":{"version":"v702"}}`)
+			write("libs.lock.json", `{"libraries":[]}`)
+			loser := "base/" + names[0] + ".intf.abap"
+			winner := "overlay/" + names[1] + ".intf.xml"
+			write(loser, "INTERFACE z PUBLIC. ENDINTERFACE.")
+			spec := buildSpec(t, root)
+			Resolve = nil
+			t.Setenv("PATH", t.TempDir())
+			c := New(root, nil, storelint.Engine{}, spec)
+			capture := func(hidden bool) {
+				t.Helper()
+				snapshot, err := c.Capture()
+				if err != nil {
+					t.Fatal(err)
+				}
+				seen := false
+				for _, f := range snapshot.Files {
+					seen = seen || f.Filename == "/"+loser
+				}
+				if seen == hidden {
+					t.Fatalf("hidden=%v snapshot=%+v", hidden, snapshot)
+				}
+			}
+			capture(false)
+			write(winner, "<xml/>")
+			capture(true)
+			if err := os.Remove(filepath.Join(root, winner)); err != nil {
+				t.Fatal(err)
+			}
+			capture(false)
+		})
+	}
+}

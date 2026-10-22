@@ -17,7 +17,7 @@ The Facts JSON projection preserves absent root metadata versus empty arrays.
 Structural changes refuse with `rebuild`: raw config/lock/manifest edits or
 removals, pack discovery changes (including unselected packs), tracked layer
 environment changes, installed identities, abapGit/package metadata, prepared
-archive identities, and $TMP topology changes. Candidate directory changes are
+archive identities, inferred root-package changes, and $TMP topology changes. Candidate directory changes are
 within scope and reselect pack roots at their original insertion slots.
 Source directories and library directories may add/remove files without rebuild.
 

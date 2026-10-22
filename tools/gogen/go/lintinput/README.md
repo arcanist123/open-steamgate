@@ -68,6 +68,8 @@ go test ./lintinput -run '^$' -bench BenchmarkFreshness3000 -benchmem -benchtime
 
 Saved CHECKRUN retains a physical membership set, canonical object identities,
 per-object directory counts and hidden identities across successful snapshots.
+With native rules it also tracks the layers policy identity (full percent decode
+and Unicode uppercase); checker identity alone can miss new XML winners.
 The delta compares names without reclassifying survivors; additions use the
 shared `storelint.ObjectIdentity` decoder. New cross-directory competitors,
 hidden winner changes, and removal/rename of a competing file force canonical

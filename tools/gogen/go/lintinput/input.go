@@ -138,7 +138,7 @@ func newWithCache(root string, other storecheck.Compiler, engine storelint.Engin
 				return objstore.CaptureLint(spec.Hidden)
 			}
 			snapshot, err := capture()
-			if err != nil && !changed {
+			if err != nil && !changed && !members.needs(root, spec, snapshot) {
 				return snapshot, err
 			}
 			// File edits retain the existing config/layer decisions.
