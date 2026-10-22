@@ -42,6 +42,15 @@ func glob(pattern string) string {
 
 // Resolve reads only mutable file membership. Structural policy changes refuse
 // with rebuild; no config parsing, discovery, materialization or subprocesses.
+// candidatePath is a root descriptor spelling; packSources retains the exact
+// producer key (the root candidate is "", while its root path is ".").
+func candidatePath(candidate string) string {
+	if candidate == "" {
+		return "."
+	}
+	return candidate
+}
+
 func Resolve(root string, r *Rules) (Facts, error) {
 	if err := Guard(root, r); err != nil {
 		return Facts{}, err
@@ -69,7 +78,8 @@ func Resolve(root string, r *Rules) (Facts, error) {
 			if sources[c] != "directory" {
 				continue
 			}
-			metadata[c] = objstore.Root{Path: c, Writable: !r.System, Imported: true, Package: p.Package}
+			path := candidatePath(c)
+			metadata[path] = objstore.Root{Path: path, Writable: !r.System, Imported: true, Package: p.Package}
 			if p.Default {
 				break
 			}
@@ -102,10 +112,10 @@ func Resolve(root string, r *Rules) (Facts, error) {
 				}
 				listed := false
 				for _, s := range slot.Listed {
-					listed = listed || s == c
+					listed = listed || s == candidatePath(c)
 				}
 				if !listed {
-					cfg.Roots = append(cfg.Roots, rootFor(objstore.Root{Path: c, Writable: !r.System, Imported: true, Package: p.Package}))
+					cfg.Roots = append(cfg.Roots, rootFor(objstore.Root{Path: candidatePath(c), Writable: !r.System, Imported: true, Package: p.Package}))
 				}
 				if p.Default {
 					break

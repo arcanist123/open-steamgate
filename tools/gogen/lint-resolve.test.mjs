@@ -246,6 +246,20 @@ test("critic 838: pack validation folders refuse removal and file replacement", 
   }
 });
 
+test("critic 838: root pack keeps empty candidate key through membership mutation", async () => {
+  const root = fixture("critic-root-pack");
+  write(root, "osd-pack.json", '{"name":"rootpack"}');
+  process.env.OSD_PACKS = ".";
+  try {
+    const {rules, facts} = await parity(root, undefined, "root pack initial");
+    assert.equal(facts.packSources[""], "directory");
+    write(root, "src/zroot.prog.abap", "REPORT zroot.");
+    await parity(root, rules, "root pack switches to src");
+    rmSync(join(root, "src"), {recursive: true});
+    await parity(root, rules, "root pack falls back to dot");
+  } finally { delete process.env.OSD_PACKS; }
+});
+
 test("regex incompatibilities fail at build time", async () => {
   for (const re of ["(?=x)", "(x)\\1", "\\s", "[[:alpha:]]"]) {
     const root = fixture("regex-" + digest(re).slice(0, 8));

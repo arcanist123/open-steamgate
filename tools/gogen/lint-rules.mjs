@@ -33,7 +33,7 @@ export function lintRules(root, facts, packs) {
   });
   const selected = packs.map(p => ({name: p.name, package: p.package,
     default: JSON.parse(readFileSync(join(p.dir, "osd-pack.json"), "utf8")).abap === undefined,
-    abapCandidates: p.abapCandidates.map(c => rel(root, c) || ".")}));
+    abapCandidates: p.abapCandidates.map(c => rel(root, c))}));
   const keys = ["OSD_PACKS", "OSD_WEB_PACKS", "OSD_TMP", "OSD_LAYERS", "OSD_LAYER_PACKAGE", "OSD_LAYER_DISCOVERY_ONLY",
     ...Object.keys(process.env).filter(k => k.startsWith("OSD_LIB_"))];
   const environment = Object.fromEntries(keys.map(k => [k, process.env[k] ?? null]));
