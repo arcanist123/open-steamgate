@@ -43,6 +43,7 @@ import (
 	"osg/gogen/apc"
 	"osg/gogen/castdiag"
 	"osg/gogen/compiler"
+	"osg/gogen/hostports"
 	"osg/gogen/objstore"
 	"osg/gogen/osdbind"
 	"osg/gogen/profiling"
@@ -451,26 +452,6 @@ func hasPrefixFold(p, prefix string) bool {
 	return len(p) >= len(prefix) && strings.EqualFold(p[:len(prefix)], prefix)
 }
 
-func selectedPort(flagValue string, explicit bool, getenv func(string) string) (int, string, error) {
-	value, source := flagValue, "-port"
-	if !explicit {
-		for _, name := range []string{"OSD_PORT", "STG_PORT"} {
-			if value = getenv(name); value != "" {
-				source = name
-				break
-			}
-		}
-	}
-	if value == "" && !explicit {
-		return 3095, "default", nil
-	}
-	port, err := strconv.Atoi(value)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, source, fmt.Errorf("%s: invalid port %q", source, value)
-	}
-	return port, source, nil
-}
-
 func selectedDB(db, home string, explicit bool, getenv func(string) string) string {
 	if explicit {
 		return db
@@ -482,7 +463,7 @@ func selectedDB(db, home string, explicit bool, getenv func(string) string) stri
 }
 
 func main() {
-	portFlag := flag.String("port", "", "port to listen on (OSD_PORT or STG_PORT)")
+	portFlag := flag.String("port", "", "HTTP port (OSD_PORT, STG_PORT, else 80nn with INSTANCE or 3095)")
 	addr := flag.String("addr", "", "address to listen on (default OSD_BIND, else loopback: 127.0.0.1 and ::1)")
 	dbFile := flag.String("db", "", "an SQLite file (WAL) instead of the in-memory database; seeded once, when it has no tables, and refused when another build seeded it")
 	homeDir := flag.String("home", "", "data directory; defaults -db to <home>/osgo.sqlite and makes a fresh directory a full database reset")
@@ -495,12 +476,7 @@ func main() {
 	pprofAddr := flag.String("pprof-addr", "", "separate profiling listener (default 127.0.0.1:6060)")
 	root := flag.String("root", osgRoot, "the checkout whose webapp/ is served")
 	media := flag.String("media", "", "the SMW0 media directory (w3mi.json and the data files); default media/ beside the binary when it is there")
-	// HTTPS beside HTTP, the way a system answers on 443nn next to 80nn: the
-	// same handler, one more listener. No certificate is made here; a
-	// self-signed pair is enough for a device on a LAN
-	tlsPort := flag.Int("tls-port", 0, "an HTTPS port beside the HTTP one (0: none); needs -tls-cert and -tls-key")
-	tlsCert := flag.String("tls-cert", "", "the certificate (PEM) for -tls-port")
-	tlsKey := flag.String("tls-key", "", "its private key (PEM)")
+	tlsFlags := httpsFlags()
 	flag.Parse()
 	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
 	if lintErr != nil {
@@ -536,6 +512,10 @@ func main() {
 		log.Fatal(err)
 	}
 	port := &portValue
+	tlsConfig, err := tlsFlags.selected(*root, os.Getenv)
+	if err != nil {
+		log.Fatal(err)
+	}
 	binds := osdbind.Selected(*addr, addrExplicit, os.Getenv)
 	sid, sidSource := sysid.Must(os.LookupEnv)
 	abap.SysID = sid
@@ -714,7 +694,7 @@ func main() {
 	upgrade := channelRoutes()
 	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
 
-	protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
+	rfcPort, diagPort := protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
 	for _, svc := range icfServices {
 		log.Printf("ICF service  on http://localhost:%d%s  (%s)", *port, svc.Path, svc.Handler)
 	}
@@ -739,7 +719,6 @@ func main() {
 	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit {
 		log.Print(hint)
 	}
-	log.Printf("Listening on http://localhost:%d/  (launchpad /app/flp.html, OData %s/; bound to %s)", *port, odataBase, osdbind.Describe(lns))
 	// the status tables have this process in them before anybody asks, with
 	// the listener already open (its state is read off /proc/net/tcp)
 	if rows, err := refreshStatus(status); err != nil {
@@ -747,20 +726,10 @@ func main() {
 	} else {
 		log.Printf("status       %d rows of this process in the status tables, refreshed before each %s request", rows, statusODataPath)
 	}
-	if *tlsPort > 0 {
-		if *tlsCert == "" || *tlsKey == "" {
-			log.Fatal("-tls-port needs -tls-cert and -tls-key")
-		}
-		secure := &http.Server{Addr: net.JoinHostPort(binds[0], strconv.Itoa(*tlsPort)), Handler: mux, ReadHeaderTimeout: 30 * time.Second}
-		tlns, err := osdbind.ListenAll(binds, *tlsPort)
-		if err != nil {
-			log.Fatal(err)
-		}
-		for _, tln := range tlns {
-			go func(ln net.Listener) { log.Fatal(secure.ServeTLS(ln, *tlsCert, *tlsKey)) }(tln)
-		}
-		log.Printf("Listening on https://localhost:%d/  (bound to %s)", *tlsPort, osdbind.Describe(tlns))
+	if err := tlsConfig.Start(binds, mux, log.Fatalf); err != nil {
+		log.Fatal(err)
 	}
+	log.Print(hostports.EndpointBanner(*port, tlsConfig, rfcPort, diagPort, osdbind.Describe(lns)))
 	log.Fatal(server.Serve(ln))
 }
 

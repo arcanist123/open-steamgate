@@ -703,6 +703,34 @@ the shim, open-abap-core and a test handler at `/echo` in five seconds.
 .out/osgo [-port 3095] [-addr 127.0.0.1] [-db file.sqlite] [-root <checkout>]
 ```
 
+With `INSTANCE=nn` (exactly two ASCII digits), OSGo defaults to HTTP `80nn`
+and HTTPS `443nn`; opt-in DIAG (`-diag` / `OSD_OSGO_DIAG=1`) and RFC
+(`-rfc` / `OSD_OSGO_RFC=1`, requires `-adt`) use `32nn` and `33nn`.
+Without INSTANCE, HTTP stays 3095, HTTPS stays off, and enabled DIAG/RFC
+keep 3200/3300. Explicit settings take precedence:
+
+| Endpoint | Precedence, highest first |
+| --- | --- |
+| HTTP | `-port`, `OSD_PORT`, `STG_PORT`, INSTANCE, 3095 |
+| HTTPS | `-tls-port`, `STG_TLS_PORT`, INSTANCE, off |
+| DIAG | `STG_DIAG_PORT`, `DIAG_PORT`, INSTANCE, 3200 |
+| RFC | `STG_RFC_PORT`, INSTANCE, 3300 |
+
+`-tls-port=0` disables HTTPS; `STG_TLS=0` disables it unless `-tls-port` is
+explicit. HTTPS opens only with a complete, valid PEM pair. `-tls-cert` /
+`-tls-key` override `OSD_TLS_CERT` / `OSD_TLS_KEY`; otherwise OSGo reads
+`<root>/.local/tls/osd.crt` and `osd.key`, or that pair in `OSD_TLS_DIR`.
+Like the JS host, startup does not generate certificates: `npm run osd:tls`
+is the separate self-signed certificate command. Missing default credentials
+leave HTTPS off with a clear banner; incomplete or invalid explicit credentials
+fail startup. Without INSTANCE, select a TLS port explicitly to enable HTTPS.
+
+All four listeners share `-addr` over `OSD_BIND`, otherwise loopback
+(`127.0.0.1` and available `::1`). `OSD_BIND=0.0.0.0` opens them to the
+network. Startup lists HTTP, HTTPS, DIAG and RFC, including disabled endpoints.
+For example, after creating a certificate, `INSTANCE=01 .out/osgo -adt -rfc -diag`
+uses 8001, 44301, 3201 and 3301.
+
 The request path is the one the Node hosts run: express-icf-shim's
 `CL_EXPRESS_ICF_SHIM=>RUN`, **compiled as it is**, builds the ICF server,
 request and response objects and calls the handler class. Only its eleven

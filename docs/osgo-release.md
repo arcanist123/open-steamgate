@@ -39,9 +39,19 @@ is a full data reset. `-db <path>` chooses a database file explicitly and
 overrides `-home` and `STG_DB_PATH`. `-home` overrides `STG_DB_PATH`. With no
 path setting the database is reseeded at each start. The startup log says
 `database: in memory (use -home or -db to keep data)`. `-port`
-overrides `OSD_PORT`, which overrides `STG_PORT`; the default is 3095. The listener binds to `127.0.0.1` unless
-`-addr` specifies another address. Keep the listener private: OSGo does not
-provide authentication.
+overrides `OSD_PORT`, which overrides `STG_PORT`; then `INSTANCE=nn` supplies
+HTTP `80nn`, otherwise the default is 3095. All listeners share `-addr`
+over `OSD_BIND`, otherwise loopback (`127.0.0.1` and available `::1`).
+Keep the listeners private: OSGo does not provide authentication.
+
+HTTPS uses `-tls-port`, then `STG_TLS_PORT`, then `443nn` with INSTANCE;
+without these it stays off. `-tls-port=0` disables it. It requires a valid
+`-tls-cert`/`-tls-key` PEM pair (or `OSD_TLS_CERT`/`OSD_TLS_KEY`), otherwise
+reads `<root>/.local/tls/osd.crt` and `osd.key` (`OSD_TLS_DIR` overrides the
+directory). Missing default credentials leave HTTPS off. Generation remains
+the separate `npm run osd:tls` command, just as in the JS host.
+See [OSGo host options](../tools/gogen/README.md#osgo-host-2026-09-23)
+for all four ports, precedence, TLS controls and protocol opt-ins.
 
 The compiled OData services and seed rows are in the executable. The optional
 webapp, pack pages, media, and ADT object store still use files from `-root`

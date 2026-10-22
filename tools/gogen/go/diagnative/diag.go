@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"osg/gogen/instance"
 	"osg/gogen/osdbind"
 	"strconv"
 	"sync"
@@ -19,19 +20,16 @@ func Port(enabled bool, env func(string) string) (int, error) {
 	if !enabled && env("OSD_OSGO_DIAG") != "1" {
 		return -1, nil
 	}
-	instance := env("INSTANCE")
-	if instance == "" {
-		instance = "00"
-	}
-	if len(instance) != 2 || instance[0] < '0' || instance[0] > '9' || instance[1] < '0' || instance[1] > '9' {
-		return 0, fmt.Errorf("INSTANCE must be two digits")
-	}
 	text := env("STG_DIAG_PORT")
 	if text == "" {
 		text = env("DIAG_PORT")
 	}
 	if text == "" {
-		text = "32" + instance
+		derived, err := instance.Port(32, env("INSTANCE"))
+		if err != nil {
+			return 0, err
+		}
+		text = strconv.Itoa(derived)
 	}
 	port, err := strconv.Atoi(text)
 	if err != nil || port < 0 || port > 65535 {

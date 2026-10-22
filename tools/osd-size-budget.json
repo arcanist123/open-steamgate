@@ -661,6 +661,14 @@
     "go:diagnative": {
       "lines": 111,
       "reason": "DIAG startup adapter over lsd.Serve; fan-in listener avoids concurrent writes to upstream global renderer settings."
+    },
+    "go:instance": {
+      "lines": 18,
+      "reason": "Shared two-digit instance validation and standard port derivation used by HTTP, HTTPS, RFC and DIAG; no ABAP dependency."
+    },
+    "go:hostports": {
+      "lines": 147,
+      "reason": "OSGo endpoint selection and existing JS-host TLS credential policy extracted from cmd/osgo, plus the four-protocol startup banner; no ABAP or generated-code dependency."
     }
   },
   "readmeMissing": [

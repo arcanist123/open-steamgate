@@ -21,6 +21,8 @@ func TestPort(t *testing.T) {
 	}{
 		{nil, false, -1, false}, {nil, true, 3200, false},
 		{map[string]string{"INSTANCE": "95"}, true, 3295, false},
+		{map[string]string{"INSTANCE": "bad", "DIAG_PORT": "3296"}, true, 3296, false},
+		{map[string]string{"INSTANCE": "95", "STG_DIAG_PORT": "3297", "DIAG_PORT": "3296"}, true, 3297, false},
 		{map[string]string{"STG_DIAG_PORT": "0", "DIAG_PORT": "123"}, true, 0, false},
 		{map[string]string{"INSTANCE": "-1"}, true, 0, true},
 		{map[string]string{"DIAG_PORT": "65536"}, true, 0, true},
