@@ -368,12 +368,14 @@ requests is accepted; the store still rejects a switch, write or source/config
 change during a request with a retry reason. The default Go/Node snapshot path
 and ordinary CHECK/OUTLINE retain their existing behavior.
 
-The facade uses zlnt `update_file`, `add_file` and `remove_file`, then parses.
+The facade uses zlnt `update_file`, `add_file` and `remove_file`.
 Its retained lexical reader index follows Node's `OBJECT_NAME_PATTERN`, including
-mentions in comments, strings and metadata. It reindexes the changed object,
-removes stale object identities and dirties the transitive reader closure before
-parsing. Both sides of an overlay use this exact update path. This implements
-saved-registry invalidation; it does not select or implement the separate Node
+mentions in comments, strings and metadata. It replaces the changed object's
+edges and dirties the same transitive reader closure as Node. Both sides of an
+overlay use this exact update path. `find_issues_object` parses lazily at CHECK;
+restoration leaves the saved objects dirty until the next check, or coalesces
+with a subsequent installation. Unchanged bytes do not invalidate or parse.
+This implements saved-registry invalidation; it does not select the separate Node
 warm-check mode.
 
 A SOURCE request resolves the saved main/include filename, or the first
@@ -404,6 +406,47 @@ Snapshot capture still reads/hashes the whole saved corpus before and after a
 check. The Go baseline retains one saved byte copy in addition to the ABAP
 registry and its reader index. End-to-end latency and retained memory must be
 measured on the full native build; this slice makes no warm-latency claim.
+
+### Overlay work counters
+
+The former flat reader table scanned every edge when dropping one object's
+entries and again for every name in the transitive closure. Prime repeated
+the drop scan even for newly indexed objects. OSGo also implements SORTED
+unique insertion and HASHED key reads as scans. The index now appends regex
+words, sorts once per object and skips adjacent duplicates, storing edges in
+1,024 fixed buckets. Integer INDEX access selects a bucket; exact word and
+object comparisons resolve collisions. Removal reads the old files before
+mutation, so include removal and replacement object identities leave no edges.
+The lexical candidate set is unchanged; no signature heuristic narrows it.
+The no-op guard accepts the bridge's blank false flag as well as an empty one.
+An offline lexical audit of the available frozen M1 corpus (2,785 files,
+2,210 objects, 233,383 edges, not gate 4's 3,028-file corpus) reaches 48 objects
+from LOGOFF. That implies at least 11,435,767 flat-reader visits per changed
+update before, on both install and restore. Those 48 objects remain candidates.
+
+`STATS` exposes cumulative counters reset by prime. The Go bridge logs deltas
+and separate durations for `phase=install`, `phase=check`, `phase=restore`:
+`updates`, `noops`, `indexed`, `reader-visits`, `dirtied`, `parse-runs`,
+`parse-objects`. `dirtied` counts distinct objects per update, including the
+target once. `parse-objects` counts dirty candidates immediately before calling
+`find_issues_object`; it is not a count of rule executions or completed parses
+after an exception. Only the target object runs rules. Restore logs zero parse
+work; a subsequent saved check includes any pending restore parse work.
+The existing final `check=N issues=N elapsed=...` gate marker is unchanged.
+
+The Node test command below compiles and executes the **actual facade** with
+a small registry double and rejects statement/method stubs. Its 301-object,
+30,301-edge fixture performs two changed install/check/restore overlays:
+236 reader visits versus at least 242,408 flat-index visits before; four
+objects dirtied (one per update, same set as before), two dirty parse candidates
+versus four eagerly parsed before. If a saved check follows every restoration,
+the restore parse is deferred to that check rather than eliminated. An exact
+unchanged overlay dirties zero objects. A separate real Node test compares
+ordered diagnostic tuples with eager versus lazy parsing across signature/body
+changes, restore/no-op, empty buffers, new objects and batched removal/addition.
+These checks isolate invalidation/index work; dell/i10 must measure the linked
+engine, verify diagnostic parity and audit its compile report. The unchanged Go
+snapshot capture and registry-wide global-name pass can still cost time.
 
 ### Slice 2 HTTP gates
 

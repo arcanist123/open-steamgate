@@ -325,3 +325,35 @@ func TestStructuralWinnerIsChecked(t *testing.T) {
 		t.Fatal(r)
 	}
 }
+
+func TestOverlayWorkLogs(t *testing.T) {
+	c, req, _, _ := fixture()
+	var stats Stats
+	var logs []string
+	c.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
+	c.Engine.Stats = func() Stats { return stats }
+	c.Engine.Update = func(string, *string) { stats.Updates++; stats.DirtiedObjects++ }
+	c.Engine.Check = func(string) []Issue { stats.ParseRuns++; stats.ParseObjects++; return nil }
+	if err := c.Prime(`{"rules":{}}`); err != nil {
+		t.Fatal(err)
+	}
+	req.Filter = "SOURCE"
+	source := "buffer"
+	req.Input.Source = &source
+	if r := runReport(t, c, *req); r.Status != "processed" {
+		t.Fatal(r)
+	}
+	if len(logs) != 6 {
+		t.Fatal(logs)
+	}
+	for i, expected := range []string{
+		"phase=install updates=1 noops=0 indexed=0 reader-visits=0 dirtied=1 parse-runs=0 parse-objects=0",
+		"phase=check updates=0 noops=0 indexed=0 reader-visits=0 dirtied=0 parse-runs=1 parse-objects=1",
+		"phase=restore updates=1 noops=0 indexed=0 reader-visits=0 dirtied=1 parse-runs=0 parse-objects=0",
+		"check=1 issues=0 elapsed=",
+	} {
+		if !strings.Contains(logs[i+2], expected) {
+			t.Fatalf("log %d: %s, want %s", i+2, logs[i+2], expected)
+		}
+	}
+}

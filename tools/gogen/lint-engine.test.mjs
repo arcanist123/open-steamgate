@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {execFileSync} from "node:child_process";
@@ -8,6 +8,116 @@ import {compileProgram} from "./frontend.mjs";
 import {emitGo} from "./emit-go.mjs";
 import {createGoTestDir} from "./go-test-module.mjs";
 import {lintBuildSpec, lintEngineGo} from "./lint-engine.mjs";
+import {writeLintRegistryDouble} from "./lint-engine-fixture.mjs";
+
+test("real ABAP facade indexes buckets, preserves transitive readers, and parses lazily without OSGo stubs", () => {
+  const source = mkdtempSync(join(tmpdir(), "lint-index-source-"));
+  const {dir, goRoot} = createGoTestDir("lint-index-go-");
+  try {
+    writeLintRegistryDouble(source);
+    for (const name of ["zcl_osd_lint_engine", "zcx_osd_lint_engine"]) writeFileSync(join(source, name + ".clas.abap"),
+      readFileSync(new URL(`../step3/abap/src/lint/${name}.clas.abap`, import.meta.url), "utf8"));
+    const objects = readdirSync(source).filter(name => name.endsWith(".clas.abap")).map(name => name.split(".")[0].toUpperCase());
+    const program = compileProgram({folders: [source], objects});
+    assert.deepEqual(program.partial, [], "no unsupported statements");
+    assert.deepEqual(program.skipped, [], "no unsupported methods");
+    const code = emitGo(program);
+    writeFileSync(join(dir, "zz_generated.go"), code);
+    writeFileSync(join(dir, "index_test.go"), `package main
+import ("fmt"; "strings"; "testing"; "osg/gogen/abap")
+func TestIndex(t *testing.T) {
+ s := &abap.Session{Statics: &abap.Statics{}}
+ files := []ZCL_OSD_LINT_ENGINE__TY_FILE{
+  {filename:"/zbase.clas.abap", raw:"ZBASE old"},
+  {filename:"/zsub.clas.abap", raw:"ZSUB ZBASE"},
+  {filename:"/zcaller.clas.abap", raw:"ZCALLER ZSUB"},
+  {filename:"/zcaller.clas.locals_def.abap", raw:"ZBASE"},
+  {filename:"/zother.clas.abap", raw:"ZOTHER"},
+ }
+ deps := []ZCL_OSD_LINT_ENGINE__TY_FILE{}
+ ZCL_OSD_LINT_ENGINE_PRIME(s, &files, &deps, "{}")
+ initial := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if initial.indexed_objects != 4 || initial.reader_visits != 0 { t.Fatal(initial) }
+ // The host bridge uses a single blank for false, not an empty Go string.
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE old", " ")
+ unchanged := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if unchanged.noops != 1 || unchanged.dirtied_objects != 0 || unchanged.indexed_objects != initial.indexed_objects || unchanged.reader_visits != 0 { t.Fatal("unchanged source was invalidated", unchanged) }
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE new", " ")
+ changed := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if changed.dirtied_objects != 3 || changed.parse_runs != 0 { t.Fatal(changed) }
+ ZCL_OSD_LINT_ENGINE_CHECK(s, "/zcaller.clas.abap")
+ checked := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if checked.parse_runs != 1 || checked.parse_objects != 3 { t.Fatal(checked) }
+ // Restore does not parse. A repeated no-op must not force that pending parse.
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE old", " ")
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE old", " ")
+ restored := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if restored.dirtied_objects != 6 || restored.parse_runs != 1 || restored.noops != 2 { t.Fatal(restored) }
+ ZCL_OSD_LINT_ENGINE_CHECK(s, "/zcaller.clas.abap")
+ // Removing an include must remove only its old edges, retaining other files.
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zcaller.clas.locals_def.abap", "", "X")
+ beforeInclude := ZCL_OSD_LINT_ENGINE_STATS(s)
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zsub.clas.abap", "ZSUB", " ")
+ afterInclude := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if afterInclude.dirtied_objects-beforeInclude.dirtied_objects != 2 { t.Fatal("remaining include lost its readers", beforeInclude, afterInclude) }
+ ZCL_OSD_LINT_ENGINE_CHECK(s, "/zcaller.clas.abap")
+ before := ZCL_OSD_LINT_ENGINE_STATS(s)
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE isolated", " ")
+ after := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if after.dirtied_objects-before.dirtied_objects != 1 { t.Fatal("stale reader edges", before, after) }
+ // Removed/re-added objects get new identities; cycles must still terminate.
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zsub.clas.abap", "", "X")
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zsub.clas.abap", "ZSUB ZBASE ZCALLER", " ")
+ before = ZCL_OSD_LINT_ENGINE_STATS(s)
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE cycle", " ")
+ after = ZCL_OSD_LINT_ENGINE_STATS(s)
+ if after.dirtied_objects-before.dirtied_objects != 3 { t.Fatal("new identity/cycle", before, after) }
+ // Empty text is distinct from removal; new temporary objects leave no edges.
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/znew.clas.abap", "ZNEW ZBASE", " ")
+ ZCL_OSD_LINT_ENGINE_CHECK(s, "/znew.clas.abap")
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/znew.clas.abap", "", " ")
+ ZCL_OSD_LINT_ENGINE_CHECK(s, "/znew.clas.abap")
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/znew.clas.abap", "", "X")
+ before = ZCL_OSD_LINT_ENGINE_STATS(s)
+ ZCL_OSD_LINT_ENGINE_UPDATE(s, "/zbase.clas.abap", "ZBASE final", " ")
+ after = ZCL_OSD_LINT_ENGINE_STATS(s)
+ if after.dirtied_objects-before.dirtied_objects != 3 { t.Fatal("temporary identity leaked", before, after) }
+}
+
+func TestLargeIndexWork(t *testing.T) {
+ s := &abap.Session{Statics: &abap.Statics{}}
+ files := []ZCL_OSD_LINT_ENGINE__TY_FILE{{filename:"/ztarget.clas.abap", raw:"ZTARGET"}}
+ // Many distinct words/readers expose a whole-corpus scan or bucket collision bug.
+ for n:=0; n<300; n++ {
+  var raw strings.Builder
+  fmt.Fprintf(&raw, "ZOBJ_%d", n)
+  for w:=0; w<100; w++ { fmt.Fprintf(&raw, " WORD_%d_%d", n, w) }
+  files = append(files, ZCL_OSD_LINT_ENGINE__TY_FILE{filename:fmt.Sprintf("/zobj_%d.clas.abap",n), raw:raw.String()})
+ }
+ deps := []ZCL_OSD_LINT_ENGINE__TY_FILE{}
+ ZCL_OSD_LINT_ENGINE_PRIME(s, &files, &deps, "{}")
+ before := ZCL_OSD_LINT_ENGINE_STATS(s)
+ for n:=0; n<2; n++ {
+  ZCL_OSD_LINT_ENGINE_UPDATE(s, "/ztarget.clas.abap", "ZTARGET broken", " ")
+  ZCL_OSD_LINT_ENGINE_CHECK(s, "/ztarget.clas.abap")
+  ZCL_OSD_LINT_ENGINE_UPDATE(s, "/ztarget.clas.abap", "ZTARGET", " ")
+ }
+ after := ZCL_OSD_LINT_ENGINE_STATS(s)
+ if after.dirtied_objects-before.dirtied_objects != 4 || after.parse_objects-before.parse_objects != 2 || after.parse_runs-before.parse_runs != 2 { t.Fatal(after) }
+ visits := after.reader_visits-before.reader_visits
+ if visits >= 30301 { t.Fatal("scanned the whole reader index", visits) }
+ t.Logf("301 objects, 30301 edges, 2 install/check/restore overlays: dirtied=%d parse-runs=%d parse-objects=%d reader-visits=%d (old scans >=242408)",
+  after.dirtied_objects-before.dirtied_objects, after.parse_runs-before.parse_runs, after.parse_objects-before.parse_objects, visits)
+}
+`);
+    const output = execFileSync("go", ["test", "-v", "./" + dir.slice(goRoot.length + 1)], {cwd: goRoot, encoding: "utf8", env: {...process.env, GOPROXY: "off"}});
+    assert.match(output, /^ok\s/m);
+    console.log(output.trim());
+  } finally {
+    rmSync(source, {recursive: true, force: true});
+    rmSync(goRoot, {recursive: true, force: true});
+  }
+});
 
 test("typed lint bridge calls compiled ABAP with private persistent statics, without zlnt", () => {
   const source = mkdtempSync(join(tmpdir(), "lint-bridge-source-"));
@@ -43,6 +153,9 @@ CLASS zcl_osd_lint_engine IMPLEMENTATION.
  saved = iv_raw.
  ENDIF.
  ENDMETHOD.
+ METHOD stats.
+ rs_stats-updates = 42.
+ ENDMETHOD.
 ENDCLASS.
 `);
     const code = emitGo(compileProgram({folders: [source], objects: ["ZCL_OSD_LINT_ENGINE"]}));
@@ -70,6 +183,7 @@ func TestBridge(t *testing.T) {
  raw = ""
  b.Update("/b", &raw)
  if b.Check("/b")[0].Message != "" { t.Fatal("empty source failed") }
+ if a.Stats().Updates != 42 { t.Fatal("stats bridge failed") }
 }
 `);
     const output = execFileSync("go", ["test", "./" + dir.slice(goRoot.length + 1)], {cwd: goRoot, encoding: "utf8", env: {...process.env, GOPROXY: "off"}});
@@ -120,6 +234,64 @@ test("Node registry oracle dirties transitive cached readers and restores after 
   }), /new check failed/);
   assert.deepEqual(events, ["addFile", "parse", "check", "removeFile", "parse"]);
   assert.equal(registry.getFileByName("/src/osd/znew.prog.abap"), undefined);
+});
+
+test("lazy update/restore parsing preserves eager Node diagnostic tuples", async () => {
+  const lint = await import("@abaplint/core");
+  const {updateRegistryFiles} = await import("../osd-store-registry.mjs");
+  const config = new lint.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "v702"}, rules: {check_syntax: true}}));
+  const baseFile = "/src/zcl_base.clas.abap";
+  const subFile = "/src/zcl_sub.clas.abap";
+  const callerFile = "/src/zcl_caller.clas.abap";
+  const newFile = "/src/zcl_new.clas.abap";
+  const base = "CLASS zcl_base DEFINITION PUBLIC. PUBLIC SECTION. METHODS run IMPORTING iv_old TYPE i. ENDCLASS.\nCLASS zcl_base IMPLEMENTATION. METHOD run. ENDMETHOD. ENDCLASS.\n";
+  const sub = "CLASS zcl_sub DEFINITION PUBLIC INHERITING FROM zcl_base. ENDCLASS.\nCLASS zcl_sub IMPLEMENTATION. ENDCLASS.\n";
+  const caller = "CLASS zcl_caller DEFINITION PUBLIC. PUBLIC SECTION. CLASS-METHODS call. ENDCLASS.\nCLASS zcl_caller IMPLEMENTATION. METHOD call. DATA sub TYPE REF TO zcl_sub. CREATE OBJECT sub. sub->run( iv_old = 1 ). ENDMETHOD. ENDCLASS.\n";
+  const registries = [new lint.Registry(config), new lint.Registry(config)];
+  for (const registry of registries) {
+    for (const [filename, raw] of [[baseFile, base], [subFile, sub], [callerFile, caller]]) registry.addFile(new lint.MemoryFile(filename, raw));
+    registry.parse();
+  }
+  const update = (filename, source) => {
+    updateRegistryFiles(registries[0], [[filename, source]]);
+    const lazy = registries[1], parse = lazy.parse;
+    // Keep the real Node mutation/invalidation; defer only its eager parse.
+    lazy.parse = () => lazy;
+    try { updateRegistryFiles(lazy, [[filename, source]]); }
+    finally { lazy.parse = parse; }
+  };
+  const check = filename => {
+    const tuples = registries.map(registry => registry.findIssuesObject(registry.findObjectForFile(registry.getFileByName(filename)))
+      .map(i => [i.getKey(), i.getSeverity(), i.getFilename(), i.getStart().getRow(), i.getStart().getCol(), i.getEnd().getRow(), i.getEnd().getCol(), i.getMessage()]));
+    assert.deepEqual(tuples[1], tuples[0]);
+    return tuples[0];
+  };
+  assert.deepEqual(check(callerFile), []);
+  for (let round = 0; round < 2; round++) {
+    update(baseFile, base.replace("iv_old", "iv_new"));
+    const changed = check(callerFile);
+    assert.ok(changed.some(tuple => tuple.at(-1).toLowerCase().includes("iv_old")), JSON.stringify({round, changed}));
+    update(baseFile, base);
+    update(baseFile, base); // no-op must leave a pending restore intact
+    assert.deepEqual(check(callerFile), []);
+    update(baseFile, base.replace("METHOD run.", "METHOD run. undefined = 1."));
+    assert.ok(check(baseFile).length);
+    update(baseFile, base);
+    assert.deepEqual(check(baseFile), []);
+    update(newFile, base.replaceAll("zcl_base", "zcl_new"));
+    assert.deepEqual(check(newFile), []);
+    update(newFile, "");
+    check(newFile);
+    update(newFile, undefined);
+    assert.deepEqual(check(callerFile), []);
+    // Batch changes before a check, including removal and a new identity.
+    update(subFile, undefined);
+    update(baseFile, base.replace("iv_old", "iv_new"));
+    update(subFile, sub);
+    assert.ok(check(callerFile).length);
+    update(baseFile, base);
+    assert.deepEqual(check(callerFile), []);
+  }
 });
 
 test("structural resolver exports effective syntax, new/removed packs and layer winners without checking", async () => {

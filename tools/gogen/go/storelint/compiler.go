@@ -21,12 +21,19 @@ type Issue struct {
 	Row, Column            int32
 }
 
+// ParseObjects counts dirty candidates before find_issues_object, not rule runs.
+// Counters are cumulative within one prime and read under the compiler mutex.
+type Stats struct {
+	Updates, Noops, IndexedObjects, ReaderVisits, DirtiedObjects, ParseRuns, ParseObjects int32
+}
+
 // Calls run synchronously on one private Session/Statics owned by the host.
 // No dialog step or work-process lock may be acquired inside these callbacks.
 type Engine struct {
 	Prime  func([]objstore.LintFile, string)
 	Check  func(string) []Issue
 	Update func(string, *string)
+	Stats  func() Stats
 }
 
 type Compiler struct {
@@ -49,6 +56,25 @@ func (c *Compiler) log(format string, args ...any) {
 	if c.Logf != nil {
 		c.Logf(format, args...)
 	}
+}
+
+func (c *Compiler) stats() Stats {
+	if c.Engine.Stats != nil {
+		return c.Engine.Stats()
+	}
+	return Stats{}
+}
+
+func (c *Compiler) logWork(phase string, before Stats, started time.Time) {
+	if c.Engine.Stats == nil {
+		return
+	}
+	after := c.stats()
+	c.log("lint-engine=abap check=%d phase=%s updates=%d noops=%d indexed=%d reader-visits=%d dirtied=%d parse-runs=%d parse-objects=%d elapsed=%s",
+		c.calls, phase, after.Updates-before.Updates, after.Noops-before.Noops,
+		after.IndexedObjects-before.IndexedObjects, after.ReaderVisits-before.ReaderVisits,
+		after.DirtiedObjects-before.DirtiedObjects, after.ParseRuns-before.ParseRuns,
+		after.ParseObjects-before.ParseObjects, time.Since(started))
 }
 
 func (c *Compiler) trapped(err *error) {
@@ -249,6 +275,11 @@ func (c *Compiler) CheckRun(ctx context.Context, in storecheck.Input) (rows []st
 
 // Restoration finishes before input verification and the completion log.
 func (c *Compiler) checkWithSource(target string, source *string) (issues []Issue, err error) {
+	update := func(raw *string, phase string) {
+		before, started := c.stats(), time.Now()
+		c.Engine.Update(target, raw)
+		c.logWork(phase, before, started)
+	}
 	if source != nil {
 		if c.Engine.Update == nil {
 			return nil, fmt.Errorf("ABAP lint: update bridge unavailable; rebuild")
@@ -263,10 +294,12 @@ func (c *Compiler) checkWithSource(target string, source *string) (issues []Issu
 		}
 		defer func() {
 			defer c.trapped(&err)
-			c.Engine.Update(target, original)
+			update(original, "restore")
 		}()
-		c.Engine.Update(target, source)
+		update(source, "install")
 	}
+	before, started := c.stats(), time.Now()
+	defer func() { c.logWork("check", before, started) }()
 	return engineCheck(func() []Issue { return c.Engine.Check(target) })
 }
 

@@ -67,6 +67,11 @@ func newLintEngine() storelint.Engine {
    for _, i := range issues { out = append(out, storelint.Issue{Filename: i.filename, Key: i.key, Message: i.message, Row: i.start_row, Column: i.start_col}) }
    return out
   },
+  Stats: func() storelint.Stats {
+   r := ZCL_OSD_LINT_ENGINE_STATS(s)
+   return storelint.Stats{Updates: r.updates, Noops: r.noops, IndexedObjects: r.indexed_objects,
+    ReaderVisits: r.reader_visits, DirtiedObjects: r.dirtied_objects, ParseRuns: r.parse_runs, ParseObjects: r.parse_objects}
+  },
  }
 }
 func init() {
