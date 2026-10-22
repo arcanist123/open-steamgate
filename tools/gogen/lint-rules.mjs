@@ -4,6 +4,7 @@ import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import {delimiter, join, relative, resolve} from "node:path";
 import {execFileSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
+import {packAt} from "../osd-packs.mjs";
 import {rootsOf} from "../osd-store.mjs";
 import {withTmp} from "../osd-store-tmp.mjs";
 import {tmpDisabled} from "../osd-tmp.mjs";
@@ -57,12 +58,19 @@ export function lintRules(root, facts, packs) {
     guard(join(root, r.path, ".abapgit.xml"));
   }
   for (const p of packs) for (const s of p.sources) guard(join(s.dir, ".osd-source.json"));
+  const states = {"local/tmp": kind(join(root, "local/tmp"))};
   const manifests = {};
   for (const place of facts.places) {
     const dir = resolve(root, place);
     if (kind(dir) !== "directory") continue;
     const candidates = existsSync(join(dir, "osd-pack.json")) ? [dir] : readdirSync(dir).map(n => join(dir, n));
-    for (const c of candidates) if (existsSync(join(c, "osd-pack.json"))) manifests[rel(root, join(c, "osd-pack.json"))] = hash(join(c, "osd-pack.json"));
+    for (const c of candidates) if (existsSync(join(c, "osd-pack.json"))) {
+      manifests[rel(root, join(c, "osd-pack.json"))] = hash(join(c, "osd-pack.json"));
+      // packsOf validates unselected packs too, before applying selection.
+      const pack = packAt(root, c);
+      for (const dir of pack.directoryRequirements) states[rel(root, dir)] = kind(dir);
+      for (const source of pack.sources) guard(join(source.dir, ".osd-source.json"));
+    }
   }
   // Keep pack insertion slots even when no candidate currently exists. Listed
   // roots stay fixed; only discovered pack roots depend on candidate type.
@@ -106,7 +114,7 @@ export function lintRules(root, facts, packs) {
     mappings.push({physical: rel(root, dir), logical: rel(root, logicalSystemPath(root, dir, system))});
   }
   const rules = {version: 1, config: facts.config, roots: facts.store.roots, plan, overrides, excluded: facts.store.excluded,
-    libraries, packs: selected, places: facts.places, factGuards: facts.guards, guards, environment, metadataDirs, metadata, inference, states: {"local/tmp": kind(join(root, "local/tmp"))}, manifests, mappings, system: !!system};
+    libraries, packs: selected, places: facts.places, factGuards: facts.guards, guards, environment, metadataDirs, metadata, inference, states, manifests, mappings, system: !!system};
   // Actually compile in Go RE2 as part of the build. Unsupported JS constructs
   // fail here, before a binary with silently different exclusions can be made.
   execFileSync("go", ["run", "./cmd/lintresolve", "--validate"], {

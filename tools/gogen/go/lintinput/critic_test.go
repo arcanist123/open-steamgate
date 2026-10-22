@@ -1,6 +1,7 @@
 package lintinput
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,4 +81,28 @@ func TestCriticUnnamedPackageLifecycle(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestCriticBSPFolderLifecycle(t *testing.T) {
+	for _, replacement := range []bool{false, true} {
+		t.Run(fmt.Sprint(replacement), func(t *testing.T) {
+			root := criticFixture(t)
+			criticWrite(t, root, "packs/p/osd-pack.json", `{"name":"p","abap":"src","bsp":{"APP":"webapp"}}`)
+			criticWrite(t, root, "packs/p/src/zpack.prog.abap", "REPORT zpack.")
+			restore := func() {
+				os.RemoveAll(filepath.Join(root, "packs/p/webapp"))
+				criticWrite(t, root, "packs/p/webapp/index.html", "ok")
+			}
+			restore()
+			spec := buildSpec(t, root)
+			criticLifecycle(t, root, spec, func() {
+				if err := os.RemoveAll(filepath.Join(root, "packs/p/webapp")); err != nil {
+					t.Fatal(err)
+				}
+				if replacement {
+					criticWrite(t, root, "packs/p/webapp", "file")
+				}
+			}, restore)
+		})
+	}
 }

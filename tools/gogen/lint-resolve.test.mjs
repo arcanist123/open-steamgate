@@ -232,6 +232,20 @@ test("critic 838: unnamed DEVC header still guards inferred package mutations", 
   assert.match(native(root, rules).stderr, /rebuild/);
 });
 
+test("critic 838: pack validation folders refuse removal and file replacement", async () => {
+  for (const replacement of [false, true]) {
+    const root = fixture("critic-bsp-" + replacement);
+    write(root, "packs/late/osd-pack.json", '{"name":"late","abap":"src","bsp":{"APP":"webapp"}}');
+    write(root, "packs/late/src/zpack.prog.abap", "REPORT zpack.");
+    write(root, "packs/late/webapp/index.html", "ok");
+    const {rules} = await parity(root, undefined, "BSP directory initial");
+    rmSync(join(root, "packs/late/webapp"), {recursive: true});
+    if (replacement) write(root, "packs/late/webapp", "file");
+    await assert.rejects(lintBuildSpec(root), /bsp APP.*not a folder/);
+    assert.match(native(root, rules).stderr, /rebuild/);
+  }
+});
+
 test("regex incompatibilities fail at build time", async () => {
   for (const re of ["(?=x)", "(x)\\1", "\\s", "[[:alpha:]]"]) {
     const root = fixture("regex-" + digest(re).slice(0, 8));
