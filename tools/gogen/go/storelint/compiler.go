@@ -12,12 +12,15 @@ import (
 	"sync"
 	"time"
 
+	"osg/gogen/adtoutline"
 	"osg/gogen/objstore"
 	"osg/gogen/storecheck"
 )
 
 type Issue struct {
 	Filename, Key, Message string
+	Severity               string
+	EndRow, EndColumn      int32
 	Row, Column            int32
 }
 
@@ -32,11 +35,14 @@ type Stats struct {
 // inside these callbacks.
 type Engine struct {
 	// Name defaults to abap for the existing TS-HA bridge.
-	Name, Entry string
-	Prime       func([]objstore.LintFile, string)
-	Check       func(string) []Issue
-	Update      func(string, *string)
-	Stats       func() Stats
+	Name, Entry  string
+	Prime        func([]objstore.LintFile, string)
+	Check        func(string) []Issue
+	Update       func(string, *string)
+	Stats        func() Stats
+	CheckObject  func(string, string) ([]Issue, bool)
+	SnapshotTree func([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool)
+	DDLS         func(string) []Issue
 }
 
 type Compiler struct {
@@ -146,7 +152,7 @@ func (c *Compiler) Prime(config string) (err error) {
 }
 
 // Available must not probe the sidecar: an opted-in CHECKRUN may never fall back.
-// CHECK/OUTLINE delegate to Other, which checks its own availability.
+// Engines without native CHECK/OUTLINE callbacks delegate to Other.
 func (c *Compiler) Available(context.Context) error { return nil }
 
 func (c *Compiler) unchanged() error {
@@ -220,6 +226,9 @@ func (c *Compiler) syncSaved() (string, error) {
 }
 
 func (c *Compiler) Check(ctx context.Context, in storecheck.Input) ([]storecheck.Issue, error) {
+	if !in.CheckRun && c.Engine.CheckObject != nil {
+		return c.checkObject(ctx, in)
+	}
 	if !in.CheckRun {
 		if c.Other == nil {
 			return nil, storecheck.ErrCompilerAbsent
@@ -295,7 +304,11 @@ func (c *Compiler) CheckRun(ctx context.Context, in storecheck.Input) (rows []st
 }
 
 // Restoration finishes before input verification and the completion log.
-func (c *Compiler) checkWithSource(target string, source *string) (issues []Issue, err error) {
+func (c *Compiler) checkWithSource(target string, source *string) ([]Issue, error) {
+	return c.withSource(target, source, func() []Issue { return c.Engine.Check(target) })
+}
+
+func (c *Compiler) withSource(target string, source *string, check func() []Issue) (issues []Issue, err error) {
 	update := func(raw *string, phase string) {
 		before, started := c.stats(), time.Now()
 		c.Engine.Update(target, raw)
@@ -321,10 +334,13 @@ func (c *Compiler) checkWithSource(target string, source *string) (issues []Issu
 	}
 	before, started := c.stats(), time.Now()
 	defer func() { c.logWork("check", before, started) }()
-	return c.engineCheck(func() []Issue { return c.Engine.Check(target) })
+	return c.engineCheck(check)
 }
 
 func (c *Compiler) Outline(ctx context.Context, in storecheck.Input) (json.RawMessage, error) {
+	if c.Engine.SnapshotTree != nil {
+		return c.outline(ctx, in)
+	}
 	if c.Other == nil {
 		return nil, storecheck.ErrCompilerAbsent
 	}
@@ -358,7 +374,7 @@ func targetFile(in storecheck.Input) (string, error) {
 		return "", fmt.Errorf("lint: unknown class include %s", in.Include)
 	}
 	if in.Type != "CLAS" {
-		suffix = map[string]string{"INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap"}[in.Type]
+		suffix = map[string]string{"INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap", "DDLS": ".ddls.asddls", "SRVD": ".srvd.srvdsrv"}[in.Type]
 	}
 	for _, file := range in.Logical {
 		if strings.HasSuffix(file, suffix) {

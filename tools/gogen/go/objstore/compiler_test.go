@@ -296,3 +296,37 @@ func TestABAPSourceCaptureNewObjectAndMissingInclude(t *testing.T) {
 		}
 	}
 }
+
+type nativeSourceTestCompiler struct{ sourceTestCompiler }
+
+func (*nativeSourceTestCompiler) SupportsCheckSource() bool { return true }
+func (*nativeSourceTestCompiler) NativeCheckOutline() bool  { return true }
+
+func TestNativeCheckSourceCapture(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "src"), 0700)
+	os.WriteFile(filepath.Join(root, "abap_transpile.json"), []byte("{}"), 0600)
+	os.WriteFile(filepath.Join(root, "src/ztest.clas.abap"), []byte("CLASS ztest DEFINITION. ENDCLASS."), 0600)
+	if err := SetStore(root, []byte(`{"roots":[{"path":"src","writable":true}]}`), ""); err != nil {
+		t.Fatal(err)
+	}
+	defer SetStore("", nil, "")
+	c := &nativeSourceTestCompiler{}
+	SetCompiler(c, "old-generation")
+	defer SetCompiler(nil, "")
+	os.MkdirAll(filepath.Join(root, "build"), 0700)
+	if err := os.Symlink("by-input/new-generation", filepath.Join(root, "build/live")); err != nil {
+		t.Fatal(err)
+	}
+	ptr := func(s string) *string { return &s }
+	for _, tc := range []struct{ name, include, target string }{{"ZNEW", "main", "src/osd/znew.clas.abap"}, {"ZTEST", "macros", "src/ztest.clas.abap"}} {
+		a := Call(map[string]*string{"IV_COMMAND": ptr("CHECK"), "IV_TYPE": ptr("CLAS"), "IV_NAME": ptr(tc.name), "IV_INCLUDE": ptr(tc.include), "IV_SOURCE": ptr("")})
+		if a.Scalars["EV_ERROR"] != "" || a.Scalars["EV_COUNT"] != "0" || a.Scalars["EV_ACTIVE"] != "X" || c.request.Source == nil || *c.request.Source != "" || c.request.Target != tc.target || c.request.Include != tc.include {
+			t.Fatal(a, c.request)
+		}
+	}
+	a := Call(map[string]*string{"IV_COMMAND": ptr("PARSE"), "IV_JSON": ptr(`{"kind":"OUTLINE","type":"CLAS","name":"ZTEST","version":"active"}`)})
+	if a.Scalars["EV_ERROR"] != "" || c.request.Version != "active" || len(c.request.Files) != 0 {
+		t.Fatal(a, c.request)
+	}
+}

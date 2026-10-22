@@ -7,6 +7,8 @@ directory is outside `abap_transpile.json`'s `src/test/gen` inputs and
 `npm test`, transpilation and default packs therefore do not load the external
 `zcl_lnt_*` references. Both native engines are optional build inputs. Go is the runtime default when
 its library is linked; otherwise Node is selected. Explicit ABAP remains available.
+Earlier slice notes below retain their original provider behavior and metrics;
+the native CHECK/OUTLINE .73 section supersedes the Go-provider gap statements.
 
 `prime(files,deps,config)` replaces one static registry, parsing once through
 `ZCL_LNT_REGISTRY_RUN`. A failed prime clears the previous registry. `check`
@@ -18,6 +20,11 @@ dependent invalidation, add/remove and inline overlay restoration (Slice 2).
 The original Slice-1 update refusal is superseded.
 
 ## Pins and generated member names
+
+The current TS-HG library pin is **abapiti `0a11cd3c`** (PR #245,
+`feat/tshg-library-tree`) with **abaplint `9f7f098c2` / core 2.120.73**.
+See the native CHECK/OUTLINE build below. The following generated ABAP member
+names describe the historical TS-HA library, still pinned independently.
 
 Use the full native zlnt build for abaplint commit
 `577f875ebec44cfaf64841cfe71c8ab8dc32622e`, core **2.120.56**. The names below
@@ -42,15 +49,14 @@ facade between the two unchanged checks.
 
 `lint-oracle.mjs` defaults to `$HOME/dev/abaplint/packages/core` (override with
 `--core` or `ABAPLINT_CORE`). It refuses unless both package and compiled
-Registry versions are 2.120.56. The shared checkout inspected for this slice
-was at `08f9193bb55b6584586b95e7226bd2e78f0ed067`, version 2.120.52; it was
-left untouched. These exact offline commands build the pinned Git snapshot
-using its already-installed dependencies, writing only a new temporary tree:
+Registry versions are 2.120.73. Keep shared checkouts untouched. If the shared
+clone has the pinned commit, these offline commands archive it and build in a
+new temporary tree using already-installed dependencies:
 
 ```sh
 CORE_BUILD=$(mktemp -d /tmp/osd-step3-core.XXXXXX)
 git -C "$HOME/dev/abaplint" archive \
-  577f875ebec44cfaf64841cfe71c8ab8dc32622e packages/core |
+  9f7f098c2 packages/core |
   tar -x -C "$CORE_BUILD"
 ln -s "$HOME/dev/abaplint/packages/core/node_modules" \
   "$CORE_BUILD/packages/core/node_modules"
@@ -86,8 +92,8 @@ node tools/step3/prepare-corpus.mjs --kit "$KIT" \
 Export mode calls the real `configuredRegistry` in `tools/osd-store-registry.mjs`
 and prints its effective config, including transpiler validation rules,
 `check_syntax`, identifier restrictions, syntax settings and object allow-list.
-It uses OSG's installed dependencies (currently core 2.120.73), independently
-of the .56 oracle. It does not substitute the repository's lint rules.
+It uses OSG's installed dependencies (currently core 2.120.73), at the same
+.73 pin as the current Node oracle. It does not substitute repository rules.
 
 The helper copies the M1 kit's frozen **OSG `3ee404ca`** corpus, retaining `src`,
 `gen`, pack and `libs` paths, list order, bytes and dependency classification.
@@ -535,31 +541,47 @@ recorded below. Clean/broken saved and overlay parity passed on both engines;
 real saved-edit HTTP remains unmeasured because the ADT write route was skipped.
 Slice 1's 24/24 gate at `5055acad` alone did not establish edit/overlay parity.
 
-Remaining work: Node warm-check mode/closure acceptance and warm measurements;
-engine .56 -> .73 migration/parity beyond these fixtures; DDLS generator
-diagnostics; AMDP portability warnings and their ADT report mapping.
+At the time of Slice 2 the remaining work included Node warm-check acceptance,
+.73 migration, DDLS diagnostics and AMDP warnings. The current Go .73
+CHECK/OUTLINE gate below closes the .73 and ordinary-CHECK DDLS items for its
+reported corpus/mutations; the historical HTTP measurements are unchanged.
 
 ## TS-HG Go engine (optional build, default when linked)
 
-Companion abapiti patch: `5b56ecf` on `feat/tshg-library`, based on
-`selfhost` at `bae64e1`, in the separate `abapiti-tshg` clone.
+Current companion: abapiti `0a11cd3c` on `feat/tshg-library-tree` (PR #245),
+core `9f7f098c2` / 2.120.73. The original .56 pilot used `5b56ecf` on
+`feat/tshg-library`; its historical timings below still identify that build.
 
 `-lint-engine=go` (or `OSD_LINT_ENGINE=go`) selects abapiti's direct
 TypeScript → HIR → Go translation of the pinned abaplint core. A Go-linked
 binary selects it by default; binaries without Go lint linkage default to Node. This is a separate build input from the TS-HA `native/lib` directory:
 
 ```sh
-# From OSG, using the separate abapiti review branch feat/tshg-library.
+# From OSG, using abapiti feat/tshg-library-tree at 0a11cd3c.
 OSG=$PWD
-ABAPITI=$(realpath ../abapiti-tshg)
+# Fresh isolated source clones (omit if already staged at these exact pins).
+git clone --single-branch --branch feat/tshg-library-tree \
+  https://github.com/oisee/abapiti.git .local/native-outline/abapiti
+git -C .local/native-outline/abapiti checkout 0a11cd3c
+git clone https://github.com/abaplint/abaplint.git .local/native-outline/abaplint
+git -C .local/native-outline/abaplint checkout 9f7f098c2
+ABAPITI=$(realpath .local/native-outline/abapiti)
+ABAPLINT=$(realpath .local/native-outline/abaplint)
 mkdir -p "$OSG/.local/step3"
 (cd "$ABAPITI" && GOPROXY=off go build -o "$OSG/.local/step3/abapiti-tshg" ./cmd/abapiti)
 
-# Heavy generation/build: dell runs these on i10. Use a fresh output directory.
+# ABAPLINT must be the repository root at 9f7f098c2 (core 2.120.73).
+# Clone it separately if the shared checkout does not have that commit.
+# The emitter fingerprints all 1,548 closure files and the bundled packages.
+mkdir -p "$ABAPLINT/packages/core/node_modules"
+cp -R "$ABAPITI/tsfront/testdata/registrycorpus/node-packages/." \
+  "$ABAPLINT/packages/core/node_modules/"
+# Use a fresh output directory. Codex ADT uses OSD_HEAVY_RANGE=90-99.
 OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh \
-  "$OSG/.local/step3/abapiti-tshg" abaplint --target go \
+  "$OSG/.local/step3/abapiti-tshg" abaplint "$ABAPLINT" --target go \
   --go-package abaplint -o "$OSG/.local/step3/tshg"
 LINT_LIB="$OSG/.local/step3/tshg/go"
+node tools/step3/cds-inspect.mjs "$LINT_LIB"
 OSD_HEAVY_RANGE=80-89 tools/osd-heavy.sh node tools/gogen/osgo.mjs \
   --lint-engine go --lint-lib "$LINT_LIB"
 ```
@@ -568,12 +590,24 @@ The abapiti patch adds `--go-package`: `main` retains the existing CLI and site
 profiling outputs; another package name emits a library via `EmitPackage` and a
 generated `library.go` wrapper. Library generation does not invoke `go build`.
 Its module path is `zabaplint`; the exported API is `Checker.Prime(files, deps,
-config)`, `Check(filename) []Issue`, `Update(filename, *raw)` and `Stats()`.
+config)`, `Check(filename) []Issue`, `CheckObject(type,name) ([]Issue,bool)`,
+`Tree(type,name) ([]FileTree,bool)`, `Update(filename, *raw)`, `Stats()` and
+`ConcatTokens`. Tree copies node kinds, statement identity, token/structure
+bounds, pragma identity and file order under the library lock. Empty ABAP
+files have an empty Any structure with zero positions; non-ABAP objects return
+an empty file list with found=true.
 `nil` removes a file; a pointer to an empty string installs empty source. Paths
 and bytes are preserved. The wrapper returns structured Issue getter values,
 preserving order, duplicates and both start/end coordinates. It never parses
 the batch CLI's text report. Use a fresh output directory to avoid mixing CLI
-and library artifacts. No hand edits to generated code are needed.
+and library artifacts. No hand edits to generated code are needed. `cds-inspect.mjs` adds a separate
+`osg_inspect.go` adapter: the upstream public API intentionally omits CDS
+expression trees and dictionary components. This extra adapter copies those
+facts through `OSGInspect` under the same library mutex; Go `cdscheck` ports the
+Node generator diagnostic policy. Its exact library.go SHA-256 is enforced,
+so another emitter/core/package pin is refused rather than guessed. The emitter
+and its five output files stay unchanged. The extra adapter is OSG-owned, not
+an API claimed to exist in upstream PR #245.
 
 OSG imports the library only in its optional generated `zz_lint.go` bridge and
 uses a temporary modfile with a local `replace`; tracked `go.mod`/`go.sum` stay
@@ -597,9 +631,11 @@ lexical readers with Go maps, dirties transitive readers, and defers parsing
 until Check. Prime iterates the registry once to build that index. Counter
 names are shared; Go's `reader-visits` counts indexed readers visited, while
 ABAP counts entries examined in its fixed buckets, so their values can differ.
-The existing non-source presence behavior and DDLS/AMDP gaps still apply.
-Structural layer/config resolution still uses Node for input facts, never for
-Go CHECKRUN diagnostics. The 30-second context cannot preempt generated code.
+CHECKRUN keeps its non-source presence behavior and ABAP-only source slice;
+ordinary CHECK now includes native DDLS generator diagnostics. AMDP portability
+warnings remain outside this change. Input facts use the parent branch's
+lintinput/lintresolve implementation. The 30-second context cannot preempt
+generated code.
 
 For execution-origin proof, copy the binary away from sidecar discovery and
 start it with a fresh log, over a disposable complete clean store:
@@ -787,3 +823,44 @@ probes per snapshot. These are end-to-end before/after samples, not isolated
 syscall timings; the store decrease illustrates run-to-run noise. Full-read
 snapshot medians were 188.91 ms before and 191.39 ms after. The i10 HTTP gate
 remains unmeasured by this synthetic benchmark.
+
+
+## Native CHECK and PARSE OUTLINE gate (.73)
+
+With the linked Go engine, saved CHECK uses CheckObject, maps INCL to PROG,
+and adds the same DDLS generator diagnostics as registryIssues. Ordinary
+abaplint issues map to E; CDS additions retain E/W. CHECKRUN remains separate.
+Inline CHECK installs, checks and restores under the existing compiler mutex,
+including empty buffers. Check failures recover after restoration; failed
+updates/restores poison the compiler. The outer store keeps its expected-hash,
+revision and live-link freshness checks. Missing Go linkage keeps delegation.
+
+OUTLINE reads exactly the host-selected active/inactive snapshot and primes an
+isolated checker with the effective config, as the sidecar does. It never lends
+saved/inactive includes to an active parse. `adtoutline` ports the Node part
+collectors and row encoder, including JSON property order and source links.
+An indexed object without a parser object still has Node's outline shell.
+
+```sh
+OSD_HEAVY_RANGE=90-99 tools/osd-heavy.sh \
+  node tools/step3/check-outline-diff.mjs --library "$LINT_LIB" \
+  --out .local/step3/check-outline-parity.json
+OSD_HEAVY_RANGE=90-99 tools/osd-heavy.sh \
+  node node_modules/mocha/bin/mocha.js test/native-check-outline.mjs \
+  test/osd-compiler-sidecar.mjs
+(cd tools/gogen/go && go vet ./adtoutline ./cdscheck ./storelint ./objstore)
+(cd tools/gogen/go && go test -race ./adtoutline ./cdscheck ./storelint ./objstore)
+```
+
+The full gate requires a real emitted library and refuses if absent. Its native
+driver runs with no executables on PATH and a panic-only Other provider. It checks
+every CLAS/INTF/PROG/INCL/DDLS/SRVD indexed in the current checkout, printing
+per-type counts so absent types cannot masquerade as coverage. It compares
+complete CHECK scalars/RFC issues and both active/inactive OUTLINE document
+bytes against the Node producers. Synthetic mutations add every source type,
+edited/broken/empty source, local and test classes sharing method names,
+macros, include removal/addition and inline restoration. Neither issue sorting
+nor coordinate normalization hides mismatches. Other is a panic-only sentinel.
+The ordinary registered suite independently tests original Node parse trees
+against the outline port and runs the native lifecycle/refusal tests without
+requiring a generated library.

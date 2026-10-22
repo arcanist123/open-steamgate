@@ -1,6 +1,9 @@
 package storelint
 
-import "osg/gogen/objstore"
+import (
+	"osg/gogen/adtoutline"
+	"osg/gogen/objstore"
+)
 
 // GoLibrary is the host-facing view of abapiti's generated Checker. The optional
 // typed bridge converts its public File/Issue/Stats types; storelint itself
@@ -15,8 +18,19 @@ type GoLibrary interface {
 // NewGoEngine shares the ABAP compiler's mapping, refusal, invalidation and
 // overlay/restore lifecycle. OSG libraries remain checkable files, as in Node.
 func NewGoEngine(library GoLibrary) Engine {
-	return Engine{Name: "go", Entry: "abaplint.Checker.Check",
+	engine := Engine{Name: "go", Entry: "abaplint.Checker.Check",
 		Prime: func(files []objstore.LintFile, config string) { library.Prime(files, nil, config) },
 		Check: library.Check, Update: library.Update, Stats: library.Stats,
 	}
+	if native, ok := library.(interface {
+		CheckObject(string, string) ([]Issue, bool)
+		SnapshotTree([]objstore.LintFile, string, string, string) ([]adtoutline.FileTree, bool)
+	}); ok {
+		engine.CheckObject = native.CheckObject
+		engine.SnapshotTree = native.SnapshotTree
+	}
+	if cds, ok := library.(interface{ DDLS(string) []Issue }); ok {
+		engine.DDLS = cds.DDLS
+	}
+	return engine
 }

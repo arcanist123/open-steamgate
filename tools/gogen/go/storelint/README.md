@@ -1,7 +1,8 @@
 # storelint
 
 `Compiler` implements `storecheck.Compiler` for ADT CHECKRUN using an injected
-ABAP or Go `Engine`; ordinary CHECK and OUTLINE delegate to `Other`.
+ABAP or Go `Engine`. The linked Go library also handles ordinary CHECK and
+OUTLINE natively; engines without those callbacks delegate to `Other`.
 `NewGoEngine` adapts the optional generated library's host-facing `GoLibrary`.
 The typed generated host bridge converts external types, so this package has
 no dependency on the generated abaplint module or the ABAP runtime.
@@ -29,3 +30,12 @@ never replace these observations. This package keeps its ordered competing-file
 comparison, structural winner selection, root/type/include refusals and source
 install/restore lifecycle. The outer objstore boundary still verifies the saved
 target's expected hashes, revision and live-generation link before answering.
+
+Native CHECK shares the same mutex and saved snapshot synchronization, uses
+CheckObject (INCL -> PROG), and retains Node's scalar and severity contracts.
+CDS diagnostics come from cdscheck over the pinned original-parser extractor.
+Native OUTLINE uses a separate checker for exactly the host-resolved snapshot,
+then adtoutline builds the document. Both verify snapshot containment/expected
+hashes and full saved inputs before returning. Failed isolated outline parses
+do not alter the persistent registry. The outer store still rejects concurrent
+revision, live-link and expected-file changes.

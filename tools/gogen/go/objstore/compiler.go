@@ -76,12 +76,14 @@ func captureCompiler(ix *storeIndex, command, typ, name, include string, source 
 	} else {
 		req.Input.Version = version
 	}
-	if !req.Exists && storecheck.UsesSource(command, filter, req.SourceType, compilerState.provider) {
+	capable, nativeSource := compilerState.provider.(interface{ SupportsCheckSource() bool })
+	checkSource := command == "CHECK" && source != nil && req.SourceType && nativeSource && capable.SupportsCheckSource()
+	if !req.Exists && (checkSource || storecheck.UsesSource(command, filter, req.SourceType, compilerState.provider)) {
 		req.Input = CompilerInput{Root: storeState.root, Generation: compilerState.generation, Type: typ, Name: name, Version: version}
 		req.InputError = nil
 		for _, root := range storeState.cfg.Roots {
 			if root.Writable {
-				ext := map[string]string{"CLAS": ".clas.abap", "INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap"}[typ]
+				ext := map[string]string{"CLAS": ".clas.abap", "INTF": ".intf.abap", "PROG": ".prog.abap", "INCL": ".prog.abap", "DDLS": ".ddls.asddls", "SRVD": ".srvd.srvdsrv"}[typ]
 				req.Input.Target = filepath.ToSlash(filepath.Join(root.Path, "osd", strings.ReplaceAll(strings.ToLower(name), "/", "#")+ext))
 				break
 			}
@@ -119,7 +121,9 @@ func runCompiler(ix *storeIndex, a *Answer, command, typ, name, include string, 
 	if liveErr == nil {
 		capable, abapEngine := provider.(storecheck.SourceCompiler)
 		selectedABAP := command == "CHECKRUN" && abapEngine && capable.SupportsSource()
-		stale = stale || currentErr != nil || !os.SameFile(liveInfo, currentInfo) || liveTarget != currentTarget || (req.SourceType && provider != nil && !selectedABAP && filepath.Base(liveTarget) != generation)
+		native, nativeCompiler := provider.(interface{ NativeCheckOutline() bool })
+		selectedNative := (command == "CHECK" || command == "PARSE") && nativeCompiler && native.NativeCheckOutline()
+		stale = stale || currentErr != nil || !os.SameFile(liveInfo, currentInfo) || liveTarget != currentTarget || (req.SourceType && provider != nil && !selectedABAP && !selectedNative && filepath.Base(liveTarget) != generation)
 	} else if !os.IsNotExist(liveErr) || !os.IsNotExist(currentErr) {
 		stale = true
 	}

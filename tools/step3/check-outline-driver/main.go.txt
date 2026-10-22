@@ -1,0 +1,43 @@
+package main
+import (
+ "bufio"
+ "context"
+ "crypto/sha256"
+ "encoding/json"
+ "fmt"
+ "os"
+ "osg/gogen/objstore"
+ "osg/gogen/storecheck"
+ "osg/gogen/storelint"
+)
+var makeGoLintCompiler func(string,storecheck.Compiler)(*storelint.Compiler,string)
+type request struct {
+ Root,Config,Command string
+ Files *[]objstore.LintFile
+ Input storecheck.Input
+}
+func main() {
+ scanner:=bufio.NewScanner(os.Stdin);scanner.Buffer(make([]byte,65536),64*1024*1024)
+ var c *storelint.Compiler;var snapshot objstore.LintSnapshot
+ for scanner.Scan() {
+  var r request;if err:=json.Unmarshal(scanner.Bytes(),&r);err!=nil { panic(err) }
+  if r.Files!=nil { snapshot.Files=*r.Files;raw,_:=json.Marshal(snapshot.Files);snapshot.Digest=fmt.Sprintf("%x",sha256.Sum256(raw)) }
+  var value any;var err error
+  switch r.Command {
+  case "prime":
+   snapshot.Root=r.Root;snapshot.Config=r.Config
+   c=&storelint.Compiler{Engine:newGoLintEngine(), Capture:func()(objstore.LintSnapshot,error){return snapshot,nil}, Other:forbidden{}}
+   err=c.Prime(r.Config)
+  case "outline": value,err=c.Outline(context.Background(),r.Input)
+  case "check": value,err=storecheck.Run(c,storecheck.Request{Command:"CHECK",Known:true,Exists:true,SourceType:true,Input:r.Input})
+  default:panic("unknown command")
+  }
+  message:="";if err!=nil {message=err.Error()}
+  out:=struct {Value any;Error string}{value,message};e:=json.NewEncoder(os.Stdout);e.SetEscapeHTML(false);if err:=e.Encode(out);err!=nil {panic(err)}
+ }
+ if err:=scanner.Err();err!=nil {panic(err)}
+}
+type forbidden struct{}
+func (forbidden) Available(context.Context)error {panic("Other.Available called")}
+func (forbidden) Check(context.Context,storecheck.Input)([]storecheck.Issue,error){panic("Other.Check called")}
+func (forbidden) Outline(context.Context,storecheck.Input)(json.RawMessage,error){panic("Other.Outline called")}
