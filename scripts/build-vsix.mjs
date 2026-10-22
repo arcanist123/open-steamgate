@@ -738,12 +738,17 @@ export function vsixManifestXml(pkg, prerelease = false) {
   const vscodeEngine = escapeXml(pkg.engines?.vscode ?? "*");
   const categories = escapeXml((pkg.categories ?? []).join(","));
   // A package with a browser entry is a web extension: vsce marks it with the
-  // __web_extension tag and the WebExtension property, and the Marketplace and
-  // vscode.dev read those (not the manifest's browser field) to offer it in
-  // VS Code for the Web. Without them vscode.dev says "not available".
+  // __web_extension tag and "web" among the ExtensionKind values, and the
+  // Marketplace and vscode.dev read those (not the manifest's browser field) to
+  // offer it in VS Code for the Web; without them vscode.dev says "not
+  // available". The WebExtension property is what older vsce wrote; kept.
   const web = typeof pkg.browser === "string" && pkg.browser !== "";
   const tags = escapeXml([...(pkg.keywords ?? []), ...(web ? ["__web_extension"] : [])].join(","));
-  const extensionKind = escapeXml((pkg.extensionKind ?? ["workspace"]).join(","));
+  // vsce adds "web" to the declared kinds of a package with a browser entry
+  // (checked against `vsce package` 4.0.0 on this manifest: "workspace,ui,web").
+  const kinds = [...(pkg.extensionKind ?? ["workspace"])];
+  if (web && !kinds.includes("web")) kinds.push("web");
+  const extensionKind = escapeXml(kinds.join(","));
   const source = escapeXml(typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url ?? "");
   const support = escapeXml(typeof pkg.bugs === "string" ? pkg.bugs : pkg.bugs?.url ?? "");
   const homepage = escapeXml(pkg.homepage ?? "");

@@ -102,10 +102,12 @@ describe("VSIX manifest: web extension marks", function () {
     const xml = vsixManifestXml({...pkg, browser: "./dist/web/extension.js"}, true);
     expect(xml).to.contain('<Property Id="Microsoft.VisualStudio.Code.WebExtension" Value="true" />');
     expect(xml).to.match(/<Tags>[^<]*\b__web_extension\b[^<]*<\/Tags>/);
+    expect(xml).to.contain('<Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace,ui,web" />');
   });
   it("a package without one is not", function () {
     const xml = vsixManifestXml(pkg, true);
     expect(xml).not.to.contain("Microsoft.VisualStudio.Code.WebExtension");
     expect(xml).not.to.contain("__web_extension");
+    expect(xml).to.contain('<Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace,ui" />');
   });
 });
