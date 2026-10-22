@@ -173,3 +173,23 @@ func TestGoLintSelectionAndMissingBuild(t *testing.T) {
 		t.Fatal(result, err)
 	}
 }
+
+func TestLintKnownDuplicatesStayIncremental(t *testing.T) {
+	// Node may retain a project file and a library file with the same name.
+	// They must not force structural resolution on every pre/post-check capture.
+	project, library := "/src/ztest.intf.abap", "/lib/ztest.intf.abap"
+	spec := lintSpec{Files: []string{project, library}}
+	known := []objstore.LintFile{{Filename: project}, {Filename: library}}
+	if lintNeedsLayers(t.TempDir(), spec, objstore.LintSnapshot{Files: known}) {
+		t.Fatal("unchanged resolved duplicate forced structural resolution")
+	}
+	// A new competitor must resolve regardless of traversal order.
+	for _, files := range [][]objstore.LintFile{
+		{{Filename: "/new/ztest.intf.abap"}, {Filename: project}, {Filename: library}},
+		{{Filename: project}, {Filename: library}, {Filename: "/new/ztest.intf.abap"}},
+	} {
+		if !lintNeedsLayers(t.TempDir(), spec, objstore.LintSnapshot{Files: files}) {
+			t.Fatal("new duplicate missed")
+		}
+	}
+}

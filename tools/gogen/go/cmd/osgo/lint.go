@@ -174,10 +174,13 @@ func lintNeedsLayers(root string, spec lintSpec, snapshot objstore.LintSnapshot)
 		if object == "" {
 			continue
 		}
-		if previous, exists := dirs[object]; exists && previous != dir {
+		// Existing duplicates (including project/library overlap) already went
+		// through Node's layer resolution. Only a new competing file needs it
+		// again; otherwise every capture starts a Node resolver unnecessarily.
+		if previous, exists := dirs[object]; exists && filepath.Dir(previous) != dir && (!before[previous] || !before[file.Filename]) {
 			return true
 		}
-		dirs[object] = dir
+		dirs[object] = file.Filename
 		if !before[file.Filename] && hidden[object] {
 			return true
 		}
