@@ -46,7 +46,6 @@ import (
 	"osg/gogen/objstore"
 	"osg/gogen/osdbind"
 	"osg/gogen/profiling"
-	"osg/gogen/rfcnative"
 	"osg/gogen/storecompiler"
 	"osg/gogen/sysid"
 )
@@ -489,7 +488,7 @@ func main() {
 	homeDir := flag.String("home", "", "data directory; defaults -db to <home>/osgo.sqlite and makes a fresh directory a full database reset")
 	compilerStatus := flag.Bool("compiler-status", false, "print compiler sidecar status as JSON")
 	version := flag.Bool("version", false, "print release tag and commit")
-	rfcFlag := flag.Bool("rfc", false, "native RFC-to-ADT on 33nn (also OSD_OSGO_RFC=1; requires -adt)")
+	protocols := protocolFlags()
 	adtFlag := flag.Bool("adt", false, "mount /sap/bc/adt through ZCL_OSD_ADT_HANDLER (also OSD_OSGO_ADT=1; default off)")
 	lintEngineFlag := flag.String("lint-engine", os.Getenv("OSD_LINT_ENGINE"), "CHECKRUN engine: node, abap or go (default: go when Go lint library is linked, otherwise node; in-process engines require --lint-lib build)")
 	pprofFlag := flag.Bool("pprof", false, "enable loopback-only profiling (also OSD_PPROF=1)")
@@ -627,14 +626,6 @@ func main() {
 		}()
 	}
 
-	rfcConfig, err := rfcnative.FromEnv(*rfcFlag, sid, os.Getenv)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if rfcConfig.Enabled && !adtEnabled(*adtFlag, os.Getenv) {
-		log.Fatal("-rfc requires -adt / OSD_OSGO_ADT=1")
-	}
-
 	webapp := filepath.Join(*root, "webapp")
 	var routes []route
 	if adtEnabled(*adtFlag, os.Getenv) {
@@ -723,9 +714,7 @@ func main() {
 	upgrade := channelRoutes()
 	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
 
-	if err := rfcnative.Start(context.Background(), rfcConfig, binds, mux, log.Printf); err != nil {
-		log.Fatal(err)
-	}
+	protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
 
 	for _, svc := range icfServices {
 		log.Printf("ICF service  on http://localhost:%d%s  (%s)", *port, svc.Path, svc.Handler)
