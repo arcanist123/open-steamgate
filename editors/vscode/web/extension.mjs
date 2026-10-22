@@ -1090,7 +1090,7 @@ function fioriRuntime(config) {
   };
   Object.assign(OsdWebSocket, {CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3, prototype: NativeSocket.prototype});
   window.WebSocket = OsdWebSocket;
-  window.osdBridge = {fetch: bridgeFetch, stats, virtualOf, mediaCached: () => blobs.size,
+  window.osdBridge = {fetch: bridgeFetch, stats, virtualOf, mediaCached: () => [...blobs.keys()],
     mediaState: () => [...document.querySelectorAll("audio, video")].map((one) =>
       ({source: one.osdSource ?? one.currentSrc, paused: one.paused, time: one.currentTime, ready: one.readyState, error: one.error?.code ?? 0}))};
   // CSP refusals are kept so a test (and a developer) can see what the
