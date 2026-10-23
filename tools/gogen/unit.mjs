@@ -5,7 +5,7 @@ import {funcName, writeGo, writeSymbols, refreshSymbolBuild} from "./symbols.ts"
 import {spawnSync} from "node:child_process";
 import {appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
 import {availableParallelism} from "node:os";
-import {dirname, join, resolve} from "node:path";
+import {dirname, join, resolve, sep} from "node:path";
 import {performance} from "node:perf_hooks";
 import {fileURLToPath} from "node:url";
 import {runnerCacheOptions} from "./runner-cache.mjs";
@@ -37,8 +37,15 @@ const config = JSON.parse(readFileSync(join(home, "abap_transpile.json"), "utf8"
 const skipped = new Set((config.options?.skip ?? config.skip ?? []).map((s) =>
   `${s.object}/${s.class}/${s.method}`.toUpperCase()));
 const walk = (dir) => !existsSync(dir) ? [] : readdirSync(dir, {withFileTypes: true}).sort((a, b) => a.name.localeCompare(b.name))
-  .flatMap((e) => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
-const {sources, folders, libDirs, skip, overrides} = unitInputs({home, config, fixture, extraInputs, extraPacks: !args.includes("--no-extra-packs")});
+  .flatMap((e) => e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
+// This file splits and compares paths on "/" (f.split("/"), dir + "/"). On
+// Windows path.join writes "\", and Node takes "/" there too, so the paths
+// are used with "/" here; unitInputs' skip is asked in its own form.
+const slash = (path) => sep === "\\" ? path.replaceAll("\\", "/") : path;
+const inputs = unitInputs({home, config, fixture, extraInputs, extraPacks: !args.includes("--no-extra-packs")});
+const {overrides} = inputs;
+const [sources, folders, libDirs] = [inputs.sources, inputs.folders, inputs.libDirs].map((paths) => paths.map(slash));
+const skip = (file) => inputs.skip(sep === "\\" ? file.replaceAll("/", "\\") : file);
 for (const o of overrides) console.error(`Override ${o.object}: ${o.input} hides ${o.hidden}`);
 const owners = [...new Set(sources.map((f) => f.split("/").at(-1).replace(/\.clas\.testclasses\.abap$/, "").replaceAll("#", "/").toUpperCase()))]
   .filter((o) => selected.size === 0 || selected.has(o));
@@ -501,7 +508,7 @@ const updateCompiledCount = () => {
 };
 writeFileSync(join(runDir, "plan.json"), JSON.stringify(summary, null, 2));
 if (!ready.length || args.includes("--build-only")) { console.log(JSON.stringify(summary)); process.exit(ready.length ? 0 : 2); }
-const bin = join(runDir, "unit");
+const bin = join(runDir, process.platform === "win32" ? "unit.exe" : "unit");
 if (process.env.GOGEN_GO_BUILD_X) writeFileSync(join(runDir, "go-build-x.log"), "");
 // The Go compiler can reject a method that the IR frontend accepted. Find
 // its ABAP source position, retain its typed signature, and emit a method
@@ -512,7 +519,9 @@ function stubGoErrors(diagnostics) {
   for (const line of diagnostics.split("\n")) {
     const match = /^([^:\n]+\.abap):(\d+):\s*(.+)$/.exec(line);
     if (!match) continue;
-    const [, file, rowText, reason] = match;
+    const [, path, rowText, reason] = match;
+    // the //line name; on Windows Go puts the package directory before it (cmd\unit\...)
+    const file = path.split(/[\\/]/).at(-1);
     const row = Number(rowText);
     const candidates = program.classes.flatMap((cls) =>
       [...cls.methods, ...(cls.constructor ? [cls.constructor] : [])]

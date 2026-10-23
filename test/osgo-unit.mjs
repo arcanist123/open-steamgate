@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import childProcess, {spawnSync} from "node:child_process";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
-import {join, resolve} from "node:path";
+import {join, resolve, sep} from "node:path";
 import {metadata, summarize, main} from "../tools/osgo-unit.mjs";
 import {unitInputs} from "../tools/gogen/unit-inputs.mjs";
 import {syncBuiltinESMExports} from "node:module";
@@ -253,8 +253,8 @@ describe("osgo unit CI entry point", function () {
     assert.match(run.stderr, /Override CLAS ZCL_OSD_ADT_HANDLER:/);
     const overrides = JSON.parse(run.stdout).overrides.filter((o) => o.object === "CLAS ZCL_OSD_ADT_HANDLER");
     assert.equal(overrides.length, 1);
-    assert.ok(overrides[0].input.endsWith("/input"));
-    assert.ok(overrides[0].hidden.startsWith(root + "/"));
+    assert.match(overrides[0].input, /[\\/]input$/);
+    assert.ok(overrides[0].hidden.startsWith(root + sep));
   });
   it("carries abaplint syntax errors with the source file and line", () => {
     fixture(input, "zcl_osgo_ci", "DATA x TYPE i. x = .");

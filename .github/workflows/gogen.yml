@@ -167,6 +167,36 @@ jobs:
       - name: Generated-class ABAP Unit CI entry points (real Go and JS builds)
         run: flock /tmp/osd-heavy.lock node tools/osd-suites.mjs --group gogen
 
+  # osgo:unit on native Windows: path.join writes "\" there, Go names the
+  # runner unit.exe and prints its errors with the package directory. The
+  # unit.test.mjs cases that run a "#!/usr/bin/env node" wrapper as the
+  # runner are left out: Windows does not start a script by its shebang.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: tools/gogen/go/go.sum
+      - name: Download Go modules
+        working-directory: tools/gogen/go
+        run: go mod download
+      - name: Load the tracked source pins
+        run: node tools/osd-lock.mjs github-env >> "$GITHUB_ENV"
+      - name: The library folders
+        run: node tools/osd-libs.mjs
+      - name: Generated-class ABAP Unit entry point
+        run: npx mocha test/osgo-unit.mjs
+      - name: ABAP Unit on gogen
+        run: node --test --test-name-pattern="ABAP fixture runs|Go compiler refusal|class statics and constructor restart" tools/gogen/unit.test.mjs
+
   unit-inventory:
     runs-on: ubuntu-latest
     timeout-minutes: 30
