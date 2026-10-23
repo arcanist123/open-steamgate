@@ -385,6 +385,11 @@ writeGeneratedGo = function (dir) {
   const appInterfaces = new Set([...interfaceLayer].filter(([, i]) => i === 1).map(([name]) => name));
   const structsAt = (i) => new Map([...program.structs].filter(([name]) => structLayer.get(name) === i));
   const tablesAt = (i) => (program.tables ?? []).filter((t) => typeLayer(t.row) === i);
+  // A class referred to but not compiled is an empty struct. referencedClasses
+  // reads every structure and interface of the program, whichever layer is
+  // written, so each package would declare it and app and unit, which
+  // dot-import core, would see it twice: core declares them all.
+  const placeholders = new Set([...referencedClasses(program)].filter((name) => !allClassNames.has(name)));
   const constsAt = (i) => new Map([...program.consts].filter(([name, c]) => {
     const owner = classSymbols.find(({symbol}) => name.startsWith(symbol + "__"));
     return Math.max(owner ? layer.get(owner.name) : 0, typeLayer(c.type)) === i;
@@ -392,16 +397,16 @@ writeGeneratedGo = function (dir) {
   writeGo(join(coreDir, "zz_generated.go"), program, "core", {
     classes: layerClasses[0], visibleClasses: new Set([...allClassNames].filter((n) => layer.get(n) <= 0)), structs: structsAt(0), consts: constsAt(0), tables: tablesAt(0),
     interfaces: coreInterfaces, events: eventsFor(0), externalClasses: new Set([...allClassNames].filter((n) => !coreNames.has(n))),
-    marker: "GogenCoreLayer",
+    placeholders, marker: "GogenCoreLayer",
   }, true, symbols);
   writeGo(join(appDir, "zz_generated.go"), program, "app", {
     classes: layerClasses[1], visibleClasses: new Set([...allClassNames].filter((n) => layer.get(n) <= 1)), structs: structsAt(1), consts: constsAt(1), tables: tablesAt(1),
-    interfaces: appInterfaces, events: eventsFor(1), externalClasses: new Set([...allClassNames].filter((n) => !appNames.has(n))),
+    interfaces: appInterfaces, events: eventsFor(1), externalClasses: new Set([...allClassNames].filter((n) => !appNames.has(n)).concat([...placeholders])),
     imports: ["osg/gogen/generated/core"], importMarkers: ["GogenCoreLayer"], marker: "GogenAppLayer",
   }, true, symbols);
   writeGo(join(dir, "zz_generated.go"), program, "main", {
     classes: layerClasses[2], visibleClasses: new Set([...allClassNames].filter((n) => layer.get(n) <= 2)), structs: structsAt(2), consts: constsAt(2), tables: tablesAt(2),
-    interfaces: new Set(), events: eventsFor(2), externalClasses: new Set([...allClassNames].filter((n) => layer.get(n) < 2)),
+    interfaces: new Set(), events: eventsFor(2), externalClasses: new Set([...allClassNames].filter((n) => layer.get(n) < 2).concat([...placeholders])),
     imports: ["osg/gogen/generated/core", "osg/gogen/generated/app"],
     importMarkers: ["GogenCoreLayer", "GogenAppLayer"],
   }, true, symbols);

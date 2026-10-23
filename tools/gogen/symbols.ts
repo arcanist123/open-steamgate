@@ -96,7 +96,7 @@ export interface SymbolEntry { readonly go: string; readonly abap: string; reado
 interface SymbolFile { readonly symbols: Record<string, SymbolEntry> }
 // One callback contract with the emitter: its Class/Method are emit-go-types', not ir.ts'.
 export type {SymbolCollector} from "./emit-go-types.ts";
-export interface Layers { readonly classes?: readonly Class[]; readonly visibleClasses?: ReadonlySet<string>; readonly interfaces?: ReadonlySet<string>; readonly marker?: string; readonly tables?: Program['tables']; readonly structs?: Program['structs']; readonly consts?: Program['consts']; readonly events?: Program['events']; readonly externalClasses?: ReadonlySet<string>; readonly imports?: readonly string[]; readonly importMarkers?: readonly string[] }
+export interface Layers { readonly classes?: readonly Class[]; readonly visibleClasses?: ReadonlySet<string>; readonly interfaces?: ReadonlySet<string>; readonly marker?: string; readonly tables?: Program['tables']; readonly structs?: Program['structs']; readonly consts?: Program['consts']; readonly events?: Program['events']; readonly externalClasses?: ReadonlySet<string>; readonly placeholders?: ReadonlySet<string>; readonly imports?: readonly string[]; readonly importMarkers?: readonly string[] }
 interface ReportStatement { readonly filename?: string; readonly text: string; readonly span: { readonly start: { readonly line: number } } }
 interface ConvertedReport { readonly helperSources?: readonly { readonly className: string }[]; readonly reportIR: {
   readonly targetClassName: string;

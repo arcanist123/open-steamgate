@@ -383,7 +383,8 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
     out.push("}", "");
   }
   const compiled = new Set(classes.map((c) => c.name));
-  for (const ref of referencedClasses({...program, classes})) if (!compiled.has(ref) && !layers?.externalClasses?.has(ref)) out.push(`type ${typeName(ref)} struct{}`, "");
+  const placeholders = layers?.placeholders ?? [...referencedClasses({...program, classes})].filter((ref) => !compiled.has(ref) && !layers?.externalClasses?.has(ref));
+  for (const ref of placeholders) out.push(`type ${typeName(ref)} struct{}`, "");
   for (const cls of classes) {
     const inst = (cls.attributes ?? []).filter(/** @returns {a is import("./emit-go-types.ts").SupportedAttribute} */ (a) => !a.static && a.unsupported === undefined);
     const statics = (cls.attributes ?? []).filter(/** @returns {a is import("./emit-go-types.ts").SupportedAttribute} */ (a) => !!a.static && a.unsupported === undefined);

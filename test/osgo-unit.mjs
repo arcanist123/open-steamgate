@@ -193,6 +193,20 @@ describe("osgo unit CI entry point", function () {
     assert.equal(result.totals.not_compiled, 1);
     assert.equal(result.totals.tests, 1);
   });
+  it("declares a class referred to but not compiled once, in core", () => {
+    // zcl_osgo_gone calls a class that does not exist, so it is not compiled;
+    // the structure that refers to it is read by every layer's emitter
+    writeFileSync(join(input, "zcl_osgo_gone.clas.abap"), "CLASS zcl_osgo_gone DEFINITION PUBLIC CREATE PUBLIC.\n PUBLIC SECTION. METHODS run. ENDCLASS.\n"
+      + "CLASS zcl_osgo_gone IMPLEMENTATION. METHOD run. zcl_osgo_absent=>run( ). ENDMETHOD. ENDCLASS.\n");
+    writeFileSync(join(input, "zcl_osgo_ci.clas.abap"), "CLASS zcl_osgo_ci DEFINITION PUBLIC CREATE PUBLIC.\n PUBLIC SECTION.\n"
+      + "  TYPES: BEGIN OF ty_holder, ref TYPE REF TO zcl_osgo_gone, n TYPE i, END OF ty_holder.\n  CLASS-METHODS answer RETURNING VALUE(result) TYPE i.\nENDCLASS.\n"
+      + "CLASS zcl_osgo_ci IMPLEMENTATION. METHOD answer. DATA holder TYPE ty_holder. holder-n = 42. result = holder-n. ENDMETHOD. ENDCLASS.\n");
+    writeFileSync(join(input, "zcl_osgo_ci.clas.testclasses.abap"), "CLASS ltcl_test DEFINITION FINAL FOR TESTING DURATION SHORT RISK LEVEL HARMLESS.\n PRIVATE SECTION. METHODS check FOR TESTING. ENDCLASS.\n"
+      + "CLASS ltcl_test IMPLEMENTATION. METHOD check. cl_abap_unit_assert=>assert_equals( act = zcl_osgo_ci=>answer( ) exp = 42 ). ENDMETHOD. ENDCLASS.\n");
+    const run = invoke(input, ["--json"]);
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.deepEqual(JSON.parse(run.stdout).rows.map((row) => row.status), ["SUCCESS"]);
+  });
   it("returns 3 on empty or nonrecursive input", () => {
     mkdirSync(join(input, "nested")); fixture(join(input, "nested"));
     const run = invoke(input, ["--json"]);
