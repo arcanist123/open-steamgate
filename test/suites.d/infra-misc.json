@@ -62,6 +62,7 @@
     "test/prove-on-system.mjs",
     "test/prove-inplace.mjs",
     "test/sxml-contract.mjs",
-    "test/adt-lifecycle-report.mjs"
+    "test/adt-lifecycle-report.mjs",
+    "test/rap-bdef-parse.mjs"
   ]
 }
