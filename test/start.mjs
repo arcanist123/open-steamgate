@@ -391,6 +391,7 @@ export function startServer(quiet) {
         ? next()
         : odataProxy(runtime)(req, res, next));
     app.all("/sap/bc/*", forwarded);
+    app.all("/sap/opu/odata4/sap/*", forwarded);
     // what the files say, for the startup line only: the parent no longer
     // decides with it, and a difference from the child is now a thing the
     // registry screen shows rather than a route that is missing

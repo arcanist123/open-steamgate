@@ -27,6 +27,8 @@
     "test/store-destination.mjs",
     "test/store-exclusions.mjs",
     "test/transaction.mjs",
-    "test/write-boundary.mjs"
-  ]
+    "test/write-boundary.mjs",
+    "test/odata-v4.mjs"
+  ],
+  "_odata-v4": "Gateway ownership: V4 wire suite belongs beside V2 wire tests."
 }
