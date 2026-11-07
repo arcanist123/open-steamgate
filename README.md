@@ -41,6 +41,8 @@ PASS: ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED
 Measured on `0b925177` in `main` with abapiti `3115e569`. About twenty full
 runs, about fifteen fixes on each side, Node output unchanged by every one:
 [**the story and both SHAs**](docs/history/2026-10-20-self-hosting-step4.md).
+The [self-hosting index](docs/self-hosting.md) records steps 1–5 and the
+proposed whole-corpus generation milestone.
 The trap-by-trap log before it is in
 [`docs/self-hosting-step4-traps.md`](docs/self-hosting-step4-traps.md).
 
