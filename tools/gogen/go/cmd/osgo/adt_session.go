@@ -1,6 +1,44 @@
 package main
 
-import "osg/gogen/abap"
+import (
+	"osg/gogen/abap"
+	"osg/gogen/adtwrite"
+	"strings"
+	"sync"
+)
+
+var adtWriteSessions sync.Map
+
+// completeADTWrite runs before the request releases its dialog-step lock.
+func completeADTWrite(s *abap.Session, x *abap.ICFExchange) {
+	host := false
+	for _, h := range x.RespHeaders {
+		if strings.EqualFold(h[0], "x-osd-served-by") && h[1] == "HOST" {
+			host = true
+		}
+	}
+	if !host {
+		return
+	}
+	provider, ok := adtWriteSessions.Load(s)
+	if !ok {
+		return
+	}
+	_, query, _ := strings.Cut(x.URL, "?")
+	response, handled := adtwrite.Serve(adtwrite.Request{Method: x.Method, Path: x.Path, Query: query, Headers: x.Headers, Body: x.Body}, provider.(adtwrite.Session))
+	if !handled {
+		return
+	}
+	kept := x.RespHeaders[:0]
+	for _, h := range x.RespHeaders {
+		if strings.EqualFold(h[0], "set-cookie") || strings.EqualFold(h[0], "x-csrf-token") {
+			kept = append(kept, h)
+		}
+	}
+	x.RespHeaders = append(kept, response.Headers...)
+	x.RespHeaders = append(x.RespHeaders, [2]string{"x-osd-served-by", "HOST"})
+	x.Status, x.RespBody, x.Sent = response.Status, response.Body, true
+}
 
 // osgo.mjs installs the generated adapter only when both ADT classes exist.
 // The fallback and host lifecycle require no generated ADT types.

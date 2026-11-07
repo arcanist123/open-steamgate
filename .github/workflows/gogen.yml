@@ -126,10 +126,10 @@ jobs:
       - name: Go vet and tests
         working-directory: tools/gogen/go
         run: |
-          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/
-          go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./objstore/... ./osdbind/...
+          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/
+          go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./adtwrite/... ./objstore/... ./osdbind/...
           # the sandbox builds for the browser too (nofollow_other.go)
-          GOOS=js GOARCH=wasm go build ./sandbox/ ./objstore/
+          GOOS=js GOARCH=wasm go build ./sandbox/ ./adtwrite/ ./objstore/
           # ABAP's process-global string memos, the AMC broker and the lock
           # server are concurrent: test them with the race detector (enq: E0).
           go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/...

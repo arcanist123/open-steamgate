@@ -5,8 +5,16 @@ The `vscode-v0.N.NNNN` release includes `osgo-linux-x64`,
 `osgo-windows-x64.exe`, and `osgo-windows-arm64.exe`, each
 with a matching `.sha256`. The Go executable runs the compiled OData
 services with a pure Go SQLite driver. It does not need Node, a Go installation,
-or a separate database server. OSGo does **not** serve ADT yet; the readiness
-route is `GET /health`, not `/sap/bc/adt/core/http/build`.
+or a separate database server. Enable ADT with `-adt` or `OSD_OSGO_ADT=1` (off by default). It mounts
+`/sap/bc/adt` through the shared ABAP `ZCL_OSD_ADT_HANDLER`, plus the ADT
+logoff route. Discovery, identity, package browsing, search, source reads,
+versions and locks are served; class/interface/program creation, locked source
+PUTs (including class includes) and locked deletion use Go host orchestration.
+CHECK uses the configured compiler provider; outline parsing needs the compiler
+sidecar. Activation remains a refusal: saving inactive source does not rebuild
+or publish an executable generation. Source operations require a matching tree
+at `-root`; an executable alone does not carry editable sources. The readiness
+route is `GET /health`.
 
 Pin a tested release tag in consumer CI and download both files from that
 tag. For example, on Linux x64:

@@ -95,14 +95,15 @@ type storeEntry struct {
 }
 
 var storeState struct {
-	mu       sync.Mutex
-	revision uint64
-	root     string
-	cfg      *Config
-	excluded []*regexp.Regexp
-	written  map[string]bool
-	reason   string
-	identity *Identity
+	mu            sync.Mutex
+	revision      uint64
+	root          string
+	cfg           *Config
+	excluded      []*regexp.Regexp
+	written       map[string]bool
+	createdActive map[string][]byte
+	reason        string
+	identity      *Identity
 }
 
 // SetStore points the store at a tree and the build's facts about it. An
@@ -114,6 +115,7 @@ func SetStore(root string, config []byte, reason string) error {
 	storeState.revision++
 	storeState.root, storeState.cfg, storeState.excluded = "", nil, nil
 	storeState.written = map[string]bool{}
+	storeState.createdActive = map[string][]byte{}
 	storeState.reason = reason
 	if root == "" || len(config) == 0 {
 		if reason == "" {
@@ -635,6 +637,9 @@ func storeWrite(ix *storeIndex, a *Answer, typ, name, include, source string) er
 	}
 	if !storeConfined(file) {
 		return storeRefusal(e.Type + " " + e.Name + ": " + file + " is outside the writable roots of this tree")
+	}
+	if err := safeMutationPath(file); err != nil {
+		return err
 	}
 	full := filepath.Join(storeState.root, file)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {

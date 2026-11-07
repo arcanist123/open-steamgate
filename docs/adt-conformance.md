@@ -230,3 +230,17 @@ Before CREATE, W cases retain the attempted identity and require GET 404.
 Cleanup reconciles the attempted path even after a lost response or an error:
 GET, LOCK if present, DELETE with the handle, and GET 404. Pre-existing objects
 and clean duplicate refusals are never deleted; unresolved cleanup fails the run.
+
+OSGo's host write continuation now passes W1-W5: CREATE, inactive PUT under
+an ABAP-session/ENQ handle, duplicate refusal, DELETE and inactive CHECK. The
+shared JS and OSGo runs each pass all 30 current cases. The staged OSGo write
+package is `$STG_ADT_WRITES` (the plain `src/adt-writes` folder's store name);
+pass that name to `--write-package`, as CI does. JS still provisions its own
+`$ADT_WRITES` layer in the disposable view.
+
+The targeted abapfs connect/write/create run measures 6 PASS, 0 FAIL and
+1 MISSING (program name validation), with no objects left behind. Its write
+group is enabled in the OSGo expectations; program creation/deletion also
+ratchets to PASS. Saving does not activate an executable generation. Newly
+created class active skeletons are retained for the OSGo process lifetime;
+see `tools/gogen/go/adtwrite/README.md` for the state and restart boundary.
