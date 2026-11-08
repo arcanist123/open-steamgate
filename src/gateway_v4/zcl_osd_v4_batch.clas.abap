@@ -7,8 +7,9 @@ CLASS zcl_osd_v4_batch DEFINITION PUBLIC CREATE PUBLIC.
 * like a single request. dependsOn names earlier requests or groups; when one
 * of them failed the request is not executed and answers 424. A url that
 * starts with $<id> continues the Location of the entity request <id> created.
-* Without Prefer: odata.continue-on-error, processing stops after the first
-* failed request or group. Multipart batches are not implemented (501).
+* Every request is processed, as JSON Format 4.01 s19.4 has it for a JSON
+* batch; Prefer: odata.continue-on-error=false stops after the first failed
+* request or group. Multipart batches are not implemented (501).
   PUBLIC SECTION.
     CLASS-METHODS handle IMPORTING iv_body TYPE string it_headers TYPE tihttpnvp OPTIONAL
       iv_service_path TYPE string iv_origin TYPE string
@@ -41,6 +42,10 @@ CLASS zcl_osd_v4_batch DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
     CLASS-METHODS error IMPORTING iv_status TYPE i iv_message TYPE string
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
+* the continue-on-error preference: true unless it says false; ev_applied is
+* what Preference-Applied echoes when the client asked
+    CLASS-METHODS continuation IMPORTING iv_prefer TYPE string EXPORTING ev_applied TYPE string
+      RETURNING VALUE(rv_continue) TYPE abap_bool.
     CLASS-METHODS result_json IMPORTING is_result TYPE ty_result RETURNING VALUE(rv_json) TYPE string.
 ENDCLASS.
 
@@ -122,6 +127,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     DATA lt_closed TYPE string_table.
     DATA lv_previous TYPE string.
     DATA lv_depend TYPE string.
+    DATA ls_other TYPE ty_request.
     LOOP AT it_requests INTO ls_request.
       READ TABLE lt_ids WITH KEY table_line = ls_request-id TRANSPORTING NO FIELDS.
       IF sy-subrc = 0.
@@ -145,6 +151,15 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
         IF sy-subrc <> 0.
           zcl_osd_v4_query=>fail( |Request { ls_request-id } depends on { lv_depend }, which is not an earlier request or group| ).
         ENDIF.
+* JSON Format 4.01 s19.1: a request in another atomicity group is depended
+* on through its group, which has to be listed as well
+        READ TABLE it_requests INTO ls_other WITH KEY id = lv_depend.
+        IF sy-subrc = 0 AND ls_other-group IS NOT INITIAL AND ls_other-group <> ls_request-group.
+          READ TABLE ls_request-depends WITH KEY table_line = ls_other-group TRANSPORTING NO FIELDS.
+          IF sy-subrc <> 0.
+            zcl_osd_v4_query=>fail( |Request { ls_request-id } depends on { lv_depend } of atomicity group { ls_other-group }, but not on the group| ).
+          ENDIF.
+        ENDIF.
       ENDLOOP.
       APPEND ls_request-id TO lt_ids.
       lv_previous = ls_request-group.
@@ -153,6 +168,31 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       READ TABLE lt_ids WITH KEY table_line = ls_request-group TRANSPORTING NO FIELDS.
       IF sy-subrc = 0.
         zcl_osd_v4_query=>fail( |Atomicity group { ls_request-group } has the id of a request| ).
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD continuation.
+    DATA lt_items TYPE string_table.
+    DATA lv_item TYPE string.
+    DATA lv_name TYPE string.
+    DATA lv_value TYPE string.
+    rv_continue = abap_true.
+    CLEAR ev_applied.
+    lv_item = to_lower( iv_prefer ).
+    SPLIT lv_item AT ',' INTO TABLE lt_items.
+    LOOP AT lt_items INTO lv_item.
+      CONDENSE lv_item NO-GAPS.
+      SPLIT lv_item AT '=' INTO lv_name lv_value.
+      IF lv_name <> 'odata.continue-on-error' AND lv_name <> 'continue-on-error'.
+        CONTINUE.
+      ENDIF.
+      IF lv_value = 'false'.
+        rv_continue = abap_false.
+        ev_applied = 'odata.continue-on-error=false'.
+      ELSE.
+        rv_continue = abap_true.
+        ev_applied = 'odata.continue-on-error'.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
@@ -250,6 +290,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     DATA lv_writes TYPE abap_bool.
     DATA lv_next TYPE i.
     DATA lv_length TYPE i.
+    DATA lv_applied TYPE string.
     FIELD-SYMBOLS <ls_result> TYPE ty_result.
 
     lv_type = to_lower( zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'content-type' ) ).
@@ -262,8 +303,8 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     ENDIF.
     lt_requests = parse( iv_body ).
     validate( lt_requests ).
-    lv_continue = boolc( to_lower( zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'prefer' ) )
-      CS 'continue-on-error' ).
+    continuation( EXPORTING iv_prefer = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'prefer' )
+      IMPORTING ev_applied = lv_applied RECEIVING rv_continue = lv_continue ).
     lv_prefix = iv_origin && iv_service_path && '/'.
 
     LOOP AT lt_requests INTO ls_request.
@@ -390,8 +431,8 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     rs_response-status = 200.
     rs_response-content_type = 'application/json;odata.metadata=minimal'.
     rs_response-body = '{"responses":[' && lv_body && ']}'.
-    IF lv_continue = abap_true.
-      zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'Preference-Applied' iv_value = 'odata.continue-on-error'
+    IF lv_applied IS NOT INITIAL.
+      zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'Preference-Applied' iv_value = lv_applied
         CHANGING ct_headers = rs_response-headers ).
     ENDIF.
   ENDMETHOD.

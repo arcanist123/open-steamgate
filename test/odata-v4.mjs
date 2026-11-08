@@ -487,7 +487,9 @@ describe("OData V4 read wire", () => {
       const {responses} = await res.json();
       expect(responses.map((r) => [r.id, r.atomicityGroup, r.status])).to.deep.equal([
         ["1", "good", 201], ["2", "good", 204], ["3", "bad", 424], ["4", "bad", 400], ["5", "bad", 424],
+        ["6", undefined, 200],
       ]);
+      expect(res.headers.get("preference-applied")).to.equal(null);
       expect(responses[0].headers.location).to.equal(base + "/TravelSet('T0200')");
       expect(responses[0].body.TravelId).to.equal("T0200");
       expect(responses[3].body.error.message).to.contain("T0001");
@@ -534,7 +536,8 @@ describe("OData V4 read wire", () => {
       const stopped = await batch([
         {id: "dup", method: "POST", url: "TravelSet", body: travel("T0001")},
         {id: "next", method: "GET", url: "TravelSet('T0001')"},
-      ]);
+      ], {prefer: "odata.continue-on-error=false"});
+      expect(stopped.headers.get("preference-applied")).to.equal("odata.continue-on-error=false");
       expect((await stopped.json()).responses.map((r) => r.id)).to.deep.equal(["dup"]);
       expect((await json(base + "/TravelSet?$count=true&$top=0"))["@odata.count"]).to.equal(4);
     });
@@ -550,6 +553,117 @@ describe("OData V4 read wire", () => {
       expect(responses.map((r) => r.status)).to.deep.equal([201, 428, 204, 204]);
       expect(responses[0].headers.etag).to.equal('W/"1"');
       expect(responses[2].headers.etag).to.equal('W/"2"');
+    });
+  });
+
+  describe("review fixes", () => {
+    const batch = (requests, headers = {}) => fetch(base + "/$batch", {
+      method: "POST", headers: {"content-type": "application/json", ...headers}, body: JSON.stringify({requests}),
+    });
+    const raw = (path, method, text, headers = {}) =>
+      fetch(path, {method, headers: {"content-type": "application/json", ...headers}, body: text});
+
+    before(async () => {
+      expect((await send(base + "/TravelSet", "POST", {TravelId: "T0400", Description: "review", Status: "A", Seats: 2})).status).to.equal(201);
+    });
+    after(async () => {
+      await send(base + "/TravelSet('T0400')", "DELETE");
+    });
+
+    it("rejects numbers outside the EDM type's domain and keeps the entity", async () => {
+      const url = base + "/TravelSet('T0400')";
+      for (const text of ['{"Seats":1.5}', '{"Seats":2147483648}', '{"Seats":-2147483649}', '{"Seats":1.0e-1}',
+        '{"Seats":"2"}', '{"Description":123}', '{"Description":true}', '{"Status":"AB"}',
+        `{"Description":"${"x".repeat(41)}"}`, '{"d":{"Seats":9}}', '{"TravelId":null}']) {
+        const res = await raw(url, "PATCH", text);
+        expect(res.status, text).to.equal(400);
+        expect((await res.json()).error.message).to.be.a("string");
+      }
+      expect(await json(url)).to.include({Seats: 2, Description: "review", Status: "A"});
+      expect((await raw(url, "PATCH", '{"Seats":-2147483648}')).status).to.equal(204);
+      expect((await json(url)).Seats).to.equal(-2147483648);
+    });
+
+    it("keeps the string \"null\" apart from a JSON null", async () => {
+      const url = base + "/TravelSet('T0400')";
+      expect((await raw(url, "PATCH", '{"Description":"null"}')).status).to.equal(204);
+      expect((await json(url)).Description).to.equal("null");
+      expect((await raw(url, "PATCH", '{"Description":null}')).status).to.equal(204);
+      expect((await json(url)).Description).to.equal("");
+    });
+
+    it("refuses relationship bindings in scalar and array form", async () => {
+      const url = base + "/TravelSet('T0400')";
+      for (const body of [{"to_Bookings@odata.bind": "BookingSet(TravelId='T0001',BookingId='B001')"},
+        {"to_Bookings@bind": "BookingSet(TravelId='T0001',BookingId='B001')"},
+        {"to_Bookings@odata.bind": ["BookingSet(TravelId='T0001',BookingId='B001')"]}]) {
+        const res = await send(url, "PATCH", body);
+        expect(res.status, JSON.stringify(body)).to.equal(501);
+      }
+      expect((await json(url)).Seats).to.equal(-2147483648);
+    });
+
+    it("holds the entity lock from the ETag check to the end of the LUW", async () => {
+      const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");
+      const url = literal + "/NoteSet('L1')";
+      expect((await send(literal + "/NoteSet", "POST", {Id: "L1", Text: "locked"})).status).to.equal(201);
+      const input = {mode_zosd_v4_lock: "E", srv: "ZOSD_V4_TEST", eset: "NoteSet", ekey: "Id=L1"};
+      const taken = enqTake("v4-review-holder", "OTHER", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input);
+      expect(taken.subrc).to.equal(0);
+      try {
+        for (const [method, body] of [["PATCH", {Text: "lost"}], ["PUT", {Text: "lost"}], ["DELETE", undefined]]) {
+          const res = await send(url, method, body, {"if-match": 'W/"1"'});
+          expect(res.status, method).to.equal(409);
+        }
+        expect(await json(url)).to.include({Text: "locked", Version: 1});
+      } finally {
+        enqDrop("v4-review-holder", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input);
+      }
+      // the lock a request takes ends with it: two writes in a row both pass
+      expect((await send(url, "PATCH", {Text: "a"}, {"if-match": 'W/"1"'})).status).to.equal(204);
+      expect((await send(url, "PATCH", {Text: "b"}, {"if-match": 'W/"2"'})).status).to.equal(204);
+      expect((await send(url, "DELETE", undefined, {"if-match": "*"})).status).to.equal(204);
+    });
+
+    it("rejects too long strings against MaxLength on the ETag fixture", async () => {
+      const res = await send(literal + "/NoteSet", "POST", {Id: "M1", Text: "y".repeat(81)});
+      expect(res.status).to.equal(400);
+      expect((await fetch(literal + "/NoteSet('M1')")).status).to.equal(404);
+    });
+
+    it("processes every request of a JSON batch by default; continue-on-error=false stops", async () => {
+      const requests = [{id: "1", method: "GET", url: "TravelSet('NONE')"}, {id: "2", method: "GET", url: "TravelSet('T0001')"}];
+      const all = await batch(requests);
+      expect((await all.json()).responses.map((r) => r.status)).to.deep.equal([404, 200]);
+      const stop = await batch(requests, {prefer: "odata.continue-on-error=false"});
+      expect((await stop.json()).responses.map((r) => r.status)).to.deep.equal([404]);
+      const yes = await batch(requests, {prefer: "odata.continue-on-error=true"});
+      expect(yes.headers.get("preference-applied")).to.equal("odata.continue-on-error");
+      expect((await yes.json()).responses.map((r) => r.status)).to.deep.equal([404, 200]);
+    });
+
+    it("rolls back the ETag fixture with its atomicity group", async () => {
+      const notes = literal.replace(origin, "") + "/NoteSet";
+      const res = await batch([
+        {id: "1", atomicityGroup: "g", method: "POST", url: notes, body: {Id: "R1", Text: "first"}},
+        {id: "2", atomicityGroup: "g", method: "POST", url: notes, body: {Id: "R1", Text: "again"}},
+      ]);
+      expect((await res.json()).responses.map((r) => r.status)).to.deep.equal([424, 400]);
+      expect((await fetch(literal + "/NoteSet('R1')")).status).to.equal(404);
+    });
+
+    it("requires the group of a request in another atomicity group in dependsOn", async () => {
+      const bad = await batch([
+        {id: "a", atomicityGroup: "g", method: "GET", url: "TravelSet('T0001')"},
+        {id: "b", method: "GET", url: "TravelSet('T0002')", dependsOn: ["a"]},
+      ]);
+      expect(bad.status).to.equal(400);
+      expect((await bad.json()).error.message).to.contain("group");
+      const good = await batch([
+        {id: "a", atomicityGroup: "g", method: "GET", url: "TravelSet('T0001')"},
+        {id: "b", method: "GET", url: "TravelSet('T0002')", dependsOn: ["g", "a"]},
+      ]);
+      expect((await good.json()).responses.map((r) => r.status)).to.deep.equal([200, 200]);
     });
   });
 });

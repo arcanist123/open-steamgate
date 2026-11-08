@@ -142,6 +142,8 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
           ls_header-value = 'GET'.
         ENDIF.
         APPEND ls_header TO rs_response-headers.
+      WHEN 409.
+        rs_response-reason = 'Conflict'.
       WHEN 412.
         rs_response-reason = 'Precondition Failed'.
       WHEN 415.

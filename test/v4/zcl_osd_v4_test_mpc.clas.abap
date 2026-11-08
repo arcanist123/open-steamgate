@@ -10,10 +10,11 @@ CLASS zcl_osd_v4_test_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_a
              decimal_text TYPE n LENGTH 4,
            END OF ty_row.
     TYPES tt_rows TYPE STANDARD TABLE OF ty_row WITH DEFAULT KEY.
-* a writable entity with an ETag (set_as_etag): the version counts updates
+* a writable entity with an ETag (set_as_etag): the version counts updates;
+* the rows live in ZOSD_V4_NOTE, so a rolled-back batch group undoes them
     TYPES: BEGIN OF ty_note,
              id TYPE c LENGTH 10,
-             text TYPE string,
+             text TYPE c LENGTH 80,
              version TYPE i,
            END OF ty_note.
     TYPES tt_notes TYPE STANDARD TABLE OF ty_note WITH DEFAULT KEY.
@@ -59,6 +60,7 @@ CLASS zcl_osd_v4_test_mpc IMPLEMENTATION.
     lo_prop = lo_type->create_property( iv_property_name = 'Text' iv_abap_fieldname = 'TEXT' ).
     lo_prop->set_type_edm_string( ).
     lo_prop->set_nullable( abap_true ).
+    lo_prop->set_maxlength( 80 ).
     lo_prop = lo_type->create_property( iv_property_name = 'Version' iv_abap_fieldname = 'VERSION' ).
     lo_prop->set_type_edm_int32( ).
     lo_prop->set_as_etag( ).

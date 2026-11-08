@@ -104,15 +104,23 @@ the model refuses answers 405 and never reaches the DPC.
 | `PATCH`/`PUT` with `Prefer: return=representation` | 200 with the entity after the update |
 | `DELETE TravelSet('T0001')` | 204 |
 
-Request bodies are V4 JSON: `Edm.Date` as `2026-11-07`, `Edm.DateTimeOffset`
-with `Z` or an offset (stored as UTC), `Edm.TimeOfDay` as `12:30:45`,
-hyphenated GUIDs, JSON numbers and booleans. Control information and
-instance annotations (`@odata.type`, `Name@...`) are ignored. An unknown
-property or a value that does not fit its type is 400 before the DPC is
-called. The key of a PATCH or PUT is the one in the URL; a key property in
+Request bodies are V4 JSON, read with their token kinds (ajson): strings
+for `Edm.String`, `Edm.Date` (`2026-11-07`), `Edm.DateTimeOffset` (`Z` or an
+offset, stored as UTC), `Edm.TimeOfDay` (`12:30:45`) and hyphenated GUIDs;
+JSON numbers for numeric types; `true`/`false` for booleans. Integers must be
+integral and within the range of their type (Byte, SByte, Int16, Int32,
+Int64); a Decimal must fit its Precision and Scale; a string must fit its
+MaxLength. `Int64` and `Decimal` may come as strings under
+`IEEE754Compatible=true`. A JSON `null` clears a nullable property and is
+400 for a non-nullable one or a key; the string `"null"` is a string.
+Control information and instance annotations (`@odata.type`, `Name@...`)
+are ignored. An unknown property (also a V2 `{"d":{...}}` envelope) or a
+value that does not fit is 400 before the DPC is called and the entity is
+unchanged. The key of a PATCH or PUT is the one in the URL; a key property in
 the body cannot move the update to another entity. A missing entity is 404.
-Nested objects or arrays (deep insert, complex values) and `@odata.bind`
-answer 501. A write to a collection other than POST answers 405 with
+A navigation property with a payload (deep insert) and any relationship
+binding (`Nav@odata.bind` or `Nav@bind`, scalar or array) answer 501; a
+binding is never acknowledged and dropped. Binary values in bodies are 501. A write to a collection other than POST answers 405 with
 `Allow: GET, POST`; POST to an entity, `Allow: GET, PATCH, PUT, DELETE`.
 
 As on the V2 path, one modifying request is one LUW: a `COMMIT WORK`
@@ -139,9 +147,19 @@ value URL-escaped. Where an entity type has one:
   not compared) goes through.
 
 `If-Match` with a specific tag on an entity type without an ETag never
-matches and answers 412; `*` passes. The current ETag is read through the
-DPC's `get_entity` right before the write; the check and the write are not
-one locked step (no enqueue), as on a Gateway without a lock in the DPC.
+matches and answers 412; `*` passes.
+
+The check and the write are one step: PATCH, PUT and DELETE first take an
+exclusive lock on the entity (lock object `EZOSD_V4_LOCK` over
+`ZOSD_V4_LOCK`: service, entity set and key, cut to 40/40/60 characters, so
+an overlong key locks more and never less), then read the current entity
+and its ETag through the DPC's `get_entity`, check `If-Match`, and write.
+The lock has `_SCOPE 2` and lasts until the LUW ends (the end of the request,
+or of the batch). A write to an entity another session has locked answers
+409 without waiting. This holds against writers that go through this
+facade; a DPC or another program that writes without the lock is not
+covered. On Node the lock server is `tools/osd-enq.mjs`; on a system it is
+the enqueue server.
 SADL services have no ETag source yet. `If-None-Match` and conditional GET
 (304) are not served.
 
@@ -163,11 +181,14 @@ Each request runs through the same dispatch as a single request.
   after it are not executed and answer 424. Requests of one group must be
   adjacent (400 otherwise). A request outside any group is its own LUW.
 - `dependsOn` names earlier request ids or ended groups (a forward or
-  unknown name is 400 for the whole batch). If one of them failed, the
-  request is not executed and answers 424.
-- Without `Prefer: odata.continue-on-error` processing stops after the
-  first failed request (or after the group it belongs to); with it every
-  request is answered and `Preference-Applied` says so.
+  unknown name is 400 for the whole batch). A request of another atomicity
+  group can only be depended on together with its group (s19.1; 400
+  otherwise). If a dependency failed, the request is not executed and
+  answers 424.
+- Every request is processed, as JSON Format 4.01 s19.4 has it for JSON
+  batches. `Prefer: odata.continue-on-error=false` stops after the first
+  failed request (or after the group it belongs to); an explicit preference
+  is echoed in `Preference-Applied`.
 - Duplicate ids, requests without id/method/url, or a nested `$batch` are 400.
 - A multipart `$batch` (`multipart/mixed`) answers **501**; another
   content type, 415.
@@ -180,7 +201,7 @@ independent requests in parallel.
 - Deep insert, `@odata.bind`, writes through navigation properties,
   bound/unbound actions and functions.
 - Multipart `$batch`, `If-None-Match`, conditional GET, SADL ETags.
-- Binary property values in request bodies (base64url is not decoded).
+- Binary property values in request bodies (501).
 - Nested `$expand`, slash expand paths, and options inside `$expand(...)`.
   These explicitly return 501. Multiple single-level navigation names work.
 - `$apply`, `$search`, lambda expressions or a general expression evaluator.
@@ -202,8 +223,11 @@ The registered Mocha suite is `test/odata-v4.mjs`. It parses metadata as XML
 and exercises demo reads, SADL reads, a YAML service, literals/facets,
 projection, counts, ordering/paging, expansion and errors, and the writes,
 ETags (a writable `NoteSet` with `set_as_etag` in the synthetic `test/v4/`
-service) and JSON batches (two atomicity groups, one rolled back while the
-other commits, `dependsOn` and `$<id>`). Run it against a
+service, backed by the table `ZOSD_V4_NOTE` so that a rolled-back group
+undoes it) and JSON batches (two atomicity groups, one rolled back while the
+other commits, `dependsOn` and `$<id>`), plus the domain checks of body
+values, the entity lock (taken from the test through
+`tools/osd-enq-host.mjs`) and the continuation default. Run it against a
 fresh transpile together with the targeted V2 wire tests in `test/mocha.mjs`.
 
 The public wire contracts are

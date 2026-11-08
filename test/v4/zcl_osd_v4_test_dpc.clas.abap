@@ -5,8 +5,6 @@ CLASS zcl_osd_v4_test_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_a
     METHODS /iwbep/if_mgw_appl_srv_runtime~create_entity REDEFINITION.
     METHODS /iwbep/if_mgw_appl_srv_runtime~update_entity REDEFINITION.
     METHODS /iwbep/if_mgw_appl_srv_runtime~delete_entity REDEFINITION.
-* the notes live as long as the process; the wire tests restore what they change
-    CLASS-DATA gt_notes TYPE zcl_osd_v4_test_mpc=>tt_notes.
   PRIVATE SECTION.
     CLASS-METHODS note_id IMPORTING it_key_tab TYPE /iwbep/t_mgw_name_value_pair
       RETURNING VALUE(rv_id) TYPE string.
@@ -35,8 +33,10 @@ CLASS zcl_osd_v4_test_dpc IMPLEMENTATION.
     DATA ls_filter TYPE /iwbep/s_mgw_select_option.
     DATA ls_range TYPE /iwbep/s_cod_select_option.
     DATA lv_day TYPE d.
+    DATA lt_notes TYPE zcl_osd_v4_test_mpc=>tt_notes.
     IF iv_entity_set_name = 'NoteSet'.
-      copy_data_to_ref( EXPORTING is_data = gt_notes CHANGING cr_data = er_entityset ).
+      SELECT id text version FROM zosd_v4_note INTO TABLE lt_notes ORDER BY id.
+      copy_data_to_ref( EXPORTING is_data = lt_notes CHANGING cr_data = er_entityset ).
       RETURN.
     ENDIF.
     lt_rows = rows( ).
@@ -68,7 +68,7 @@ CLASS zcl_osd_v4_test_dpc IMPLEMENTATION.
     DATA lv_id TYPE string.
     IF iv_entity_set_name = 'NoteSet'.
       lv_id = note_id( it_key_tab ).
-      READ TABLE gt_notes INTO ls_note WITH KEY id = lv_id.
+      SELECT SINGLE id text version FROM zosd_v4_note INTO ls_note WHERE id = lv_id.
       IF sy-subrc = 0.
         copy_data_to_ref( EXPORTING is_data = ls_note CHANGING cr_data = er_entity ).
       ENDIF.
@@ -103,38 +103,41 @@ CLASS zcl_osd_v4_test_dpc IMPLEMENTATION.
 
   METHOD /iwbep/if_mgw_appl_srv_runtime~create_entity.
     DATA ls_note TYPE zcl_osd_v4_test_mpc=>ty_note.
+    DATA ls_row TYPE zosd_v4_note.
     io_data_provider->read_entry_data( IMPORTING es_data = ls_note ).
-    READ TABLE gt_notes WITH KEY id = ls_note-id TRANSPORTING NO FIELDS.
-    IF sy-subrc = 0 OR ls_note-id IS INITIAL.
+    ls_note-version = 1.
+    ls_row-mandt = sy-mandt.
+    MOVE-CORRESPONDING ls_note TO ls_row.
+    IF ls_row-id IS NOT INITIAL.
+      INSERT zosd_v4_note FROM ls_row.
+    ENDIF.
+    IF sy-subrc <> 0 OR ls_row-id IS INITIAL.
       RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception EXPORTING message = |Note { ls_note-id } cannot be created|.
     ENDIF.
-    ls_note-version = 1.
-    APPEND ls_note TO gt_notes.
     copy_data_to_ref( EXPORTING is_data = ls_note CHANGING cr_data = er_entity ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_appl_srv_runtime~update_entity.
     DATA ls_note TYPE zcl_osd_v4_test_mpc=>ty_note.
-    DATA ls_old TYPE zcl_osd_v4_test_mpc=>ty_note.
-    DATA lv_index TYPE i.
+    DATA ls_row TYPE zosd_v4_note.
     DATA lv_id TYPE string.
     lv_id = note_id( it_key_tab ).
-    READ TABLE gt_notes INTO ls_old WITH KEY id = lv_id.
+    SELECT SINGLE * FROM zosd_v4_note INTO ls_row WHERE id = lv_id.
     IF sy-subrc <> 0.
       RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception EXPORTING message = 'No such note'.
     ENDIF.
-    lv_index = sy-tabix.
     io_data_provider->read_entry_data( IMPORTING es_data = ls_note ).
-    ls_note-id = ls_old-id.
-    ls_note-version = ls_old-version + 1.
-    MODIFY gt_notes FROM ls_note INDEX lv_index.
+    ls_row-text = ls_note-text.
+    ls_row-version = ls_row-version + 1.
+    UPDATE zosd_v4_note FROM ls_row.
+    MOVE-CORRESPONDING ls_row TO ls_note.
     copy_data_to_ref( EXPORTING is_data = ls_note CHANGING cr_data = er_entity ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_appl_srv_runtime~delete_entity.
     DATA lv_id TYPE string.
     lv_id = note_id( it_key_tab ).
-    DELETE gt_notes WHERE id = lv_id.
+    DELETE FROM zosd_v4_note WHERE id = lv_id.
     IF sy-subrc <> 0.
       RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception EXPORTING message = 'No such note'.
     ENDIF.

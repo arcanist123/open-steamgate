@@ -10,7 +10,9 @@ the `/IWBEP/` V4 provider API.
   existing select-options contract.
 - `ZCL_OSD_V4_JSON`: typed JSON without V2 envelopes or deferred links.
 - `ZCL_OSD_V4_WRITE`: POST/PATCH/PUT/DELETE through the DPC
-  create/update/delete, V4 body values, ETags and `If-Match`.
+  create/update/delete, typed V4 body values (ajson), ETags and `If-Match`
+  under the entity lock `EZOSD_V4_LOCK` (table `ZOSD_V4_LOCK`).
+- `ZCL_OSD_V4_PROVIDER`: the entry provider those writes hand the DPC.
 - `ZCL_OSD_V4_BATCH`: JSON `$batch` (atomicity groups as LUWs, `dependsOn`,
   `$<id>` references); multipart answers 501.
 - `ZCL_OSD_V4_HTTP`: dispatch (one LUW per modifying request), collection
@@ -26,4 +28,4 @@ structure and navigation JSON pair type are data contracts, not V2 output.
 See [the consumer contract](../../docs/odata-v4.md) for supported requests,
 limits and next slices. Wire coverage lives in `test/odata-v4.mjs` with a
 small synthetic literal/facet service in `test/v4/` (with a writable
-`NoteSet` that carries an ETag).
+`NoteSet` that carries an ETag, stored in `ZOSD_V4_NOTE`).
