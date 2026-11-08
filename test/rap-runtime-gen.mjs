@@ -85,6 +85,8 @@ describe("RAP managed runtime generator (R2)", () => {
       [".asbdef", "action Approve result [1] $self;", "action Approve parameter ZI_RAP_NOTE result [1] $self;", /only instance actions/],
       [".asbdef", "validation CheckText", "validation CheckLength", /no handler method named after it/],
       [".asbdef", "field ( readonly ) Status;", "field ( suppress ) Status;", /field control suppress is outside R2/],
+      [".asbdef", "field ( readonly ) Status;", "field ( readonly : create ) Status;", /field control readonly:create is outside R2/],
+      [".asbdef", "field ( mandatory ) NoteText;", "field ( mandatory : update ) NoteText;", /field control mandatory:update is outside R2/],
       [".locals_imp.abap", "CHANGING  failed   TYPE", "CHANGING  failure  TYPE", /parameters must be keys/],
     ]) {
       assert.throws(() => build(edit(demo(), suffix, from, to)), error, `${from} -> ${to}`);

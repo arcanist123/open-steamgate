@@ -68,11 +68,18 @@ Following the public RAP documentation (managed implementation type, the
 the save sequence); nothing measured on a system.
 
 - **%cid / %cid_ref.** A create's `%cid` comes back in MAPPED with the key; a
-  later update, delete or action in the same transaction may address the
-  instance by `%cid_ref`.
+  later update, delete or action in the same transaction (until the next
+  successful `commit`) may address the instance by `%cid_ref`. A `%cid`
+  already used in the transaction, also within one request, is refused
+  (FAILED, cause `conflict`), so a reference is never ambiguous.
+- **Keys** are identified by a length-prefixed rendering of the key tuple, so
+  a separator inside a key value cannot make two instances one.
 - **%control.** A create sets the fields whose `%control` flag is on (and the
   keys); an update changes only those. Key fields are not updated.
-- **Field control.** `readonly` (or `readonly : update` on update) refuses a
+- **Field control.** Only `readonly`, `readonly : update`, `mandatory`,
+  `mandatory : create`, `numbering : managed` (and `features`, ignored) are
+  accepted; any other qualifier is refused by the generator.
+  `readonly` (or `readonly : update` on update) refuses a
   flagged field: FAILED with `%fail-cause = if_abap_behv=>cause-readonly`,
   REPORTED with a message and `%element`. `mandatory` (or
   `mandatory : create` on create) must be flagged and not initial on create,
@@ -97,8 +104,11 @@ the save sequence); nothing measured on a system.
   4. otherwise *save*: the managed save writes the delta (insert, update,
      delete) into the persistent table, each CDS element into its column from
      the BDEF `mapping for` (else the CDS base field), MANDT set from
-     `sy-mandt`; then `COMMIT WORK`;
-  5. *cleanup*: the saver's `cleanup`; the delta is cleared.
+     `sy-mandt`. An update starts from the row in the database, so a column
+     the entity does not expose keeps its value. Then `COMMIT WORK`;
+  5. *cleanup*: the saver's `cleanup`; the transactional buffer is reset
+     (instances and content IDs), so the next transaction reads the
+     database again.
   `adjust_numbers` is not called: late numbering is not supported.
 - **LUW.** The runtime ends its own LUW with `COMMIT WORK` / `ROLLBACK WORK`;
   in the gateway that is inside the dialog step's bracket

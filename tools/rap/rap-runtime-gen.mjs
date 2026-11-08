@@ -50,8 +50,10 @@ function fieldControl(entity, fields) {
       const c = control.get(upper(name));
       if (!c) throw new Error(`${entity.entity}: field control for unknown field ${name}`);
       for (const a of group.attributes) {
-        if (a.name === "readonly") c.readonly = a.value === "update" ? (c.readonly || "U") : "X";
-        else if (a.name === "mandatory") c.mandatory = a.value === "create" ? (c.mandatory || "C") : "X";
+        // only the forms the runtime implements; another qualifier is refused
+        // rather than read as its unconditional form
+        if (a.name === "readonly" && (a.value === null || a.value === "update")) c.readonly = a.value === "update" ? (c.readonly || "U") : "X";
+        else if (a.name === "mandatory" && (a.value === null || a.value === "create")) c.mandatory = a.value === "create" ? (c.mandatory || "C") : "X";
         else if (a.name === "numbering" && a.value === "managed") c.numbering = true;
         else if (a.name !== "features") throw new Error(`${entity.entity}: field control ${a.name}${a.value ? `:${a.value}` : ""} is outside R2`);
       }

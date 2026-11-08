@@ -1,3 +1,45 @@
+CLASS lcl_narrow DEFINITION FINAL.
+* The note BO with an entity that does not expose STATUS: the generated
+* adapter, its model narrowed. The table still has the column.
+  PUBLIC SECTION.
+    INTERFACES zif_osd_rap_bo.
+    METHODS constructor RAISING cx_static_check.
+  PRIVATE SECTION.
+    DATA mi_bo TYPE REF TO zif_osd_rap_bo.
+ENDCLASS.
+
+CLASS lcl_narrow IMPLEMENTATION.
+
+  METHOD constructor.
+    DATA li_registry TYPE REF TO zif_osd_rap_registry.
+    CREATE OBJECT li_registry TYPE ('ZCL_OSD_RAP_REGISTRY').
+    mi_bo = li_registry->get( 'ZI_RAP_NOTE' ).
+  ENDMETHOD.
+
+  METHOD zif_osd_rap_bo~model.
+    FIELD-SYMBOLS <ls_entity> LIKE LINE OF rs_model-entities.
+    rs_model = mi_bo->model( ).
+    LOOP AT rs_model-entities ASSIGNING <ls_entity>.
+      DELETE <ls_entity>-fields WHERE name = 'STATUS'.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD zif_osd_rap_bo~new_rows.
+    rr_rows = mi_bo->new_rows( iv_entity ).
+  ENDMETHOD.
+
+  METHOD zif_osd_rap_bo~new_response.
+    rr_response = mi_bo->new_response( iv_kind ).
+  ENDMETHOD.
+
+  METHOD zif_osd_rap_bo~call.
+    mi_bo->call( io_handler = io_handler iv_entity = iv_entity iv_name = iv_name
+                 ir_rows = ir_rows ir_keys = ir_keys ir_result = ir_result
+                 ir_failed = ir_failed ir_reported = ir_reported ).
+  ENDMETHOD.
+
+ENDCLASS.
+
 CLASS ltcl_managed DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINAL.
 * The note demo (src/rap_demo/) through the managed runtime, handler-direct:
 * the buffer, field control, numbering, determinations on modify and on
@@ -29,6 +71,14 @@ CLASS ltcl_managed DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FI
     METHODS save_order FOR TESTING RAISING cx_static_check.
     METHODS field_control FOR TESTING RAISING cx_static_check.
     METHODS cid_ref_in_one_transaction FOR TESTING RAISING cx_static_check.
+    METHODS save_resets_the_buffer FOR TESTING RAISING cx_static_check.
+    METHODS duplicate_cid FOR TESTING RAISING cx_static_check.
+    METHODS unexposed_column_kept FOR TESTING RAISING cx_static_check.
+    METHODS update_text
+      IMPORTING io_rap  TYPE REF TO zcl_osd_rap_runtime
+                iv_id   TYPE zrap_note-note_id
+                iv_text TYPE csequence
+      RAISING   cx_static_check.
 
     METHODS create
       IMPORTING iv_cid       TYPE csequence
@@ -283,6 +333,92 @@ CLASS ltcl_managed IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_true ).
     SELECT SINGLE * FROM zrap_note INTO ls_db WHERE note_id = lv_id.
     cl_abap_unit_assert=>assert_equals( act = ls_db-note_text exp = 'After' ).
+  ENDMETHOD.
+
+  METHOD update_text.
+    DATA lt_update TYPE tt_update.
+    DATA ls_update LIKE LINE OF lt_update.
+    ls_update-noteid = iv_id.
+    ls_update-notetext = iv_text.
+    ls_update-%control-notetext = if_abap_behv=>mk-on.
+    APPEND ls_update TO lt_update.
+    io_rap->modify( EXPORTING iv_entity = 'Note' iv_operation = 'U' it_rows = lt_update
+                    CHANGING cs_mapped = ms_mapped cs_failed = ms_failed cs_reported = ms_reported ).
+  ENDMETHOD.
+
+  METHOD save_resets_the_buffer.
+* after a save the next transaction reads the database again, and the
+* content IDs of the saved one are no references any more
+    DATA lv_id     TYPE zrap_note-note_id.
+    DATA ls_db     TYPE zrap_note.
+    DATA lt_update TYPE tt_update.
+    DATA ls_update LIKE LINE OF lt_update.
+
+    lv_id = create( iv_cid = 'C1' iv_text = 'Saved once' ).
+    cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_true ).
+    UPDATE zrap_note SET status = 'Z' WHERE note_id = lv_id.
+    COMMIT WORK.
+
+    update_text( io_rap = mo_rap iv_id = lv_id iv_text = 'Saved twice' ).
+    cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_true ).
+    SELECT SINGLE * FROM zrap_note INTO ls_db WHERE note_id = lv_id.
+    cl_abap_unit_assert=>assert_equals( act = ls_db-note_text exp = 'Saved twice' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_db-status exp = 'Z' msg = 'a change made between the transactions survives' ).
+
+    ls_update-%cid_ref = 'C1'.
+    ls_update-notetext = 'Stale reference'.
+    ls_update-%control-notetext = if_abap_behv=>mk-on.
+    APPEND ls_update TO lt_update.
+    CLEAR ms_failed.
+    mo_rap->modify( EXPORTING iv_entity = 'Note' iv_operation = 'U' it_rows = lt_update
+                    CHANGING cs_mapped = ms_mapped cs_failed = ms_failed cs_reported = ms_reported ).
+    cl_abap_unit_assert=>assert_equals( act = lines( ms_failed-note ) exp = 1 msg = 'a %cid_ref of a saved transaction' ).
+    cl_abap_unit_assert=>assert_equals( act = mo_rap->pending( ) exp = 0 ).
+  ENDMETHOD.
+
+  METHOD duplicate_cid.
+    DATA lt_create TYPE tt_create.
+    DATA ls_create LIKE LINE OF lt_create.
+    DATA ls_failed LIKE LINE OF ms_failed-note.
+
+    ls_create-%cid = 'DUP'.
+    ls_create-notetext = 'First'.
+    ls_create-%control-notetext = if_abap_behv=>mk-on.
+    APPEND ls_create TO lt_create.
+    ls_create-notetext = 'Second'.
+    APPEND ls_create TO lt_create.
+    mo_rap->modify( EXPORTING iv_entity = 'Note' iv_operation = 'C' it_rows = lt_create
+                    CHANGING cs_mapped = ms_mapped cs_failed = ms_failed cs_reported = ms_reported ).
+    cl_abap_unit_assert=>assert_equals( act = lines( ms_mapped-note ) exp = 1 ).
+    cl_abap_unit_assert=>assert_equals( act = lines( ms_failed-note ) exp = 1 ).
+    READ TABLE ms_failed-note INTO ls_failed INDEX 1.
+    cl_abap_unit_assert=>assert_equals( act = ls_failed-%fail-cause exp = if_abap_behv=>cause-conflict ).
+    cl_abap_unit_assert=>assert_equals( act = mo_rap->pending( ) exp = 1 ).
+  ENDMETHOD.
+
+  METHOD unexposed_column_kept.
+* an entity without STATUS updates the text and leaves the column alone
+    DATA lv_id     TYPE zrap_note-note_id.
+    DATA ls_db     TYPE zrap_note.
+    DATA lo_narrow TYPE REF TO lcl_narrow.
+    DATA lo_rap    TYPE REF TO zcl_osd_rap_runtime.
+    DATA lv_saved  TYPE abap_bool.
+
+    lv_id = create( iv_cid = 'C1' iv_text = 'Wide' ).
+    cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_true ).
+    UPDATE zrap_note SET status = 'Z' WHERE note_id = lv_id.
+    COMMIT WORK.
+
+    CREATE OBJECT lo_narrow.
+    lo_rap = zcl_osd_rap_runtime=>for_bo( lo_narrow ).
+    update_text( io_rap = lo_rap iv_id = lv_id iv_text = 'Narrow' ).
+    cl_abap_unit_assert=>assert_initial( ms_failed-note ).
+    lo_rap->commit( IMPORTING ev_saved = lv_saved
+                    CHANGING cs_failed = ms_failed cs_reported = ms_reported ).
+    SELECT SINGLE * FROM zrap_note INTO ls_db WHERE note_id = lv_id.
+    cl_abap_unit_assert=>assert_equals( act = lv_saved exp = abap_true ).
+    cl_abap_unit_assert=>assert_equals( act = ls_db-note_text exp = 'Narrow' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_db-status exp = 'Z' ).
   ENDMETHOD.
 
 ENDCLASS.

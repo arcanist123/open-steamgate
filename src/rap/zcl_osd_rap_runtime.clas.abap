@@ -216,6 +216,15 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
       RAISING
         zcx_osd_rap.
 
+    METHODS table_row
+      IMPORTING
+        is_entity     TYPE zif_osd_rap_bo=>ty_entity
+        is_keys       TYPE any
+      RETURNING
+        VALUE(rr_line) TYPE REF TO data
+      RAISING
+        zcx_osd_rap.
+
     METHODS source_of
       IMPORTING
         is_entity        TYPE zif_osd_rap_bo=>ty_entity
@@ -411,13 +420,11 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     DATA ls_field TYPE zif_osd_rap_bo=>ty_field.
     DATA lv_text  TYPE string.
 
+* each component as <length>:<text>, so no separator inside a value can
+* make two different key tuples one string
     LOOP AT is_entity-fields INTO ls_field WHERE key = abap_true.
       lv_text = text_of( is_row = is_row iv_component = ls_field-name ).
-      IF rv_key IS INITIAL.
-        rv_key = lv_text.
-      ELSE.
-        rv_key = rv_key && '|' && lv_text.
-      ENDIF.
+      rv_key = rv_key && |{ strlen( lv_text ) }:{ lv_text }|.
     ENDLOOP.
   ENDMETHOD.
 
@@ -513,8 +520,8 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
-  METHOD select_row.
-* one instance of the persistent table, mapped to the entity's fields
+  METHOD table_row.
+* one row of the persistent table by the entity's key, as the table has it
     DATA li_source TYPE REF TO zif_stg_cds_source.
     DATA lr_data   TYPE REF TO data.
     DATA lt_order  TYPE string_table.
@@ -523,9 +530,7 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     DATA lv_value  TYPE string.
     FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
     FIELD-SYMBOLS <ls_data> TYPE any.
-    FIELD-SYMBOLS <ls_row>  TYPE any.
-    FIELD-SYMBOLS <lv_from> TYPE any.
-    FIELD-SYMBOLS <lv_to>   TYPE any.
+    FIELD-SYMBOLS <ls_line> TYPE any.
 
     LOOP AT is_entity-fields INTO ls_field WHERE key = abap_true.
       lv_value = text_of( is_row = is_keys iv_component = ls_field-name ).
@@ -543,6 +548,25 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     IF sy-subrc <> 0.
       RETURN.
     ENDIF.
+    rr_line = li_source->create_line( ).
+    ASSIGN rr_line->* TO <ls_line>.
+    <ls_line> = <ls_data>.
+  ENDMETHOD.
+
+  METHOD select_row.
+* one instance of the persistent table, mapped to the entity's fields
+    DATA lr_line  TYPE REF TO data.
+    DATA ls_field TYPE zif_osd_rap_bo=>ty_field.
+    FIELD-SYMBOLS <ls_data> TYPE any.
+    FIELD-SYMBOLS <ls_row>  TYPE any.
+    FIELD-SYMBOLS <lv_from> TYPE any.
+    FIELD-SYMBOLS <lv_to>   TYPE any.
+
+    lr_line = table_row( is_entity = is_entity is_keys = is_keys ).
+    IF lr_line IS INITIAL.
+      RETURN.
+    ENDIF.
+    ASSIGN lr_line->* TO <ls_data>.
 
     rr_row = new_row( is_entity ).
     ASSIGN rr_row->* TO <ls_row>.
@@ -695,6 +719,7 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     DATA lv_index TYPE i.
     DATA lv_x16   TYPE x LENGTH 16.
     DATA lv_ok    TYPE abap_bool.
+    DATA lv_cid   TYPE string.
     FIELD-SYMBOLS <ls_row>    TYPE any.
     FIELD-SYMBOLS <lv_from>   TYPE any.
     FIELD-SYMBOLS <lv_to>     TYPE any.
@@ -706,6 +731,21 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
                   CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
     IF lv_ok = abap_false.
       RETURN.
+    ENDIF.
+
+* a content ID names one instance of the transaction; a second create with
+* it would make every later %cid_ref ambiguous
+    lv_cid = text_of( is_row = is_input iv_component = '%CID' ).
+    IF lv_cid IS NOT INITIAL.
+      READ TABLE mt_inst TRANSPORTING NO FIELDS WITH KEY entity = is_entity-name cid = lv_cid.
+      IF sy-subrc = 0.
+        fail( EXPORTING is_entity = is_entity is_input = is_input
+                        iv_cause = if_abap_behv=>cause-conflict
+                        iv_text = |Content ID { lv_cid } is already used|
+                        iv_op = '%CREATE'
+              CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
+        RETURN.
+      ENDIF.
     ENDIF.
 
     lr_row = new_row( is_entity ).
@@ -1209,7 +1249,6 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     DATA lo_saver  TYPE REF TO cl_abap_behavior_saver.
     DATA lv_before TYPE i.
     DATA lx_error  TYPE REF TO zcx_osd_rap.
-    FIELD-SYMBOLS <ls_inst> TYPE ty_inst.
 
     ev_saved = abap_false.
     lo_saver = saver( ).
@@ -1253,14 +1292,10 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     IF lo_saver IS NOT INITIAL.
       lo_saver->cleanup( ).
     ENDIF.
+* cleanup resets the transactional buffer: the next transaction reads the
+* database again, and a %cid of this one is not a reference any more
     mi_luw->discard( ).
-    LOOP AT mt_inst ASSIGNING <ls_inst>.
-      CLEAR: <ls_inst>-created, <ls_inst>-updated, <ls_inst>-fields.
-    ENDLOOP.
-    DELETE mt_inst WHERE state = co_operation-delete.
-    LOOP AT mt_inst ASSIGNING <ls_inst>.
-      CLEAR <ls_inst>-state.
-    ENDLOOP.
+    CLEAR: mt_inst, mt_done.
     ev_saved = abap_true.
   ENDMETHOD.
 
@@ -1283,9 +1318,17 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     LOOP AT lt_delta INTO ls_change.
       ls_entity = entity_of( ls_change-entity ).
       li_source = source_of( ls_entity ).
-      lr_line = li_source->create_line( ).
-      ASSIGN lr_line->* TO <ls_line>.
       ASSIGN ls_change-row->* TO <ls_row>.
+* an update starts from the row in the database, so a column the entity
+* does not expose keeps its value
+      CLEAR lr_line.
+      IF ls_change-operation = co_operation-update.
+        lr_line = table_row( is_entity = ls_entity is_keys = <ls_row> ).
+      ENDIF.
+      IF lr_line IS INITIAL.
+        lr_line = li_source->create_line( ).
+      ENDIF.
+      ASSIGN lr_line->* TO <ls_line>.
       ASSIGN COMPONENT 'MANDT' OF STRUCTURE <ls_line> TO <lv_to>.
       IF sy-subrc = 0.
         <lv_to> = sy-mandt.
