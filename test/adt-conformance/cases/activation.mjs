@@ -14,7 +14,10 @@ const fixture = '/sap/bc/adt/oo/classes/zcl_zosd_test_demo';
 const activation = uri => ({method: 'POST', path: '/activation', query: {method: 'activate', preauditRequested: 'true'},
   headers: {'content-type': 'application/xml', accept: 'application/xml'},
   body: `<?xml version="1.0" encoding="UTF-8"?><adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core"><adtcore:objectReference adtcore:uri="${uri}" adtcore:name="${uri.split('/').pop().toUpperCase()}"/></adtcore:objectReferences>`});
-const unit = method => ({method: 'POST', path: '/abapunit/testruns',
+// The first unit run after X1 re-reads the unit plan over the generation
+// X1 published (measured: X3 10 s, X4 5 s right after X1; under load the
+// 30 s default was missed), so the two unit cases get a bounded 120 s.
+const unit = method => ({method: 'POST', path: '/abapunit/testruns', timeout: 120000,
   headers: {'content-type': 'application/vnd.sap.adt.abapunit.testruns.config.v4+xml', accept: 'application/vnd.sap.adt.abapunit.testruns.result.v2+xml'},
   body: `<?xml version="1.0" encoding="UTF-8"?><aunit:runConfiguration xmlns:aunit="http://www.sap.com/adt/aunit"><external><coverage active="false"/></external><options><uriType value="semantic"/><testDeterminationStrategy sameProgram="true" assignedTests="false"/><testRiskLevels harmless="true" dangerous="true" critical="true"/><testDurations short="true" medium="true" long="true"/><withNavigationUri enabled="true"/></options><adtcore:objectSets xmlns:adtcore="http://www.sap.com/adt/core"><objectSet kind="inclusive"><adtcore:objectReferences><adtcore:objectReference adtcore:uri="${fixture}#testclass=ltcl_zosd_test_demo;testmethod=${method}"/></adtcore:objectReferences></objectSet></adtcore:objectSets></aunit:runConfiguration>`});
 
