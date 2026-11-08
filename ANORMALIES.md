@@ -4204,3 +4204,25 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Workaround: `tools/rap/bdef-gen.mjs` emits ordinary ABAP interfaces in
   `gen/rap/`; the source loader lowers explicit derived declarations in memory.
   Runtime behavior, EML and implicit handler signatures remain outside R1.
+
+## RAP saver phases and RESULT in handler signatures (R2)
+
+- Status: worked around locally; no upstream changes.
+- Discovery: R2 managed runtime (`src/rap/`, docs/rap-runtime.md), 2026-11-08.
+- Expected: a saver's `finalize` / `check_before_save` carry implicit FAILED
+  and REPORTED (LATE); a handler method may name its parameter types with
+  `TYPE TABLE FOR READ RESULT` / `TYPE TABLE FOR ACTION RESULT` in the
+  `METHODS` statement.
+- Installed abaplint: `MethodParameters.workaroundRAP` makes every parameter of
+  a method of a class named `CL_ABAP_BEHAVIOR_SAVER` a
+  `VoidType("RapMethodParameter")`, and the transpiled redefinition then
+  dumps "Void type: RapMethodParameter" when it is called. In a `METHODS`
+  statement it reads the name after `RESULT` as a result parameter, so
+  `entities TYPE TABLE FOR READ RESULT zi_x` is not a table to `abaplint`
+  (the in-memory lowering hides this from the build, not from the CLI lint).
+- Workaround: the clean-room `CL_ABAP_BEHAVIOR_SAVER` phases take no
+  parameters (a saver reports nothing back in R2); the demo pool names the
+  RESULT forms with `TYPES` in the handler class and uses those names in its
+  `METHODS` statements.
+- Upstream: none filed. It belongs with implicit RAP handler signatures in
+  abaplint; explicit signatures are this project's interim form.
