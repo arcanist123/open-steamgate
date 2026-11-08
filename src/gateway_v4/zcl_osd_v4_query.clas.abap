@@ -16,6 +16,8 @@ CLASS zcl_osd_v4_query DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS filter IMPORTING iv_text TYPE string RETURNING VALUE(rv_text) TYPE string
       RAISING zcx_stg_error.
     CLASS-METHODS fail IMPORTING iv_text TYPE string iv_status TYPE i DEFAULT 400 RAISING zcx_stg_error.
+* A V4 Date or DateTimeOffset literal as the internal YYYYMMDD[hhmmss[.f]] (UTC)
+    CLASS-METHODS temporal IMPORTING iv_text TYPE string RETURNING VALUE(rv_text) TYPE string RAISING zcx_stg_error.
   PRIVATE SECTION.
     TYPES: BEGIN OF ty_shape,
              property TYPE string,
@@ -35,7 +37,6 @@ CLASS zcl_osd_v4_query DEFINITION PUBLIC CREATE PUBLIC.
     METHODS select_fields IMPORTING iv_select TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
       RAISING zcx_stg_error.
     CLASS-METHODS atom IMPORTING iv_text TYPE string RETURNING VALUE(rv_text) TYPE string RAISING zcx_stg_error.
-    CLASS-METHODS temporal IMPORTING iv_text TYPE string RETURNING VALUE(rv_text) TYPE string RAISING zcx_stg_error.
 ENDCLASS.
 
 CLASS zcl_osd_v4_query IMPLEMENTATION.
@@ -56,7 +57,7 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     ELSEIF lv_rest = '/$metadata'.
       ms_request-is_metadata = abap_true.
     ELSEIF lv_rest = '/$batch'.
-      fail( iv_text = '$batch is not implemented' iv_status = 501 ).
+      ms_request-is_batch = abap_true.
     ELSE.
       FIND REGEX '^/([^/($]+)(?:\((.*)\))?(/\$count)?/?$' IN lv_rest
         SUBMATCHES ms_request-entity_set ms_request-key_string lv_tail.
