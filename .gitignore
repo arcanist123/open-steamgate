@@ -83,3 +83,6 @@ docker/workbench/ide-password.txt
 !/src/l2demo/zcl_l2_ship_max_cargo.clas.trace.meta.json
 !/src/l2demo/zcl_l2_ship_busy.clas.trace.meta.json
 !/src/l2demo/zcl_l2_ship_restricted.clas.trace.meta.json
+
+# Public RAP oracle sources remain local, never bundled
+corpus-rap/
