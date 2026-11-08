@@ -1197,7 +1197,7 @@ ENDIF.
 - Expected SAP behaviour: a service definition is an ordinary repository object; abaplint knows the type
 - Actual open-abap behaviour: `Error: allowed_object_types, Object type SRVD not allowed` — `SRVD` is absent from the transpiler's `defaultAllowedObjectTypes`
 - Impact on open-steamgate: the `$ZTEST` demo package cannot hold a service definition; the ADT façade lists the type (`osd-store.mjs` TYPES) but no object can exist behind it
-- Smallest safe workaround: `none` — the object files were removed from `src/ztest/`
+- Smallest safe workaround: `none` — the object files were removed from `src/ztest/`. Since 2026-11-08 (RAP R2c) `\.srvd\.` is in the transpile `exclude_filter`, as `\.bdef\.` is, and `tools/rap/srvd-gen.mjs` reads the source into a service model (`docs/rap-runtime.md`, "Serving"); `src/rap_demo/zui_rap_note.srvd.*` is the first such object. The transpiler itself still refuses the type
 - Upstream issue: needs an issue in `abaplint/transpiler` (not yet filed)
 - Regression-test location: none yet
 - Upstream version containing a fix: `unknown`
