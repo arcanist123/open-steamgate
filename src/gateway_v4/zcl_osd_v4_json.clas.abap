@@ -16,6 +16,10 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
 
   METHOD value.
     DATA lv_text TYPE string.
+    DATA lv_sign TYPE string.
+    DATA lv_integer TYPE string.
+    DATA lv_fraction TYPE string.
+    DATA lv_exponent TYPE string.
     DATA lv_x TYPE xstring.
     DATA lv_kind TYPE c LENGTH 1.
     DESCRIBE FIELD iv_value TYPE lv_kind.
@@ -36,7 +40,20 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
         IF lv_text = 'INF' OR lv_text = '-INF' OR lv_text = 'NaN'.
           rv_json = quote( lv_text ).
         ELSE.
-          rv_json = lv_text.
+* Normalize textually: numeric casts can round Decimal and Int64 values.
+          FIND REGEX '^([+-]?)([0-9]+)(\.[0-9]+)?([eE][+-]?[0-9]+)?$' IN lv_text
+            SUBMATCHES lv_sign lv_integer lv_fraction lv_exponent.
+          IF sy-subrc <> 0.
+            rv_json = 'null'.
+            RETURN.
+          ENDIF.
+          WHILE strlen( lv_integer ) > 1 AND lv_integer(1) = '0'.
+            lv_integer = substring( val = lv_integer off = 1 ).
+          ENDWHILE.
+          IF lv_sign = '+'.
+            CLEAR lv_sign.
+          ENDIF.
+          rv_json = lv_sign && lv_integer && lv_fraction && lv_exponent.
         ENDIF.
       WHEN 'Edm.Date' OR 'Edm.DateTimeOffset'.
         IF iv_value IS INITIAL.

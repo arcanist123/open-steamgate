@@ -17,7 +17,10 @@ CLASS zcl_osd_v4_query DEFINITION PUBLIC CREATE PUBLIC.
       RAISING zcx_stg_error.
     CLASS-METHODS fail IMPORTING iv_text TYPE string iv_status TYPE i DEFAULT 400 RAISING zcx_stg_error.
   PRIVATE SECTION.
-    METHODS read_options IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set RAISING zcx_stg_error.
+    METHODS read_options IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
+      io_model TYPE REF TO zcl_osd_v4_model RAISING zcx_stg_error.
+    METHODS validate_temporal_filters IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
+      io_model TYPE REF TO zcl_osd_v4_model RAISING zcx_stg_error.
     METHODS read_keys IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
       io_model TYPE REF TO zcl_osd_v4_model RAISING zcx_stg_error.
     METHODS select_fields IMPORTING iv_select TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
@@ -112,6 +115,10 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD temporal.
+    DATA lv_year TYPE i.
+    DATA lv_month TYPE i.
+    DATA lv_day TYPE i.
+    DATA lv_max TYPE i.
     DATA lv_date TYPE d.
     DATA lv_time TYPE t.
     DATA lv_days TYPE i.
@@ -123,6 +130,28 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     DATA lv_m TYPE i.
     DATA lv_s TYPE i.
     rv_text = iv_text.
+    FIND REGEX '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T.*)?$' IN iv_text.
+    IF sy-subrc <> 0.
+      fail( 'Invalid temporal literal' ).
+    ENDIF.
+    lv_year = iv_text(4).
+    lv_month = iv_text+5(2).
+    lv_day = iv_text+8(2).
+    IF lv_year < 1 OR lv_month < 1 OR lv_month > 12 OR lv_day < 1.
+      fail( 'Invalid calendar date' ).
+    ENDIF.
+    lv_max = 31.
+    IF lv_month = 4 OR lv_month = 6 OR lv_month = 9 OR lv_month = 11.
+      lv_max = 30.
+    ELSEIF lv_month = 2.
+      lv_max = 28.
+      IF lv_year MOD 400 = 0 OR ( lv_year MOD 4 = 0 AND lv_year MOD 100 <> 0 ).
+        lv_max = 29.
+      ENDIF.
+    ENDIF.
+    IF lv_day > lv_max.
+      fail( 'Invalid calendar date' ).
+    ENDIF.
     IF strlen( iv_text ) = 10.
       REPLACE ALL OCCURRENCES OF '-' IN rv_text WITH ''.
       RETURN.
@@ -141,10 +170,16 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     lv_h = lv_time(2).
     lv_m = lv_time+2(2).
     lv_s = lv_time+4(2).
+    IF lv_h > 23 OR lv_m > 59 OR lv_s > 59.
+      fail( 'Invalid clock time' ).
+    ENDIF.
     lv_seconds = lv_h * 3600 + lv_m * 60 + lv_s.
     IF lv_zone <> 'Z'.
       lv_h = lv_zone+1(2).
       lv_m = lv_zone+4(2).
+      IF lv_h > 14 OR lv_m > 59 OR ( lv_h = 14 AND lv_m <> 0 ).
+        fail( 'Invalid timezone offset' ).
+      ENDIF.
       lv_offset = lv_h * 3600 + lv_m * 60.
       IF lv_zone(1) = '+'.
         lv_seconds = lv_seconds - lv_offset.
@@ -199,6 +234,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
         CLEAR lv_word.
         lv_in = abap_true.
       ELSEIF lv_char = ` ` OR lv_char = '(' OR lv_char = ')' OR lv_char = ','.
+        IF to_lower( lv_word ) = 'tolower' OR to_lower( lv_word ) = 'toupper' OR to_lower( lv_word ) = 'trim'.
+          fail( iv_text = 'String transformations cannot be represented as select-options' iv_status = 501 ).
+        ENDIF.
         rv_text = rv_text && atom( lv_word ) && lv_char.
         CLEAR lv_word.
       ELSE.
@@ -218,7 +256,7 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     mo_context->mv_entity_type = is_set-entity_type.
     mo_context->ms_set = is_set.
     mo_context->mv_aggregate = is_set-aggregate.
-    read_options( is_set ).
+    read_options( is_set = is_set io_model = io_model ).
     read_keys( is_set = is_set io_model = io_model ).
   ENDMETHOD.
 
@@ -232,6 +270,7 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     DATA ls_nav TYPE zcl_stg_model_info=>ty_nav.
     DATA ls_order TYPE /iwbep/s_mgw_tech_order.
     DATA lt_seen TYPE string_table.
+
 
 
     LOOP AT ms_request-options INTO ls_opt.
@@ -295,6 +334,7 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
         WHEN '$filter'.
           mo_context->mv_filter_string = filter( ls_opt-value ).
           mo_context->mt_filter = zcl_stg_filter=>parse( iv_filter = mo_context->mv_filter_string is_set = is_set ).
+          validate_temporal_filters( is_set = is_set io_model = io_model ).
           IF ls_opt-value IS NOT INITIAL AND mo_context->mt_filter IS INITIAL.
             fail( iv_text = 'This filter cannot be represented as select-options' iv_status = 501 ).
           ENDIF.
@@ -307,6 +347,32 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
         WHEN OTHERS.
           fail( iv_text = |Query option { ls_opt-name } is not implemented| iv_status = 501 ).
       ENDCASE.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD validate_temporal_filters.
+    DATA ls_filter TYPE /iwbep/s_mgw_select_option.
+    DATA ls_range TYPE /iwbep/s_cod_select_option.
+    DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
+    DATA lv_length TYPE i.
+    LOOP AT mo_context->mt_filter INTO ls_filter.
+      ls_info = io_model->property( iv_type = is_set-entity_type iv_name = ls_filter-property ).
+      IF ls_info-edm_type = 'Edm.Date' OR ls_info-edm_type = 'Edm.DateTimeOffset'.
+        lv_length = 8.
+        IF ls_info-edm_type = 'Edm.DateTimeOffset'.
+          lv_length = 14.
+        ENDIF.
+        LOOP AT ls_filter-select_options INTO ls_range.
+          IF strlen( ls_range-low ) < lv_length OR
+            ( ls_info-edm_type = 'Edm.Date' AND strlen( ls_range-low ) <> lv_length ).
+            fail( 'Temporal literal does not match property type' ).
+          ENDIF.
+          IF ls_range-high IS NOT INITIAL AND ( strlen( ls_range-high ) < lv_length OR
+            ( ls_info-edm_type = 'Edm.Date' AND strlen( ls_range-high ) <> lv_length ) ).
+            fail( 'Temporal literal does not match property type' ).
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
     ENDLOOP.
   ENDMETHOD.
 
@@ -355,6 +421,11 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
           ENDIF.
           ls_key-value = zcl_stg_url=>unquote( lv_value ).
         WHEN 'Edm.Date' OR 'Edm.DateTimeOffset'.
+          IF ls_info-edm_type = 'Edm.Date' AND strlen( lv_value ) <> 10.
+            fail( 'Expected a V4 Date literal' ).
+          ELSEIF ls_info-edm_type = 'Edm.DateTimeOffset' AND strlen( lv_value ) = 10.
+            fail( 'Expected a V4 DateTimeOffset literal' ).
+          ENDIF.
           FIND REGEX '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T.*)?$' IN lv_value.
           IF sy-subrc <> 0.
             fail( 'Expected a V4 date or timestamp literal' ).

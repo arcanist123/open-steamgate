@@ -8,12 +8,16 @@ ENDCLASS.
 CLASS zcl_osd_v4_test_dpc IMPLEMENTATION.
   METHOD rows.
     DATA ls_row TYPE zcl_osd_v4_test_mpc=>ty_row.
+    ls_row-numeric_text = '0012'.
+    ls_row-decimal_text = '0012'.
     ls_row-day = '20261107'.
     ls_row-guid = '12345678123412341234123456789ABC'.
     ls_row-amount = '123.45'.
     ls_row-moment = '20261107123045'.
     ls_row-name = |O'Brien, (a=b)  test|.
     APPEND ls_row TO rt_rows.
+    CLEAR ls_row-numeric_text.
+    CLEAR ls_row-decimal_text.
     ls_row-day = '20261108'.
     ls_row-name = 'Second'.
     APPEND ls_row TO rt_rows.

@@ -6,6 +6,8 @@ CLASS zcl_osd_v4_test_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_a
              amount TYPE p LENGTH 8 DECIMALS 2,
              moment TYPE p LENGTH 8 DECIMALS 0,
              name TYPE string,
+             numeric_text TYPE n LENGTH 4,
+             decimal_text TYPE n LENGTH 4,
            END OF ty_row.
     TYPES tt_rows TYPE STANDARD TABLE OF ty_row WITH DEFAULT KEY.
     METHODS define REDEFINITION.
@@ -30,6 +32,10 @@ CLASS zcl_osd_v4_test_mpc IMPLEMENTATION.
     lo_prop->set_type_edm_datetimeoffset( ).
     lo_prop = lo_type->create_property( iv_property_name = 'Name' iv_abap_fieldname = 'NAME' ).
     lo_prop->set_type_edm_string( ).
+    lo_prop = lo_type->create_property( iv_property_name = 'NumericText' iv_abap_fieldname = 'NUMERIC_TEXT' ).
+    lo_prop->set_type_edm_int32( ).
+    lo_prop = lo_type->create_property( iv_property_name = 'DecimalText' iv_abap_fieldname = 'DECIMAL_TEXT' ).
+    lo_prop->set_type_edm_decimal( ).
     lo_type->bind_structure( 'ZCL_OSD_V4_TEST_MPC=>TY_ROW' ).
     lo_type->create_entity_set( 'LiteralSet' ).
     lo_type = model->create_entity_type( iv_entity_type_name = 'Text' iv_def_entity_set = abap_false ).

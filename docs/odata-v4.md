@@ -46,6 +46,8 @@ follow the existing MPC convention: `set_maxlength` is total digits and
 Dates serialize as `2026-11-07`; timestamps as ISO timestamps with UTC `Z`;
 GUIDs use the hyphenated form. Decimal and integer values are JSON numbers
 (the IEEE754-compatible string-number negotiation is a later slice).
+Numeric text backing an EDM number is normalized without a numeric cast, so
+leading zeros are removed without rounding Decimal or Int64 digits.
 Collections and navigation arrays have no `d`/`results` wrappers, and rows
 have no `__metadata` or deferred navigation links. `$select` applies to the
 outer entity; expanded entities contain their structural properties.
@@ -53,13 +55,17 @@ outer entity; expanded entities contain their structural properties.
 Keys and filters accept V4 literals such as `Day=2026-11-07`,
 `Guid=12345678-1234-1234-1234-123456789abc`, and
 `Moment eq 2026-11-07T12:30:45Z`. Timestamp filter offsets are converted to
-UTC before reaching the DPC. V2 `datetime'...'` and `guid'...'` forms are
+UTC before reaching the DPC. Temporal literals must match the property's
+Date or DateTimeOffset type, with valid calendar dates, clock times and
+UTC offsets (at most 14 hours). V2 `datetime'...'` and `guid'...'` forms are
 rejected. Quoted strings use doubled apostrophes and retain embedded spaces.
 
 The existing filter subset is retained: comparisons, per-property ORs
 joined by AND, range comparisons, and supported string functions
 (`startswith`, `endswith`, `substringof`). Filters which cannot be expressed
-as select-options return 501 rather than silently dropping predicates. The
+as select-options return 501 rather than silently dropping predicates.
+`tolower`, `toupper` and `trim` are rejected with 501 because select-options
+cannot preserve their transformations. The
 DPC remains responsible for applying supported filters and ordering, just
 as on the V2 path.
 

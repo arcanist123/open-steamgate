@@ -112,6 +112,60 @@ describe("OData V4 read wire", () => {
     expect(body.value.map((r) => r.TravelId)).to.deep.equal(["T0003"]);
   });
 
+  it("rejects function filters whose semantics select-options cannot preserve", async () => {
+    for (const filter of ["tolower(Status) eq 'a'", "toupper(Status) eq 'A'", "trim(Status) eq 'A'",
+      "tolower (Status) eq 'a'", "tolower(toupper(Status)) eq 'a'"]) {
+      const res = await fetch(base + "/TravelSet" + query({$filter: filter}));
+      expect(res.status, filter).to.equal(501);
+      expect((await res.json()).error.message).to.be.a("string");
+    }
+    const body = await json(base + "/TravelSet" + query({$filter: "Description eq 'tolower(Status)'"}));
+    expect(body.value).to.deep.equal([]);
+  });
+
+  it("serializes leading-zero and initial NUMC properties as JSON numbers", async () => {
+    const body = await json(literal + "/LiteralSet");
+    expect(body.value.map((r) => r.NumericText)).to.deep.equal([12, 0]);
+    expect(body.value.map((r) => r.DecimalText)).to.deep.equal([12, 0]);
+  });
+
+  it("preserves Decimal and Int64 precision while canonicalizing numeric text", async () => {
+    const {zcl_osd_v4_json} = await import("../output/zcl_osd_v4_json.clas.mjs");
+    for (const [input, type, expected] of [
+      ["0009223372036854775807", "Edm.Int64", "9223372036854775807"],
+      ["-00012345678901234567890.0012300", "Edm.Decimal", "-12345678901234567890.0012300"],
+      ["+00012.50", "Edm.Decimal", "12.50"],
+      ["0000.000", "Edm.Decimal", "0.000"],
+      ["00012.5E+03", "Edm.Double", "12.5E+03"],
+    ]) {
+      const result = await zcl_osd_v4_json.value({
+        iv_value: new abap.types.String().set(input),
+        iv_type: new abap.types.String().set(type),
+      });
+      expect(result.get()).to.equal(expected);
+      expect(() => JSON.parse(result.get())).not.to.throw();
+    }
+  });
+
+  it("rejects mismatched temporal keys and invalid calendar, clock and offset ranges", async () => {
+    for (const path of [
+      `/LiteralSet(Day=2026-11-07T12:30:45Z,Guid=${guid})`,
+      "/LiteralSet" + query({$filter: "Day eq 2026-11-07T12:30:45Z"}),
+      "/LiteralSet" + query({$filter: "Moment eq 2026-11-07"}),
+      ...["2026-02-29", "2026-04-31", "0000-01-01", "2026-00-01", "2026-13-01"].map(
+        (day) => `/LiteralSet(Day=${day},Guid=${guid})`),
+      ...["2026-11-07T25:30:45Z", "2026-11-07T12:60:45Z", "2026-11-07T12:30:60Z",
+        "2026-11-07T12:30:45+14:01", "2026-11-07T12:30:45-15:00", "2026-02-29T12:30:45Z"].map(
+        (moment) => "/LiteralSet" + query({$filter: `Moment eq ${moment}`})),
+    ]) {
+      const res = await fetch(literal + path);
+      expect(res.status, path).to.equal(400);
+      expect((await res.json()).error.message).to.be.a("string");
+    }
+    const leap = await json(literal + "/LiteralSet" + query({$filter: "Day eq 2024-02-29"}));
+    expect(leap.value).to.deep.equal([]);
+  });
+
   it("orders before paging and counts before paging", async () => {
     const body = await json(base + "/TravelSet?$orderby=TravelId%20desc&$top=2&$skip=1&$count=true");
     expect(body.value.map((r) => r.TravelId)).to.deep.equal(["T0003", "T0002"]);
