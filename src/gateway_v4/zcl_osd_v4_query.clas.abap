@@ -17,6 +17,15 @@ CLASS zcl_osd_v4_query DEFINITION PUBLIC CREATE PUBLIC.
       RAISING zcx_stg_error.
     CLASS-METHODS fail IMPORTING iv_text TYPE string iv_status TYPE i DEFAULT 400 RAISING zcx_stg_error.
   PRIVATE SECTION.
+    TYPES: BEGIN OF ty_shape,
+             property TYPE string,
+             alternatives TYPE abap_bool,
+           END OF ty_shape.
+    TYPES ty_shapes TYPE STANDARD TABLE OF ty_shape WITH DEFAULT KEY.
+    CLASS-METHODS validate_shape IMPORTING it_nodes TYPE zcl_stg_filter=>ty_nodes iv_id TYPE i
+      RETURNING VALUE(rt_shape) TYPE ty_shapes RAISING zcx_stg_error.
+    METHODS validate_literals IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
+      io_model TYPE REF TO zcl_osd_v4_model RAISING zcx_stg_error.
     METHODS read_options IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
       io_model TYPE REF TO zcl_osd_v4_model RAISING zcx_stg_error.
     METHODS validate_temporal_filters IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
@@ -270,6 +279,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     DATA ls_nav TYPE zcl_stg_model_info=>ty_nav.
     DATA ls_order TYPE /iwbep/s_mgw_tech_order.
     DATA lt_seen TYPE string_table.
+    DATA lo_parser TYPE REF TO zcl_stg_filter.
+    DATA lt_nodes TYPE zcl_stg_filter=>ty_nodes.
+    DATA lt_shape TYPE ty_shapes.
 
 
 
@@ -333,6 +345,11 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
           ENDLOOP.
         WHEN '$filter'.
           mo_context->mv_filter_string = filter( ls_opt-value ).
+          validate_literals( is_set = is_set io_model = io_model ).
+          CREATE OBJECT lo_parser EXPORTING
+            it_tokens = zcl_stg_filter=>tokenize( mo_context->mv_filter_string ) is_set = is_set.
+          lt_nodes = lo_parser->parse_tree( ).
+          lt_shape = validate_shape( it_nodes = lt_nodes iv_id = lines( lt_nodes ) ).
           mo_context->mt_filter = zcl_stg_filter=>parse( iv_filter = mo_context->mv_filter_string is_set = is_set ).
           validate_temporal_filters( is_set = is_set io_model = io_model ).
           IF ls_opt-value IS NOT INITIAL AND mo_context->mt_filter IS INITIAL.
@@ -347,6 +364,79 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
         WHEN OTHERS.
           fail( iv_text = |Query option { ls_opt-name } is not implemented| iv_status = 501 ).
       ENDCASE.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD validate_shape.
+    DATA ls_node TYPE zcl_stg_filter=>ty_node.
+    DATA lt_right TYPE ty_shapes.
+    DATA ls_shape TYPE ty_shape.
+    FIELD-SYMBOLS <left> TYPE ty_shape.
+    IF iv_id < 1.
+      RETURN.
+    ENDIF.
+    READ TABLE it_nodes INDEX iv_id INTO ls_node.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+    IF ls_node-property IS NOT INITIAL.
+      ls_shape-property = ls_node-property.
+      APPEND ls_shape TO rt_shape.
+      RETURN.
+    ENDIF.
+    rt_shape = validate_shape( it_nodes = it_nodes iv_id = ls_node-left ).
+    lt_right = validate_shape( it_nodes = it_nodes iv_id = ls_node-right ).
+    LOOP AT lt_right INTO ls_shape.
+      READ TABLE rt_shape WITH KEY property = ls_shape-property ASSIGNING <left>.
+      IF sy-subrc = 0.
+* Intersecting an OR with another bound must constrain every branch.
+* The shared converter only folds a bound into its first range.
+        IF ls_node-kind = 'and' AND ( <left>-alternatives = abap_true OR ls_shape-alternatives = abap_true ).
+          fail( iv_text = 'Same-property OR intersections cannot be represented safely' iv_status = 501 ).
+        ENDIF.
+        IF ls_shape-alternatives = abap_true.
+          <left>-alternatives = abap_true.
+        ENDIF.
+      ELSE.
+        APPEND ls_shape TO rt_shape.
+      ENDIF.
+    ENDLOOP.
+    IF ls_node-kind = 'or'.
+      LOOP AT rt_shape ASSIGNING <left>.
+        <left>-alternatives = abap_true.
+      ENDLOOP.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD validate_literals.
+    DATA lt_tokens TYPE zcl_stg_filter=>ty_tokens.
+    DATA ls_token TYPE zcl_stg_filter=>ty_token.
+    DATA ls_op TYPE zcl_stg_filter=>ty_token.
+    DATA ls_value TYPE zcl_stg_filter=>ty_token.
+    DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
+    DATA lv_index TYPE i.
+* Normalization creates TYPED datetime tokens only from bare V4 temporals.
+* Quoted and numeric inputs retain their kinds until the shared parser runs.
+    lt_tokens = zcl_stg_filter=>tokenize( mo_context->mv_filter_string ).
+    LOOP AT lt_tokens INTO ls_token.
+      lv_index = sy-tabix.
+      IF ls_token-kind <> 'IDENT'.
+        CONTINUE.
+      ENDIF.
+      READ TABLE lt_tokens INDEX lv_index + 1 INTO ls_op.
+      ls_op-value = to_lower( ls_op-value ).
+      IF sy-subrc <> 0 OR ls_op-kind <> 'IDENT' OR
+        NOT ( ls_op-value = 'eq' OR ls_op-value = 'ne' OR ls_op-value = 'gt' OR
+              ls_op-value = 'ge' OR ls_op-value = 'lt' OR ls_op-value = 'le' ).
+        CONTINUE.
+      ENDIF.
+      ls_info = io_model->property( iv_type = is_set-entity_type iv_name = ls_token-value ).
+      IF ls_info-edm_type = 'Edm.Date' OR ls_info-edm_type = 'Edm.DateTimeOffset'.
+        READ TABLE lt_tokens INDEX lv_index + 2 INTO ls_value.
+        IF sy-subrc <> 0 OR ls_value-kind <> 'TYPED' OR ls_value-value NP 'datetime:*'.
+          fail( 'Temporal properties require bare V4 temporal literals' ).
+        ENDIF.
+      ENDIF.
     ENDLOOP.
   ENDMETHOD.
 

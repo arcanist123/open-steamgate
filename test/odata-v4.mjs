@@ -112,6 +112,43 @@ describe("OData V4 read wire", () => {
     expect(body.value.map((r) => r.TravelId)).to.deep.equal(["T0003"]);
   });
 
+  it("rejects same-property OR intersections without returning lossy IDs or counts", async () => {
+    for (const filter of [
+      "(TravelId ge 'T0002' or TravelId eq 'T0009') and TravelId le 'T0003'",
+      "TravelId le 'T0003' and (TravelId ge 'T0002' or TravelId eq 'T0009')",
+      "(TravelId eq 'T0002' or TravelId eq 'T0009') and TravelId ge 'T0003'",
+    ]) {
+      for (const path of ["/TravelSet", "/TravelSet/$count"]) {
+        const res = await fetch(base + path + query({$filter: filter, $count: "true"}));
+        expect(res.status, filter).to.equal(501);
+        const body = await res.json();
+        expect(body).not.to.have.any.keys("value", "@odata.count");
+        expect(body.error.message).to.be.a("string");
+      }
+    }
+    const safe = await json(base + "/TravelSet" + query({
+      $filter: "(TravelId eq 'T0002' or TravelId eq 'T0009') and Status eq 'A'", $count: "true",
+    }));
+    expect(safe.value.map((r) => r.TravelId)).to.deep.equal(["T0002", "T0009"]);
+    expect(safe["@odata.count"]).to.equal(2);
+    const range = await json(base + "/TravelSet" + query({
+      $filter: "TravelId ge 'T0002' and TravelId le 'T0003'", $count: "true",
+    }));
+    expect(range.value.map((r) => r.TravelId)).to.deep.equal(["T0002", "T0003"]);
+    expect(range["@odata.count"]).to.equal(2);
+  });
+
+  it("rejects numeric and quoted temporal filter literals before conversion", async () => {
+    for (const filter of ["Day eq 20261107", "Day eq '20260230'", "Moment eq '20261107253045'",
+      "Day EQ 20261107", "Day eq '20261107'", "Day eq '2026-11-07'", "Moment eq 20261107123045",
+      "Moment eq '2026-11-07T12:30:45Z'", "Day eq null",
+      "Day ge 2026-11-01 and Day le '20261107'", "not (Day eq 20261107)"]) {
+      const res = await fetch(literal + "/LiteralSet" + query({$filter: filter}));
+      expect(res.status, filter).to.equal(400);
+      expect((await res.json()).error.message).to.be.a("string");
+    }
+  });
+
   it("rejects function filters whose semantics select-options cannot preserve", async () => {
     for (const filter of ["tolower(Status) eq 'a'", "toupper(Status) eq 'A'", "trim(Status) eq 'A'",
       "tolower (Status) eq 'a'", "tolower(toupper(Status)) eq 'a'"]) {

@@ -57,7 +57,8 @@ Keys and filters accept V4 literals such as `Day=2026-11-07`,
 `Moment eq 2026-11-07T12:30:45Z`. Timestamp filter offsets are converted to
 UTC before reaching the DPC. Temporal literals must match the property's
 Date or DateTimeOffset type, with valid calendar dates, clock times and
-UTC offsets (at most 14 hours). V2 `datetime'...'` and `guid'...'` forms are
+UTC offsets (at most 14 hours). Numeric and quoted string literals are not
+accepted for temporal properties. V2 `datetime'...'` and `guid'...'` forms are
 rejected. Quoted strings use doubled apostrophes and retain embedded spaces.
 
 The existing filter subset is retained: comparisons, per-property ORs
@@ -65,7 +66,10 @@ joined by AND, range comparisons, and supported string functions
 (`startswith`, `endswith`, `substringof`). Filters which cannot be expressed
 as select-options return 501 rather than silently dropping predicates.
 `tolower`, `toupper` and `trim` are rejected with 501 because select-options
-cannot preserve their transformations. The
+cannot preserve their transformations. Intersecting a same-property OR with
+another bound on that property also returns 501: the shared converter cannot
+apply the bound to every OR branch. Independent per-property OR groups joined
+by AND and ordinary lower/upper range pairs remain supported. The
 DPC remains responsible for applying supported filters and ordering, just
 as on the V2 path.
 
