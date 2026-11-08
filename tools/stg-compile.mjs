@@ -141,6 +141,8 @@ function property(name, spec, isKey, complexTypes = []) {
     label: s.label ?? "",
     semantics: s.semantics ?? "",
     unicode: s.unicode !== false,
+    // SEGW's "ETag" flag: the property is (part of) the entity's ETag
+    etag: s.etag === true,
   };
 }
 
@@ -583,6 +585,7 @@ export function iwprXml(m, opts = {}) {
       SEMANTICS: p.semantics, EDM_CORE_TYPE: p.type, REF_TYPE: "T", ABAP_FIELD: p.field, ABTY_XU: "X", SORT_ORDER: String(p.order),
       TYPE_NAME: p.typeName ?? "", TYPE_KIND: p.typeKind ?? "", LENGTH: p.abapLength ?? "",
       IS_UNICODE_XU: X(!p.unicode), DESCRIPTION_XU: "X",
+      ...(p.etag ? {AS_ETAG: "X"} : {}),
     });
   for (const c of m.complexTypes ?? []) {
     rows.SBO_CT.push({PROJECT: P, NODE_UUID: ctId(c), NAME: c.name, MODEL: modelId, REF_TYPE: "T", TECH_NAME: c.name.toUpperCase(), ABAP_STRUCT: c.abapStruct, BASE_TYPE_XU: "X", DESCRIPTION_XU: "X"});
