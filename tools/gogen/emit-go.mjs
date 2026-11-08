@@ -37,17 +37,17 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
 /** @type {boolean} */ let exportedFields = false, /** @type {import("./emit-go-types.ts").Ownership | undefined} */ OWNERSHIP, /** @type {import("./emit-go-types.ts").SymbolCollector | null | undefined} */ SYMBOLS;
 // @ts-expect-error -- abapiti form pending
 /** @param {import("./emit-go-types.ts").Field | import("./emit-go-types.ts").SupportedAttribute} v @returns {string} */ const ownedType = (v) => OWNERSHIP.declarations.has(v) ? (HELPER_IMPORTS.add("xbuf"), (v.type.k === "x" ? `[${v.type.len}]byte` : "hXbuf.Buffer")) : goType(v.type);
-/** @param {string} name @returns {string} */ export const ident = (name) => {
+/** a Go name, exported in a layered build (osgo.mjs spells host reads of fields with it) @param {string} name @param {boolean} exported @returns {string} */ export const goIdent = (name, exported) => {
   // A single leading underscore is reserved for compiler-only supplied flags.
-  if (name.startsWith("\0")) return `_sup_${ident(name.slice(1))}`;
+  if (name.startsWith("\0")) return `_sup_${goIdent(name.slice(1), exported)}`;
   // INTF~ATTR, an interface's attribute in the object, keeps the ~ apart
   // from the _ of an attribute of the class's own
   const id = String(name).toLowerCase().replace(/~/g, "__").replace(/[^a-z0-9_]/g, "_");
   const safe = id.startsWith("_") ? `_${id}` : GO_RESERVED.has(id) || /^\d/.test(id) ? `${id}_` : id;
   // ABAP fields cross Go package boundaries in a layered build: a leading capital exports them, the
   // rest stays; _x (RAP %KEY = __key) gets XP, whose second capital no capitalised name has.
-  return !exportedFields ? safe : safe.startsWith("_") ? `XP${safe}` : safe[0].toUpperCase() + safe.slice(1);
-};
+  return !exported ? safe : safe.startsWith("_") ? `XP${safe}` : safe[0].toUpperCase() + safe.slice(1);
+}; export const ident = (/** @type {string} */ name) => goIdent(name, exportedFields);
 /** @param {string} name @returns {string} */ const selfField = (name) => `${exportedFields ? "Self" : "self"}_${typeName(name)}`;
 
 /** @param {string} key @returns {string} */ const evType = (key) => `EV_${typeName(key)}`;

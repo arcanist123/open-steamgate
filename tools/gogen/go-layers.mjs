@@ -257,7 +257,9 @@ export function writeLayers(program, plan, {mainDir, pkgDir, importPath, unitBui
         return Math.max(ownerTier(name) ?? 0, typeLayer(c.type)) === i;
       })),
       tables: (program.tables ?? []).filter((t) => typeLayer(t.row) === i),
-      interfaces: i === last ? new Set() : new Set([...interfaceLayer].filter(([, t]) => t === i).map(([name]) => name)),
+      // every tier, main too: an edited interface starts in main, and one whose
+      // signature names a type of main is promoted there
+      interfaces: new Set([...interfaceLayer].filter(([, t]) => t === i).map(([name]) => name)),
       events: new Map([...program.events].filter(([, ev]) => (layer.get(ev.decl) ?? interfaceLayer.get(ev.decl) ?? 0) === i)),
       externalClasses: new Set([...allClassNames].filter((n) => i === last ? layer.get(n) < last : !own.has(n))),
       ...(below.length ? {imports: below.map(importPath), importMarkers: below.map(markerOf)} : {}),

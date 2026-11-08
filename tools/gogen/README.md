@@ -723,6 +723,9 @@ recompiles package main and links while Go's cache keeps the rest;
 `--unlayered` (or `OSGO_LAYERS=0`) builds the single package as before. The
 generation is hashed from the unlayered emission either way.
 `node tools/gogen/osgo-cycle.mjs` measures the edit cycle phase by phase.
+`gofmt-cache.mjs` formats the generated Go and gives an unchanged core or
+app package its formatted copy back from `.out/gofmt` (keyed by the hash of
+the emission) instead of another gofmt pass over 20 MB.
 
 With `INSTANCE=nn` (exactly two ASCII digits), OSGo defaults to HTTP `80nn`
 and HTTPS `443nn`; opt-in DIAG (`-diag` / `OSD_OSGO_DIAG=1`) and RFC

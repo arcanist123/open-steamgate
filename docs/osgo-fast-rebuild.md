@@ -46,7 +46,9 @@ writes.
 What did not change: the program (the same classes, statements, seed rows),
 and **the generation**. `osgo.mjs` still hashes the unlayered emission for
 `buildGeneration`, so the same inputs name the same generation whatever is
-edited; the prime builds below give `go:4bbfc29274ad29c3` in both layouts.
+edited; on the measured tree the prime builds below gave `go:4bbfc29274ad29c3`
+in both layouts (the hash names the tree's inputs, so another tree, or this
+one at another commit, gives another value, the same in both layouts).
 `--unlayered` (or `OSGO_LAYERS=0`) builds the single package as before.
 
 Two smaller savings in the same place: one layered build emits three times,
@@ -72,7 +74,13 @@ flock <heavy lock> node tools/gogen/osgo-cycle.mjs --runs 3               # afte
 flock <heavy lock> node tools/gogen/osgo-cycle.mjs --runs 1 --gocache cold [--unlayered]
 ```
 
-Warm `GOCACHE`, three edits each, the median (ms). *Before* is `--unlayered`
+Warm `GOCACHE`, three edits each, the median (ms). The numbers are of this
+tree and this host: the *before* column (and the earlier *after* run named
+below) at PR commit `03410918`, the *after* column and the cold runs at
+`0a7862ab`, both on the main of 2026-11-08 the branch was then based on. They were not
+re-measured after the review fixes (interfaces in `main`, object files of
+any kind marking an edit), which do not change the package of the measured
+edit. *Before* is `--unlayered`
 on this branch (the old single package, same tree); *after* is the default.
 The edit is the second and later save of the class (see "first save" below).
 
@@ -144,8 +152,16 @@ largest first:
 - An edited class that many classes reference statically drags them into
   `main` (they are promoted); the build says how many (`layers: ...;
   promoted: n`) and `.out/osgo-phases.json` names each with its reason.
-- A tree object a library references (a DDIC stub, an interface) is compiled
-  with the library in `core`, so editing it recompiles `core`.
+- A tree object a library references (a DDIC stub, an interface, a class)
+  is compiled with the library in `core` while it is not edited. Once it is
+  edited it starts in `main` like any other, and the library classes that
+  reference it are promoted into `main` with it (`main` is never pulled
+  down). `core` has then lost those classes, so the first save recompiles
+  `core` and `app` once, and the saves after it only `main`; a commit moves
+  them back (another `core` and `app` compile).
+- An edited interface, or one promoted into `main` because its signature
+  names a type that lives there, is emitted in `main` with the classes that
+  implement it (`osgo-layers.test.mjs` builds and runs both cases).
 - The binary is 89.7 MB against 85.8 MB: the package paths in the symbol
   names.
 - A cold `GOCACHE` gains nothing from the split (above).

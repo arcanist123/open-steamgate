@@ -20,7 +20,10 @@ const walk = (d) => !existsSync(d) ? [] : readdirSync(d, {withFileTypes: true}).
   .flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
 /** the object a file belongs to: zcl_x.clas.locals_imp.abap -> ZCL_X, #ui2#cl_json.clas.abap -> /UI2/CL_JSON */
 export const objectOfFile = (file) => file.split("/").at(-1).split(".")[0].replaceAll("#", "/").toUpperCase();
-const OBJECT_FILE = /\.(clas|intf|fugr|tabl|ttyp|dtel|doma)\.(abap|xml)$/;
+// any file of such an object: zcl_x.clas.abap, .clas.locals_imp.abap,
+// .clas.testclasses.abap, .clas.macros.abap, .clas.xml, zfg.fugr.lzfgu01.abap
+const OBJECT_FILE = /^[^/.]+\.(clas|intf|fugr|tabl|ttyp|dtel|doma)\.([^/]+\.)?(abap|xml)$/;
+const isObjectFile = (path) => OBJECT_FILE.test(path.split("/").at(-1));
 
 /** the objects of the layer folders with a modified or untracked file */
 export function editedObjects(home, layerFolders, env = process.env) {
@@ -35,7 +38,7 @@ export function editedObjects(home, layerFolders, env = process.env) {
   for (const entry of status.split("\0")) {
     if (entry.length < 4 || entry[0] === "D" || entry[1] === "D") continue;
     const path = entry.slice(3);
-    if (OBJECT_FILE.test(path)) hot.add(objectOfFile(path));
+    if (isObjectFile(path)) hot.add(objectOfFile(path));
   }
   return hot;
 }
@@ -49,7 +52,7 @@ export function editedObjects(home, layerFolders, env = process.env) {
 export function osgoTiers({layers, libs, hidden, hot}) {
   const fileOf = new Map();
   for (const f of [...layers, ...libs].flatMap(walk)) {
-    if (hidden.has(f) || !OBJECT_FILE.test(f)) continue;
+    if (hidden.has(f) || !isObjectFile(f)) continue;
     const name = objectOfFile(f);
     if (!fileOf.has(name)) fileOf.set(name, f);
   }

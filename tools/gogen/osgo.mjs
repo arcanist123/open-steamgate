@@ -1,7 +1,8 @@
 import {writeGo} from "./symbols.ts";
-import {emitGo} from "./emit-go.mjs";
+import {emitGo, goIdent} from "./emit-go.mjs";
 import {planLayers, writeLayers} from "./go-layers.mjs";
 import {editedObjects, osgoTiers} from "./osgo-layers.mjs";
+import {gofmtCached} from "./gofmt-cache.mjs";
 // OSGo: build the Go host of open-steamgate (go/cmd/osgo) out of OSG's own
 // ABAP, compiled as gateway.mjs compiles it (osg-build.mjs), with the ICF
 // shim in front: a browser can use it.
@@ -27,8 +28,7 @@ import {editedObjects, osgoTiers} from "./osgo-layers.mjs";
 // zz_boot.go (what boots, which SICF nodes are mounted, the launchpad tiles
 // and the pack folders, as read from the checkout now).
 import {execFileSync} from "node:child_process";
-import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
-import {createHash} from "node:crypto";
+import {existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs";
 import {join, relative} from "node:path";
 import {columnRegistry, compileProgram} from "./frontend.mjs";
 import {home} from "./home.mjs";
@@ -176,7 +176,7 @@ const writeMainGo = (name, src) => writeFileSync(join(dir, name), !layered ? src
   : src.replace(/^package main\n/, `package main\n\nimport (\n\t. "osg/gogen/generated/osgo/core"\n\t. "osg/gogen/generated/osgo/app"\n)\n`) + "\nvar _ = GogenCoreLayer{}\nvar _ = GogenAppLayer{}\n");
 // a field of a generated structure, as the emitter spells it in this build
 // (exported when the classes are layered, emit-go.mjs ident)
-const field = (name) => layered ? name[0].toUpperCase() + name.slice(1) : name;
+const field = (name) => goIdent(name, layered);
 writeFileSync(join(dir, "zz_db.json"), JSON.stringify(statements));
 writeFileSync(join(dir, "zz_store.json"), store);
 writeMainGo("zz_unit.go", unitGo(unit.classes));
@@ -334,24 +334,12 @@ ${webapps.map((w) => `\t${JSON.stringify(w.path)}: ${JSON.stringify(relative(hom
 `);
 mkdirSync(join(here, ".out"), {recursive: true});
 phase("emit");
-// A generated package whose emission is the one formatted last time gets its
-// formatted copy back from .out/gofmt instead of another gofmt pass: on a
-// save that is core and app, 20 MB of Go.
-const fmtCache = join(here, ".out", "gofmt");
-const layerFiles = layered ? ["core", "app"].map((p) => ({pkg: p, file: join(layersDir, p, "zz_generated.go")})) : [];
-for (const f of layerFiles) {
-  f.key = createHash("sha256").update(readFileSync(f.file)).digest("hex");
-  f.reused = existsSync(join(fmtCache, `${f.pkg}.go`)) && existsSync(join(fmtCache, `${f.pkg}.sha256`)) && readFileSync(join(fmtCache, `${f.pkg}.sha256`), "utf8") === f.key;
-  if (f.reused) copyFileSync(join(fmtCache, `${f.pkg}.go`), f.file);
-}
-try { execFileSync("gofmt", ["-w", dir, ...layerFiles.filter((f) => !f.reused).map((f) => f.file)], {stdio: ["ignore", "pipe", "pipe"]}); } catch (e) { console.log(`gofmt: ${String(e.stderr).split("\n").slice(0, 10).join("\n")}`); process.exit(1); }
-mkdirSync(fmtCache, {recursive: true});
-for (const f of layerFiles.filter((x) => !x.reused)) {
-  // the key last, so an interrupted copy is never taken for a formatted one
-  rmSync(join(fmtCache, `${f.pkg}.sha256`), {force: true});
-  copyFileSync(f.file, join(fmtCache, `${f.pkg}.go`));
-  writeFileSync(join(fmtCache, `${f.pkg}.sha256`), f.key);
-}
+// a generated package whose emission is unchanged gets its formatted copy
+// back from .out/gofmt (gofmt-cache.mjs)
+try {
+  gofmtCached({dir, cacheDir: join(here, ".out", "gofmt"),
+    files: layered ? ["core", "app"].map((p) => ({key: p, file: join(layersDir, p, "zz_generated.go")})) : []});
+} catch (e) { console.log(`gofmt: ${String(e.stderr).split("\n").slice(0, 10).join("\n")}`); process.exit(1); }
 phase("gofmt");
 const t1 = performance.now();
 // OSGO_GO_TRACE=<file>: go build's own trace of its actions (Chrome trace

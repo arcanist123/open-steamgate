@@ -126,3 +126,99 @@ func main() { fmt.Print(ZCL_LYR_TOP_RUN(&abap.Session{})) }
     rmSync(goRoot, {recursive: true, force: true});
   }
 });
+
+test("editedObjects maps any file of an object to it: locals, test classes, macros, function group includes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "osgo-layers-git-"));
+  try {
+    const git = (...args) => spawnSync("git", args, {cwd: dir, encoding: "utf8"});
+    git("init", "-q");
+    const files = ["src/zcl_a.clas.abap", "src/zcl_b.clas.locals_imp.abap", "src/zcl_c.clas.testclasses.abap", "src/zcl_e.clas.macros.abap",
+      "src/zfg.fugr.lzfgu01.abap", "src/zif_d.intf.abap", "src/zcl_f.clas.xml", "src/readme.md", "src/x.clas/notes.txt"];
+    for (const f of files) { mkdirSync(join(dir, f, ".."), {recursive: true}); writeFileSync(join(dir, f), "*\n"); }
+    assert.deepEqual([...editedObjects(dir, [join(dir, "src")], {})].sort(), ["ZCL_A", "ZCL_B", "ZCL_C", "ZCL_E", "ZCL_F", "ZFG", "ZIF_D"]);
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});
+
+// interfaces in package main: one edited (with a method), and one lifted there
+// because its signature names a type of the edited class
+const intfSources = {
+  "app/zif_lyr_svc.intf.abap": `INTERFACE zif_lyr_svc PUBLIC.
+ METHODS get RETURNING VALUE(rv) TYPE i.
+ENDINTERFACE.`,
+  "app/zcl_lyr_impl.clas.abap": `CLASS zcl_lyr_impl DEFINITION PUBLIC FINAL CREATE PUBLIC.
+ PUBLIC SECTION.
+ INTERFACES zif_lyr_svc.
+ENDCLASS.
+CLASS zcl_lyr_impl IMPLEMENTATION.
+ METHOD zif_lyr_svc~get.
+ rv = 3.
+ ENDMETHOD.
+ENDCLASS.`,
+  "app/zcl_lyr_hot.clas.abap": `CLASS zcl_lyr_hot DEFINITION PUBLIC FINAL CREATE PUBLIC.
+ PUBLIC SECTION.
+ TYPES: BEGIN OF ty_hot, v TYPE i, END OF ty_hot.
+ CLASS-METHODS make RETURNING VALUE(rs) TYPE ty_hot.
+ENDCLASS.
+CLASS zcl_lyr_hot IMPLEMENTATION.
+ METHOD make.
+ rs-v = 4.
+ ENDMETHOD.
+ENDCLASS.`,
+  "app/zif_lyr_peek.intf.abap": `INTERFACE zif_lyr_peek PUBLIC.
+ METHODS peek RETURNING VALUE(rs) TYPE zcl_lyr_hot=>ty_hot.
+ENDINTERFACE.`,
+  "app/zcl_lyr_peeker.clas.abap": `CLASS zcl_lyr_peeker DEFINITION PUBLIC FINAL CREATE PUBLIC.
+ PUBLIC SECTION.
+ INTERFACES zif_lyr_peek.
+ENDCLASS.
+CLASS zcl_lyr_peeker IMPLEMENTATION.
+ METHOD zif_lyr_peek~peek.
+ rs = zcl_lyr_hot=>make( ).
+ ENDMETHOD.
+ENDCLASS.`,
+  "app/zcl_lyr_top.clas.abap": `CLASS zcl_lyr_top DEFINITION PUBLIC FINAL CREATE PUBLIC.
+ PUBLIC SECTION.
+ CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
+ENDCLASS.
+CLASS zcl_lyr_top IMPLEMENTATION.
+ METHOD run.
+ DATA lo TYPE REF TO zif_lyr_svc.
+ DATA lp TYPE REF TO zif_lyr_peek.
+ DATA ls TYPE zcl_lyr_hot=>ty_hot.
+ lo = NEW zcl_lyr_impl( ).
+ lp = NEW zcl_lyr_peeker( ).
+ ls = lp->peek( ).
+ rv = |{ lo->get( ) }/{ ls-v }|.
+ ENDMETHOD.
+ENDCLASS.`,
+};
+
+for (const [hot, intf] of [["ZIF_LYR_SVC", "ZIF_LYR_SVC"], ["ZCL_LYR_HOT", "ZIF_LYR_PEEK"]]) {
+  test(`an interface in main is emitted there: ${intf} with ${hot} edited`, () => {
+    const root = mkdtempSync(join(tmpdir(), "osgo-layers-"));
+    const {dir: mainDir, goRoot} = createGoTestDir("osgo-layers-go-");
+    try {
+      for (const [f, text] of Object.entries(intfSources)) { mkdirSync(join(root, f, ".."), {recursive: true}); writeFileSync(join(root, f), text); }
+      const lib = join(root, "lib");
+      mkdirSync(lib, {recursive: true});
+      const app = join(root, "app");
+      const program = compileProgram({folders: [app, libraryPath(home, "open-abap-core")], objects: Object.keys(intfSources).map(objectOfFile)});
+      const plan = planLayers(program, osgoTiers({layers: [app], libs: [lib], hidden: new Set(), hot: new Set([hot])}));
+      assert.equal(plan.names[plan.interfaceLayer.get(intf)], "main");
+      const pkg = `osg/gogen/cmd/${basename(mainDir)}/layers`;
+      const out = writeLayers(program, plan, {mainDir, pkgDir: (i) => join(mainDir, "layers", plan.names[i]),
+        importPath: (i) => `${pkg}/${plan.names[i]}`, unitBuild: false});
+      assert.match(out[2], new RegExp(`type ${intf} interface`));
+      writeFileSync(join(mainDir, "main.go"), `package main
+import ("fmt"; "osg/gogen/abap")
+func main() { fmt.Print(ZCL_LYR_TOP_RUN(&abap.Session{})) }
+`);
+      const run = spawnSync("go", ["run", `./cmd/${basename(mainDir)}`], {cwd: goRoot, encoding: "utf8", timeout: 300000, env: {...process.env, GOWORK: "off", GOFLAGS: "-buildvcs=false"}});
+      assert.equal(run.status, 0, run.stderr.split("\n").slice(0, 8).join("\n"));
+      assert.equal(run.stdout, "3/4");
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+      rmSync(goRoot, {recursive: true, force: true});
+    }
+  });
+}
