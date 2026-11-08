@@ -6,8 +6,12 @@ lock master
   create;
   update;
   delete;
+  field ( numbering : managed, readonly ) NoteId;
+  field ( readonly ) Status;
+  field ( mandatory ) NoteText;
   action Approve result [1] $self;
   determination SetStatus on modify { create; }
+  determination Normalize on save { field NoteText; }
   validation CheckText on save { create; update; field NoteText; }
   mapping for zrap_note {
     NoteId = note_id;
