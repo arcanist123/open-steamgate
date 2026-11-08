@@ -2,7 +2,8 @@
 
 *2026-11-08. Decision (Alice, 2026-11-08): portable AMDP stays parked for new
 features, but its existence and its engine are declared. A user must see, per
-AMDP method, where the body runs right now.*
+AMDP method, where the body runs right now.* eAMDP (native HANA over the destination) gets a full-parity sprint, planned
+from 2026-12-05.
 
 ## The two engines, and the one that is not there
 

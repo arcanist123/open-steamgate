@@ -107,18 +107,32 @@ SELECT and 3.8× a 200-row one ([`db-backends.md`](db-backends.md)).
 OSD answers the ADT surface, so Eclipse treats it as a system
 ([`adt-facade.md`](adt-facade.md)):
 
-1. **ABAP Cloud Project**, URL `http://localhost:3030` — this is the HTTP
-   path, which is what the container exposes.
-2. Any user and password: the façade does not check them, because there is
-   nothing to check against.
-3. The package tree, opening and editing sources, activation, ABAP Unit and
-   F8 data preview all answer; every path that does not is recorded, so the
-   worklist writes itself.
-
-The other Eclipse kind, **Custom Application Server**, logs on over RFC and
-tunnels ADT inside one `SADT_REST_RFC_ENDPOINT` call. That is a different
-route and it is not in this compose: see [`adt-over-rfc.md`](adt-over-rfc.md)
-and backlog A.13.
+1. **Custom Application Server** is the stock route. Eclipse logs on over
+   RFC and tunnels ADT inside one `SADT_REST_RFC_ENDPOINT` call
+   ([`adt-over-rfc.md`](adt-over-rfc.md)); the ready image runs the
+   JavaScript bridge on `33` + `INSTANCE` (3311 for the SQLite stack,
+   3300 for a plain `docker run` with the default instance `00`). Values:
+   application server `localhost`, system number = the instance, system
+   ID `OSD`, client `001`, user `DEVELOPER`, any password
+   (`STG_RFC_AUTH_MODE=demo`). From a clone the bridge is a second
+   command, `INSTANCE=00 node tools/protocols/server.mjs`; from the
+   binary, `./osd protocols`.
+2. **ABAP Cloud Project** needs HTTPS: Eclipse refuses `http://` for this
+   kind, so `http://localhost:3030` is not a Cloud Project URL. Use
+   `https://localhost:443nn` (44311 for the SQLite stack). The container
+   makes a self-signed certificate on first start naming exactly `TLS_SAN`
+   (default `DNS:osd,DNS:localhost,IP:127.0.0.1`; the variable replaces the
+   list, so keep those when adding a host name), which Eclipse asks to
+   trust once. From a clone, `npm run osd:tls` first; HTTPS is then
+   `44300 + (port mod 100)`, 44330 for 3030. The binary makes no
+   certificate and has no Cloud Project route.
+3. Any user and password on either route: the façade does not check them,
+   because there is nothing to check against.
+4. The package tree, opening and editing sources, activation, ABAP Unit and
+   F8 data preview all answer; every path that does not is recorded at
+   `/osd/not-served`, so the worklist writes itself. Neither route was
+   re-run with a real Eclipse on 2026-11-08; both wires were exercised
+   with clients ([`coming-from-a4h.md`](coming-from-a4h.md) §7).
 
 ## Connecting VS Code (abap-fs)
 

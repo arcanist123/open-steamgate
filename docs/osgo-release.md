@@ -15,8 +15,13 @@ the request's own transaction, `go/adtpreview`) and the inactive-objects feed
 have. Class/interface/program creation, locked source
 PUTs (including class includes) and locked deletion use Go host orchestration.
 CHECK uses the configured compiler provider; outline parsing needs the compiler
-sidecar. Activation remains a refusal: saving inactive source does not rebuild
-or publish an executable generation. Source operations require a matching tree
+sidecar. Activation checks the source and publishes it in the object store
+(`go/adtactivate`): the inactive list empties and the active version is the
+saved one, but the binary keeps running the code it was built with, and the
+answer warns that a rebuild is needed. ABAP Unit runs in process for the test
+classes compiled into the binary (`OSGO_UNIT_OWNERS`, by default the
+`$ZOSD_TEST` fixture) and refuses a class that changed since the build
+(`go/adtunit`; docs/osgo-adt-activation.md). Source operations require a matching tree
 at `-root`; an executable alone does not carry editable sources. The readiness
 route is `GET /health`.
 

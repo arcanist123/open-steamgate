@@ -6,6 +6,10 @@
 
 **An ABAP application server you can clone.**
 
+**Coming from the ABAP Cloud Developer Trial (A4H)?**
+[`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) is the first hour: run it,
+connect Eclipse, bring your own code, and the table of what A4H has that this does not.
+
 Part of the steampunk family:
 [vsp](https://github.com/oisee/vibing-steampunk) (ADT ↔ MCP),
 [abapiti](https://github.com/oisee/abapiti) (TypeScript and WASM to ABAP),
@@ -22,6 +26,7 @@ Part of the steampunk family:
 | **One binary (Bun)** | download `osd-linux-x64` / `osd-linux-arm64` / `osd-darwin-arm64` / `osd-darwin-x64` / `osd-windows-x64.exe` / `osd-windows-arm64.exe` from [Releases](https://github.com/oisee/open-steamgate/releases), then `mv osd-linux-x64 osd && chmod +x osd && ./osd up` | `http://localhost:3030/` |
 | **VS Code** | install [open-steamgate: local ABAP server](https://marketplace.visualstudio.com/items?itemName=oisee.open-steamgate), or the `.vsix` from [Releases](https://github.com/oisee/open-steamgate/releases) via *Extensions: Install from VSIX…*; then run **osd: Start** | the OSD tree in VS Code |
 | **Node, from source** | `npm ci && npm run bootstrap && npm start` (Node 22.18+ or 24) | `http://localhost:3030/` |
+| **Your abapGit repo** | `./osd up --layer my-repo.zip` (a zip or a folder with `.abapgit.xml`, repeatable; from a clone `node bin/osd.mjs up --layer …`) | its packages in the ADT tree and in VS Code ([`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) §3) |
 | **Your report as a CLI tool** | `node tools/gogen/osabap.mjs zmy_report.prog.abap`, then `tools/gogen/.out/osabap` (needs Go 1.26) | a native binary, no server ([below](#abap-as-a-language-for-command-line-tools)) |
 
 Each release also carries `sqlite.yml`, `duckdb.yml` and `postgres.yml`; start one with `docker compose -f sqlite.yml up -d`. `./osd doctor` checks a downloaded binary.
@@ -118,9 +123,24 @@ loaded from SAP's CDN, unchanged.
 
 `node scripts/capture-docs-shots.mjs` takes these pictures while `npm start` is running.
 
-## Where it stands, 2026-09-30
+## Where it stands
 
-0.3 beta was released on 2026-09-29 (`vscode-v0.2.1307`); 0.4 is in progress.
+**2026-11-08.** The current stable release is `vscode-stable-v0.7.1696`
+(2026-10-07); newer `vscode-v0.7.*` tags are prereleases. Two things the
+table below does not list yet, with their limits: **RAP** — a managed
+behavior definition runs, handler-direct: the runtime calls the pool's
+determinations, validations, actions and the save sequence itself; there
+is no EML (`MODIFY/READ/COMMIT ENTITIES` do not transpile), no draft, no
+unmanaged save, and the managed BO is not served over OData yet
+([`docs/rap-runtime.md`](docs/rap-runtime.md)). **OData V4** — every
+service also answers on `/sap/opu/odata4/sap/<service>/`: reads, entity
+writes, ETags and JSON `$batch` over the existing V2 model; no
+actions/functions, no deep insert, no multipart `$batch`, no Fiori
+Elements V4 app yet ([`docs/odata-v4.md`](docs/odata-v4.md)). The syntax
+the transpiler takes is abaplint's `open-abap` dialect, measured in
+[`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) §6.
+
+**2026-09-30.** 0.3 beta was released on 2026-09-29 (`vscode-v0.2.1307`); 0.4 is in progress.
 [`AGENDA.md`](AGENDA.md) records every decision, [`docs/backlog/`](docs/backlog/README.md)
 is the open list, and [`ANORMALIES.md`](ANORMALIES.md) records every place the
 runtime differs from SAP, written down before any workaround.
@@ -130,8 +150,8 @@ runtime differs from SAP, written down before any workaround.
 | **Gateway, OData v2** | URL parser, `$filter` → SELECT-OPTIONS with every `io_tech_request_context` facet, `$batch` with changesets, navigation, `$expand`, deep insert, function imports, value helps, MERGE, create below a parent, media entities (`$value`), service-to-service calls. All of it is ABAP behind one `if_http_extension` | [`docs/prior-art.md`](docs/prior-art.md) |
 | **SEGW** | IWPR ↔ `_MPC`/`_DPC` generation with RFC/BOR and search-help mappings; one YAML → a whole project (`stg-compile`); the project tree in 53 SEGW-shaped tables with byte-identical export; the generator ported to ABAP; the Service Builder as a Fiori app | [`docs/stg-compile.md`](docs/stg-compile.md), [`docs/segw-editor.md`](docs/segw-editor.md) |
 | **SADL and CDS** | CDS projections, `@OData.publish`, writable projections (including through a chain of views), analytical cubes, virtual elements | [`docs/cds-publish.md`](docs/cds-publish.md), [`docs/cds-writes.md`](docs/cds-writes.md) |
-| **AMDP and SQLScript** | **eAMDP**: the body is deployed to a HANA and called over a destination, whatever the system database. **pAMDP (portable AMDP, parked for new features)**: a SQLScript subset compiled to an IR at build time and executed on the system's **DuckDB** connection (not on SQLite: the IR has a SQLite lowering, the destination does not route there); supported: `DECLARE`, table and scalar assignments from `SELECT` (CTEs, joins, set operations, aggregates, windows, `TOP`), `IF`, `WHILE`, `FOR`, `CALL` of another AMDP with one output, `RETURN SELECT` in a table function, writes outside `READ-ONLY`; refused by name at build time: cursors, `EXEC`, most array functions, nested calls with several outputs, scalar functions without a measured rendering (`FLOOR`, `LEFT`, `TO_NCHAR`, `TO_NCLOB`, `ESCAPE_*`). Value parity vs HANA measured once over the corpus: 31 bodies on both sides, 16 equal, 1 differing cell, 14 errors. The status page shows per AMDP method the engine a call would use now (`portable-duckdb`, `hdb`, `hdb-stale`, `hdb-idle`, `unavailable` + reason), read off the destination's real session | [`docs/amdp-engine-status.md`](docs/amdp-engine-status.md), [`docs/pamdp-value-parity.md`](docs/pamdp-value-parity.md), [`docs/amdp-in-hana.md`](docs/amdp-in-hana.md) |
-| **ADT façade** | Eclipse ADT and vsp treat OSD as a system: package tree, edit, save, activate, ABAP Unit, F8 preview, create/delete. Every change lands on the git tree as abapGit files. It works over HTTPS (Cloud Project) and over **RFC** (Custom Application Server) through the built-in JavaScript bridge | [`docs/adt-facade.md`](docs/adt-facade.md), [`docs/adt-over-rfc.md`](docs/adt-over-rfc.md) |
+| **AMDP and SQLScript** | **eAMDP**: the body is deployed to a HANA and called over a destination, whatever the system database. **pAMDP (portable AMDP, parked for new features)**: a SQLScript subset compiled to an IR at build time and executed on the system's **DuckDB** connection (not on SQLite: the IR has a SQLite lowering, the destination does not route there); supported: `DECLARE`, table and scalar assignments from `SELECT` (CTEs, joins, set operations, aggregates, windows, `TOP`), `IF`, `WHILE`, `FOR`, `CALL` of another AMDP with one output, `RETURN SELECT` in a table function, writes outside `READ-ONLY`; refused by name at build time: cursors, `EXEC`, most array functions, nested calls with several outputs, scalar functions without a measured rendering (`FLOOR`, `LEFT`, `TO_NCHAR`, `TO_NCLOB`, `ESCAPE_*`). Value parity vs HANA measured once over the corpus: 31 bodies on both sides, 16 equal, 1 differing cell, 14 errors. The status page shows per AMDP method the engine a call would use now (`portable-duckdb`, `hdb`, `hdb-stale`, `hdb-idle`, `unavailable` + reason), read off the destination's real session. An **eAMDP full-parity sprint** is planned from 2026-12-05 | [`docs/amdp-engine-status.md`](docs/amdp-engine-status.md), [`docs/pamdp-value-parity.md`](docs/pamdp-value-parity.md), [`docs/amdp-in-hana.md`](docs/amdp-in-hana.md), [`docs/portable-amdp-report.html`](docs/portable-amdp-report.html) |
+| **ADT façade** | Eclipse ADT and vsp treat OSD as a system: package tree, edit, save, activate, ABAP Unit, F8 preview, create/delete. Every change lands on the git tree as abapGit files. The stock Eclipse route is **RFC** (Custom Application Server, sysnr = instance on 33nn) through the built-in JavaScript bridge, in the Docker image by default; an ABAP Cloud Project works where HTTPS does, i.e. after `npm run osd:tls` in a clone or against the image's self-signed certificate, not against the binary | [`docs/adt-facade.md`](docs/adt-facade.md), [`docs/adt-over-rfc.md`](docs/adt-over-rfc.md), [`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) |
 | **Classic screens** | SAP Easy Access, SE16, ST05 and an editor, served by ABAP on the paths the originals use | [`docs/webgui.md`](docs/webgui.md) |
 | **Jobs and daemons** | `JOB_OPEN`/`SUBMIT`/`CLOSE` with standard signatures, `SUBMIT … VIA JOB … WITH … IN`, multi-step jobs, durable keys, tail events, a doctor. ABAP daemons: dialog-step queue, PCP, timers, AMC | [`docs/abap-daemons.md`](docs/abap-daemons.md) |
 | **Files** | `OPEN / READ / TRANSFER / DELETE DATASET` behind a sandbox: deny by default, allowed roots, no escape through `..`, symlinks or a swapped directory. A streaming **zip reader in ABAP** (own inflate, bounded memory, CRC-checked) runs the same on a system | [`docs/dataset.md`](docs/dataset.md), [`docs/zip-stream.md`](docs/zip-stream.md) |
