@@ -28,6 +28,7 @@ import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {liveHash} from "./osd-build.mjs";
+import {exitHolds} from "./osd-exit-holds.mjs";
 import {serveCommand} from "./osd-host.mjs";
 import {runsAs} from "./osd-main.mjs";
 import {inspectPortOf} from "./osd-inspector.mjs";
@@ -84,6 +85,9 @@ function reapOnExit() {
           if (error) child.kill("SIGTERM");
         });
       })));
+      // children another module started and killed on this signal (the
+      // warm compiler's worker and verifier) are gone before the process is
+      await exitHolds();
       process.exit(0);
     });
   }
