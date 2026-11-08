@@ -30,7 +30,7 @@ gate on a big host. Prerequisites in the OSG checkout: `npm ci`,
 `node tools/osd-libs.mjs`, `node tools/osd-fetch.mjs`, `npm run transpile`.
 Beside it: an abapiti checkout and its binary (`go build -o abapiti-bin
 ./cmd/abapiti`), abaplint at the tag of OSG's `@abaplint/core`
-(2.120.73, `9f7f098c`) and the transpiler at OSG's `@abaplint/transpiler`
+(2.120.73, `9f7f098c`, with `npm ci` in `packages/core` so `json5` resolves -- without it the translated `Config` traps on its first use) and the transpiler at OSG's `@abaplint/transpiler`
 (2.14.3, `8b566b19`), as tsconfig path roots for the translated closure.
 
 ```sh

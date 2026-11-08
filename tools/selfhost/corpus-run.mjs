@@ -3,7 +3,7 @@
 //
 //   node tools/selfhost/corpus-run.mjs --abapiti <abapiti checkout> --bin <abapiti binary> \
 //     --abaplint <abaplint checkout> --transpiler <transpiler checkout> --out <empty dir> \
-//     [--stale-gen] [--objects A,B] [--no-traps]
+//     [--stale-gen] [--objects A,B] [--no-traps | --traps-only]
 //
 // The comparison itself is abapiti's tools/selfhost-step4.py (--inputs): the
 // Node reference with V8 coverage, the translated closure, emit-go with the
@@ -49,7 +49,7 @@ const harness = ["python3", join(abapiti, "tools/selfhost-step4.py"), "--inputs"
 const tail = [bin, root, lint, transpiler];
 try {
   if (!args.includes("--no-traps")) phase("traps", [...harness, "--list-traps", ...tail, join(out, "traps")]);
-  phase("full", [...harness, ...tail, join(out, "full")]);
+  if (!args.includes("--traps-only")) phase("full", [...harness, ...tail, join(out, "full")]);
 } finally {
   if (saved) writeFileSync(driver, saved); else rmSync(driver, {force: true});
 }
