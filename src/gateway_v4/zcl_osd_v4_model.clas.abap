@@ -3,6 +3,7 @@ CLASS zcl_osd_v4_model DEFINITION PUBLIC CREATE PUBLIC.
     TYPES: BEGIN OF ty_property,
              entity_type TYPE string,
              name TYPE string,
+             fieldname TYPE string,
              edm_type TYPE string,
              facets TYPE string,
 * set_as_etag in the MPC: the property is (part of) the entity's ETag
@@ -11,6 +12,8 @@ CLASS zcl_osd_v4_model DEFINITION PUBLIC CREATE PUBLIC.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
     DATA ms_service TYPE zcl_stg_model_info=>ty_service READ-ONLY.
     DATA mt_properties TYPE ty_properties READ-ONLY.
+* the properties of the model's complex types (entity_type = the complex type)
+    DATA mt_complex TYPE ty_properties READ-ONLY.
 * the vocabulary annotations the MPC built through vocab_anno_model (or
 * added as raw XML), rendered as CSDL <Annotations> elements; the syntax is
 * the same in V2 and V4 $metadata
@@ -22,7 +25,11 @@ CLASS zcl_osd_v4_model DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING VALUE(rs_property) TYPE ty_property.
     METHODS has_etag IMPORTING iv_type TYPE string RETURNING VALUE(rv_etag) TYPE abap_bool.
     CLASS-METHODS xml IMPORTING iv_text TYPE string RETURNING VALUE(rv_text) TYPE string.
+* the V4 name of a V2 EDM type (DateTime without a display format is a timestamp)
+    CLASS-METHODS v4_type IMPORTING iv_edm_type TYPE clike RETURNING VALUE(rv_type) TYPE string.
   PRIVATE SECTION.
+    METHODS describe IMPORTING io_property TYPE REF TO zcl_oao_property iv_owner TYPE clike iv_name TYPE clike
+      RETURNING VALUE(rs_info) TYPE ty_property.
 ENDCLASS.
 
 CLASS zcl_osd_v4_model IMPLEMENTATION.
@@ -35,6 +42,50 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     REPLACE ALL OCCURRENCES OF |'| IN rv_text WITH '&apos;'.
   ENDMETHOD.
 
+  METHOD v4_type.
+    rv_type = iv_edm_type.
+    CASE iv_edm_type.
+      WHEN ''.
+        rv_type = 'Edm.String'.
+      WHEN 'Edm.DateTime'.
+        rv_type = 'Edm.DateTimeOffset'.
+      WHEN 'Edm.Time'.
+        rv_type = 'Edm.TimeOfDay'.
+      WHEN 'Edm.Float'.
+        rv_type = 'Edm.Single'.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD describe.
+    rs_info-entity_type = iv_owner.
+    rs_info-name = iv_name.
+    rs_info-fieldname = to_upper( io_property->mv_abap_fieldname ).
+    IF rs_info-fieldname IS INITIAL.
+      rs_info-fieldname = to_upper( iv_name ).
+    ENDIF.
+    rs_info-edm_type = v4_type( io_property->mv_edm_type ).
+    rs_info-is_etag = io_property->mv_etag.
+    IF io_property->mv_edm_type = 'Edm.DateTime' AND io_property->mv_display_format = 'Date'.
+      rs_info-edm_type = 'Edm.Date'.
+    ENDIF.
+    CASE rs_info-edm_type.
+      WHEN 'Edm.Decimal'.
+* The existing MPC contract stores total digits in maxlength and decimal
+* places in precision (the same interpretation as the V2 metadata writer).
+        IF io_property->mv_maxlength > 0.
+          rs_info-facets = | Precision="{ io_property->mv_maxlength }" Scale="{ io_property->mv_precision }"|.
+        ELSE.
+          rs_info-facets = ' Scale="variable"'.
+        ENDIF.
+      WHEN 'Edm.String' OR 'Edm.Binary'.
+        IF io_property->mv_maxlength > 0.
+          rs_info-facets = | MaxLength="{ io_property->mv_maxlength }"|.
+        ENDIF.
+      WHEN 'Edm.DateTimeOffset' OR 'Edm.TimeOfDay'.
+        rs_info-facets = | Precision="{ io_property->mv_precision }"|.
+    ENDCASE.
+  ENDMETHOD.
+
   METHOD constructor.
     DATA lo_mpc TYPE REF TO /iwbep/cl_mgw_push_abs_model.
     DATA lo_model TYPE REF TO zcl_oao_model.
@@ -45,6 +96,8 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     DATA lt_props TYPE /iwbep/if_mgw_med_odata_types=>ty_t_mgw_odata_properties.
     DATA ls_prop LIKE LINE OF lt_props.
     DATA ls_info TYPE ty_property.
+    DATA lt_complex TYPE zcl_oao_model=>ty_complex_types.
+    DATA ls_complex LIKE LINE OF lt_complex.
 
     ms_service = zcl_stg_model_info=>get( iv_service ).
     lo_mpc = zcl_oao_registry=>create_mpc( ms_service-name ).
@@ -57,42 +110,18 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
       lt_props = lo_type->/iwbep/if_mgw_odata_entity_typ~get_properties( ).
       LOOP AT lt_props INTO ls_prop.
         lo_property ?= ls_prop-property.
-        CLEAR ls_info.
-        ls_info-entity_type = lv_name.
-        ls_info-name = ls_prop-name.
-        ls_info-edm_type = lo_property->mv_edm_type.
-        ls_info-is_etag = lo_property->mv_etag.
-        CASE ls_info-edm_type.
-          WHEN ''.
-            ls_info-edm_type = 'Edm.String'.
-          WHEN 'Edm.DateTime'.
-            IF lo_property->mv_display_format = 'Date'.
-              ls_info-edm_type = 'Edm.Date'.
-            ELSE.
-              ls_info-edm_type = 'Edm.DateTimeOffset'.
-            ENDIF.
-          WHEN 'Edm.Time'.
-            ls_info-edm_type = 'Edm.TimeOfDay'.
-          WHEN 'Edm.Float'.
-            ls_info-edm_type = 'Edm.Single'.
-        ENDCASE.
-        CASE ls_info-edm_type.
-          WHEN 'Edm.Decimal'.
-* The existing MPC contract stores total digits in maxlength and decimal
-* places in precision (the same interpretation as the V2 metadata writer).
-            IF lo_property->mv_maxlength > 0.
-              ls_info-facets = | Precision="{ lo_property->mv_maxlength }" Scale="{ lo_property->mv_precision }"|.
-            ELSE.
-              ls_info-facets = ' Scale="variable"'.
-            ENDIF.
-          WHEN 'Edm.String' OR 'Edm.Binary'.
-            IF lo_property->mv_maxlength > 0.
-              ls_info-facets = | MaxLength="{ lo_property->mv_maxlength }"|.
-            ENDIF.
-          WHEN 'Edm.DateTimeOffset' OR 'Edm.TimeOfDay'.
-            ls_info-facets = | Precision="{ lo_property->mv_precision }"|.
-        ENDCASE.
+        ls_info = describe( io_property = lo_property iv_owner = lv_name iv_name = ls_prop-name ).
         APPEND ls_info TO mt_properties.
+      ENDLOOP.
+    ENDLOOP.
+* the complex types, for an operation that returns one
+    lt_complex = lo_model->get_complex_types( ).
+    LOOP AT lt_complex INTO ls_complex.
+      lt_props = ls_complex-complex_type->/iwbep/if_mgw_odata_cmplx_type~get_properties( ).
+      LOOP AT lt_props INTO ls_prop.
+        lo_property ?= ls_prop-property.
+        ls_info = describe( io_property = lo_property iv_owner = ls_complex-name iv_name = ls_prop-name ).
+        APPEND ls_info TO mt_complex.
       ENDLOOP.
     ENDLOOP.
   ENDMETHOD.
@@ -204,7 +233,8 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
       ENDLOOP.
       rv_xml = rv_xml && '</EntityType>'.
     ENDLOOP.
-    rv_xml = rv_xml && lv_sticky && '<EntityContainer Name="Container">' && zcl_osd_v4_sticky=>imports_xml( me ).
+    rv_xml = rv_xml && zcl_osd_v4_action=>schema_xml( me ) && lv_sticky && '<EntityContainer Name="Container">' &&
+      zcl_osd_v4_action=>imports_xml( me ) && zcl_osd_v4_sticky=>imports_xml( me ).
     LOOP AT ms_service-entity_sets INTO ls_set.
       rv_xml = rv_xml && |<EntitySet Name="{ xml( ls_set-name ) }" EntityType="{ lv_ns }.{ xml( ls_set-entity_type ) }">|.
       LOOP AT ls_set-navs INTO ls_nav WHERE target_set IS NOT INITIAL.

@@ -12,9 +12,22 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
     CLASS-METHODS header IMPORTING it_headers TYPE tihttpnvp iv_name TYPE string
       RETURNING VALUE(rv_value) TYPE string.
+* the structural values of a V4 JSON entity, checked and converted; et_nested
+* are its navigation payloads (deep insert), each nested entity checked the
+* same way and serialized again for ZCL_STG_ENTRY_PROVIDER, which reads
+* nested JSON itself
     CLASS-METHODS values IMPORTING iv_body TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
       io_model TYPE REF TO zcl_osd_v4_model it_headers TYPE tihttpnvp OPTIONAL
+      EXPORTING et_nested TYPE tihttpnvp
       RETURNING VALUE(rt_values) TYPE zcl_osd_v4_provider=>ty_values RAISING zcx_stg_error.
+* one V4 JSON value (the text ZCL_STG_JSON=>PARSE_OBJECT keeps) in the form
+* the entry provider converts: internal dates and times, GUIDs without
+* hyphens, numbers and booleans checked
+    CLASS-METHODS convert IMPORTING iv_name TYPE string iv_value TYPE string iv_edm_type TYPE string
+      RETURNING VALUE(rv_value) TYPE string RAISING zcx_stg_error.
+* the navigation payloads as an expand tree, what create_deep_entity takes
+    CLASS-METHODS expand_tree IMPORTING it_nested TYPE tihttpnvp
+      RETURNING VALUE(ro_tree) TYPE REF TO zcl_stg_expand_node RAISING zcx_stg_error.
     CLASS-METHODS add_header IMPORTING iv_name TYPE string iv_value TYPE string
       CHANGING ct_headers TYPE tihttpnvp.
 * the entity as the DPC's GET_ENTITY returns it, and the lock on it until the
@@ -36,6 +49,10 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
       is_info TYPE zcl_osd_v4_model=>ty_property iv_ieee TYPE abap_bool
       RETURNING VALUE(rv_value) TYPE string RAISING zcx_stg_error.
     CLASS-METHODS within IMPORTING iv_digits TYPE string iv_max TYPE string RETURNING VALUE(rv_ok) TYPE abap_bool.
+* a nested entity of a deep insert, checked, converted and written back as JSON
+    CLASS-METHODS reserialize IMPORTING iv_json TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
+      io_model TYPE REF TO zcl_osd_v4_model it_headers TYPE tihttpnvp OPTIONAL
+      RETURNING VALUE(rv_json) TYPE string RAISING zcx_stg_error.
 ENDCLASS.
 
 CLASS zcl_osd_v4_write IMPLEMENTATION.
@@ -56,6 +73,106 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     APPEND ls_header TO ct_headers.
   ENDMETHOD.
 
+  METHOD convert.
+    DATA lv_h TYPE string.
+    DATA lv_m TYPE string.
+    DATA lv_s TYPE string.
+    rv_value = iv_value.
+    IF rv_value = 'null'.
+      RETURN.
+    ENDIF.
+    CASE iv_edm_type.
+      WHEN 'Edm.Date'.
+        FIND REGEX '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' IN rv_value.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |{ iv_name } expects a V4 Date value| ).
+        ENDIF.
+        rv_value = zcl_osd_v4_query=>temporal( rv_value ).
+      WHEN 'Edm.DateTimeOffset'.
+        FIND REGEX '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' IN rv_value.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |{ iv_name } expects a V4 DateTimeOffset value| ).
+        ENDIF.
+        rv_value = zcl_osd_v4_query=>temporal( rv_value ).
+      WHEN 'Edm.TimeOfDay'.
+        FIND REGEX '^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?(?:\.[0-9]+)?$' IN rv_value SUBMATCHES lv_h lv_m lv_s.
+        IF sy-subrc <> 0 OR lv_h > '23' OR lv_m > '59' OR lv_s > '59'.
+          zcl_osd_v4_query=>fail( |{ iv_name } expects a V4 TimeOfDay value| ).
+        ENDIF.
+        IF lv_s IS INITIAL.
+          lv_s = '00'.
+        ENDIF.
+        rv_value = lv_h && lv_m && lv_s.
+      WHEN 'Edm.Guid'.
+        FIND REGEX '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' IN rv_value.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |{ iv_name } expects a V4 Guid value| ).
+        ENDIF.
+        REPLACE ALL OCCURRENCES OF '-' IN rv_value WITH ''.
+        rv_value = to_upper( rv_value ).
+      WHEN 'Edm.Boolean'.
+        IF rv_value <> 'true' AND rv_value <> 'false'.
+          zcl_osd_v4_query=>fail( |{ iv_name } expects true or false| ).
+        ENDIF.
+      WHEN 'Edm.Byte' OR 'Edm.SByte' OR 'Edm.Int16' OR 'Edm.Int32' OR 'Edm.Int64'
+        OR 'Edm.Decimal' OR 'Edm.Double' OR 'Edm.Single'.
+        FIND REGEX '^-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$' IN rv_value.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |{ iv_name } expects a number| ).
+        ENDIF.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD reserialize.
+    DATA lt_values TYPE zcl_osd_v4_provider=>ty_values.
+    DATA ls_value TYPE zcl_osd_v4_provider=>ty_value.
+    DATA lt_nested TYPE tihttpnvp.
+    DATA ls_pair TYPE ihttpnvp.
+    DATA lv_sep TYPE string.
+    lt_values = values( EXPORTING iv_body = iv_json is_set = is_set io_model = io_model it_headers = it_headers
+      IMPORTING et_nested = lt_nested ).
+    rv_json = '{'.
+    LOOP AT lt_values INTO ls_value.
+      rv_json = rv_json && lv_sep && zcl_osd_v4_json=>quote( ls_value-name ) && ':'.
+      IF ls_value-is_null = abap_true.
+        rv_json = rv_json && 'null'.
+      ELSE.
+        rv_json = rv_json && zcl_osd_v4_json=>quote( ls_value-value ).
+      ENDIF.
+      lv_sep = ','.
+    ENDLOOP.
+    LOOP AT lt_nested INTO ls_pair.
+      rv_json = rv_json && lv_sep && zcl_osd_v4_json=>quote( ls_pair-name ) && ':' && ls_pair-value.
+      lv_sep = ','.
+    ENDLOOP.
+    rv_json = rv_json && '}'.
+  ENDMETHOD.
+
+  METHOD expand_tree.
+    DATA ls_nested TYPE ihttpnvp.
+    DATA lo_child TYPE REF TO zcl_stg_expand_node.
+    DATA lt_inner TYPE tihttpnvp.
+    DATA lt_elements TYPE string_table.
+    DATA lv_first TYPE string.
+    CREATE OBJECT ro_tree.
+    LOOP AT it_nested INTO ls_nested.
+* the levels below come from the payload's shape: the first element of a
+* collection, or the object itself
+      lv_first = ls_nested-value.
+      IF lv_first CP '[*'.
+        lt_elements = zcl_stg_json=>parse_array( lv_first ).
+        CLEAR lv_first.
+        READ TABLE lt_elements INDEX 1 INTO lv_first.
+      ENDIF.
+      CLEAR lt_inner.
+      IF lv_first IS NOT INITIAL.
+        zcl_stg_json=>parse_object( EXPORTING iv_json = lv_first IMPORTING et_nested = lt_inner ).
+      ENDIF.
+      lo_child = expand_tree( lt_inner ).
+      ro_tree->add_child( iv_name = ls_nested-name io_node = lo_child ).
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD values.
     DATA lo_json TYPE REF TO zif_ajson.
     DATA lx_json TYPE REF TO zcx_ajson_error.
@@ -71,6 +188,14 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     DATA lt_lexemes TYPE tihttpnvp.
     DATA ls_lexeme TYPE ihttpnvp.
     DATA lv_value TYPE string.
+    DATA lt_raw_nested TYPE tihttpnvp.
+    DATA ls_nested TYPE ihttpnvp.
+    DATA ls_nav TYPE zcl_stg_model_info=>ty_nav.
+    DATA ls_target TYPE zcl_stg_model_info=>ty_entity_set.
+    DATA lt_elements TYPE string_table.
+    DATA lv_element TYPE string.
+    DATA lv_sep TYPE string.
+    CLEAR et_nested.
     IF iv_body IS INITIAL.
       zcl_osd_v4_query=>fail( 'A JSON object is required as the request body' ).
     ENDIF.
@@ -87,7 +212,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
 * ajson knows the token kinds but hands numbers over as floating point; the
 * V2 parser keeps each scalar's literal text. A number is validated and
 * written as the client wrote it.
-    lt_lexemes = zcl_stg_json=>parse_object( iv_body ).
+    lt_lexemes = zcl_stg_json=>parse_object( EXPORTING iv_json = iv_body IMPORTING et_nested = lt_raw_nested ).
     lv_ieee = boolc( to_lower( header( it_headers = it_headers iv_name = 'content-type' ) ) CS 'ieee754compatible=true' ).
     lt_members = lo_json->members( '/' ).
     LOOP AT lt_members INTO lv_name.
@@ -105,12 +230,44 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
       ENDIF.
       READ TABLE is_set-properties INTO ls_prop WITH KEY name = lv_name.
       IF sy-subrc <> 0.
-        READ TABLE is_set-navs WITH KEY name = lv_name TRANSPORTING NO FIELDS.
-        IF sy-subrc = 0.
-          zcl_osd_v4_query=>fail( iv_text = |Deep insert ({ lv_name }) is not implemented in V4|
-            iv_status = 501 ).
+        READ TABLE is_set-navs INTO ls_nav WITH KEY name = lv_name.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |Unknown property { lv_name } of { is_set-entity_type }| ).
         ENDIF.
-        zcl_osd_v4_query=>fail( |Unknown property { lv_name } of { is_set-entity_type }| ).
+* related entities under a navigation property: a deep insert (the caller
+* decides whether it takes one). Each is checked and converted like the
+* entity itself and written back as JSON of strings, which the V2 provider
+* converts as on the V2 path.
+        READ TABLE io_model->ms_service-entity_sets INTO ls_target WITH KEY name = ls_nav-target_set.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |{ ls_nav-name } has no target entity set| ).
+        ENDIF.
+        READ TABLE lt_raw_nested INTO ls_nested WITH KEY name = lv_name.
+        IF lv_kind = zif_ajson_types=>node_type-array.
+          IF ls_nav-to_many = abap_false.
+            zcl_osd_v4_query=>fail( |{ ls_nav-name } takes one entity, not a collection| ).
+          ENDIF.
+          lt_elements = zcl_stg_json=>parse_array( ls_nested-value ).
+          ls_nested-value = '['.
+          CLEAR lv_sep.
+          LOOP AT lt_elements INTO lv_element.
+            ls_nested-value = ls_nested-value && lv_sep
+              && reserialize( iv_json = lv_element is_set = ls_target io_model = io_model it_headers = it_headers ).
+            lv_sep = ','.
+          ENDLOOP.
+          ls_nested-value = ls_nested-value && ']'.
+        ELSEIF lv_kind = zif_ajson_types=>node_type-object.
+          IF ls_nav-to_many = abap_true.
+            zcl_osd_v4_query=>fail( |{ ls_nav-name } takes a collection| ).
+          ENDIF.
+          ls_nested-value = reserialize( iv_json = ls_nested-value is_set = ls_target io_model = io_model
+            it_headers = it_headers ).
+        ELSE.
+          zcl_osd_v4_query=>fail( |{ ls_nav-name } takes an entity or a collection of entities| ).
+        ENDIF.
+        ls_nested-name = lv_name.
+        APPEND ls_nested TO et_nested.
+        CONTINUE.
       ENDIF.
       ls_info = io_model->property( iv_type = is_set-entity_type iv_name = lv_name ).
       CLEAR ls_value.
@@ -402,6 +559,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     DATA lv_location TYPE string.
     DATA lv_etag TYPE string.
     DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
+    DATA lt_nested TYPE tihttpnvp.
     FIELD-SYMBOLS <ls_data> TYPE any.
 
     lo_dpc = zcl_oao_registry=>create_dpc( io_model->ms_service-name ).
@@ -419,12 +577,23 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
 
     CASE iv_method.
       WHEN 'POST'.
-        lt_values = values( iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers ).
-        CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set.
-        lo_dpc->create_entity( EXPORTING iv_entity_name = is_set-entity_type iv_entity_set_name = is_set-name
-          iv_source_name = '' io_data_provider = lo_provider it_key_tab = lo_context->mt_key_tab
-          it_navigation_path = lo_context->mt_navigation_path io_tech_request_context = lo_context
-          IMPORTING er_entity = lr_entity ).
+        lt_values = values( EXPORTING iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers
+          IMPORTING et_nested = lt_nested ).
+        CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set
+          it_nested = lt_nested is_service = io_model->ms_service.
+        IF lt_nested IS NOT INITIAL.
+* deep insert (OData 4.01 Part 1, 11.4.2.2): the parent and the related
+* entities in one LUW through the DPC's create_deep_entity, as on V2
+          lo_dpc->create_deep_entity( EXPORTING iv_entity_name = is_set-entity_type iv_entity_set_name = is_set-name
+            iv_source_name = '' io_data_provider = lo_provider it_key_tab = lo_context->mt_key_tab
+            it_navigation_path = lo_context->mt_navigation_path io_expand = expand_tree( lt_nested )
+            io_tech_request_context = lo_context IMPORTING er_deep_entity = lr_entity ).
+        ELSE.
+          lo_dpc->create_entity( EXPORTING iv_entity_name = is_set-entity_type iv_entity_set_name = is_set-name
+            iv_source_name = '' io_data_provider = lo_provider it_key_tab = lo_context->mt_key_tab
+            it_navigation_path = lo_context->mt_navigation_path io_tech_request_context = lo_context
+            IMPORTING er_entity = lr_entity ).
+        ENDIF.
         IF lr_entity IS NOT BOUND.
           zcl_osd_v4_query=>fail( iv_text = 'The data provider created nothing' iv_status = 500 ).
         ENDIF.
@@ -448,7 +617,11 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         ENDIF.
 
       WHEN 'PATCH' OR 'PUT'.
-        lt_values = values( iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers ).
+        lt_values = values( EXPORTING iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers
+          IMPORTING et_nested = lt_nested ).
+        IF lt_nested IS NOT INITIAL.
+          zcl_osd_v4_query=>fail( iv_text = 'A deep update (related entities in a PATCH or PUT) is not implemented' iv_status = 501 ).
+        ENDIF.
         lock( iv_service = io_model->ms_service-name is_set = is_set it_key_tab = lo_context->mt_key_tab ).
         lr_current = read( io_dpc = lo_dpc io_context = lo_context is_set = is_set ).
         IF lr_current IS NOT BOUND.
