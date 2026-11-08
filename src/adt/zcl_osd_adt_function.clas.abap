@@ -32,6 +32,9 @@ CLASS zcl_osd_adt_function DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS c_base TYPE string VALUE `/sap/bc/adt/functions/groups/`.
     "! the main program of a group: SAPL<group>, a namespace kept in front
     CLASS-METHODS main_program IMPORTING iv_group TYPE string RETURNING VALUE(rv_name) TYPE string.
+    "! the inverse of main_program: the group of a main program SAPL<group>
+    "! or /NS/SAPL<rest>, initial for any other program name
+    CLASS-METHODS group_of_main IMPORTING iv_program TYPE string RETURNING VALUE(rv_group) TYPE string.
     "! what the group's abapGit XML says: AREAT, INCLUDES without the main
     "! program (that is source/main of the group), FUNCTIONS in file order
     CLASS-METHODS parse IMPORTING iv_xml TYPE string iv_name TYPE string RETURNING VALUE(rs_group) TYPE ty_group.
@@ -70,6 +73,28 @@ CLASS zcl_osd_adt_function IMPLEMENTATION.
       ENDIF.
     ENDIF.
     rv_name = `SAPL` && lv_group.
+  ENDMETHOD.
+  METHOD group_of_main.
+    DATA lv_name TYPE string.
+    DATA lv_rest TYPE string.
+    DATA lv_off TYPE i.
+    lv_name = to_upper( iv_program ).
+    IF strlen( lv_name ) > 1 AND lv_name(1) = `/`.
+      lv_rest = substring( val = lv_name off = 1 ).
+      FIND FIRST OCCURRENCE OF `/` IN lv_rest MATCH OFFSET lv_off.
+      IF sy-subrc <> 0.
+        RETURN.
+      ENDIF.
+      lv_off = lv_off + 2.
+      lv_rest = substring( val = lv_name off = lv_off ).
+      IF strlen( lv_rest ) > 4 AND lv_rest(4) = `SAPL`.
+        rv_group = lv_name(lv_off) && substring( val = lv_rest off = 4 ).
+      ENDIF.
+      RETURN.
+    ENDIF.
+    IF strlen( lv_name ) > 4 AND lv_name(4) = `SAPL`.
+      rv_group = substring( val = lv_name off = 4 ).
+    ENDIF.
   ENDMETHOD.
   METHOD group_uri.
     rv_uri = c_base && zcl_osd_adt_uri=>encode_component( to_lower( iv_group ) ).

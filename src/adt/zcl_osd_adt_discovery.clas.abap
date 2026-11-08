@@ -39,13 +39,21 @@ ENDCLASS.
 
 CLASS zcl_osd_adt_discovery IMPLEMENTATION.
   METHOD zif_osd_adt_route~handle.
+*   The form follows the row that matched (the pattern dispatch sets), not
+*   the raw path: a HEAD falling back to a GET row is that GET, so HEAD
+*   core/discovery keeps the core form's headers, as a system's HEAD does.
+    DATA lv_route TYPE string.
+    lv_route = is_request-pattern.
+    IF lv_route IS INITIAL.
+      lv_route = is_request-path.
+    ENDIF.
     rs_response-status = 200.
     IF is_request-method = `HEAD`.
       rs_response-content_type = `application/atomsvc+xml`.
       RETURN.
     ENDIF.
     rs_response-content_type = `application/atomsvc+xml; charset=utf-8`.
-    rs_response-body = document( boolc( to_lower( is_request-path ) CS `/core/discovery` ) ).
+    rs_response-body = document( boolc( to_lower( lv_route ) CS `/core/discovery` ) ).
   ENDMETHOD.
 
   METHOD collections.

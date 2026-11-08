@@ -10,6 +10,17 @@ CLASS ltcl_function IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_function=>main_program( `zosd_test_fg` ) exp = `SAPLZOSD_TEST_FG` ).
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_function=>main_program( `/DEMO/FG` ) exp = `/DEMO/SAPLFG` ).
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_function=>group_uri( `/DEMO/FG` ) exp = `/sap/bc/adt/functions/groups/%2Fdemo%2Ffg` ).
+*   group_of_main inverts main_program, namespaced too, and the include
+*   list's reference follows it (a namespaced master is FUGR/F, not PROG/P)
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_function=>group_of_main( `SAPLZOSD_TEST_FG` ) exp = `ZOSD_TEST_FG` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_function=>group_of_main( `/DEMO/SAPLFG` ) exp = `/DEMO/FG` ).
+    cl_abap_unit_assert=>assert_initial( zcl_osd_adt_function=>group_of_main( `ZPROG` ) ).
+    cl_abap_unit_assert=>assert_initial( zcl_osd_adt_function=>group_of_main( `/DEMO/ZPROG` ) ).
+    cl_abap_unit_assert=>assert_initial( zcl_osd_adt_function=>group_of_main( `SAPL` ) ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_includes=>reference( iv_master = `/DEMO/SAPLFG` iv_package = `` )-type exp = `FUGR/F` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_includes=>reference( iv_master = `/DEMO/SAPLFG` iv_package = `` )-uri
+      exp = `/sap/bc/adt/functions/groups/%2Fdemo%2Ffg` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_includes=>reference( iv_master = `ZPROG` iv_package = `` )-type exp = `PROG/P` ).
   ENDMETHOD.
   METHOD xml.
     rv_xml = `<abapGit><asx:values><AREAT>Demo &amp; more</AREAT><INCLUDES><SOBJ_NAME>LZFGTOP</SOBJ_NAME><SOBJ_NAME>SAPLZFG</SOBJ_NAME></INCLUDES>`

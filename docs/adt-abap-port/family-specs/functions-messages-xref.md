@@ -53,13 +53,18 @@ and the atom:link that names it is typed text/plain and titled as OSD's.
 ### GET `programs/includes/:name/mainprograms` (ZCL_OSD_ADT_INCLUDES)
 
 `SELECT DISTINCT master FROM d010inc WHERE include = :name`, sorted. A master
-SAPL<group> is answered as the group (FUGR/F, `functions/groups/<group>`),
+SAPL<group> (namespaced: /NS/SAPL<rest>, the inverse of the group's main
+program) is answered as the group (FUGR/F, `functions/groups/<group>`),
 any other as a program (PROG/P). The package comes from STORE OBJECT of the
 master; a master the store does not know is still named, without a package.
 `adtcore:objectReferences`, content type
 `application/vnd.sap.adt.programs.includes.mainprograms+xml`. The include
-itself must exist (STORE OBJECT INCL), else 404. Registered only with the
-serving database (ZCL_OSD_KERNEL_GUARD=>HAS_SERVING_DATABASE), like A9.
+itself must exist (STORE OBJECT INCL), else 404. At most 500 masters are
+listed (`UP TO 500 ROWS`), silently. Registered only where the kernel has the
+cross-reference tables (ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE: osgo,
+which seeds them at build, and Node with the ADT step in the serving child,
+`OSD_ADT_ONE_RUNTIME=1`), not under HAS_SERVING_DATABASE as A9 is, so osgo
+serves it.
 
 ### POST `programs/validation`, `includes/validation` (ZCL_OSD_ADT_CREATE_VALID, with the two it had)
 
@@ -89,7 +94,7 @@ with STORE OBJECT. `usageReferences:usageReferenceResult` with one
 `objectIdentifier` child `TYPE;NAME`, the shape abap-adt-api and vsp read.
 The request body (`affectedObjects`) is not read. Not served:
 `usageSnippets`, positions, where-used of a function module (CROSS type F).
-Registered only with the serving database.
+Registered under ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE, as `mainprograms` is.
 
 ### GET `core/discovery` (ZCL_OSD_ADT_DISCOVERY, iv_core)
 

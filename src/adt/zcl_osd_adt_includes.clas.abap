@@ -3,7 +3,7 @@
 "! cross-reference seed derives from every INCLUDE statement of the tree
 "! (tools/osd-xref-seed.mjs; a system's D010INC says the same). The route
 "! is registered only with the serving database, like the A9 xref readers.
-"! A master SAPL<group> is the function group it belongs to (FUGR/F), any
+"! A master SAPL<group> (or /NS/SAPL<rest>) is the function group it belongs to (FUGR/F), any
 "! other master is a program (PROG/P); a master the store does not know is
 "! named with its type guessed that way and no package, rather than left
 "! out, because the include is in it whether or not the file is here.
@@ -13,7 +13,7 @@ CLASS zcl_osd_adt_includes DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS c_type TYPE string VALUE `application/vnd.sap.adt.programs.includes.mainprograms+xml; charset=utf-8`.
     "! the masters of an include, as D010INC lists them, sorted
     CLASS-METHODS masters IMPORTING iv_include TYPE string RETURNING VALUE(rt_masters) TYPE string_table.
-    "! the reference of a master: FUGR/F for SAPL<group>, else PROG/P
+    "! the reference of a master: FUGR/F for SAPL<group> or /NS/SAPL<rest>, else PROG/P
     CLASS-METHODS reference IMPORTING iv_master TYPE string iv_package TYPE string
       RETURNING VALUE(rs_ref) TYPE zcl_osd_adt_doc_common=>ty_reference.
 ENDCLASS.
@@ -28,6 +28,7 @@ CLASS zcl_osd_adt_includes IMPLEMENTATION.
 *   the forms gogen compiles (tools/gogen/frontend.mjs): no DISTINCT, no
 *   DELETE ADJACENT DUPLICATES on an elementary table; sorted, so the
 *   duplicates are adjacent and the loop drops them
+*   capped at 500 masters, silently, as the where-used list is at 200
     SELECT master FROM d010inc INTO TABLE lt_rows UP TO 500 ROWS
       WHERE include = lv_include ORDER BY master.
     LOOP AT lt_rows INTO lv_row.
@@ -44,8 +45,8 @@ CLASS zcl_osd_adt_includes IMPLEMENTATION.
     DATA lv_group TYPE string.
     rs_ref-name = iv_master.
     rs_ref-has_uri = abap_true.
-    IF strlen( iv_master ) > 4 AND iv_master(4) = `SAPL`.
-      lv_group = substring( val = iv_master off = 4 ).
+    lv_group = zcl_osd_adt_function=>group_of_main( iv_master ).
+    IF lv_group IS NOT INITIAL.
       rs_ref-name = lv_group.
       rs_ref-type = `FUGR/F`.
       rs_ref-uri = zcl_osd_adt_function=>group_uri( lv_group ).
@@ -78,10 +79,11 @@ CLASS zcl_osd_adt_includes IMPLEMENTATION.
     lt_masters = masters( ls_include-name ).
     LOOP AT lt_masters INTO lv_master.
       lv_type = `PROG`.
-      lv_name = lv_master.
-      IF strlen( lv_master ) > 4 AND lv_master(4) = `SAPL`.
+      lv_name = zcl_osd_adt_function=>group_of_main( lv_master ).
+      IF lv_name IS INITIAL.
+        lv_name = lv_master.
+      ELSE.
         lv_type = `FUGR`.
-        lv_name = substring( val = lv_master off = 4 ).
       ENDIF.
       ls_master = zcl_osd_adt_host=>object( iv_type = lv_type iv_name = lv_name ).
       ls_ref = reference( iv_master = lv_master iv_package = ls_master-package ).
