@@ -8,8 +8,18 @@ import {lowerDerived} from "../tools/rap/lower-derived.mjs";
 import {keepCompileInputs, readCompileInputs} from "../tools/osd-compile-snapshot.mjs";
 import {keepGeneratedSources} from "../tools/osd-source-snapshot.mjs";
 import {loadFiles, modulesOf} from "../tools/osd-transpile.mjs";
+import {libraryPath} from "../tools/osd-lib-path.mjs";
 
 const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+// The pool inherits the clean-room bases of the R2 runtime (src/rap/), which
+// lean on the LUW buffer, the CDS source interface and open-abap-core; those
+// are dependencies here, checked but not the subject (`npm run lint` lints
+// them as source).
+const base = () => [...walk("src/rap"), ...walk("src/luw"), "src/sadl/zif_stg_cds_source.intf.abap"]
+  .filter(f => /\.(abap|xml)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+const coreFiles = () => walk(join(libraryPath(resolve("."), "open-abap-core"), "src"))
+  .filter(f => !/[\\/]tcp[\\/]/.test(f) && /\.(abap|xml)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+const dependencies = (lib, reg) => reg.addDependencies([...base(), ...coreFiles()].map(f => new lib.MemoryFile(f.filename, f.contents)));
 const config = () => new core.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "open-abap", errorNamespace: "."}, rules: {check_syntax: true, unknown_types: true}}));
 function registry(outputs) {
   const reg = new core.Registry(config());
@@ -28,9 +38,11 @@ function component(type, path) {
 }
 
 describe("RAP derived type generator (R1)", () => {
-  it("lints the original source with open-abap before lowering", () => {
+  it("lints the original source with open-abap before lowering", function () {
+    this.timeout(30000);
     const reg = new core.Registry(config());
     reg.addFiles(demo().map(f => new core.MemoryFile(f.filename, f.contents)));
+    dependencies(core, reg);
     assert.deepEqual(reg.findIssues().map(i => i.getMessage()), []);
   });
 
@@ -205,9 +217,10 @@ describe("RAP derived type generator (R1)", () => {
       const {files} = await loadFiles(root, buildConfig, selectedCore);
       const reg = new selectedCore.Registry(new selectedCore.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "open-abap", errorNamespace: "."}, rules: {check_syntax: true, unknown_types: true}})));
       for (const f of files) reg.addFile(new selectedCore.MemoryFile(f.filename, f.contents));
+      dependencies(selectedCore, reg);
       reg.parse();
       assert.deepEqual(reg.findIssues().map(i => `${i.getFilename()}: ${i.getMessage()}`), []);
-      const output = await new Transpiler({unknownTypes: "compileError", ignoreSyntaxCheck: false}).run(reg, {set() {}, async tick() {}});
+      const output = await new Transpiler({unknownTypes: "compileError", ignoreSyntaxCheck: false, only: o => !reg.isDependency(o)}).run(reg, {set() {}, async tick() {}});
       const pool = output.objects.find(o => o.object.name.toUpperCase() === "ZBP_RAP_NOTE");
       assert.ok(pool, "behavior pool emitted");
       const code = output.objects.map(o => o.chunk.getCode()).join("\n");
@@ -224,7 +237,8 @@ describe("RAP derived type generator (R1)", () => {
       assert.deepEqual(frozen.rapBindings, bindings);
       const replay = new selectedCore.Registry();
       for (const f of frozen.files) replay.addFile(new selectedCore.MemoryFile(f.filename, lowerDerived(f.bytes.toString("utf8"), f.filename, frozen.rapBindings)));
-      const replayed = await new Transpiler({unknownTypes: "compileError", ignoreSyntaxCheck: false}).run(replay, {set() {}, async tick() {}});
+      dependencies(selectedCore, replay);
+      const replayed = await new Transpiler({unknownTypes: "compileError", ignoreSyntaxCheck: false, only: o => !replay.isDependency(o)}).run(replay, {set() {}, async tick() {}});
       assert.equal(replayed.objects.map(o => o.chunk.getCode()).join("\n"), code);
     } finally { rmSync(root, {recursive: true, force: true}); }
   });
