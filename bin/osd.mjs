@@ -94,6 +94,24 @@ const sea = (() => {
 })();
 process.env.OSD_SELF = JSON.stringify(compiled || sea ? [process.execPath] : [process.execPath, resolve(process.argv[1])]);
 
+// Every package a module loaded from disk at run time imports by name, and
+// the binary's own copy that answers it: a compiled binary resolves no bare
+// specifier from any node_modules and onResolve never sees one
+// (docs/bun-spike.md part three, wall 1), so each one is a build.module.
+// Generated code imports the runtime; the gui converter, loaded from
+// .local/lars/open-abap-gui in checkout mode, imports the core and two of
+// its files by their paths. test/osd-binary.mjs reads this list and checks
+// it against what the converter actually imports, so a lib bump that adds
+// one fails there and not in `osd up`. It stays above the name restoration:
+// test/vscode-abap-debug-view.mjs bundles that loop alone, sliced from it to
+// the plugin below.
+const HOST_PACKAGES = {
+  "@abaplint/runtime": runtime,
+  "@abaplint/core": core,
+  "@abaplint/core/build/src/abap/5_syntax/syntax.js": coreSyntax,
+  "@abaplint/core/build/src/abap/abap_parser.js": coreParser,
+};
+
 // The bundle renames a top-level class whose name collides with another
 // (types.Date became Date2, types.String String2, measured with `osd
 // doctor`), and the runtime tells types apart by constructor.name in some
@@ -105,22 +123,6 @@ for (const [key, value] of Object.entries(runtime.types ?? {})) {
     Object.defineProperty(value, "name", {value: key});
   }
 }
-
-// Every package a module loaded from disk at run time imports by name, and
-// the binary's own copy that answers it: a compiled binary resolves no bare
-// specifier from any node_modules and onResolve never sees one
-// (docs/bun-spike.md part three, wall 1), so each one is a build.module.
-// Generated code imports the runtime; the gui converter, loaded from
-// .local/lars/open-abap-gui in checkout mode, imports the core and two of
-// its files by their paths. test/osd-binary.mjs reads this list and checks
-// it against what the converter actually imports, so a lib bump that adds
-// one fails there and not in `osd up`.
-const HOST_PACKAGES = {
-  "@abaplint/runtime": runtime,
-  "@abaplint/core": core,
-  "@abaplint/core/build/src/abap/5_syntax/syntax.js": coreSyntax,
-  "@abaplint/core/build/src/abap/abap_parser.js": coreParser,
-};
 
 if (typeof Bun !== "undefined") {
   Bun.plugin({
