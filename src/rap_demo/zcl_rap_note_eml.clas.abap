@@ -94,7 +94,8 @@ CLASS zcl_rap_note_eml IMPLEMENTATION.
     MODIFY ENTITIES OF zi_rap_note ENTITY note
       UPDATE FIELDS ( notetext ) WITH lt_update
       MAPPED ls_mapped FAILED ls_failed REPORTED ls_reported.
-    IF sy-subrc = 0.
+* FAILED says whether it worked; SY-SUBRC after MODIFY is an OSG convention
+    IF ls_failed-note IS INITIAL.
       rv_ok = abap_true.
     ENDIF.
   ENDMETHOD.

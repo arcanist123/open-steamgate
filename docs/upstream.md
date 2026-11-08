@@ -573,6 +573,12 @@ said at run time with the addition's name: `OPERATIONS`, `BY` (deep EML),
 `RELATING TO`, `AUGMENTING`, `LINK`, `READ ... EXECUTE`, `IN SIMULATION
 MODE`.
 
+Beside it, **needs an issue in abaplint/abaplint**:
+`ANOMALY-2026-11-08-eml-inline-target-void`, an inline `DATA( )` target of
+an EML statement is typed void instead of from the BDEF, so the transpiler
+can declare nothing for it; the lowering requires declared targets and the
+draft PR says so.
+
 Sending: a branch inside `abaplint/transpiler` (the regression workflow
 rule), after the critic reads the draft against the diff; the draft PR text
 is `transpiler-rap-eml-PR.md` in the job folder. Until it is in a release

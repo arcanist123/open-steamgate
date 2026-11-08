@@ -15,11 +15,17 @@ CLASS zcl_osd_rap_eml DEFINITION PUBLIC FINAL CREATE PRIVATE.
 * method here is static, so the transpiler's lowering (KERNEL_RAP_EML) and
 * an ABAP caller without EML syntax (the tests) reach the same code.
 *
-* SY-SUBRC after MODIFY, READ and COMMIT is 0 when the statement added
-* nothing to FAILED and 4 when it did, as on a system.
+* SY-SUBRC: after COMMIT it is 0 when every save succeeded and 4 when one
+* did not (the public contract). After MODIFY and READ it is 0 when the
+* statement added nothing to FAILED and 4 when it did: that is an OSG
+* convention, not something the public documentation establishes; a caller
+* that wants to be portable reads FAILED.
 
   PUBLIC SECTION.
     CONSTANTS co_all_fields TYPE string VALUE '*'.
+* the namespace of the %cid AUTO FILL CID draws; a caller's %cid may not
+* use it, so the two cannot collide
+    CONSTANTS co_auto_cid TYPE string VALUE '%AUTO-'.
 
 * the session's runtime of a behavior definition (created on first use)
     CLASS-METHODS runtime
@@ -94,7 +100,9 @@ CLASS zcl_osd_rap_eml DEFINITION PUBLIC FINAL CREATE PRIVATE.
       RAISING
         zcx_osd_rap.
 
-* ROLLBACK ENTITIES: every runtime forgets its buffer
+* ROLLBACK ENTITIES: every runtime forgets its buffer, and when the
+* transaction held modifications the LUW is rolled back with it
+* (ROLLBACK WORK), so SQL written beside the RAP changes goes too
     CLASS-METHODS rollback.
 
 * forget the runtimes themselves (a new session)
@@ -171,6 +179,20 @@ CLASS zcl_osd_rap_eml DEFINITION PUBLIC FINAL CREATE PRIVATE.
       IMPORTING
         is_failed TYPE any
         iv_before TYPE i.
+
+    CLASS-METHODS auto_cid
+      RETURNING
+        VALUE(rv_cid) TYPE string
+      RAISING
+        zcx_osd_rap.
+
+    CLASS-METHODS check_fields
+      IMPORTING
+        io_runtime TYPE REF TO zcl_osd_rap_runtime
+        iv_entity  TYPE csequence
+        it_fields  TYPE string_table
+      RAISING
+        zcx_osd_rap.
 ENDCLASS.
 
 
@@ -249,17 +271,25 @@ CLASS zcl_osd_rap_eml IMPLEMENTATION.
 
   METHOD prepare_rows.
     DATA lt_fields TYPE string_table.
+    DATA lv_cid    TYPE string.
+    DATA lv_prefix TYPE string.
     FIELD-SYMBOLS <ls_row>     TYPE any.
     FIELD-SYMBOLS <ls_control> TYPE any.
     FIELD-SYMBOLS <lv_cid>     TYPE any.
 
     lt_fields = field_list( iv_fields ).
     LOOP AT ct_rows ASSIGNING <ls_row>.
-      IF iv_auto_fill_cid = abap_true.
-        ASSIGN COMPONENT '%CID' OF STRUCTURE <ls_row> TO <lv_cid>.
-        IF sy-subrc = 0 AND <lv_cid> IS INITIAL.
-          gv_cid = gv_cid + 1.
-          <lv_cid> = |%AUTO{ gv_cid }|.
+      ASSIGN COMPONENT '%CID' OF STRUCTURE <ls_row> TO <lv_cid>.
+      IF sy-subrc = 0.
+        lv_cid = <lv_cid>.
+        CLEAR lv_prefix.
+        IF strlen( lv_cid ) >= 6.
+          lv_prefix = lv_cid(6).
+        ENDIF.
+        IF lv_cid IS INITIAL AND iv_auto_fill_cid = abap_true.
+          <lv_cid> = auto_cid( ).
+        ELSEIF to_upper( lv_prefix ) = co_auto_cid.
+          RAISE EXCEPTION TYPE zcx_osd_rap EXPORTING iv_reason = |EML: %cid { lv_cid } is in the reserved namespace { co_auto_cid }|.
         ENDIF.
       ENDIF.
       IF lines( lt_fields ) > 0 OR iv_set_fields = abap_true.
@@ -269,6 +299,38 @@ CLASS zcl_osd_rap_eml IMPLEMENTATION.
                        CHANGING cs_control = <ls_control> ).
         ENDIF.
       ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD auto_cid.
+* a UUID under the reserved prefix: unique, and never a caller's
+    DATA lv_x16 TYPE x LENGTH 16.
+    TRY.
+        lv_x16 = cl_system_uuid=>create_uuid_x16_static( ).
+      CATCH cx_uuid_error.
+        RAISE EXCEPTION TYPE zcx_osd_rap EXPORTING iv_reason = |EML: no UUID for AUTO FILL CID|.
+    ENDTRY.
+    gv_cid = gv_cid + 1.
+    rv_cid = |{ co_auto_cid }{ lv_x16 }|.
+  ENDMETHOD.
+
+  METHOD check_fields.
+* FIELDS ( ... ) of a READ: every name is a field of the entity
+    DATA ls_model  TYPE zif_osd_rap_bo=>ty_model.
+    DATA ls_entity TYPE zif_osd_rap_bo=>ty_entity.
+    DATA lv_entity TYPE string.
+    DATA lv_field  TYPE string.
+
+    ls_model = io_runtime->bo( )->model( ).
+    lv_entity = to_upper( iv_entity ).
+    LOOP AT ls_model-entities INTO ls_entity.
+      CHECK ls_entity-name = lv_entity OR to_upper( ls_entity-alias ) = lv_entity.
+      LOOP AT it_fields INTO lv_field.
+        READ TABLE ls_entity-fields TRANSPORTING NO FIELDS WITH KEY name = lv_field.
+        IF sy-subrc <> 0.
+          RAISE EXCEPTION TYPE zcx_osd_rap EXPORTING iv_reason = |EML: FIELDS names no field { lv_field } of { ls_entity-alias }|.
+        ENDIF.
+      ENDLOOP.
     ENDLOOP.
   ENDMETHOD.
 
@@ -307,6 +369,7 @@ CLASS zcl_osd_rap_eml IMPLEMENTATION.
 
     lo_runtime = runtime( iv_bdef ).
     lv_before = count_rows( cs_failed ).
+    CLEAR ct_result.
     lo_runtime->execute( EXPORTING iv_entity = iv_entity iv_action = iv_action it_keys = it_rows
                          CHANGING ct_result = ct_result cs_failed = cs_failed cs_reported = cs_reported ).
     subrc( is_failed = cs_failed iv_before = lv_before ).
@@ -318,6 +381,9 @@ CLASS zcl_osd_rap_eml IMPLEMENTATION.
 
     lo_runtime = runtime( iv_bdef ).
     lv_before = count_rows( cs_failed ).
+    IF iv_fields IS NOT INITIAL AND iv_fields <> co_all_fields.
+      check_fields( io_runtime = lo_runtime iv_entity = iv_entity it_fields = field_list( iv_fields ) ).
+    ENDIF.
     CLEAR ct_result.
     lo_runtime->read( EXPORTING iv_entity = iv_entity it_keys = it_keys
                       CHANGING ct_result = ct_result cs_failed = cs_failed ).
@@ -404,9 +470,16 @@ CLASS zcl_osd_rap_eml IMPLEMENTATION.
 
   METHOD rollback.
     DATA ls_session TYPE ty_session.
+    DATA lv_pending TYPE i.
     LOOP AT gt_sessions INTO ls_session.
+      lv_pending = lv_pending + ls_session-runtime->pending( ).
       ls_session-runtime->rollback( ).
     ENDLOOP.
+* as on a system: a transaction with modifications ends in ROLLBACK WORK,
+* which takes what was written to the database beside them
+    IF lv_pending > 0.
+      ROLLBACK WORK.
+    ENDIF.
   ENDMETHOD.
 
   METHOD count_rows.
