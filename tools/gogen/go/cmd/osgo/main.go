@@ -236,7 +236,14 @@ func step(x *abap.ICFExchange, base string, profileRoute func(string)) (dump any
 			}
 		}()
 		s := &abap.Session{Statics: abap.ProcessStatics, ProfileRoute: profileRoute}
-		dialog := func() { abap.DialogStepIn(s, func() { runShim(s, x, base) }) }
+		dialog := func() {
+			abap.DialogStepIn(s, func() {
+				runShim(s, x, base)
+				if base == "/sap/bc/adt" {
+					completeADTWrite(s, x)
+				}
+			})
+		}
 		runDialogStep(s, dialog, base == "/sap/bc/adt" || base == "/sap/public/bc/icf/logoff")
 	}()
 	return dump, frames

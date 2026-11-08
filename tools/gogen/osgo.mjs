@@ -154,20 +154,34 @@ func (a *adtSystemSession) View() (string, bool) { return a.resolved.id, a.resol
 func (a *adtSystemSession) Alive(id string) bool { return a.ZIF_OSD_ADT_SESSION__ALIVE(a.step, id) == "X" }
 func (a *adtSystemSession) Adopt(id, typ, name string) string { return a.ZIF_OSD_ADT_SESSION__ADOPT_HANDLE(a.step, id, typ, name) }
 func (a *adtSystemSession) Forget(id, handle string) (typ, name string) { a.ZIF_OSD_ADT_SESSION__RELEASE_HANDLE(a.step, id, handle, &typ, &name); return }
+func (a *adtSystemSession) Holds(handle, typ, name string) bool {
+ id := a.resolved.id
+ if id == "" || handle == "" || !a.Alive(id) || a.ZIF_OSD_ADT_SESSION__HOLDS(a.step, id, handle, typ, name) != "X" { return false }
+ holder, found := (adtsystem.ENQHolders{Server: adtLocks, Kernel: adtKernel, Client: abap.Mandt}).Holder(typ, name)
+ return found && holder == adtKernel.Owner().Key(id)
+}
+func (a *adtSystemSession) Release(handle, typ, name string) {
+ a.Forget(a.resolved.id, handle)
+ if sid, ok := adtKernel.Handle(a.resolved.id); ok {
+ adtLocks.Dequeue(sid, enq.Request{Client: abap.Mandt, Table: "ZOSD_ADT_LOCK", Fields: []enq.Field{{Value: typ, Length: 4}, {Value: name, Length: 40}}, Mode: "E", Scope: 3})
+ }
+}
 func init() {
  hasADTSession = true
  bindADTSession = func(s *abap.Session) func() {
   session := &adtSystemSession{ZCL_OSD_ADT_SESSION: New_ZCL_OSD_ADT_SESSION(s, 1800, "0"), step: s}
   clear := adtSystems.Bind(s, adtsystem.Provider{Sessions: session, Holders: adtsystem.ENQHolders{Server: adtLocks, Kernel: adtKernel, Client: abap.Mandt}, Identity: adtIdentity(abap.SysID, os.LookupEnv)})
   ZCL_OSD_ADT_HANDLER_USE_SESSION(s, session)
-  return func() { clear(); ZCL_OSD_ADT_HANDLER_USE_SESSION(s, nil) }
+  adtWriteSessions.Store(s, session)
+  return func() { adtWriteSessions.Delete(s); clear(); ZCL_OSD_ADT_HANDLER_USE_SESSION(s, nil) }
  }
 }
 ` : "// ADT session classes are absent; use the handwritten no-op binding.\n";
 writeFileSync(join(dir, "zz_adt_session.go"), `package main
-import ("osg/gogen/abap"; "osg/gogen/adtsystem"; "os")
+import ("osg/gogen/abap"; "osg/gogen/adtsystem"; "osg/gogen/enq"; "os")
 var _ *abap.Session
 var _ adtsystem.Provider
+var _ enq.Request
 var _ = os.LookupEnv
 ${adtSessionAdapter}`);
 const boots = ["ZCL_STG_SEGW_REGISTRY_REGISTER", "ZCL_STG_SHLP_REGISTRY_REGISTER"].filter(has);

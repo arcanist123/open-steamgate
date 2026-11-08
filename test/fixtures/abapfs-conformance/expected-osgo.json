@@ -90,9 +90,8 @@
       "reason": "GET /sap/bc/adt/programs/includes/zosd_test_demo_inc/mainprograms is not served by ABAP here."
     },
     "write.lockWriteUnlock": {
-      "status": "FAIL",
-      "feature": "Edit + save (lock, PUT source, unlock)",
-      "reason": "Not exercised: osgo has no source save; a failed restore is fatal. Omitted from the default groups so reads still run. Re-enable write when save is implemented."
+      "status": "PASS",
+      "feature": "Edit + save (lock, PUT source, unlock)"
     },
     "check.syntax": {
       "status": "PASS",
@@ -209,14 +208,12 @@
       "reason": "POST /sap/bc/adt/programs/validation is not served by ABAP here."
     },
     "create.createDelete": {
-      "status": "MISSING",
-      "feature": "Create + delete in $TMP",
-      "reason": "POST /sap/bc/adt/programs/programs (create) is not served on osgo; create/save are slice 2."
+      "status": "PASS",
+      "feature": "Create + delete in $TMP"
     },
     "create.createDeleteInPackage": {
-      "status": "MISSING",
-      "feature": "Create + delete in a package ($ZOSD_TEST)",
-      "reason": "POST /sap/bc/adt/programs/programs (create) is not served on osgo; create/save are slice 2."
+      "status": "PASS",
+      "feature": "Create + delete in a package ($ZOSD_TEST)"
     }
   },
   "target": "osgo",
@@ -225,6 +222,7 @@
     "connect",
     "tree",
     "objects",
+    "write",
     "check",
     "activate",
     "unit",
@@ -251,6 +249,20 @@
     "omitted": [
       "write.lockWriteUnlock"
     ],
-    "note": "Measured after PR #689 merged. The exercised FAIL is debugger.coreDiscovery; write.lockWriteUnlock retains its FAIL expectation while omitted."
+    "note": "Historical full run after PR #689, before ADT writes. Its counts and omitted list describe that run; writeVerification records the subsequent targeted write/create measurement."
+  },
+  "writeVerification": {
+    "groups": [
+      "connect",
+      "write",
+      "create"
+    ],
+    "counts": {
+      "PASS": 6,
+      "FAIL": 0,
+      "MISSING": 1
+    },
+    "leftBehind": 0,
+    "note": "OSGo ADT source writes: lock/save/read/restore/unlock and create/read/delete in $TMP and $ZOSD_TEST pass. Program name validation remains unserved."
   }
 }

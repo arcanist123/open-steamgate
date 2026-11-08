@@ -232,10 +232,13 @@ describe("tools/abapfs-conformance: target policy", () => {
       if (e.status !== "PASS") expect(e.reason, id).to.be.a("string").and.not.empty;
     }
   });
-  it("omits the unsafe write but exercises every later group, with explicit overrides", () => {
+  it("includes writes and every later group, honouring explicit overrides", () => {
     const selected = selectedScenarios(parseArgs([]), osgo);
-    expect(selected.map(s => s.id)).to.deep.equal(SCENARIOS.filter(s => s.group !== "write").map(s => s.id));
-    expect(selectedScenarios(parseArgs(["--only", "write"]), osgo).map(s => s.group)).to.include("write");
+    expect(selected.map(s => s.id)).to.deep.equal(SCENARIOS.map(s => s.id));
+    const writeIds = SCENARIOS.filter(s => ["connect", "write"].includes(s.group)).map(s => s.id);
+    expect(selectedScenarios(parseArgs(["--only", "write"]), osgo).map(s => s.id)).to.deep.equal(writeIds);
+    expect(selectedScenarios(parseArgs(["--only", "write"]), {...osgo, only: ["connect"]}).map(s => s.id))
+      .to.deep.equal(writeIds);
     expect(() => selectedScenarios(parseArgs([]), {only: ["typo"]})).to.throw(/known scenario groups/);
   });
   it("ratchets both regressions and unexpected passes for osgo, retaining Node policy", () => {

@@ -23,10 +23,10 @@
   "O3-test-class-methods": "pass",
   "O4-source-coordinates": "pass",
   "O5-active-structure": "pass",
-  "W1-write-inactive": "known-gap: POST /oo/classes (class CREATE) is not served on osgo yet (404); write scenario not reached",
-  "W2-write-unlocked": "known-gap: POST /oo/classes (class CREATE) is not served on osgo yet (404); write scenario not reached",
-  "W3-write-foreign": "known-gap: POST /oo/classes (class CREATE) is not served on osgo yet (404); write scenario not reached",
-  "W4-create-delete": "known-gap: POST /oo/classes (class CREATE) is not served on osgo yet (404); write scenario not reached",
-  "W5-check-inactive": "known-gap: POST /oo/classes (class CREATE) is not served on osgo yet (404); write scenario not reached",
+  "W1-write-inactive": "pass",
+  "W2-write-unlocked": "pass",
+  "W3-write-foreign": "pass",
+  "W4-create-delete": "pass",
+  "W5-check-inactive": "pass",
   "C9b-checkrun-active": "pass"
 }

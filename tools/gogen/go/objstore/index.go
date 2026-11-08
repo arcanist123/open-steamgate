@@ -448,6 +448,9 @@ func storeDigest(file string) string {
 }
 
 func storeActiveBytes(file string) ([]byte, bool) {
+	if b, ok := storeState.createdActive[file]; ok {
+		return b, true
+	}
 	if storeState.cfg == nil || storeState.cfg.Active == nil {
 		return nil, false
 	}

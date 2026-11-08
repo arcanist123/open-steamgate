@@ -99,3 +99,12 @@ index selection follows that flag while retaining the provider/type admission.
 STORE CAPABILITIES advertises CHECK when the native CheckObject callback is
 linked, independently of sidecar discovery. A built native host does not
 advertise ACTIVATE; the editor explains that activation requires a rebuild.
+
+`CreateSource` and `DeleteSource` are the Go ADT host's lifecycle API for
+CLAS/INTF/PROG. Creation selects an existing writable package, writes source
+and abapGit metadata with exclusive creation, and refuses duplicates. Class
+creation retains its initial active skeleton in memory until process exit;
+PUT keeps it separate from the inactive working source. Delete removes the
+known source/include/metadata files and invalidates compiler snapshots. These
+APIs require the caller's session/ENQ authorization; they never issue handles.
+Mutation paths reject symbolic links as well as escapes from writable roots.
