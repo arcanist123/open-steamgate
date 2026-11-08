@@ -23,10 +23,13 @@ loudly instead of passing quietly.
 
 ## Running it
 
-Heavy: the Node reference compiles all of OSG, abapiti emits the whole
-gogen closure, and `go build` of the generated module needs up to 24 GB.
-It does not fit a CI runner (see `docs/self-hosting.md`); it is a manual
-gate on a big host. Prerequisites in the OSG checkout: `npm ci`,
+**This is a manual gate on a large host (measured with 8 cores and a 40 GB container), not a CI job.**
+The Node reference compiles all of OSG, abapiti emits the whole gogen
+closure, and `go build` of the generated module peaked at 12.5 GB RSS in the
+first run (abapiti's harness caps it at 24 GB). A standard CI runner has 16 GB
+for everything. One run took about ten minutes on 8 cores. Results go into
+`docs/self-hosting.md`; the abapiti-side gaps go into
+`docs/selfhost-abapiti-gaps.md`. Prerequisites in the OSG checkout: `npm ci`,
 `node tools/osd-libs.mjs`, `node tools/osd-fetch.mjs`, `npm run transpile`.
 Beside it: an abapiti checkout and its binary (`go build -o abapiti-bin
 ./cmd/abapiti`), abaplint at the tag of OSG's `@abaplint/core`

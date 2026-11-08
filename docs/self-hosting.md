@@ -10,8 +10,35 @@ that every runtime route or every compiler input has been proved.
 | 1 — M1 | Done: translated abaplint checks OSG's frozen ABAP corpus, byte-equal to Node | [Steps 1–2](history/2026-10-14-self-hosting-steps-1-2.md) | Keep the pinned nonempty-diagnostic oracle green |
 | 2 — fixed point (M2) | Done: translated abaplint checks its generated ABAP with dependencies, byte-equal to Node | [Steps 1–2](history/2026-10-14-self-hosting-steps-1-2.md) | Preserve the accepted gate; keep the no-deps stress variant separately scoped |
 | 3 — ADT syntax | Done for recorded CHECKRUN/CHECK/OUTLINE gates with optional linked native engines; Go default when linked | [Step 3](history/2026-10-22-self-hosting-step3.md) | Preserve freshness/refusal and execution-origin gates; close remaining acceptance gaps explicitly |
-| 4 — gogen through abapiti | Done for compileProgram + emitGo on the reference class, generated Go byte-equal and unit green | [Step 4](history/2026-10-20-self-hosting-step4.md) | Whole osgo input set, generation-hash/output equality and a CI gate (proposal below) |
+| 4 — gogen through abapiti | Done for compileProgram + emitGo on the reference class, generated Go byte-equal and unit green. Whole osgo input set: harness in place, **not equal** (measurement below) | [Step 4](history/2026-10-20-self-hosting-step4.md) | Whole osgo input set: clear the reached traps ([abapiti gaps](selfhost-abapiti-gaps.md)), then output equality and a gate |
 | 5 — transpiler through abapiti | Planned; no completion claimed | This page's proposal below | Inventory the pinned @abaplint/transpiler path, then prove successive slices |
+
+## Whole osgo input set: first measurement (2026-11-08)
+
+`node tools/selfhost/corpus-run.mjs` ([harness](../tools/selfhost/README.md)) ran
+on OSG `ae541da2` with abapiti `90f2443a` (selfhost), abaplint `9f7f098c`
+(2.120.73) and the transpiler at `8b566b19` (2.14.3), in an 8-core, 40 GB container:
+
+| | |
+| --- | --- |
+| input set | 18 folders, 1,340 objects, 3,404 files, 94 skipped (`osgCompileInputs`) |
+| Node gogen | 20,761,458 bytes of Go, `ref=e935f509b3231c78` |
+| verdict | `selfhost-corpus: FAIL objects=1340 equal=0 diff=0 crash=1340` |
+| reached functions | 349 / 551 bodies of the translated closure |
+| reached traps | 92 roots, 214 unreached (`step4-traps: 92 reached (0/18 unknown) 214 unreached`) |
+| wall time | 595 s (trap listing 269 s, full run 323 s) |
+| peak RSS | 12.5 GB (full run, `go build`); 3.5 GB for the trap listing |
+
+Reached traps by kind (the corpus report's classifier, first matching pattern):
+54 untyped `dynamic`/`void` values (G), 10 namespace imports or the global
+`Object` (A), 8 recursive unions (A), 8 structural type mismatches (A/G),
+3 optional parameters / `Array()` (G), 3 regexp features (A), 3 number/string
+builtins (A), 2 bigint (A), 1 other. By module: `frontend.mjs` 47,
+`sqlscript-lower.mjs` 19, `osd-narrow-submit.mjs` 5, `ir-writes.mjs` 4,
+`emit-go.mjs` 4, the rest one to three each. The Go run trapped at its first
+reached root, so no object produced output. Three of these roots plus the
+five SUBMIT-narrowing roots are fixed in OSG since this run. Those fixes are not
+remeasured yet. The run is a manual gate: its peak memory does not fit a CI runner.
 
 ## Next milestone proposal
 
