@@ -103,6 +103,11 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
           zcl_osd_v4_query=>fail( |Batch request { lv_index }: { lv_member } must be a string| ).
         ENDIF.
       ENDLOOP.
+      lv_path = |/requests/{ lv_index }/dependsOn|.
+      IF lo_json->exists( lv_path ) = abap_true
+          AND lo_json->get_node_type( lv_path ) <> zif_ajson_types=>node_type-array.
+        zcl_osd_v4_query=>fail( |Batch request { lv_index }: dependsOn must be an array| ).
+      ENDIF.
       CLEAR ls_request.
       lt_inner = zcl_stg_json=>parse_object( EXPORTING iv_json = lv_element IMPORTING et_nested = lt_inner_nested ).
       LOOP AT lt_inner INTO ls_pair.
