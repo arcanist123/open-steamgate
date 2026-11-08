@@ -1,4 +1,4 @@
-# OData V4 reads over the existing model
+# OData V4 over the existing model
 
 Every registered service has a second endpoint:
 
@@ -15,7 +15,8 @@ registry used by the server and preview.
 
 ## Served now
 
-Only GET is supported. Responses carry `OData-Version: 4.0`. JSON uses
+Reads (GET), entity writes, ETags and JSON `$batch`. Responses carry
+`OData-Version: 4.0`. JSON uses
 `application/json;odata.metadata=minimal` with full `@odata.context` and
 `@odata.count` names for compatibility with 4.0 clients.
 
@@ -80,17 +81,106 @@ is not a streaming or server-driven paging implementation. A provider which
 imposes its own row limit can only expose the rows it returns. `$top=0`
 returns an empty value array while retaining the requested count.
 
-Errors use `{"error":{"code":"...","message":"..."}}`: malformed options
-and keys return 400; unknown services, sets and missing entities return 404;
-writes return 405 with `Allow: GET`; unsupported operations/options return
-501. The V4 handler catches provider exceptions using the existing error
+Errors use `{"error":{"code":"...","message":"..."}}`: malformed options,
+keys and bodies return 400; unknown services, sets and missing entities return
+404; a method the resource does not take returns 405 with an `Allow` header;
+unsupported operations/options return 501. The V4 handler catches provider exceptions using the existing error
 conventions (business failures 400, missing implementation 501, technical
 failures 500).
 
+## Writes
+
+Writes go to the same DPC methods the V2 path calls (`create_entity`,
+`update_entity`, `delete_entity`), and the model's `set_creatable` /
+`set_updatable` / `set_deletable` on the entity set decides first: a write
+the model refuses answers 405 and never reaches the DPC.
+
+| Request | Response |
+| --- | --- |
+| `POST TravelSet` with a JSON object | 201, the entity as in a single read, `Location` |
+| same with `Prefer: return=minimal` | 204, `Location`, `OData-EntityId`, `Preference-Applied` |
+| `PATCH TravelSet('T0001')` | 204; only the properties sent change (the entity is read and the body laid over it) |
+| `PUT TravelSet('T0001')` | 204; the entity is replaced, a property left out becomes initial |
+| `PATCH`/`PUT` with `Prefer: return=representation` | 200 with the entity after the update |
+| `DELETE TravelSet('T0001')` | 204 |
+
+Request bodies are V4 JSON: `Edm.Date` as `2026-11-07`, `Edm.DateTimeOffset`
+with `Z` or an offset (stored as UTC), `Edm.TimeOfDay` as `12:30:45`,
+hyphenated GUIDs, JSON numbers and booleans. Control information and
+instance annotations (`@odata.type`, `Name@...`) are ignored. An unknown
+property or a value that does not fit its type is 400 before the DPC is
+called. The key of a PATCH or PUT is the one in the URL; a key property in
+the body cannot move the update to another entity. A missing entity is 404.
+Nested objects or arrays (deep insert, complex values) and `@odata.bind`
+answer 501. A write to a collection other than POST answers 405 with
+`Allow: GET, POST`; POST to an entity, `Allow: GET, PATCH, PUT, DELETE`.
+
+As on the V2 path, one modifying request is one LUW: a `COMMIT WORK`
+fences it off from what ran before, a 4xx/5xx rolls it back, a success
+commits; a dump is rolled back by the host's dialog step
+(`tools/osd-dialog-step.mjs`).
+
+## ETags
+
+A property the MPC marks with `set_as_etag( )` (SEGW's "ETag" flag; the
+generators emit it) makes the entity's ETag. It is weak and built from the
+property values: `W/"<value>"`, several ETag properties joined by `;`, each
+value URL-escaped. Where an entity type has one:
+
+- `$metadata` annotates its entity sets with `Core.OptimisticConcurrency`
+  (and references the Core vocabulary);
+- every entity in JSON starts with `@odata.etag`, in collections, single
+  reads, create and update responses;
+- a single read, a create and an update answer with the `ETag` header;
+- PATCH, PUT and DELETE need `If-Match`
+  ([OData 4.01 Part 1, 11.4.1.1](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html)):
+  without it 428, with tags none of which matches the current one 412,
+  `If-Match: *` or the current tag (a list is accepted; the `W/` prefix is
+  not compared) goes through.
+
+`If-Match` with a specific tag on an entity type without an ETag never
+matches and answers 412; `*` passes. The current ETag is read through the
+DPC's `get_entity` right before the write; the check and the write are not
+one locked step (no enqueue), as on a Gateway without a lock in the DPC.
+SADL services have no ETag source yet. `If-None-Match` and conditional GET
+(304) are not served.
+
+## JSON $batch
+
+`POST $batch` with `Content-Type: application/json` takes the
+[JSON batch format](https://docs.oasis-open.org/odata/odata-json-format/v4.01/os/odata-json-format-v4.01-os.html):
+`{"requests":[{"id","method","url","headers","body","atomicityGroup","dependsOn"}]}`
+and answers 200 with `{"responses":[{"id","atomicityGroup","status","headers","body"}]}`.
+Each request runs through the same dispatch as a single request.
+
+- `url` is relative to the service root, an absolute path, or an absolute
+  URL; a `url` that starts with `$<id>` continues the `Location` of the
+  entity request `<id>` created (`$new`, `$new?$select=...`).
+- An `atomicityGroup` is one LUW: a `COMMIT WORK` fences it, the first
+  failing member rolls the whole group back, and the group commits only when
+  every member succeeded. Of a failed group, the failing request carries its
+  own error, members that ran before it answer 424 ("rolled back"), members
+  after it are not executed and answer 424. Requests of one group must be
+  adjacent (400 otherwise). A request outside any group is its own LUW.
+- `dependsOn` names earlier request ids or ended groups (a forward or
+  unknown name is 400 for the whole batch). If one of them failed, the
+  request is not executed and answers 424.
+- Without `Prefer: odata.continue-on-error` processing stops after the
+  first failed request (or after the group it belongs to); with it every
+  request is answered and `Preference-Applied` says so.
+- Duplicate ids, requests without id/method/url, or a nested `$batch` are 400.
+- A multipart `$batch` (`multipart/mixed`) answers **501**; another
+  content type, 415.
+
+Requests are executed in array order; the service does not reorder or run
+independent requests in parallel.
+
 ## Not served in this slice
 
-- Writes, deep insert and update semantics.
-- ETag / `If-Match`, `$batch`, actions and functions.
+- Deep insert, `@odata.bind`, writes through navigation properties,
+  bound/unbound actions and functions.
+- Multipart `$batch`, `If-None-Match`, conditional GET, SADL ETags.
+- Binary property values in request bodies (base64url is not decoded).
 - Nested `$expand`, slash expand paths, and options inside `$expand(...)`.
   These explicitly return 501. Multiple single-level navigation names work.
 - `$apply`, `$search`, lambda expressions or a general expression evaluator.
@@ -103,18 +193,20 @@ failures 500).
 ## Next slices
 
 Add model-driven capabilities/annotations and complex types, then expand
-query support (nested options, navigation resources and count pushdown).
-Treat writes with ETags and transaction semantics as a separate slice,
-followed by batch/actions and a Fiori V4 consumer.
+query support (nested options, navigation resources and count pushdown),
+then actions/functions, deep insert and a Fiori V4 consumer.
 
 ## Verification and references
 
 The registered Mocha suite is `test/odata-v4.mjs`. It parses metadata as XML
 and exercises demo reads, SADL reads, a YAML service, literals/facets,
-projection, counts, ordering/paging, expansion and errors. Run it against a
+projection, counts, ordering/paging, expansion and errors, and the writes,
+ETags (a writable `NoteSet` with `set_as_etag` in the synthetic `test/v4/`
+service) and JSON batches (two atomicity groups, one rolled back while the
+other commits, `dependsOn` and `$<id>`). Run it against a
 fresh transpile together with the targeted V2 wire tests in `test/mocha.mjs`.
 
 The public wire contracts are
 [OASIS CSDL XML 4.01](https://docs.oasis-open.org/odata/odata-csdl-xml/v4.01/os/odata-csdl-xml-v4.01-os.html)
 and [OData JSON Format 4.01](https://docs.oasis-open.org/odata/odata-json-format/v4.01/os/odata-json-format-v4.01-os.html).
-This is the read subset above, not a claim of full protocol conformance.
+This is the subset above, not a claim of full protocol conformance.
