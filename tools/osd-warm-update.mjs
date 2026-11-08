@@ -9,6 +9,7 @@ import {assertToolchain} from "./osd-transpiler.mjs";
 import {checkRead, checkView} from "./osd-store-compile-view.mjs";
 import {outputFiles, readAll, isBinaryFilename} from "./osd-transpile.mjs";
 import {orderRegistry} from "./osd-warm-order.mjs";
+import {lowerDerived, readRapBindings} from "./rap/lower-derived.mjs";
 import {lowerNarrowSubmit} from "./osd-narrow-submit.mjs";
 import {TMP_FOLDER, TMP_AUTHORS} from "./osd-tmp.mjs";
 
@@ -32,13 +33,14 @@ export async function updateRegistry(c, activating, {viewOf, closure, index, rul
   if (hash !== liveHash(root)) refuse("the inputs are no longer the cold publication");
   const view = viewOf(overlay, raw, config, stack);
   const edits = [], removed = [];
+  const rapBindings = readRapBindings(root, checkRead(c.compileView));
   const out = resolve(root, c.own.output_folder);
   for (const [path, before] of c.files) if (!view.actual.has(path)) removed.push({path, before});
   for (const [path, actual] of view.actual) {
     const before = c.files.get(path);
     const digest = view.digests.get(path);
     if (before && digest !== undefined && digest === c.digests.get(path) && !c.held.has(path) && c.actual.get(path) === actual) continue;
-    const [after] = await readAll([actual], out, (text, filename) => lowerNarrowSubmit(text, filename, c.core), checkRead(c.compileView));
+    const [after] = await readAll([actual], out, (text, filename) => lowerDerived(lowerNarrowSubmit(text, filename, c.core), filename, rapBindings), checkRead(c.compileView));
     if (digest !== undefined && createHash("sha256").update(readFileSync(actual)).digest("hex") !== digest) refuse(`${relative(root, path)} changed while being read`);
     if (!before || before.contents !== after.contents || before.relative !== after.relative || c.held.has(path)) edits.push({path, before, after});
   }

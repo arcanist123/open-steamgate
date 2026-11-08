@@ -56,6 +56,7 @@ export const GENERATORS = [
   ["osd-inputs.mjs"],
   ["osd-ddic-binary.mjs"],
   ["cds2ddic.mjs"],
+  ["rap/bdef-gen.mjs"],
   ["stg-compile.mjs", "--all"],
   ["segw-registry.mjs"],
   ["segw-shlp.mjs"],

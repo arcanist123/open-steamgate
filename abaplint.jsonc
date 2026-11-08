@@ -1,6 +1,6 @@
 {
   "global": {
-    "files": "/{src,packs/zvdb/src,test,gen/bsp,gen/cds,gen/segw,gen/rfc,gen/tran}/**/*.*",
+    "files": "/{src,packs/zvdb/src,test,gen/bsp,gen/cds,gen/segw,gen/rfc,gen/tran,gen/rap}/**/*.*",
     "errorOnDuplicateFilenames": true,
     "exclude": ["/test/e2e/", "/src/.*/cockpit/", "/test/fixtures/", "\\.mjs$", "\\.cjs$", "\\.stg\\.yaml$", "\\.l2\\.yaml$", "\\.l3\\.yaml$", "\\.samc\\.model\\.json$", "\\.samc\\.decl\\.json$", "\\.trace(?:\\.meta)?\\.json$"]
   },

@@ -3,6 +3,8 @@ import {createHash, randomUUID} from "node:crypto";
 import {existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, linkSync, copyFileSync, rmSync, renameSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 
+const isSourceInput = path => /\.(abap|asddls|as[A-Za-z]+|srvdsrv|xml)$/.test(path) || path === "gen/rap/bindings.json";
+
 // Provenance keeps the original root-relative key. Storage encodes external
 // parent segments so neither snapshots nor pre-save copies escape build/.
 export function sourceSnapshotPath(file) {
@@ -39,7 +41,7 @@ export function missingSourceInputs(root, generation, digests, overlay) {
   if (!inputs || typeof inputs !== "object") return digests;
   return new Map([...digests].filter(([file, digest]) => {
     const key = relative(root, logicalSourcePath(root, file, overlay)).replaceAll("\\", "/");
-    return /\.(abap|asddls|as[A-Za-z]+|srvdsrv|xml)$/.test(key) && inputs[key] !== digest;
+    return isSourceInput(key) && inputs[key] !== digest;
   }));
 }
 
@@ -73,7 +75,7 @@ export function keepSourceInputs(root, generation, digests, actual = undefined, 
     const input = actual?.get(file) ?? file;
     const logical = logicalSourcePath(root, file, overlay).replaceAll("\\", "/");
     const path = logical.startsWith(rootPrefix) ? logical.slice(rootPrefix.length) : relative(root, logical);
-    if (!/\.(abap|asddls|as[A-Za-z]+|srvdsrv|xml)$/.test(path)) continue;
+    if (!isSourceInput(path)) continue;
     inputs[path.replaceAll("\\", "/")] = digest;
     if (reuse && previous.digests.get(file) === digest && existsSync(join(shared, digest))) continue;
     const target = join(generation, "source", sourceSnapshotPath(path));

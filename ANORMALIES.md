@@ -4184,3 +4184,15 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Critic round 2: GET_TEXT_FOR_MESSAGE bypassed the metadata guard and returned the generic fallback for widened kernel errors. Both native helpers now return carried kernel text first; interface fields and generic bindings also guard the runtime object. Named refusals replace message-helper ASSERT-todo metadata lookups. The complete field/helper/RTTI audit and two-host tests are listed in tools/gogen/testdata/exception-previous-notes.md.
 - Critic round 1: materialized kernel attribute reads refuse by name (SAP TEXTID/KERNEL_ERRID values unmeasured; measure on A4H). Initial EXC GET_TEXT/class-name/PREVIOUS reads dump OBJECTS_OBJREF_NOT_ASSIGNED, matching initial CX references; compiled constructor-populated attributes remain readable.
 - Tests: generic testdata ABAP Unit contains only successful methods, including ordinary class descriptor INTERFACES. Registered test/osgo-exc-previous.mjs stages negative methods locally and checks both hosts for metadata refusals and initial dereferences; semantics.mjs and frontend-exception.test.mjs cover output and refusal boundaries.
+
+## RAP derived types cannot transpile (R1)
+
+- Status: local generator bridge; no upstream changes.
+- Reproducer: `TYPE TABLE FOR CREATE` and response declarations in the original
+  `src/rap_demo/` behavior pool.
+- Expected: BDEF/CDS-derived rows have typed entity fields and RAP components.
+- Installed abaplint: `rapTableFor` yields `VoidType("RAP-TODO")`; structure and
+  response forms are void. The transpiler cannot emit concrete row layouts.
+- Workaround: `tools/rap/bdef-gen.mjs` emits ordinary ABAP interfaces in
+  `gen/rap/`; the source loader lowers explicit derived declarations in memory.
+  Runtime behavior, EML and implicit handler signatures remain outside R1.

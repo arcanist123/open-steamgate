@@ -39,6 +39,7 @@ import {assertToolchain} from "./osd-transpiler.mjs";
 import {mapStatementStarts} from "./osd-source-map-starts.mjs";
 import {runsAs} from "./osd-main.mjs";
 import {isBinaryFilename, listFiles, loadLibs, selectedModules, outputFiles, readAll} from "./osd-transpile.mjs";
+import {lowerDerived, readRapBindings} from "./rap/lower-derived.mjs";
 import {lowerNarrowSubmit} from "./osd-narrow-submit.mjs";
 import {orderRegistry} from "./osd-warm-order.mjs";
 import {updateRegistry} from "./osd-warm-update.mjs";
@@ -85,7 +86,7 @@ export class NotWarm extends Error {
 // page or a generator is cold. test/warm.mjs pins the generator list this
 // was read against, so a new generator makes somebody read this again.
 export const GENERATORS_READ = [
-  "osd-transpiler.mjs", "osd-inputs.mjs", "osd-ddic-binary.mjs", "cds2ddic.mjs", "stg-compile.mjs",
+  "osd-transpiler.mjs", "osd-inputs.mjs", "osd-ddic-binary.mjs", "cds2ddic.mjs", "rap/bdef-gen.mjs", "stg-compile.mjs",
   "segw-registry.mjs", "segw-shlp.mjs", "osd-bsp-registry.mjs", "amdp-gen.mjs", "amdp-tablefunc.mjs",
   "osd-fm-registry.mjs", "osd-gui-convert.mjs", "osd-tran-registry.mjs",
 ];
@@ -107,6 +108,9 @@ export function warmRule({path, before, after, amdpText = ""}) {
   }
   if (/\bSUBMIT\b/i.test(before + "\n" + after)) {
     return `${name}: a SUBMIT source is lowered during a cold build`;
+  }
+  if (/\bTYPE\s+(TABLE|STRUCTURE|RESPONSE|REQUEST)\s+FOR\b/i.test(before + "\n" + after)) {
+    return `${name}: RAP derived types are lowered during a cold build`;
   }
   if (AMDP.test(before) || AMDP.test(after)) {
     return `${name}: an AMDP body (amdp-gen reads it)`;
@@ -330,8 +334,9 @@ export class WarmCompiler {
     const view = this.#view(overlay, raw, config, stack);
     const wanted = view.wanted;
     const digests = view.digests;
+    const rapBindings = readRapBindings(root, checkRead(this.compileView));
     const read = await readAll(wanted, resolve(root, own.output_folder),
-      (source, filename) => lowerNarrowSubmit(source, filename, core), checkRead(this.compileView));
+      (source, filename) => lowerDerived(lowerNarrowSubmit(source, filename, core), filename, rapBindings), checkRead(this.compileView));
     this.files = new Map(wanted.map((path, i) => [this.#logical(path, overlay), read[i]]));
     this.actual = new Map(view.actual);
     // where the live generation read each copied file from: its copy, when
