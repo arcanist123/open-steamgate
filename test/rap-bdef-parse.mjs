@@ -107,19 +107,70 @@ describe('RAP BDEF parser (R0)', () => {
       action Change parameter ZA_Input result [1] $self { default function Defaults; }
       draft action Activate optimized; draft action Resume with additional implementation;`);
     assert.deepEqual(e.actions[0], {name: 'Approve', use: false, modifiers: ['static'],
-      options: [{name: 'features', value: 'global'}], line: 1, cardinality: null, parameter: 'ZA_Input',
-      result: {options: [], cardinality: '1', entity: '$self'}});
+      options: [{name: 'features', value: 'global'}], line: 1, cardinality: null, parameter: {name: 'ZA_Input', deep: false, table: false},
+      result: {options: [], cardinality: '1', deep: false, type: '$self'}});
     assert.deepEqual(e.actions[1].modifiers, ['factory']);
     assert.equal(e.actions[1].cardinality, '1');
     assert.deepEqual(e.actions[2].modifiers, ['internal']);
-    assert.deepEqual(e.functions[0].result, {options: [], cardinality: '0..*', entity: 'ZI_NOTE'});
-    assert.equal(e.functions[0].parameter, 'ZA_Query');
-    assert.equal(e.functions[1].result.entity, '$self');
+    assert.deepEqual(e.functions[0].result, {options: [], cardinality: '0..*', deep: false, type: 'ZI_NOTE'});
+    assert.deepEqual(e.functions[0].parameter, {name: 'ZA_Query', deep: false, table: false});
+    assert.equal(e.functions[1].result.type, '$self');
     assert.equal(e.functions[2].use, true);
     assert.equal(e.actions[3].use, true);
     assert.equal(e.actions[4].defaultFunction, 'Defaults');
     assert.equal(e.actions[5].optimized, true);
     assert.equal(e.actions[6].additionalImplementation, true);
+  });
+
+  it('distinguishes plain, deep structure and deep table parameters', () => {
+    for (const kind of ['action', 'function']) {
+      const declarations = ['parameter', 'deep parameter', 'deep table parameter'];
+      const models = declarations.map(clause => parseBdef(wrap(`${kind} Submit ${clause} ZA_Payload;`)));
+      const callables = models.map(m => {
+        assert.deepEqual(m.unparsed, []);
+        return m.entities[0][kind === 'action' ? 'actions' : 'functions'][0];
+      });
+      assert.deepEqual(callables.map(a => a.parameter), [
+        {name: 'ZA_Payload', deep: false, table: false},
+        {name: 'ZA_Payload', deep: true, table: false},
+        {name: 'ZA_Payload', deep: true, table: true},
+      ]);
+      assert.notDeepEqual(models[1], models[2]);
+      for (const a of callables) {
+        assert.equal(Object.hasOwn(a, 'deepParameter'), false);
+        assert.equal(Object.hasOwn(a, 'result'), false);
+      }
+    }
+  });
+
+  it('preserves result depth independently of parameter depth', () => {
+    for (const kind of ['action', 'function']) {
+      for (const cardinality of ['1', '0..*']) {
+        for (const deep of [false, true]) {
+          for (const input of ['', 'parameter ZA_Input', 'deep parameter ZA_Input', 'deep table parameter ZA_Input']) {
+            const e = entity(`${kind} Read ${input} ${deep ? 'deep ' : ''}result (instance) [${cardinality}] ZA_Output;`);
+            const a = e[kind === 'action' ? 'actions' : 'functions'][0];
+            assert.deepEqual(a.result, {options: [{name: 'instance', value: null}], cardinality, deep, type: 'ZA_Output'});
+            assert.equal(Object.hasOwn(a, 'deepParameter'), false);
+            if (input) {
+              assert.deepEqual(a.parameter, {name: 'ZA_Input', deep: input.startsWith('deep'), table: input.includes('table')});
+            } else {
+              assert.equal(Object.hasOwn(a, 'parameter'), false);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('retains incomplete or misplaced deep modifiers in unparsed', () => {
+    for (const clause of ['deep', 'deep table', 'deep table result [1] ZA_Output', 'table parameter ZA_Input', 'parameter ZA_Input deep']) {
+      const m = parseBdef(wrap(`action Broken ${clause}; update;`));
+      assert.equal(m.unparsed.length, 1, clause);
+      assert.equal(m.unparsed[0].raw, `action Broken ${clause};`);
+      assert.deepEqual(m.entities[0].actions, []);
+      assert.equal(m.entities[0].operations[0].kind, 'update');
+    }
   });
 
   it('reads determinations and validations with event and field triggers', () => {

@@ -64,9 +64,15 @@ as data; this parser does not validate their semantic combinations.
 
 A callable has `name`, `use`, `modifiers` (`static`, `factory`, `internal`,
 `draft`), `options`, `line`, and `cardinality` (default `null`). Optional members:
-`parameter`, `deepParameter`, `result: {options, cardinality, entity}`,
+`parameter: {name, deep, table}`, `result: {options, cardinality, deep, type}`,
 `defaultFunction`, `optimized`, `additionalImplementation`, `extensible`.
-Cardinalities are strings such as `1` and `0..*`; `$self` is a result entity name.
+Parameter `deep` and `table` are explicit Booleans: `parameter X` gives
+`{name: 'X', deep: false, table: false}`, `deep parameter X` gives
+`{name: 'X', deep: true, table: false}`, and `deep table parameter X` gives
+`{name: 'X', deep: true, table: true}`. Result `deep` is independently `true`
+for `deep result` and otherwise `false`; no parameter is added by a result-only
+declaration. Result `type` retains the referenced name, including `$self`.
+Cardinalities are strings such as `1` and `0..*`.
 Determine actions add `triggers: [{kind, name}]`, where kind is `validation` or
 `determination`, and names can be qualified as `Item~Check`.
 Ordinary triggers are `{kind: 'create'/'update'/'delete'}` or
@@ -75,7 +81,7 @@ Ordinary triggers are `{kind: 'create'/'update'/'delete'}` or
 For example, the original fixture `field (readonly) Id; action Check result [1]
 $self;` produces a field group with `attributes: [{name: 'readonly', value:
 null}]` and `fields: ['Id']`, and an action whose result has `cardinality: '1'`
-and `entity: '$self'`.
+and `deep: false`, `type: '$self'`.
 
 ## Coverage and recovery
 

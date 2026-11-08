@@ -216,12 +216,17 @@ class Parser {
       const a = {name: null, use, modifiers, options: this.options(), line: this.tokens[start].line};
       a.name = this.name();
       a.cardinality = this.cardinality();
-      if (this.take('deep')) { a.deepParameter = true; this.take('table'); }
-      if (this.take('parameter')) a.parameter = this.name();
+      if (this.at('parameter') || (this.at('deep') && this.tokens[this.i + 1]?.lower !== 'result')) {
+        const deep = !!this.take('deep');
+        const table = deep && !!this.take('table');
+        this.need('parameter');
+        a.parameter = {name: this.name(), deep, table};
+      }
+      const deepResult = !!this.take('deep');
       if (this.take('result')) {
         const options = this.options(); const cardinality = this.cardinality();
-        a.result = {options, cardinality, entity: this.name()};
-      }
+        a.result = {options, cardinality, deep: deepResult, type: this.name()};
+      } else if (deepResult) throw new Error('Expected result after deep');
       if (this.take('optimized')) a.optimized = true;
       if (this.take('with')) { this.need('additional'); this.need('implementation'); a.additionalImplementation = true; }
       if (this.take('extensible')) a.extensible = true;
