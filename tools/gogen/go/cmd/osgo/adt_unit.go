@@ -125,10 +125,7 @@ func field(obj any, name string) string {
 	if v.Kind() != reflect.Struct {
 		return ""
 	}
-	f := v.FieldByName(name)
-	if !f.IsValid() && name != "" { // exported in a layered build (tools/gogen/go-layers.mjs)
-		f = v.FieldByName(strings.ToUpper(name[:1]) + name[1:])
-	}
+	f := v.FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, name) }) // msg, or Msg in a layered build
 	if !f.IsValid() || f.Kind() != reflect.String {
 		return ""
 	}
