@@ -232,7 +232,11 @@ export function compatibilityGraphDocument(features = COMPATIBILITY, edges = COM
 `;
 }
 
-export function discoveryDocument(resources) {
+// core: the core/discovery form, every collection in a workspace of its own
+// (abap-adt-api's adtCoreDiscovery, DebugService.create's first call, reads
+// app:collection as one element per workspace). Mirrors
+// ZCL_OSD_ADT_DISCOVERY=>document( iv_core ).
+export function discoveryDocument(resources, {core = false} = {}) {
   const workspaces = new Map();
   for (const resource of resources) {
     if (workspaces.has(resource.workspace) === false) {
@@ -249,10 +253,10 @@ ${(r.accept ?? []).map((a) => `      <app:accept>${xmlEscape(a)}</app:accept>`).
 <app:service xmlns:app="http://www.w3.org/2007/app"
              xmlns:atom="http://www.w3.org/2005/Atom"
              xmlns:adtcomp="http://www.sap.com/adt/compatibility">
-${[...workspaces].map(([title, list]) => `  <app:workspace>
+${[...workspaces].map(([title, list]) => (core ? list.map((r) => [r]) : [list]).map((group) => `  <app:workspace>
     <atom:title>${xmlEscape(title)}</atom:title>
-${list.map(collection).join("\n")}
-  </app:workspace>`).join("\n")}
+${group.map(collection).join("\n")}
+  </app:workspace>`).join("\n")).join("\n")}
 </app:service>
 `;
 }
@@ -1626,10 +1630,11 @@ export function adtRouter(options = {}) {
 
   // ---- discovery: the handshake and the gatekeeper, at both of its names.
   // core/discovery is what a client probes for reachability and a token;
-  // discovery is the collection list it scans. The same document answers
-  // both, because the same thing is true of both.
-  const discovery = (req, res) => {
-    res.status(200).type("application/atomsvc+xml").send(discoveryDocument(resources));
+  // discovery is the collection list it scans. Both carry the same
+  // collections; core/discovery puts each in a workspace of its own, the
+  // form abap-adt-api's core reader takes (see discoveryDocument).
+  const discoveryAt = (core) => (req, res) => {
+    res.status(200).type("application/atomsvc+xml").send(discoveryDocument(resources, {core}));
   };
   // HEAD before GET on purpose: a client fetches its token with HEAD and
   // falls back to GET only if HEAD is refused, so HEAD must work
@@ -1637,7 +1642,7 @@ export function adtRouter(options = {}) {
     router.head(path, (req, res) => {
       res.status(200).type("application/atomsvc+xml").end();
     });
-    router.get(path, discovery);
+    router.get(path, discoveryAt(path.endsWith("/core/discovery")));
   }
 
   // ---- compatibility/graph: the logon probe, and the whole of what stands

@@ -1453,7 +1453,12 @@ export class ObjectStore {
   // and a healthy object costs one check to clear. The cheap direction to be
   // wrong in — the expensive one is telling a client a rename was fine.
   dependents(type, name) {
-    return registryDependents(this.registry(), type, name);
+    if (this.libraryFiles === undefined) {
+      this.libraryFiles = new Set(this.libs.flatMap((lib) => lib.files ?? []).map((file) => "/" + file));
+    }
+    const prefixes = this.libs.filter((lib) => lib.files === undefined).map((lib) => "/" + lib.path + "/");
+    return registryDependents(this.registry(), type, name, {isLibrary: (file) =>
+      this.libraryFiles.has(file) || prefixes.some((prefix) => file.startsWith(prefix))});
   }
 
   // activation is that check over the object AND everything that uses it: a

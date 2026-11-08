@@ -722,4 +722,20 @@ describe('ObjectStore transitive activation checks', function () {
     expect(result.active).to.equal(false);
     expect(result.dependents.map(d => d.name)).to.include('ZBAD');
   });
+  it('never takes a library object for a dependent, not even in the full registry fallback', () => {
+    for (let i = 0; i < 257; i++) writeFileSync(join(root, `src/zreader${i}.prog.abap`), `REPORT zreader${i}.\n* zcl_base\n`);
+    // a library object with an issue of its own: an unknown type, as a
+    // library carries for DDIC it does not ship. It reads zcl_base too.
+    mkdirSync(join(root, 'lib'));
+    writeFileSync(join(root, 'lib/zlib_broken.prog.abap'), 'REPORT zlib_broken.\n* zcl_base\nDATA ls_msg TYPE zlib_unknown_type.\n');
+    const withLib = new ObjectStore({root, libs: ['lib']});
+    withLib.build();
+    const warn = console.warn;
+    console.warn = () => {};
+    let fallback;
+    try {fallback = withLib.activate('CLAS', 'ZCL_BASE');} finally {console.warn = warn;}
+    expect(withLib.registry().getObject('PROG', 'ZLIB_BROKEN')).to.not.equal(undefined);
+    expect(fallback.dependents.map(d => d.name)).to.not.include('ZLIB_BROKEN');
+    expect(fallback.active).to.equal(true);
+  });
 });

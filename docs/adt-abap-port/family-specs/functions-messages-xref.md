@@ -101,7 +101,9 @@ Registered under ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE, as `mainprograms` is
 The same collections as `discovery`, each in a workspace of its own, so a
 reader that takes `app:collection` as one element per workspace
 (abap-adt-api `adtCoreDiscovery`, the first call of `DebugService.create`)
-parses it; `discovery` keeps the grouped form. HEAD is unchanged.
+parses it; `discovery` keeps the grouped form. HEAD is unchanged. The Node
+façade answers the same bytes (`discoveryDocument(resources, {core: true})` in
+tools/adt-facade.mjs), so gate 1 of test/adt-abap-diff.mjs stays byte-equal.
 
 ## Host dependencies
 
