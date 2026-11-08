@@ -38,7 +38,19 @@ builtins (A), 2 bigint (A), 1 other. By module: `frontend.mjs` 47,
 `emit-go.mjs` 4, the rest one to three each. The Go run trapped at its first
 reached root, so no object produced output. Two regexp roots and the
 five SUBMIT-narrowing roots are fixed in OSG since this run. Those fixes are not
-remeasured yet. The run is a manual gate: its peak memory does not fit a CI runner.
+remeasured yet. A second full run on `ca801c94` (the same gogen, with abaplint core's own
+`npm ci`, so `json5` resolves) gave the same verdict:
+
+```
+selfhost-corpus: FAIL objects=1340 equal=0 diff=0 crash=1340 reached-functions=349/551 ref=e935f509b3231c78
+panic: tools/gogen/frontend.mjs:82:59: value outside supported numeric, ordering or conversion domain
+```
+
+It took 329 s with a peak RSS of 12.4 GB. The first runtime stop moved from
+abaplint's `Config` (`JSON5`, a missing install in the first run) to the
+`localeCompare` sort of the folder walk at the very start of `compileProgram`
+([gap 9](selfhost-abapiti-gaps.md#9-stringprototypelocalecompare)).
+The run is a manual gate: its peak memory does not fit a CI runner.
 
 ## Next milestone proposal
 

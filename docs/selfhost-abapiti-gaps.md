@@ -101,3 +101,16 @@ console.log(JSON.stringify(neg({e: "lit", v: "1"})));
 Trap: `recursive union literal has no admitted tag or compatible payload`.
 This is the union ABI work abapiti has already planned. gogen meets it in
 `tools/gogen/frontend.mjs` (8 reached roots).
+
+## 9. `String.prototype.localeCompare`
+
+```ts
+const names = ["zcl_b.clas.abap", "zcl_a.clas.abap", "#ns#x.clas.abap"];
+console.log(names.sort((x, y) => x.localeCompare(y)).join(","));
+```
+
+Runtime trap: `value outside supported numeric, ordering or conversion domain`.
+This is the first runtime stop of the whole-osgo run: the folder walk at the
+start of `compileProgram` (`tools/gogen/frontend.mjs`). The Node result depends
+on ICU collation, so a lowering has to reproduce Node's default locale order.
+Code-unit order is not enough.
