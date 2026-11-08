@@ -405,6 +405,9 @@ export function hashOf(root, inputs = inputsOf(root), options = {}) {
   return h.digest("hex").slice(0, 16);
 }
 
+// an empty build lock younger than this is still being written by its owner
+export const LOCK_WRITE_GRACE_MS = 5000;
+
 // one build at a time: the generators write gen/ at the root, and two of
 // them at once would race over it. A stale lock from a process that died is
 // taken over, not obeyed.
@@ -428,11 +431,22 @@ export function lock(paths) {
       }
       const pid = Number(readFileSync(paths.lock, "utf8"));
       let alive = false;
-      try {
-        process.kill(pid, 0);
-        alive = true;
-      } catch {
-        alive = false;
+      if (Number.isInteger(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          alive = true;
+        } catch {
+          alive = false;
+        }
+      } else {
+        // No pid: the owner was killed between openSync and writeFileSync
+        // above. Number("") is 0, and kill(0, 0) asks the caller's own process
+        // group, so this used to read as "a build is already running (pid 0)",
+        // for good. A lock that is being written right now is only
+        // microseconds old: refuse it for a short grace, then take it over.
+        let age = Infinity;
+        try { age = Date.now() - statSync(paths.lock).mtimeMs; } catch { /* gone: retry */ }
+        alive = age < LOCK_WRITE_GRACE_MS;
       }
       if (alive) {
         const e = new Error(`a build is already running (pid ${pid})`);

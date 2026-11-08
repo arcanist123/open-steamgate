@@ -1,0 +1,10 @@
+CLASS zcl_osd_rap_test DEFINITION PUBLIC FINAL CREATE PUBLIC FOR TESTING
+  DURATION SHORT RISK LEVEL DANGEROUS.
+* The managed RAP runtime (src/rap/, docs/rap-runtime.md) over the note demo.
+  PUBLIC SECTION.
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+CLASS zcl_osd_rap_test IMPLEMENTATION.
+ENDCLASS.
