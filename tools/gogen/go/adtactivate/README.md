@@ -13,7 +13,8 @@ object store (docs/osgo-adt-activation.md, option a):
   cancels the activation with the Node failure document (`activationExecuted="false"`,
   "Activation was cancelled", one located `msg type="E"` per issue). A
   check that cannot run refuses the activation. `forced` skips the check.
-- a clean set is published with `objstore.Activate`. That is the active
+- a clean set is published with `objstore.ActivateAll`, all or nothing: if any
+  object cannot be published, the whole activation is cancelled and nothing changes. That is the active
   version in the store, and the objects leave the inactive list. An object
   that is still the bytes the binary was built from gets the Node success
   document byte for byte. A changed one gets `generationExecuted="false"`,

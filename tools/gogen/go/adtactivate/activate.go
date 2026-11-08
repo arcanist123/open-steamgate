@@ -46,13 +46,22 @@ type Report struct {
 
 // Store is what activation needs of the object store; Default is objstore's.
 type Store struct {
-	Check    func(typ, name string) Report
-	Source   func(typ, name string) (string, bool)
-	Activate func(typ, name string) error
+	Check  func(typ, name string) Report
+	Source func(typ, name string) (string, bool)
+	// Activate publishes the whole batch or nothing (objstore.ActivateAll).
+	Activate func(objects []adtref.Object) error
 	Live     func(typ, name string) bool
 }
 
-var Default = Store{Check: checkRun, Source: source, Activate: objstore.Activate, Live: objstore.Live}
+var Default = Store{Check: checkRun, Source: source, Activate: activateAll, Live: objstore.Live}
+
+func activateAll(objects []adtref.Object) error {
+	batch := make([]objstore.Object, len(objects))
+	for i, o := range objects {
+		batch[i] = objstore.Object{Type: o.Type, Name: o.Name}
+	}
+	return objstore.ActivateAll(batch)
+}
 
 func call(command, typ, name string) objstore.Answer {
 	return objstore.Call(map[string]*string{"IV_COMMAND": &command, "IV_TYPE": &typ, "IV_NAME": &name})
@@ -152,11 +161,17 @@ func (st Store) Serve(r Request) (Response, bool) {
 	if len(failed) > 0 {
 		return xml(200, FailureDocument(failed, !forced)), true
 	}
+	// all or nothing: a batch that cannot be published leaves every object
+	// as it was, which is what "Activation was cancelled" says
+	if err := st.Activate(named); err != nil {
+		var cancelled []failure
+		for _, o := range named {
+			cancelled = append(cancelled, failure{o, []Issue{{Severity: "E", Line: 1, Column: 1, Message: "not activated: " + err.Error()}}})
+		}
+		return xml(200, FailureDocument(cancelled, !forced)), true
+	}
 	var published []adtref.Object
 	for _, o := range named {
-		if err := st.Activate(o.Type, o.Name); err != nil {
-			return xml(200, FailureDocument([]failure{{o, []Issue{{Severity: "E", Line: 1, Column: 1, Message: err.Error()}}}}, !forced)), true
-		}
 		if !st.Live(o.Type, o.Name) {
 			published = append(published, o)
 		}

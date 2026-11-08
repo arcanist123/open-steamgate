@@ -109,9 +109,11 @@ known source/include/metadata files and invalidates compiler snapshots. These
 APIs require the caller's session/ENQ authorization; they never issue handles.
 Mutation paths reject symbolic links as well as escapes from writable roots.
 
-`Activate` is the ADT activation's publish (go/adtactivate, after a clean
-check): every file of the object becomes its active version in the same
-in-memory overlay as a created class's skeleton, and the object leaves the
-inactive set. Nothing is built. `Live` says whether an object's files still
+`ActivateAll` is the ADT activation's publish (go/adtactivate, after a clean
+check), all or nothing: every object is resolved and every file read first.
+Then each changed file becomes its active version in the same in-memory
+overlay as a created class's skeleton, with an immutable content-named copy
+under `build/osgo-published/` that compilerInput gives the compiler for the
+active version. The objects leave the inactive set. Nothing is built. `Live` says whether an object's files still
 hash to the digests of the build this binary carries, which is what
 go/adtunit asks before it runs a class's compiled tests.

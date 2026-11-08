@@ -64,6 +64,14 @@ version is again the build's snapshot, and the object reads as changed. The
 files on disk are untouched by activation. A rebuild of osgo from the tree
 (`node tools/gogen/osgo.mjs`) makes the code live.
 
+A batch is all or nothing (`objstore.ActivateAll`): every object is resolved
+and every file read and snapshotted before any active version changes, so a
+missing object or an unreadable file cancels the whole activation with
+nothing published. The published bytes are also copied to an immutable,
+content-named snapshot under `build/osgo-published/`, which is what the
+compiler reads for the active version (the active outline), so active READ
+and active PARSE agree, and a later save does not change either.
+
 Preaudit and the inactive objects: `preauditRequested` is accepted and
 ignored, as on Node. A successful activation removes its objects from
 `GET /activation/inactiveobjects`. A failed one leaves them there.
@@ -108,7 +116,14 @@ into the binary:
   without a test include gets an empty run result, as on Node.
 
 What it does not do: there is no per-test timeout. A Go goroutine cannot be
-cancelled, and a test that loops holds the work process. The `HARMLESS`
+cancelled, and a test that loops holds the work process (and keeps the serving
+database set aside) until the process is killed. A timer that answered
+"aborted" while the test goroutine ran on would be unsafe: the test would go
+on using the shared database globals after they were restored. The safe forms
+are a supervised test worker (the same executable in a child process, killed
+at a deadline) or a watchdog that ends the whole wedged host for its
+supervisor to restart; neither is built yet. Only test classes compiled into
+the binary run, so the exposure is the build's own code. The `HARMLESS`
 write guard of the Node runner is not there. Coverage and the
 `abapunit/testruns` options beyond `withNavigationUri` are not there. These
 are the same omissions the Node runner has, except for the first two.

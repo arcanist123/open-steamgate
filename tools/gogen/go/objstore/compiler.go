@@ -36,11 +36,11 @@ func compilerInput(ix *storeIndex, typ, name, version string) (CompilerInput, er
 	in.Target = e.File
 	for _, file := range storeFilesOf(e) {
 		if version == "active" {
-			// an overlay without a build snapshot (a created or newly
-			// activated file) has no path for the compiler to read
-			if _, proven := storeActiveBytes(file); proven && storeState.cfg.Active[file] != "" {
-				in.Files = append(in.Files, storeState.cfg.Active[file])
-				in.Expected[storeState.cfg.Active[file]] = storeState.cfg.Built[file]
+			// the published snapshot after an activation, else the build's;
+			// a created class's skeleton has neither and is left out
+			if path, digest, ok := activeSnapshot(file); ok {
+				in.Files = append(in.Files, path)
+				in.Expected[path] = digest
 				in.Logical = append(in.Logical, file)
 			}
 		} else if bytes, err := os.ReadFile(filepath.Join(storeState.root, file)); err == nil {
