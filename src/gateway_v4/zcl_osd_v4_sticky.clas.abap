@@ -23,8 +23,9 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
 * A session idle for longer than GV_IDLE seconds is dropped (announced as
 * SAP-Http-Session-Timeout, so the UI5 model keeps a live one alive); at
 * most GV_MAX sessions hold buffers, a new one evicts the least recently
-* used. Save takes If-Match: it must name an ETag the session handed out
-* for its copy (412 otherwise).
+* used. The copy keeps the ETag its Edit/New started from until Save; PATCH
+* and Save take If-Match with exactly that one (428 without, 412 otherwise),
+* and Save answers the new ETag. A write naming an ended session is 410.
   PUBLIC SECTION.
     CONSTANTS gc_edit TYPE string VALUE 'OsdStickyEdit'.
     CONSTANTS gc_save TYPE string VALUE 'OsdStickySave'.
@@ -70,13 +71,22 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
              data    TYPE REF TO data,
 * seconds since 1970 of the last request in the session
              touched TYPE i,
-* every ETag this session handed out for its copy (Edit, New, each PATCH)
-             tags    TYPE string_table,
            END OF ty_entry.
     TYPES ty_entries TYPE STANDARD TABLE OF ty_entry WITH DEFAULT KEY.
 * the buffers as they are, by value: what an atomicity group that fails
 * gives back (a $batch's rollback does not reach class data)
     CLASS-METHODS snapshot RETURNING VALUE(rt_entries) TYPE ty_entries.
+* the ETag a session's copy carries: the one its Edit or New started from
+    CLASS-METHODS held IMPORTING ir_buffer TYPE REF TO data RETURNING VALUE(rv_etag) TYPE string.
+* a JSON entity with the ETag computed from its values replaced by the held one
+    CLASS-METHODS stamp IMPORTING iv_json TYPE string iv_computed TYPE string iv_held TYPE string
+      RETURNING VALUE(rv_json) TYPE string.
+* a write in a request that names a session (SAP-ContextId) to an entity the
+* session does not hold is never written through: 410 when the session has
+* ended (expired, evicted, saved or discarded), 400 when it is alive and
+* the entity was not started with Edit
+    CLASS-METHODS refuse IMPORTING it_headers TYPE tihttpnvp is_set TYPE zcl_stg_model_info=>ty_entity_set
+      RAISING zcx_stg_error.
     CLASS-METHODS restore IMPORTING it_entries TYPE ty_entries.
   PRIVATE SECTION.
     CLASS-DATA gt_entries TYPE ty_entries.
@@ -85,6 +95,7 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-DATA gv_max TYPE i VALUE 50.
     CLASS-METHODS now RETURNING VALUE(rv_seconds) TYPE i.
     CLASS-METHODS admit IMPORTING iv_context TYPE string.
+    CLASS-METHODS precondition IMPORTING iv_held TYPE string it_headers TYPE tihttpnvp RAISING zcx_stg_error.
     CLASS-METHODS matches IMPORTING iv_if_match TYPE string iv_tag TYPE string RETURNING VALUE(rv_match) TYPE abap_bool.
     CLASS-METHODS key_text IMPORTING it_keys TYPE /iwbep/t_mgw_name_value_pair RETURNING VALUE(rv_key) TYPE string.
     CLASS-METHODS row_keys IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set is_row TYPE any
@@ -129,6 +140,48 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
       ls_entry-data = lr_copy.
       APPEND ls_entry TO rt_entries.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD held.
+    DATA ls_entry TYPE ty_entry.
+    LOOP AT gt_entries INTO ls_entry WHERE data = ir_buffer.
+      rv_etag = ls_entry-etag.
+      RETURN.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD stamp.
+    rv_json = iv_json.
+    IF iv_computed IS NOT INITIAL AND iv_held IS NOT INITIAL AND iv_computed <> iv_held.
+      REPLACE FIRST OCCURRENCE OF '"@odata.etag":' && zcl_osd_v4_json=>quote( iv_computed )
+        IN rv_json WITH '"@odata.etag":' && zcl_osd_v4_json=>quote( iv_held ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD refuse.
+    DATA lv_context TYPE string.
+    lv_context = context_id( it_headers ).
+    READ TABLE gt_entries WITH KEY context = lv_context TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0.
+      zcl_osd_v4_query=>fail( iv_text = |The sticky session { lv_context } has ended (expired, evicted, saved or | &&
+        |discarded); nothing was written. Start again with { gc_edit }| iv_status = 410 ).
+    ENDIF.
+    zcl_osd_v4_query=>fail( |The sticky session { lv_context } does not hold this entity of { is_set-name }; | &&
+      |call { gc_edit } first. Nothing was written| ).
+  ENDMETHOD.
+
+  METHOD precondition.
+    DATA lv_if_match TYPE string.
+    IF iv_held IS INITIAL.
+      RETURN.
+    ENDIF.
+    lv_if_match = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'if-match' ).
+    IF lv_if_match IS INITIAL.
+      zcl_osd_v4_query=>fail( iv_text = 'The session copy has an ETag: send If-Match with it' iv_status = 428 ).
+    ENDIF.
+    IF matches( iv_if_match = lv_if_match iv_tag = iv_held ) = abap_false.
+      zcl_osd_v4_query=>fail( iv_text = 'If-Match does not name the ETag the session holds for the entity' iv_status = 412 ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD restore.
@@ -394,8 +447,6 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     DATA ls_entry TYPE ty_entry.
     DATA lv_stamp TYPE timestamp.
     DATA lv_if_match TYPE string.
-    DATA lv_tag TYPE string.
-    DATA lv_known TYPE abap_bool.
     DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
     DATA lo_context TYPE REF TO zcl_stg_request_context.
     DATA lx_busi TYPE REF TO /iwbep/cx_mgw_busi_exception.
@@ -442,7 +493,6 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         ls_entry-set = is_set-name.
         ls_entry-key = lv_key.
         ls_entry-etag = zcl_osd_v4_json=>etag( is_data = <ls_current> is_set = is_set io_model = io_model ).
-        APPEND ls_entry-etag TO ls_entry-tags.
         ls_entry-data = lr_current.
         ls_entry-touched = now( ).
         admit( lv_context ).
@@ -481,7 +531,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         ls_entry-set = is_set-name.
         ls_entry-key = lv_key.
         ls_entry-is_new = abap_true.
-        APPEND zcl_osd_v4_json=>etag( is_data = <ls_row> is_set = is_set io_model = io_model ) TO ls_entry-tags.
+        ls_entry-etag = zcl_osd_v4_json=>etag( is_data = <ls_row> is_set = is_set io_model = io_model ).
         ls_entry-data = lr_row.
         ls_entry-touched = now( ).
         admit( lv_context ).
@@ -495,26 +545,13 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         IF sy-subrc <> 0.
           zcl_osd_v4_query=>fail( |No sticky session holds { is_set-name }({ lv_key }); call { gc_edit } first| ).
         ENDIF.
-* The client's tag must be one this session handed out for its copy
-* (OData 4.01 Part 1, 8.2.4: 412 otherwise, nothing written). Not only the
-* latest: the UI5 model sends Save while the answer to its last PATCH, and
-* with it the new tag, is still on the way (measured with Fiori Elements
-* 1.120, create then Save). Only this session writes its copy, so an older
-* tag of the same session is no foreign change; changes by others are what
-* the database check against the ETag taken at Edit, below, catches.
-        lv_if_match = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'if-match' ).
-        IF lv_if_match IS NOT INITIAL.
-          lv_known = abap_false.
-          LOOP AT ls_entry-tags INTO lv_tag.
-            IF matches( iv_if_match = lv_if_match iv_tag = lv_tag ) = abap_true.
-              lv_known = abap_true.
-              EXIT.
-            ENDIF.
-          ENDLOOP.
-          IF lv_known = abap_false.
-            zcl_osd_v4_query=>fail( iv_text = 'If-Match names no version of the session copy of the entity' iv_status = 412 ).
-          ENDIF.
-        ENDIF.
+* The client's tag must be the one the session holds for its copy: the
+* ETag the entity had when Edit (or New) started the session. Buffered
+* changes do not move it -- the tag names the version the session works on,
+* not each keystroke -- so a PATCH answered while Save is already on its way
+* leaves the client's tag current. Save gives the new ETag of what it wrote.
+* Missing: 428; another tag: 412, nothing written (OData 4.01 Part 1, 8.2.4).
+        precondition( iv_held = ls_entry-etag it_headers = it_headers ).
         CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set is_service = io_model->ms_service.
         lo_provider->set_base( ls_entry-data ).
         IF ls_entry-is_new = abap_true.
@@ -566,10 +603,11 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     FIELD-SYMBOLS <ls_copy> TYPE any.
     FIELD-SYMBOLS <lv_from> TYPE any.
     FIELD-SYMBOLS <lv_to> TYPE any.
-    FIELD-SYMBOLS <ls_entry> TYPE ty_entry.
 
     lt_values = zcl_osd_v4_write=>values( iv_body = iv_body is_set = is_set io_model = io_model ).
-    zcl_osd_v4_write=>precondition( is_set = is_set io_model = io_model ir_current = ir_buffer it_headers = it_headers ).
+* the session's copy carries the ETag it was started with (see Save)
+    lv_etag = held( ir_buffer ).
+    precondition( iv_held = lv_etag it_headers = it_headers ).
 * the key is the one the URL names
     LOOP AT is_set-properties INTO ls_prop WHERE is_key = abap_true.
       DELETE lt_values WHERE name = ls_prop-name.
@@ -598,10 +636,6 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     <ls_buffer> = <ls_copy>.
 
     rs_response-status = 204.
-    lv_etag = zcl_osd_v4_json=>etag( is_data = <ls_buffer> is_set = is_set io_model = io_model ).
-    LOOP AT gt_entries ASSIGNING <ls_entry> WHERE data = ir_buffer.
-      APPEND lv_etag TO <ls_entry>-tags.
-    ENDLOOP.
     IF lv_etag IS NOT INITIAL.
       zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'ETag' iv_value = lv_etag CHANGING ct_headers = rs_response-headers ).
     ENDIF.
@@ -609,8 +643,9 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     IF lv_prefer CS 'return=representation'.
       rs_response-status = 200.
       rs_response-content_type = 'application/json;odata.metadata=minimal'.
-      rs_response-body = zcl_osd_v4_write=>representation( is_data = <ls_buffer> is_set = is_set io_model = io_model
-        iv_service_url = iv_service_url ).
+      rs_response-body = stamp( iv_json = zcl_osd_v4_write=>representation( is_data = <ls_buffer> is_set = is_set
+        io_model = io_model iv_service_url = iv_service_url ) iv_computed = zcl_osd_v4_json=>etag( is_data = <ls_buffer>
+        is_set = is_set io_model = io_model ) iv_held = lv_etag ).
       zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'Preference-Applied' iv_value = 'return=representation'
         CHANGING ct_headers = rs_response-headers ).
     ENDIF.

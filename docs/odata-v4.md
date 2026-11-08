@@ -263,7 +263,7 @@ For such a set `$metadata` carries, in the service namespace:
 | Element | Call | What it does |
 | --- | --- | --- |
 | `OsdStickyEdit`, bound to the entity, `EntitySetPath="_it"` | `POST Set(key)/<ns>.OsdStickyEdit` | reads the entity through `GET_ENTITY` into the session's buffer; checks `If-Match` when one is sent; answers the entity, its `ETag` and `SAP-ContextId` |
-| `OsdStickySave`, bound to the entity | `POST Set(key)/<ns>.OsdStickySave` | `If-Match`, when sent, must name an ETag the session handed out for its copy (412 otherwise); compares the ETag taken at Edit with the database's (412 if it moved), writes the buffer through `UPDATE_ENTITY` (or `CREATE_ENTITY` for a new one), drops it, answers the entity |
+| `OsdStickySave`, bound to the entity | `POST Set(key)/<ns>.OsdStickySave` | `If-Match` must name the ETag the session holds (428 without, 412 otherwise); compares the ETag taken at Edit with the database's (412 if it moved), writes the buffer through `UPDATE_ENTITY` (or `CREATE_ENTITY` for a new one), drops it, answers the entity |
 | `OsdStickyNew`, bound to the collection, the key properties as parameters | `POST Set/<ns>.OsdStickyNew` | starts a new entity in the buffer (400 if it exists or a key is missing); Fiori Elements asks for the parameters in a dialog |
 | `OsdStickyDiscard`, unbound, with an `ActionImport` | `POST OsdStickyDiscard` | drops every buffer of the session; 204 |
 
@@ -272,12 +272,20 @@ four names. A request carrying `SAP-ContextId` reads (`GET Set(key)`) and
 changes (`PATCH`/`PUT Set(key)`, `If-Match` against the buffer's ETag) the
 session's copy instead of the database; every answer to such a request
 names the session again, and a `$batch` names the session a part opened,
-because the client reads that header on the batch. Save accepts any tag the
-session handed out (Edit, New, each PATCH), not only the latest: the UI5
-model sends Save while the answer to its last PATCH, which carries the new
-tag, is still on the way (Fiori Elements 1.120, create and Save). Only the
-session writes its copy, so an older tag of the same session is no foreign
-change; a tag from anywhere else is 412.
+because the client reads that header on the batch. The copy keeps the ETag its
+Edit (or New) started from until Save: buffered PATCHes do not move it, a
+GET or PATCH in the session answers it, and PATCH and Save take `If-Match`
+with exactly that tag (428 without, 412 with any other, nothing written).
+Save answers the new ETag of what it wrote. The tag names the version the
+session works on rather than each buffered change; that is also why the UI5
+model's Save, which it sends before the answer to its last PATCH has
+arrived (Fiori Elements 1.120, measured), carries a current tag.
+
+A write (`PATCH`/`PUT`) that names a session (`SAP-ContextId`) on a sticky
+entity set is never written through to the database: if the session has
+ended (idle timeout, eviction, Save or Discard of all it held, or a context
+the service never opened) it is 410, if the session is alive but does not
+hold that entity it is 400 ("call Edit first").
 
 The buffers live in the serving process (class data). There is no enqueue
 lock. A session idle for 900 seconds is dropped (announced as

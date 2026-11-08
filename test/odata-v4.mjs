@@ -901,9 +901,8 @@ describe("OData V4 for Fiori Elements", () => {
       const other = (await fetch(base + "/TravelSet('T0001')")).headers.get("etag");
       expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": other})).status).to.equal(412);
       expect((await json(base + "/TravelSet('T0003')")).Seats).to.equal(4);
-      // the tag Edit handed out still names a version of this session's copy
-      // (UI5 sends Save before the answer to its last PATCH has arrived)
-      expect(patch.headers.get("etag")).to.not.equal(edit.headers.get("etag"));
+      // the copy keeps the tag Edit handed out until Save
+      expect(patch.headers.get("etag")).to.equal(edit.headers.get("etag"));
       const save = await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": edit.headers.get("etag")});
       expect(save.status).to.equal(200);
       expect((await json(base + "/TravelSet('T0003')")).Seats).to.equal(55);
@@ -918,25 +917,26 @@ describe("OData V4 for Fiori Elements", () => {
       const before = (await json(base + "/TravelSet('T0001')", {headers: inSession(id)})).Seats;
       const failed = await batchIn(id, [
         {id: "a", atomicityGroup: "g", method: "PATCH", url: "TravelSet('T0001')", headers: {"if-match": "*"}, body: {Seats: 77}},
-        {id: "b", atomicityGroup: "g", method: "PATCH", url: "TravelSet('T0002')", headers: {"if-match": 'W/"stale"'}, body: {Seats: 1}},
+        {id: "b", atomicityGroup: "g", method: "POST", url: "TravelSet", body: {TravelId: "T0001"}},
       ]);
-      expect((await failed.json()).responses.map((r) => r.status)).to.deep.equal([424, 412]);
+      expect((await failed.json()).responses.map((r) => r.status)).to.deep.equal([424, 400]);
       expect((await json(base + "/TravelSet('T0001')", {headers: inSession(id)})).Seats).to.equal(before);
       // Save inside a failing group: the database rolls back and the copy stays
       await send(base + "/TravelSet('T0001')", "PATCH", {Seats: 66}, {...inSession(id), "if-match": "*"});
       const saveFailed = await batchIn(id, [
-        {id: "s", atomicityGroup: "g", method: "POST", url: "TravelSet('T0001')/ZSTG_DEMO_SRV.OsdStickySave", body: {}},
-        {id: "x", atomicityGroup: "g", method: "PATCH", url: "TravelSet('T0002')", headers: {"if-match": 'W/"stale"'}, body: {Seats: 1}},
+        {id: "s", atomicityGroup: "g", method: "POST", url: "TravelSet('T0001')/ZSTG_DEMO_SRV.OsdStickySave", body: {}, headers: {"if-match": "*"}},
+        {id: "x", atomicityGroup: "g", method: "POST", url: "TravelSet", body: {TravelId: "T0001"}},
       ]);
-      expect((await saveFailed.json()).responses.map((r) => r.status)).to.deep.equal([424, 412]);
+      expect((await saveFailed.json()).responses.map((r) => r.status)).to.deep.equal([424, 400]);
       expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(before);
-      const save = await action("/TravelSet('T0001')", "OsdStickySave", {}, inSession(id));
+      const save = await action("/TravelSet('T0001')", "OsdStickySave", {}, {...inSession(id), "if-match": "*"});
       expect(save.status).to.equal(200);
       expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(66);
       expect((await send(base + "/TravelSet('T0001')", "PATCH", {Seats: before})).status).to.equal(204);
     });
 
-    it("drops a session idle past the timeout, and evicts the least recently used one past the cap", async () => {
+    it("drops a session idle past the timeout, and evicts the least recently used one past the cap", async function () {
+      this.timeout(20000);
       const {zcl_osd_v4_sticky} = await import("../output/zcl_osd_v4_sticky.clas.mjs");
       const configure = (idle, max) => zcl_osd_v4_sticky.configure({
         iv_idle_seconds: new abap.types.Integer().set(idle), iv_max_sessions: new abap.types.Integer().set(max)});
@@ -946,16 +946,21 @@ describe("OData V4 for Fiori Elements", () => {
         expect(edit.headers.get("sap-http-session-timeout")).to.equal("1");
         const id = edit.headers.get("sap-contextid");
         await new Promise((resolve) => setTimeout(resolve, 2200));
-        expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(id))).status).to.equal(400);
+        // an expired session takes no write, and nothing reaches the database
+        const seats = (await json(base + "/TravelSet('T0002')")).Seats;
+        expect((await send(base + "/TravelSet('T0002')", "PATCH", {Seats: 84}, {...inSession(id), "if-match": edit.headers.get("etag")})).status)
+          .to.equal(410);
+        expect((await json(base + "/TravelSet('T0002')")).Seats).to.equal(seats);
+        expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, {...inSession(id), "if-match": "*"})).status).to.equal(400);
         await configure(900, 2);
         const ids = [];
         for (const key of ["T0001", "T0002", "T0003"]) {
           ids.push((await action(`/TravelSet('${key}')`, "OsdStickyEdit")).headers.get("sap-contextid"));
         }
         expect(new Set(ids).size).to.equal(3);
-        expect((await action("/TravelSet('T0001')", "OsdStickySave", {}, inSession(ids[0]))).status).to.equal(400);
-        expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, inSession(ids[2]))).status).to.equal(200);
-        expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(ids[1]))).status).to.equal(200);
+        expect((await action("/TravelSet('T0001')", "OsdStickySave", {}, {...inSession(ids[0]), "if-match": "*"})).status).to.equal(400);
+        expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(ids[2]), "if-match": "*"})).status).to.equal(200);
+        expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, {...inSession(ids[1]), "if-match": "*"})).status).to.equal(200);
       } finally {
         await configure(900, 50);
       }
@@ -971,19 +976,19 @@ describe("OData V4 for Fiori Elements", () => {
       const patch = await send(base + "/TravelSet('T0002')", "PATCH", {Description: "in the session"},
         {...inSession(id), "if-match": etag});
       expect(patch.status).to.equal(204);
-      expect(patch.headers.get("etag")).to.not.equal(etag);
+      expect(patch.headers.get("etag")).to.equal(etag);
       expect(patch.headers.get("sap-contextid")).to.equal(id);
       expect((await json(base + "/TravelSet('T0002')")).Description).to.not.equal("in the session");
       expect((await json(base + "/TravelSet('T0002')", {headers: inSession(id)})).Description).to.equal("in the session");
-      // a stale tag against the session's copy
-      expect((await send(base + "/TravelSet('T0002')", "PATCH", {Seats: 1}, {...inSession(id), "if-match": etag})).status)
+      // a tag the session does not hold
+      expect((await send(base + "/TravelSet('T0002')", "PATCH", {Seats: 1}, {...inSession(id), "if-match": 'W/"stale"'})).status)
         .to.equal(412);
-      const save = await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(id));
+      const save = await action("/TravelSet('T0002')", "OsdStickySave", {}, {...inSession(id), "if-match": etag});
       expect(save.status).to.equal(200);
       expect((await save.json()).Description).to.equal("in the session");
       expect((await json(base + "/TravelSet('T0002')")).Description).to.equal("in the session");
       // the session no longer holds it
-      expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(id))).status).to.equal(400);
+      expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, {...inSession(id), "if-match": "*"})).status).to.equal(400);
     });
 
     it("Discard drops the session's copies; Save after a change by somebody else is 412", async () => {
@@ -993,11 +998,11 @@ describe("OData V4 for Fiori Elements", () => {
       const discard = await fetch(base + "/OsdStickyDiscard", {method: "POST", headers: {...inSession(id), "content-type": "application/json"}, body: "{}"});
       expect(discard.status).to.equal(204);
       expect((await json(base + "/TravelSet('T0003')", {headers: inSession(id)})).Seats).to.equal(4);
-      expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, inSession(id))).status).to.equal(400);
+      expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": "*"})).status).to.equal(400);
       const again = await action("/TravelSet('T0003')", "OsdStickyEdit", {}, inSession(id));
       expect(again.headers.get("sap-contextid")).to.equal(id);
       expect((await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 41})).status).to.equal(204);
-      const late = await action("/TravelSet('T0003')", "OsdStickySave", {}, inSession(id));
+      const late = await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": "*"});
       expect(late.status).to.equal(412);
       expect((await json(base + "/TravelSet('T0003')")).Seats).to.equal(41);
       expect((await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 4})).status).to.equal(204);
@@ -1011,13 +1016,69 @@ describe("OData V4 for Fiori Elements", () => {
       expect((await fetch(base + "/TravelSet('T0600')")).status).to.equal(404);
       expect((await send(base + "/TravelSet('T0600')", "PATCH", {Description: "new in V4", Seats: 2},
         {...inSession(id), "if-match": created.headers.get("etag")})).status).to.equal(204);
-      const save = await action("/TravelSet('T0600')", "OsdStickySave", {}, inSession(id));
+      const save = await action("/TravelSet('T0600')", "OsdStickySave", {}, {...inSession(id), "if-match": "*"});
       expect(save.status).to.equal(200);
       expect(await json(base + "/TravelSet('T0600')")).to.include({Description: "new in V4", Seats: 2});
       expect((await action("/TravelSet", "OsdStickyNew", {TravelId: "T0001"})).status).to.equal(400);
       expect((await action("/TravelSet", "OsdStickyNew", {})).status).to.equal(400);
       expect((await action("/BookingSet(TravelId='T0001',BookingId='B001')", "OsdStickyEdit")).status).to.equal(501);
       expect((await send(base + "/TravelSet('T0600')", "DELETE")).status).to.equal(204);
+    });
+
+    const configure = async (idle, max) => {
+      const {zcl_osd_v4_sticky} = await import("../output/zcl_osd_v4_sticky.clas.mjs");
+      await zcl_osd_v4_sticky.configure({
+        iv_idle_seconds: new abap.types.Integer().set(idle), iv_max_sessions: new abap.types.Integer().set(max)});
+    };
+
+    it("refuses a PATCH in a session that expired or was evicted, and never writes it through", async () => {
+      try {
+        await configure(900, 1);
+        const first = await action("/TravelSet('T0001')", "OsdStickyEdit");
+        const lost = first.headers.get("sap-contextid");
+        const seats = (await json(base + "/TravelSet('T0001')")).Seats;
+        const second = await action("/TravelSet('T0002')", "OsdStickyEdit");
+        const live = second.headers.get("sap-contextid");
+        // the first session was evicted by the second: its PATCH is refused
+        const evicted = await send(base + "/TravelSet('T0001')", "PATCH", {Seats: 83},
+          {...inSession(lost), "if-match": first.headers.get("etag")});
+        expect(evicted.status).to.equal(410);
+        expect((await evicted.json()).error.message).to.contain("session");
+        expect((await send(base + "/TravelSet('T0001')", "PUT", {Seats: 83}, {...inSession(lost), "if-match": "*"})).status).to.equal(410);
+        expect((await send(base + "/TravelSet('T0001')", "PATCH", {Seats: 83}, {...inSession("osd-never-opened"), "if-match": "*"})).status)
+          .to.equal(410);
+        expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(seats);
+        // a live session that does not hold the entity: Edit first
+        const notHeld = await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 83}, {...inSession(live), "if-match": "*"});
+        expect(notHeld.status).to.equal(400);
+        expect((await json(base + "/TravelSet('T0003')")).Seats).to.not.equal(83);
+        await fetch(base + "/OsdStickyDiscard", {method: "POST", headers: inSession(live)});
+      } finally {
+        await configure(900, 50);
+      }
+    });
+
+    it("Save takes only the ETag the session holds; the session's ETag stays the one Edit handed out", async () => {
+      const edit = await action("/TravelSet('T0001')", "OsdStickyEdit");
+      const id = edit.headers.get("sap-contextid");
+      const held = edit.headers.get("etag");
+      const before = (await json(base + "/TravelSet('T0001')")).Seats;
+      const patch = await send(base + "/TravelSet('T0001')", "PATCH", {Seats: 37}, {...inSession(id), "if-match": held});
+      expect(patch.status).to.equal(204);
+      expect(patch.headers.get("etag")).to.equal(held);
+      const copy = await json(base + "/TravelSet('T0001')", {headers: inSession(id)});
+      expect(copy.Seats).to.equal(37);
+      expect(copy["@odata.etag"]).to.equal(held);
+      // a tag describing the changed content is not the tag the session holds
+      const content = `W/"${encodeURIComponent(copy.Description)};${copy.Status};37"`;
+      expect((await action("/TravelSet('T0001')", "OsdStickySave", {}, {...inSession(id), "if-match": content})).status).to.equal(412);
+      expect((await action("/TravelSet('T0001')", "OsdStickySave", {}, inSession(id))).status).to.equal(428);
+      expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(before);
+      const save = await action("/TravelSet('T0001')", "OsdStickySave", {}, {...inSession(id), "if-match": held});
+      expect(save.status).to.equal(200);
+      expect(save.headers.get("etag")).to.not.equal(held);
+      expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(37);
+      expect((await send(base + "/TravelSet('T0001')", "PATCH", {Seats: before})).status).to.equal(204);
     });
 
     it("names the session on a batch whose part opened it", async () => {

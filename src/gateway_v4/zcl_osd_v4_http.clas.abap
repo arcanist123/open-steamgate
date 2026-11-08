@@ -308,6 +308,11 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lr_buffer = zcl_osd_v4_sticky=>buffered( it_headers = it_headers iv_service = lo_model->ms_service-name
         iv_set = ls_set-name it_keys = lo_context->mt_key_tab ).
     ENDIF.
+    IF lr_buffer IS NOT BOUND AND ( iv_method = 'PATCH' OR iv_method = 'PUT' )
+        AND zcl_osd_v4_sticky=>context_id( it_headers ) IS NOT INITIAL
+        AND zcl_osd_v4_sticky=>offered( io_model = lo_model is_set = ls_set ) = abap_true.
+      zcl_osd_v4_sticky=>refuse( it_headers = it_headers is_set = ls_set ).
+    ENDIF.
     IF lr_buffer IS BOUND AND ( iv_method = 'PATCH' OR iv_method = 'PUT' ).
       rs_response = zcl_osd_v4_sticky=>patch( ir_buffer = lr_buffer iv_method = iv_method io_model = lo_model
         is_set = ls_set iv_service_url = lv_service_url iv_body = iv_body it_headers = it_headers ).
@@ -350,6 +355,12 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lv_context = lv_context && '/$entity'.
       rs_response-body = zcl_osd_v4_json=>document( iv_context = lv_context iv_entity = lv_row ).
       lv_etag = zcl_osd_v4_json=>etag( is_data = <ls_row> is_set = ls_set io_model = lo_model ).
+      IF lr_buffer IS BOUND.
+* the session's copy carries the ETag its Edit started from (ZCL_OSD_V4_STICKY)
+        rs_response-body = zcl_osd_v4_sticky=>stamp( iv_json = rs_response-body iv_computed = lv_etag
+          iv_held = zcl_osd_v4_sticky=>held( lr_buffer ) ).
+        lv_etag = zcl_osd_v4_sticky=>held( lr_buffer ).
+      ENDIF.
       IF lv_etag IS NOT INITIAL.
         zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'ETag' iv_value = lv_etag
           CHANGING ct_headers = rs_response-headers ).
