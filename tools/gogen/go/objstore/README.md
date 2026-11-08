@@ -3,7 +3,7 @@
 What: the object store of the Go host, `CALL FUNCTION 'ZOSD_STORE' DESTINATION 'STORE'` answered over the
 files the Node host answers it over (tools/osd-store.mjs, tools/osd-store-destination.mjs); filesystem reads
 (LIST, READ, OBJECT, PACKAGE, PACKAGES, SEARCH), history from git, and writes. An injected `Compiler`
-supplies CHECK and PARSE kind OUTLINE snapshots; ACTIVATE and TOKENS are still refused. go/abap keeps
+supplies CHECK and PARSE kind OUTLINE snapshots; the ZOSD_STORE commands ACTIVATE and TOKENS are still refused. go/abap keeps
 `SetStore`, `StoreCall`, the `Store*` type aliases and the
 session-first `ZOSD_STORE` adapter (Data in, tables filled).
 
@@ -108,3 +108,10 @@ PUT keeps it separate from the inactive working source. Delete removes the
 known source/include/metadata files and invalidates compiler snapshots. These
 APIs require the caller's session/ENQ authorization; they never issue handles.
 Mutation paths reject symbolic links as well as escapes from writable roots.
+
+`Activate` is the ADT activation's publish (go/adtactivate, after a clean
+check): every file of the object becomes its active version in the same
+in-memory overlay as a created class's skeleton, and the object leaves the
+inactive set. Nothing is built. `Live` says whether an object's files still
+hash to the digests of the build this binary carries, which is what
+go/adtunit asks before it runs a class's compiled tests.
