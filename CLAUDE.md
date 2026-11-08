@@ -458,7 +458,10 @@ Prior art built on: `abaplint/transpiler`, `open-abap/open-abap-odata`,
   a bare specifier, so code generated after the build gets
   `@abaplint/runtime` from a runtime plugin's `build.module` (the binary's
   own copy, one runtime object for host and generated code) and
-  `../test/setup.mjs` from `onResolve` by path. Every bundled module shares
+  `../test/setup.mjs` from `onResolve` by path; the gui converter a
+  checkout-mode binary loads from `.local/lars` gets `@abaplint/core` the
+  same way (`HOST_PACKAGES`, checked by `test/osd-binary.mjs` and reported
+  by `osd doctor`, 2026-11-08). Every bundled module shares
   one `import.meta.url` and `process.execPath` is the binary, so a tool
   starts another tool only through `tools/osd-host.mjs`, never by
   `spawn(process.execPath, <script>)` or a path off `import.meta.url`
