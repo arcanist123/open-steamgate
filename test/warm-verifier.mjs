@@ -497,3 +497,42 @@ if (process.argv[2] === 'verify') {
     try { expect(verificationPins(root)).to.have.length(1); } finally { release(); }
   });
 });
+
+// A signal to the front used to reap only the compiler worker. The frozen-input
+// verifier kept running after the front had exited and wrote into build/
+// (lock, verify-pins, tmp) while the owner removed it: the ENOTEMPTY of
+// test/vscode-warm-ready.mjs. The front now kills it and leaves after it exits.
+describe("warm verifier on a signal to the front", function () {
+  this.timeout(20000);
+  it("kills the running verifier and exits only after it is gone", async () => {
+    const script = `
+      import {spawn} from "node:child_process";
+      import {WarmCompiler} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-warm.mjs")).href)};
+      import {WarmCompilerProcess} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-warm-process.mjs")).href)};
+      import {exitHolds} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-exit-holds.mjs")).href)};
+      // a verifier that would outlive its front: it ignores SIGTERM
+      WarmCompiler.prototype.verify = function () {
+        const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {stdio: "ignore"});
+        this.verifying = child;
+        return new Promise(resolve => child.once("exit", () => resolve({verdict: child.osdCancelled ? "cancelled" : "failed", why: child.osdCancelled})));
+      };
+      // the supervisor's handler, as tools/osd-runtime.mjs has it
+      process.on("SIGTERM", async () => { await exitHolds(); process.exit(0); });
+      const compiler = new WarmCompilerProcess({root: process.cwd()});
+      compiler.verify("0123456789abcdef");
+      console.log(JSON.stringify({verifier: compiler.verifying.pid}));
+      setTimeout(() => process.kill(process.pid, "SIGTERM"), 200);
+    `;
+    const front = spawn(process.execPath, ["--input-type=module", "-e", script], {stdio: ["ignore", "pipe", "inherit"]});
+    let out = "";
+    front.stdout.on("data", d => { out += d; });
+    const code = await bounded(new Promise(resolve => front.once("exit", resolve)), 15000);
+    const lines = out.trim().split("\n").map(line => JSON.parse(line));
+    const pid = lines[0].verifier;
+    let alive = true;
+    try { process.kill(pid, 0); } catch (error) { alive = error.code !== "ESRCH"; }
+    if (alive) process.kill(pid, "SIGKILL");
+    expect(code).to.equal(0);
+    expect(alive, "the verifier outlived the front").to.equal(false);
+  });
+});
