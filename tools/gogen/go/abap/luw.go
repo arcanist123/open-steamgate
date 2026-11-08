@@ -37,6 +37,9 @@ func conn() querier {
 	return cachedQuerier{}
 }
 
+// StepQuerier is the calling step's transaction, or the database (adtpreview).
+func StepQuerier() any { return plainConn() }
+
 func plainConn() querier {
 	// DB may lazily open the Unit class's image and its transaction.
 	DB()
