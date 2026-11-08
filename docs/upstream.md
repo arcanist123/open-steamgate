@@ -8,8 +8,9 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-3b` at `f34e9bf4947daaf6464566b42b1e3ef1eaeb369c`
-(2.14.3, parser 2.120.73). [The pin move report](transpiler-pin-2.md) lists
+The current transpiler and runtime build is `local/osd-build-3d` at `9792b3c879972450aeb99b89747545a51b589522`
+(2.14.3, parser 2.120.73): `local/osd-build-3b` (`f34e9bf4`) plus the Open SQL
+host-variable escape (ANOMALY-2026-11-08-sql-host-variable-inlined). [The pin move report](transpiler-pin-2.md) lists
 the retained and dropped fork commits. The dossier below is the historical snapshot. Every one of those fixes has an entry
 in `ANORMALIES.md` and a branch in that clone, and `npm run parked` prints the
 two side by side and complains where they disagree. This is the dossier for
@@ -545,3 +546,44 @@ in inbox 007 still fail 5/7; those operators are outside this fix. Validation
 uses core 2.120.64 because 2.120.65 changes a CREATE DATA operand node.
 The OSG proof used a disposable dependency copy; the original shared local
 2.13.93 dependencies were preserved.
+
+## EML lowering for the transpiler (2026-11-08, RAP R2a)
+
+Not an anomaly: a gap. `@abaplint/transpiler` parses `MODIFY ENTITIES`,
+`READ ENTITIES`, `COMMIT ENTITIES` and `ROLLBACK ENTITIES` (abaplint, v754
+and OpenABAP) and emits `throw new Error("ModifyEntities, not supported,
+transpiler")` for the first two and nothing for the last two (`Statement
+CommitEntities not supported`). The patch on branch `rap-eml` of the job's
+own clone of `abaplint/transpiler` (`transpiler-rap-eml.patch` beside it;
+nothing pushed) lowers the four statements onto a kernel class,
+`KERNEL_RAP_EML`, in the convention `CALL TRANSFORMATION`, `AUTHORITY-CHECK`
+and `SCAN` already use: a guard, then one call per operation with the names
+as strings and the tables and targets as they are
+([rap-eml.md](rap-eml.md), "The calling convention"). The kernel class is
+this repository's `src/rap/kernel_rap_eml`; the transpiler ships none, as
+it ships none of the others.
+
+Files: `packages/transpiler/src/statements/_eml.ts` (walker over the flat
+statement, shared), `modify_entities.ts`, `read_entities.ts`, new
+`commit_entities.ts` and `rollback_entities.ts`, `index.ts`. Tests:
+`packages/transpiler/test/single_statements.ts` (the emitted code for
+fourteen forms, the two existing EML expectations replaced), and
+`test/statements/eml.ts` at the root (a fake kernel class records what the
+running statements hand it: names, tables, targets, sy-subrc). Not lowered,
+said at run time with the addition's name: `OPERATIONS`, `BY` (deep EML),
+`RELATING TO`, `AUGMENTING`, `LINK`, `READ ... EXECUTE`, `IN SIMULATION
+MODE`.
+
+Beside it, **needs an issue in abaplint/abaplint**:
+`ANOMALY-2026-11-08-eml-inline-target-void`, an inline `DATA( )` target of
+an EML statement is typed void instead of from the BDEF, so the transpiler
+can declare nothing for it; the lowering requires declared targets and the
+draft PR says so.
+
+Sending: a branch inside `abaplint/transpiler` (the regression workflow
+rule), after the critic reads the draft against the diff; the draft PR text
+is `transpiler-rap-eml-PR.md` in the job folder. Until it is in a release
+and the pin moves, `src/rap_demo/zcl_rap_note_eml` stays in the
+`exclude_filter` of `abap_transpile.json` (the unpatched transpiler stops
+the whole build on `COMMIT ENTITIES`); the facade and the kernel entry
+are proven without EML syntax by `test/unit/zcl_osd_rap_eml_test`.

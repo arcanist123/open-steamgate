@@ -447,6 +447,16 @@ async function setupDatabase(abap, schemas, insert) {
     // been failing with a 500 for as long as it batched; found while
     // testing that reset re-seeds the cross-reference.
     preview.insert = given;
+    // Import-time initialization and the worker's "reset" both call setup;
+    // the Node path below has always released the predecessor before
+    // replacing DEFAULT, the preview path never did. sql.js in the preview
+    // is the asm.js build (dist/sql-asm.js, webpack's alias) with ONE fixed
+    // ArrayBuffer of 22151168 bytes and no growth, and a Database that is
+    // not closed keeps its page cache in that heap: reset rebuilt the
+    // database beside the old connection until the reseed aborted with
+    // "Aborted(OOM)" -- first at adabd1d0, where the tree had grown past
+    // what one leaked connection still left room for.
+    await abap.context.databaseConnections["DEFAULT"]?.disconnect();
     if (preview.database === "duckdb") {
       const {DuckDBWasmClient, duckdbSchema, duckdbInserts} = await import("../tools/duckdb-wasm-client.mjs");
       db = installTrim(new DuckDBWasmClient({wasmURL: preview.wasmURL}));

@@ -32,6 +32,10 @@ CLASS lcl_narrow IMPLEMENTATION.
     rr_response = mi_bo->new_response( iv_kind ).
   ENDMETHOD.
 
+  METHOD zif_osd_rap_bo~new_result.
+    rr_result = mi_bo->new_result( iv_entity = iv_entity iv_action = iv_action ).
+  ENDMETHOD.
+
   METHOD zif_osd_rap_bo~call.
     mi_bo->call( io_handler = io_handler iv_entity = iv_entity iv_name = iv_name
                  ir_rows = ir_rows ir_keys = ir_keys ir_result = ir_result

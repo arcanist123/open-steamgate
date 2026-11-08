@@ -14,6 +14,8 @@ CLASS zcl_stg_batch DEFINITION PUBLIC CREATE PUBLIC.
              headers TYPE tihttpnvp,
              body    TYPE string,
              body_x  TYPE xstring,
+* the MIME Content-ID of the part (the V4 facade answers with it)
+             content_id TYPE string,
            END OF ty_request.
     TYPES ty_requests TYPE STANDARD TABLE OF ty_request WITH DEFAULT KEY.
 
@@ -350,6 +352,8 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     split_headers( EXPORTING iv_chunk   = iv_chunk
                    IMPORTING et_headers = lt_part_headers
                              ev_rest    = lv_http ).
+    rs_request-content_id = header( it_headers = lt_part_headers
+                                    iv_name    = 'content-id' ).
 
     WHILE lv_off < xstrlen( lv_http ).
       IF lv_http+lv_off(1) = '0A'.

@@ -126,8 +126,19 @@ export async function osgDatabase(program) {
     skipped.set(t, (skipped.get(t) ?? 0) + 1);
     return false;
   });
-  const summary = `database: ${created.size} tables and views, ${kept.length} inserts${skipped.size ? `; left out, no table in this program: ${[...skipped].map(([t, n]) => `${t} (${n})`).join(", ")}` : ""}`;
-  return {statements: [...setup.schemas.sqlite, ...kept], summary};
+  // the cross-reference the Node hosts seed at start (tools/osd-xref-seed.mjs,
+  // CROSS / WBCROSSGT / WBCROSSGTX / D010INC derived from the tree), here
+  // once at build time, so where-used and the main programs of an include
+  // answer on osgo as they do on Node; only the tables this program defines
+  const {rows: xrefRows, insertStatements: xrefInserts, counts: xrefCounts} = await import(`${home}/tools/osd-xref-seed.mjs`);
+  const xref = await xrefRows(home);
+  const xrefStatements = xrefInserts(xref).filter((x) => {
+    const t = /^(?:INSERT\s+INTO|DELETE\s+FROM)\s+['"]?([\w\/]+)/i.exec(x)?.[1]?.toLowerCase();
+    return t !== undefined && created.has(t);
+  });
+  const xrefSummary = Object.entries(xrefCounts(xref)).map(([t, n]) => `${t} ${n}`).join(", ");
+  const summary = `database: ${created.size} tables and views, ${kept.length} inserts${skipped.size ? `; left out, no table in this program: ${[...skipped].map(([t, n]) => `${t} (${n})`).join(", ")}` : ""}; cross-reference: ${xrefSummary}`;
+  return {statements: [...setup.schemas.sqlite, ...kept, ...xrefStatements], summary};
 }
 
 /*

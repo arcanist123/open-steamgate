@@ -10,7 +10,13 @@ import {keepGeneratedSources} from "../tools/osd-source-snapshot.mjs";
 import {loadFiles, modulesOf} from "../tools/osd-transpile.mjs";
 import {libraryPath} from "../tools/osd-lib-path.mjs";
 
-const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+// The build's exclude_filter entries for this folder hold here too:
+// abap_transpile.json leaves the real-EML demo out (_eml_demo) until the pin
+// lowers EML. (Its generic \.bdef\. / \.ddls\. entries are not taken: the
+// generators read those sources, and so does this test.)
+const excluded = f => (JSON.parse(readFileSync("abap_transpile.json", "utf8")).exclude_filter ?? [])
+  .filter(r => r.startsWith("/src/rap_demo/")).some(r => new RegExp(r).test("/" + f.replace(/\\/g, "/")));
+const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !excluded(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
 // The pool inherits the clean-room bases of the R2 runtime (src/rap/), which
 // lean on the LUW buffer, the CDS source interface and open-abap-core; those
 // are dependencies here, checked but not the subject (`npm run lint` lints

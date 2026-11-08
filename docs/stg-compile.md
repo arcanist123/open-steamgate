@@ -163,6 +163,8 @@ What a local annotation file (`webapp/annotations/annotations.xml`) used to
 carry lives next to the model: an `annotations:` map keyed by entity
 (`Travel`) or property (`Travel/Status`). Per entity: `header`
 (`UI.HeaderInfo`: typeName, typeNamePlural, title, description),
+`sticky: true` (`Session.StickySessionSupported` with an empty record: asks
+the OData V4 facade for sticky-session editing, `docs/odata-v4.md`),
 `selectionFields`, `lineItem` (`value`/`label`, or `semanticObject`+`action`
 for `DataFieldWithIntentBasedNavigation`, or `intent: {label, semanticObject,
 action}` for a `DataFieldForIntentBasedNavigation` button), `facets`

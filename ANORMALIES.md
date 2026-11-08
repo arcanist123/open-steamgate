@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type
+
+- Status: `open`
+- Discovery date: `2026-11-08` (dell, reading the EML lowering of RAP R2a; reproduced in the transpiler clone)
+- Affected versions: `@abaplint/core` 2.120.73 (pinned) and 2.120.94; `@abaplint/transpiler` 2.14.3 (pinned) and 2.14.19 with the local EML lowering
+- Affected ABAP statement, runtime API or adapter: `READ ENTITIES ... RESULT DATA(lt) FAILED DATA(ls)`, `MODIFY ENTITIES ... MAPPED DATA(ls)` (every inline declaration in an EML target position)
+- Minimal ABAP reproducer: a program with `READ ENTITIES OF zi_note ENTITY Note ALL FIELDS WITH lt_keys RESULT DATA(lt_result) FAILED DATA(ls_failed).` beside a BDEF `zi_note`
+- Exact command used to run it: `new Transpiler().run(registry)` over the two files in the clone (`scratchpad/void3.cjs`, not tracked)
+- Expected SAP behaviour: the inline targets are typed from the behavior definition (`TABLE FOR READ RESULT zi_note`, `RESPONSE FOR FAILED EARLY zi_note`) and the statement fills them
+- Actual open-abap behaviour: abaplint's syntax step gives the inline targets a void type, so the transpiler emits **no declaration** for them (default options: `lt_result` is then a JavaScript `ReferenceError` at the statement) and with `unknownTypes: compileError`, as OSG builds, refuses the object with `Void type: ReadEntities`
+- Impact on open-steamgate: EML code must declare its targets (`TYPE TABLE FOR READ RESULT ...`, `TYPE RESPONSE FOR ... EARLY ...`), which R1's lowering then resolves; `docs/rap-eml.md` says so
+- Smallest safe workaround: declare the targets; nothing to do in the runtime
+- Upstream issue: needs an issue in `abaplint/abaplint` (the inferred type of an EML target is the derived type of the BDEF named in the statement); none filed, and our fork rule for abaplint applies (`npm run parked`)
+- Regression-test location: none yet; the demo `src/rap_demo/zcl_rap_note_eml` uses declared targets on purpose
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-10-17-list-position -- Converted ULINE adds positioning absent from the direct Node oracle
 
 - Status: `workaround`; osabap repairs the pinned converter's redundant ULINE
@@ -4192,6 +4208,29 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Critic round 2: GET_TEXT_FOR_MESSAGE bypassed the metadata guard and returned the generic fallback for widened kernel errors. Both native helpers now return carried kernel text first; interface fields and generic bindings also guard the runtime object. Named refusals replace message-helper ASSERT-todo metadata lookups. The complete field/helper/RTTI audit and two-host tests are listed in tools/gogen/testdata/exception-previous-notes.md.
 - Critic round 1: materialized kernel attribute reads refuse by name (SAP TEXTID/KERNEL_ERRID values unmeasured; measure on A4H). Initial EXC GET_TEXT/class-name/PREVIOUS reads dump OBJECTS_OBJREF_NOT_ASSIGNED, matching initial CX references; compiled constructor-populated attributes remain readable.
 - Tests: generic testdata ABAP Unit contains only successful methods, including ordinary class descriptor INTERFACES. Registered test/osgo-exc-previous.mjs stages negative methods locally and checks both hosts for metadata refusals and initial dereferences; semantics.mjs and frontend-exception.test.mjs cover output and refusal boundaries.
+
+### ANOMALY-2026-11-08-sql-host-variable-inlined -- a host variable in Open SQL is inlined into the SQL text unescaped, so a quote in its value ends the literal (SQL injection through an OData key)
+
+- Status: `workaround` (fixed in the pinned fork `oisee/transpiler` `local/osd-build-3d` `9792b3c87997`; upstream patch drafted, not yet sent)
+- Discovery date: `2026-11-08` (post-merge critic of #856/#858, probing the V4 writes with keys that carry a quote)
+- Affected versions: `@abaplint/transpiler` 2.14.3 at the previously pinned `f34e9bf4` (`local/osd-build-3b`), `abaplint/transpiler` main at `37132489` (2.14.19), and every published version: `packages/transpiler/src/expressions/sql_cond.ts` emits `'" + lv.get() + "'` for a host variable (`sqlHost`, `basicConditionNew`, `sourceWithComponents`, the interface-constant and conversion branches of `sqlSource`), `sql_field_and_value.ts` the same for `UPDATE ... SET f = lv`, `update_database.ts` for `UPDATE dbtab FROM wa`, `sql_field.ts` for a host variable in a field list, and the runtime's `expand_dynamic.ts` for a `<fs>-comp` substituted into a dynamic WHERE. `INSERT` and `IN seltab` were already escaped (`insert_database.ts`, `expand_in.ts`).
+- Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE f = lv` / `= @lv` / `LIKE lv` / `IN (lv1, lv2)` / `FOR ALL ENTRIES ... WHERE f = lt-comp`, `UPDATE ... SET ... WHERE`, `UPDATE dbtab FROM wa`, `DELETE FROM ... WHERE`, `MODIFY` (through update) -- any host variable whose value holds a `'`
+- Minimal ABAP reproducer (our own objects): `src/demo/zcl_zstg_demo_dpc_ext.clas.abap` `travelset_get_entity` / `travelset_update_entity` reached as `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('x'' OR ''1''=''1')`; in the transpiler's own suite, `test/database.ts` "host variables with quotes":
+  ```abap
+  DATA lv_key TYPE c LENGTH 20.
+  DATA lt_result TYPE STANDARD TABLE OF t100.
+  lv_key = 'x'' OR ''1''=''1'.
+  SELECT * FROM t100 INTO TABLE lt_result WHERE arbgb = lv_key.
+  " sy-subrc 4 and no rows on a system; every row of t100 here
+  ```
+- Exact command used to run it: `npx mocha test/mocha.mjs --grep "quote in a key"` and `npx mocha test/odata-v4.mjs --grep "round three"` after `npm run transpile`; the critic's probes before the fix: `GET TravelSet('x'' OR ''1''=''1')` answered 200 with T0001, `PATCH TravelSet('x'' OR ''1''=''1') {"Description":"oracle"}` answered 204 and changed **every** travel's Description (the DPC's `UPDATE zstg_demo FROM ls_row` after a `SELECT SINGLE ... WHERE travel_id = lv_travel_id` that matched the first row), `GET NoteSet('a''b')` was a 500 (SQL syntax error); V2 and V4 alike, INSERT unaffected.
+- Expected SAP behaviour: a host variable is bound, never spliced into the statement text; its value is data whatever characters it holds. `WHERE travel_id = lv` with `lv = x' OR '1'='1` finds nothing (sy-subrc 4), `a'b` is an ordinary key. Not measured on A4H: this is the definition of a host variable, not a corner of it.
+- Actual open-abap behaviour: the generated JavaScript concatenates the value between two quotes and the DatabaseClient executes the text, so a `'` in the value ends the literal; what follows is read as SQL. `'x' OR '1'='1'` reads every row and `UPDATE ... WHERE` writes every row; `'a'b'` is a syntax error (500 at the gateway).
+- Impact on open-steamgate: any OData key or `$filter` literal that reaches a hand-written DPC's Open SQL (the whole point of the runtime) can read or overwrite other rows. `zcl_stg_url=>unquote` is right to turn `''` into `'` (the gateway's contract is the OData one), so the gateway cannot fix this by itself without refusing legitimate keys such as `a'b`. The SADL path (`zcl_stg_sadl_dpc`) builds its own SQL and was not the measured path; the generated `zcl_stg_tab_<table>` classes use Open SQL host variables and are covered by the fix.
+- Smallest safe workaround: the fix itself, carried on the pinned fork: `abap.sqlEscape(value)` in `@abaplint/runtime` (`'` doubled, nothing else: a LIKE pattern keeps its `%`), called around every host variable the transpiler inlines (`select.ts` binds a FOR ALL ENTRIES row reference inside the call too); a backtick literal with a quote in a WHERE gets the same treatment at transpile time. Binding would be the right fix, but `DatabaseClient` (`packages/runtime/src/db/db.ts`) takes SQL as text with no parameter list, so binding is an interface change for all four clients (SQLite, PostgreSQL, HANA, Snowflake) -- escape now, bind later. Dynamic WHERE text built by a program (`SELECT ... WHERE (lv_where)`) stays the program's responsibility, as on a system; only the field-symbol substitution the runtime does inside it is escaped. That substitution first went in through `String.replace` with a string, so `$'`, `$&` or `` $` `` in a value were read as JavaScript replacement patterns (`$'` pasted the rest of the condition into the literal), and it rescanned what it had written, so a value holding ` <x>` was expanded again inside its own literal or looped forever; `local/osd-build-3d` does it in one pass with a replacer function. Inlined by design and not escaped, because they are not values: `UP TO n ROWS` (a number), and the dynamic FROM, ORDER BY, GROUP BY and field lists, which are SQL text the program supplies, as on a system. Doubling the quote is the standard-SQL spelling, which SQLite (what OSG runs on), PostgreSQL (standard_conforming_strings) and HANA read; DuckDB too. A dialect that reads backslash escapes inside literals (Snowflake) is not covered by this and would need its client to double the backslash as well.
+- Upstream: needs an issue/PR in abaplint/transpiler, after our critic pass. Patch and draft PR text are in the sqlinj job directory (`transpiler-sql-escape.patch`, from `fix/sql-host-escape` on upstream main `37132489`); the same commit is cherry-picked onto `f34e9bf4` as `local/osd-build-3c` `1d78e3662545`, and the `$`-pattern fix of `expand_dynamic.ts` is the next commit on both, `local/osd-build-3d` `9792b3c87997`, pinned in `libs.lock.json`.
+- Regression-test location: `test/mocha.mjs` ("a quote in a key stays in the key"), `test/odata-v4.mjs` ("review fixes, round three"); in the transpiler `test/database.ts` "host variables with quotes" (SELECT, LIKE, IN, FOR ALL ENTRIES, UPDATE SET, UPDATE FROM, DELETE, backtick literal, a dynamic WHERE with `$'`, `$&` and ` <x>` in field-symbol values) and `packages/transpiler/test/single_statements.ts`
+- Upstream version containing a fix: `unknown` (none yet)
 
 ## RAP derived types cannot transpile (R1)
 
