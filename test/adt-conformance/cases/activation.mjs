@@ -11,9 +11,7 @@ import {NS} from '../assertions.mjs';
 // with a rebuild warning, which go/adtactivate's tests cover.
 const ns = {...NS, chkl: 'http://www.sap.com/abapxml/checklist'};
 const fixture = '/sap/bc/adt/oo/classes/zcl_zosd_test_demo';
-// A successful activation on the JS host builds its generation first (in
-// js.mjs's disposable view that is a full transpile), so it gets minutes.
-const activation = uri => ({method: 'POST', path: '/activation', query: {method: 'activate', preauditRequested: 'true'}, timeout: 300000,
+const activation = uri => ({method: 'POST', path: '/activation', query: {method: 'activate', preauditRequested: 'true'},
   headers: {'content-type': 'application/xml', accept: 'application/xml'},
   body: `<?xml version="1.0" encoding="UTF-8"?><adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core"><adtcore:objectReference adtcore:uri="${uri}" adtcore:name="${uri.split('/').pop().toUpperCase()}"/></adtcore:objectReferences>`});
 const unit = method => ({method: 'POST', path: '/abapunit/testruns',
@@ -62,7 +60,9 @@ const method = name => `//testClass[@adtcore:name="LTCL_ZOSD_TEST_DEMO"]/testMet
 
 export default [
   {id: 'X1-activate-active', point: 'X1', title: 'Activating an unchanged class answers the plain success document',
-    request: activation(fixture),
+    // a successful activation on the JS host builds its generation first (in
+    // js.mjs's disposable view a full transpile), so X1 alone gets minutes
+    request: {...activation(fixture), timeout: 300000},
     expect: {status: 200, namespaces: ns, xml: [
       {xpath: '/chkl:messages/chkl:properties/@checkExecuted', value: 'true'},
       {xpath: '/chkl:messages/chkl:properties/@activationExecuted', value: 'true'},

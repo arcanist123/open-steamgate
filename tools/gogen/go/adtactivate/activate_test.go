@@ -2,6 +2,8 @@ package adtactivate
 
 import (
 	"errors"
+
+	"osg/gogen/adtref"
 	"strings"
 	"testing"
 )
@@ -12,15 +14,25 @@ type fake struct {
 	report    Report
 	live      bool
 	activated []string
+	batches   int
 	fail      error
 }
 
 func (f *fake) store() Store {
 	return Store{
-		Check:    func(typ, name string) Report { return f.report },
-		Source:   func(typ, name string) (string, bool) { return "src", true },
-		Activate: func(typ, name string) error { f.activated = append(f.activated, typ+" "+name); return f.fail },
-		Live:     func(typ, name string) bool { return f.live },
+		Check:  func(typ, name string) Report { return f.report },
+		Source: func(typ, name string) (string, bool) { return "src", true },
+		Activate: func(objects []adtref.Object) error {
+			f.batches++
+			if f.fail != nil {
+				return f.fail
+			}
+			for _, o := range objects {
+				f.activated = append(f.activated, o.Type+" "+o.Name)
+			}
+			return nil
+		},
+		Live: func(typ, name string) bool { return f.live },
 	}
 }
 
@@ -115,5 +127,22 @@ func TestIfMatch(t *testing.T) {
 	}
 	if r := post(f.store(), "method=activate", [][2]string{{"If-Match", "*"}}); r.Status != 200 {
 		t.Fatal(r.Status)
+	}
+}
+
+// critic #863 MUST 2: one batch call; a batch that fails is cancelled whole.
+func TestBatchIsAllOrNothing(t *testing.T) {
+	two := `<?xml version="1.0"?><adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core"><adtcore:objectReference adtcore:uri="/sap/bc/adt/oo/classes/zcl_a"/><adtcore:objectReference adtcore:uri="/sap/bc/adt/oo/classes/zcl_missing"/></adtcore:objectReferences>`
+	f := &fake{report: Report{Status: "processed"}, live: false, fail: errors.New("CLAS ZCL_MISSING does not exist")}
+	r, _ := f.store().Serve(Request{Method: "POST", Path: "/sap/bc/adt/activation", Query: "method=activate&forced=true", Body: []byte(two)})
+	s := string(r.Body)
+	if f.batches != 1 || len(f.activated) != 0 || !strings.Contains(s, `activationExecuted="false"`) ||
+		strings.Count(s, `type="E"`) != 2 || !strings.Contains(s, "not activated: CLAS ZCL_MISSING does not exist") {
+		t.Fatal(f.batches, f.activated, s)
+	}
+	f.fail = nil
+	r, _ = f.store().Serve(Request{Method: "POST", Path: "/sap/bc/adt/activation", Query: "method=activate", Body: []byte(two)})
+	if f.batches != 2 || len(f.activated) != 2 || !strings.Contains(string(r.Body), `activationExecuted="true"`) {
+		t.Fatal(f.batches, f.activated, string(r.Body))
 	}
 }
