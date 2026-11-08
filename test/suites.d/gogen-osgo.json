@@ -66,7 +66,8 @@
     "test/osd-zip-layer.mjs",
     "test/osd-zip-start-warm.mjs",
     "test/osd-up-help.mjs",
-    "test/osd-hitlist.mjs"
+    "test/osd-hitlist.mjs",
+    "test/osd-host-contract.mjs"
   ],
   "groups": {
     "gogen": [
