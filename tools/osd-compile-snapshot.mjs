@@ -56,5 +56,7 @@ export function readCompileInputs(root, generation) {
     if (createHash("sha256").update(bytes).digest("hex") !== file.digest) throw new Error(`frozen source digest differs: ${file.source}`);
     return {...file, bytes};
   };
-  return {config: frozen.config, files: frozen.files.map(read), libs: frozen.libs.map(read)};
+  const rapSource = "gen/rap/bindings.json";
+  const rapBindings = inputs[rapSource] === undefined ? {} : JSON.parse(read({source: rapSource, digest: inputs[rapSource]}).bytes.toString("utf8"));
+  return {config: frozen.config, files: frozen.files.map(read), libs: frozen.libs.map(read), rapBindings};
 }

@@ -121,6 +121,7 @@ const GENERATORS = {
   "gogen-unit.mjs": () => import(pathToFileURL(resolve(process.cwd(), "tools/gogen/unit.mjs")).href),
   "osd-transpiler.mjs": () => import("../tools/osd-transpiler.mjs"),
   "osd-inputs.mjs": () => import("../tools/osd-inputs.mjs"),
+  "bdef-gen.mjs": () => import("../tools/rap/bdef-gen.mjs"),
   "cds2ddic.mjs": () => import("../tools/cds2ddic.mjs"),
   "stg-compile.mjs": () => import("../tools/stg-compile.mjs"),
   "segw-registry.mjs": () => import("../tools/segw-registry.mjs"),

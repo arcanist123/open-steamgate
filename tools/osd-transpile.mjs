@@ -28,6 +28,7 @@ import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {hostModules} from "./osd-host.mjs";
 import {isSourceIdentity, inputFoldersOf} from "./osd-packs.mjs";
 import {mapStatementStarts} from "./osd-source-map-starts.mjs";
+import {lowerDerived, readRapBindings} from "./rap/lower-derived.mjs";
 import {lowerNarrowSubmit} from "./osd-narrow-submit.mjs";
 import {installRfcMessage} from "./osd-rfc-message.mjs";
 import {libraryPath} from "./osd-lib-path.mjs";
@@ -174,8 +175,9 @@ export async function readAll(files, relativeTo, transform = (source) => source,
 // expressions of input_filter and exclude_filter over the absolute path
 export async function loadFiles(root, config, core, onRead = undefined) {
   const {wanted, skipped} = listFiles(root, config);
+  const rapBindings = readRapBindings(root, onRead);
   const files = await readAll(wanted, resolve(root, config.output_folder),
-    (source, filename) => lowerNarrowSubmit(source, filename, core), onRead);
+    (source, filename) => lowerDerived(lowerNarrowSubmit(source, filename, core), filename, rapBindings), onRead);
   const system = activeSystem(root) ?? null;
   if (system) for (const file of files) file.relative = relative(resolve(root, config.output_folder), dirname(logicalSystemPath(root, file.path, system)));
   return {files, skipped};
