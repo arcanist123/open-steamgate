@@ -36,7 +36,7 @@ Reached traps by kind (the corpus report's classifier, first matching pattern):
 builtins (A), 2 bigint (A), 1 other. By module: `frontend.mjs` 47,
 `sqlscript-lower.mjs` 19, `osd-narrow-submit.mjs` 5, `ir-writes.mjs` 4,
 `emit-go.mjs` 4, the rest one to three each. The Go run trapped at its first
-reached root, so no object produced output. Three of these roots plus the
+reached root, so no object produced output. Two regexp roots and the
 five SUBMIT-narrowing roots are fixed in OSG since this run. Those fixes are not
 remeasured yet. The run is a manual gate: its peak memory does not fit a CI runner.
 
