@@ -61,6 +61,64 @@ describe("RAP derived type generator (R1)", () => {
       rmSync(root, {recursive: true, force: true});
     }
   });
+  it("discovers content DDIC views through the production entry point", () => {
+    const root = mkdtempSync(join(tmpdir(), "rap-view-"));
+    const saved = process.env.OSD_ROOT;
+    try {
+      process.env.OSD_ROOT = root;
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "libs.lock.json"), readFileSync("libs.lock.json"));
+      const files = demo();
+      const cds = files.find(f => f.filename.endsWith(".asddls"));
+      cds.contents = cds.contents.replace("select from zrap_note", "select from znote_view");
+      files.push({filename: "znote_view.view.xml", contents: `<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_VIEW" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values>
+  <DD25V><VIEWNAME>ZNOTE_VIEW</VIEWNAME><AGGTYPE>V</AGGTYPE><ROOTTAB>ZRAP_NOTE</ROOTTAB><VIEWCLASS>D</VIEWCLASS></DD25V>
+  <DD26V_TABLE><DD26V><VIEWNAME>ZNOTE_VIEW</VIEWNAME><TABNAME>ZRAP_NOTE</TABNAME><TABPOS>0001</TABPOS></DD26V></DD26V_TABLE>
+  <DD27P_TABLE>${["NOTE_ID", "NOTE_TEXT", "STATUS"].map((field, i) => `<DD27P>
+   <VIEWNAME>ZNOTE_VIEW</VIEWNAME><OBJPOS>000${i + 1}</OBJPOS><VIEWFIELD>${field}</VIEWFIELD>
+   <TABNAME>ZRAP_NOTE</TABNAME><FIELDNAME>${field}</FIELDNAME><KEYFLAG>${i === 0 ? "X" : ""}</KEYFLAG>
+  </DD27P>`).join("")}</DD27P_TABLE>
+ </asx:values></asx:abap>
+</abapGit>`});
+      const {outputs, bindings} = generate(files);
+      registry(outputs);
+      for (const f of files) writeFileSync(join(root, "src", f.filename), f.contents);
+      main();
+      for (const [name, source] of Object.entries(outputs)) assert.equal(readFileSync(join(root, "gen/rap", name), "utf8"), source);
+      assert.deepEqual(JSON.parse(readFileSync(join(root, "gen/rap/bindings.json"))), bindings);
+    } finally {
+      if (saved === undefined) delete process.env.OSD_ROOT; else process.env.OSD_ROOT = saved;
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("validates cast source columns and entities independently of target types", () => {
+    const files = demo();
+    const cds = files.find(f => f.filename.endsWith(".asddls"));
+    cds.contents = cds.contents.replace("note_text as NoteText", "cast( note_text as abap.char( 30 ) ) as NoteText");
+    const {outputs} = generate(files);
+    registry(outputs);
+    assert.match(Object.values(outputs).join(""), /notetext TYPE c LENGTH 30/i);
+    cds.contents = cds.contents.replace("cast( note_text", "cast( missing");
+    assert.throws(() => generate(files), /Unresolved CDS field ZI_RAP_NOTE.NOTETEXT/);
+    cds.contents = `define root view entity ZI_RAP_NOTE as select from zmissing {
+      key cast( note_id as abap.char( 10 ) ) as NoteId,
+          cast( note_text as abap.char( 60 ) ) as NoteText,
+          cast( status as abap.char( 1 ) ) as Status }`;
+    assert.throws(() => generate(files), /Unresolved CDS (entity|field)/);
+  });
+
+  it("validates mapping tables even for empty corresponding mappings", () => {
+    const files = demo();
+    const bdef = files.find(f => f.filename.endsWith(".asbdef"));
+    bdef.contents = bdef.contents.replace(/mapping for zrap_note \{[^}]*\}/, "mapping for zrap_note corresponding;");
+    registry(generate(files).outputs);
+    bdef.contents = bdef.contents.replace("mapping for zrap_note", "mapping for zmissing");
+    assert.throws(() => generate(files), /missing mapping table zmissing/);
+  });
+
   it("emits concrete CDS fields and all required RAP families/component groups", () => {
     const {outputs, bindings} = generate(demo());
     const reg = registry(outputs);

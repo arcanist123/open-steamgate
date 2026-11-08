@@ -54,11 +54,14 @@ export function generate(files, dependencies = []) {
     const view = views.get(key);
     if (!view || view.skip || !view.fields.length) throw new Error(`Unresolved CDS entity ${name}${view?.skip ? `: ${view.skip}` : ""}`);
     const base = reg.getObject("TABL", view.source) ?? reg.getObject("VIEW", view.source);
+    if (!base && !views.has(upper(view.source))) throw new Error(`Unresolved CDS entity ${view.source}`);
     const components = new Map((base?.parseType(reg)?.getComponents?.() ?? []).map(c => [upper(c.name), c.type]));
     const below = !base && views.has(upper(view.source)) ? fieldsOf(view.source, next) : [];
     return view.fields.map(f => {
       const type = components.get(upper(f.base));
-      const abap = f.abapType ?? (type && !type.containsVoid?.() && !/Unknown|Void/.test(type.constructor.name) ? type.toABAP() : below.find(b => upper(b.name) === upper(f.base))?.type);
+      const sourceType = type && !type.containsVoid?.() && !/Unknown|Void/.test(type.constructor.name) ? type.toABAP() : below.find(b => upper(b.name) === upper(f.base))?.type;
+      if (!f.virtual && !sourceType) throw new Error(`Unresolved CDS field ${name}.${f.name}`);
+      const abap = f.abapType ?? sourceType;
       if (!ident(f.name) || !abap || /todo|unknown|void/i.test(abap)) throw new Error(`Unresolved CDS field ${name}.${f.name}`);
       return {name: f.name.toLowerCase(), type: abap, key: f.key};
     });
@@ -82,10 +85,14 @@ export function generate(files, dependencies = []) {
       const p = `e${index}`;
       const fields = fieldsOf(entity.entity);
       if (entity.persistentTable && !reg.getObject("TABL", entity.persistentTable)) throw new Error(`${entity.entity}: missing persistent table ${entity.persistentTable}`);
-      for (const mapping of entity.mappings) for (const field of mapping.fields) {
-        if (!fields.some(f => upper(f.name) === upper(field.field))) throw new Error(`${entity.entity}: unknown mapping field ${field.field}`);
+      for (const mapping of entity.mappings) {
         const table = reg.getObject("TABL", mapping.table);
-        if (!table?.parseType(reg)?.getComponents?.().some(c => upper(c.name) === upper(field.column))) throw new Error(`${entity.entity}: unknown mapping column ${mapping.table}.${field.column}`);
+        if (!table) throw new Error(`${entity.entity}: missing mapping table ${mapping.table}`);
+        const columns = table.parseType(reg)?.getComponents?.() ?? [];
+        for (const field of mapping.fields) {
+          if (!fields.some(f => upper(f.name) === upper(field.field))) throw new Error(`${entity.entity}: unknown mapping field ${field.field}`);
+          if (!columns.some(c => upper(c.name) === upper(field.column))) throw new Error(`${entity.entity}: unknown mapping column ${mapping.table}.${field.column}`);
+        }
       }
       const keys = fields.filter(f => f.key);
       if (!keys.length) throw new Error(`${entity.entity}: no CDS key`);
@@ -163,7 +170,7 @@ export function generate(files, dependencies = []) {
 export function main() {
   const root = process.env.OSD_ROOT ?? process.cwd();
   const paths = winningByLayer(contentFoldersOf(root).map(f => resolve(root, f)), walk, f => basename(f).toLowerCase());
-  const files = paths.filter(f => /\.(bdef\.asbdef|ddls\.(asddls|xml)|tabl\.xml|dtel\.xml|doma\.xml)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+  const files = paths.filter(f => /\.(bdef\.asbdef|ddls\.(asddls|xml)|tabl\.xml|view\.xml|dtel\.xml|doma\.xml)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
   const out = join(root, "gen/rap");
   // No dependencies or output when there are no BDEFs; remove stale generated types.
   if (!files.some(f => f.filename.endsWith(".bdef.asbdef"))) { rmSync(out, {recursive: true, force: true}); return; }
