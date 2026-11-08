@@ -198,11 +198,15 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     DATA lv_text TYPE string.
     DATA lv_date TYPE d.
     DATA lv_time TYPE t.
+* both operands typed d: date minus date is a day count. Against a character
+* literal the literal counts as the number 19700101 and the product
+* overflows TYPE i (it did under the CI's pinned transpiler).
+    DATA lv_epoch TYPE d VALUE '19700101'.
     GET TIME STAMP FIELD lv_stamp.
     lv_text = |{ lv_stamp }|.
     lv_date = lv_text(8).
     lv_time = lv_text+8(6).
-    rv_seconds = ( lv_date - '19700101' ) * 86400 + lv_time(2) * 3600 + lv_time+2(2) * 60 + lv_time+4(2).
+    rv_seconds = ( lv_date - lv_epoch ) * 86400 + lv_time(2) * 3600 + lv_time+2(2) * 60 + lv_time+4(2).
   ENDMETHOD.
 
   METHOD touch.
