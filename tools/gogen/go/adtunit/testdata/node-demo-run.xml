@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<aunit:runResult xmlns:aunit="http://www.sap.com/adt/aunit">
+  <program xmlns:adtcore="http://www.sap.com/adt/core" adtcore:name="ZCL_ZOSD_TEST_DEMO" adtcore:type="CLAS/OC" adtcore:uri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo" uriType="semantic">
+    <testClasses>
+    <testClass adtcore:name="LTCL_ZOSD_TEST_DEMO" adtcore:uri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo#testclass=LTCL_ZOSD_TEST_DEMO" durationCategory="short" riskLevel="harmless" uriType="semantic" adtcore:type="CLAS/OL" navigationUri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo/includes/testclasses#type=CLAS%2FOCL;name=LTCL_ZOSD_TEST_DEMO">
+      <testMethods>
+      <testMethod adtcore:name="DELIBERATE_FAILURE" adtcore:uri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo#testclass=LTCL_ZOSD_TEST_DEMO;testmethod=DELIBERATE_FAILURE" executionTime="0" unit="s" uriType="semantic" adtcore:type="CLAS/OLI" navigationUri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo/includes/testclasses#type=CLAS%2FOLD;name=LTCL_ZOSD_TEST_DEMO%20%20%20%20%20%20%20%20%20%20%20DELIBERATE_FAILURE">
+        <alerts>
+        <alert kind="failedAssertion" severity="critical">
+          <title>Critical Assertion Error: 'ZOSD_TEST: this assertion fails on purpose'</title>
+          <details>
+            <detail text="Different values"><details><detail text="Expected [Open] Actual [Closed]"/></details></detail>
+            <detail text="Test 'LTCL_ZOSD_TEST_DEMO-&gt;DELIBERATE_FAILURE' in Main Program 'ZCL_ZOSD_TEST_DEMO============CP'"/>
+          </details>
+          <stack>
+            <stackEntry adtcore:uri="/sap/bc/adt/oo/classes/cl_abap_unit_assert#start=467,0" adtcore:type="CLAS/OCN/main" adtcore:name="CL_ABAP_UNIT_ASSERT" adtcore:description="Include: &lt;CL_ABAP_UNIT_ASSERT===========CP&gt; Line: &lt;467&gt; (DELIBERATE_FAILURE)"/>
+            <stackEntry adtcore:uri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo/includes/testclasses#start=34,0" adtcore:type="CLAS/OCN/testclasses" adtcore:name="ZCL_ZOSD_TEST_DEMO" adtcore:description="Include: &lt;ZCL_ZOSD_TEST_DEMO============CCAU&gt; Line: &lt;34&gt; (DELIBERATE_FAILURE)"/>
+          </stack>
+        </alert>
+        </alerts>
+      </testMethod>
+      <testMethod adtcore:name="GREETING_PASSES" adtcore:uri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo#testclass=LTCL_ZOSD_TEST_DEMO;testmethod=GREETING_PASSES" executionTime="0" unit="s" uriType="semantic" adtcore:type="CLAS/OLI" navigationUri="/sap/bc/adt/oo/classes/zcl_zosd_test_demo/includes/testclasses#type=CLAS%2FOLD;name=LTCL_ZOSD_TEST_DEMO%20%20%20%20%20%20%20%20%20%20%20GREETING_PASSES"/>
+      </testMethods>
+    </testClass>
+    </testClasses>
+  </program>
+</aunit:runResult>

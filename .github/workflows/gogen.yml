@@ -126,8 +126,8 @@ jobs:
       - name: Go vet and tests
         working-directory: tools/gogen/go
         run: |
-          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/
-          go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./adtwrite/... ./adtpreview/... ./adtread/... ./objstore/... ./osdbind/...
+          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./adtref/ ./adtactivate/ ./adtunit/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/
+          go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./adtwrite/... ./adtpreview/... ./adtread/... ./adtref/... ./adtactivate/... ./adtunit/... ./objstore/... ./osdbind/...
           # the sandbox builds for the browser too (nofollow_other.go)
           GOOS=js GOARCH=wasm go build ./sandbox/ ./adtwrite/ ./objstore/
           # ABAP's process-global string memos, the AMC broker and the lock

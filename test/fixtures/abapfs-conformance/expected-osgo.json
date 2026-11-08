@@ -98,18 +98,16 @@
       "feature": "Syntax check (checkruns)"
     },
     "activate.object": {
-      "status": "MISSING",
-      "feature": "Activate",
-      "reason": "POST /sap/bc/adt/activation is not served on osgo: activation means a new executable generation, and the -adt host only saves sources (go/adtwrite); Node serves it from its host facade."
+      "status": "PASS",
+      "feature": "Activate"
     },
     "activate.inactiveObjects": {
       "status": "PASS",
       "feature": "Inactive objects list"
     },
     "unit.run": {
-      "status": "MISSING",
-      "feature": "ABAP Unit (Test Explorer)",
-      "reason": "POST /sap/bc/adt/abapunit/testruns is not served on osgo: Node runs ABAP Unit from its host facade (tools/adt-facade.mjs) over the JS generation; there is no osgo continuation for it yet."
+      "status": "PASS",
+      "feature": "ABAP Unit (Test Explorer)"
     },
     "search.quick": {
       "status": "PASS",
