@@ -78,6 +78,15 @@ INTERFACE zif_osd_rap_bo PUBLIC.
     RETURNING
       VALUE(rr_rows) TYPE REF TO data.
 
+* an empty result table of an action (TYPE TABLE FOR ACTION RESULT), or
+* initial when the action declares no result
+  METHODS new_result
+    IMPORTING
+      iv_entity        TYPE csequence
+      iv_action        TYPE csequence
+    RETURNING
+      VALUE(rr_result) TYPE REF TO data.
+
 * an empty response structure: MAPPED, FAILED or REPORTED (EARLY)
   METHODS new_response
     IMPORTING
