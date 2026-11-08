@@ -153,12 +153,10 @@ ENDCLASS.
 CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD escape.
-    rv_string = iv_string.
-    REPLACE ALL OCCURRENCES OF '\' IN rv_string WITH '\\'.
-    REPLACE ALL OCCURRENCES OF '"' IN rv_string WITH '\"'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>cr_lf IN rv_string WITH '\r\n'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>newline IN rv_string WITH '\n'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>horizontal_tab IN rv_string WITH '\t'.
+* every character JSON does not allow raw in a string: the quote, the
+* backslash and all of U+0000..U+001F (a lone CR, a backspace, a form feed
+* and the rest as much as CR LF and TAB), as zcl_osd_v4_json=>quote does
+    rv_string = lcl_json_string=>escape_text( iv_string ).
   ENDMETHOD.
 
   METHOD error.
@@ -276,6 +274,9 @@ CLASS zcl_stg_json IMPLEMENTATION.
             IF lv_hex CN '0123456789abcdefABCDEF'.
               EXIT.
             ENDIF.
+* the hex digits of \u may be lower case (JSON.stringify writes \u001f);
+* a conversion to x stops at the first lower-case letter, so upper first
+            lv_hex = to_upper( lv_hex ).
             lv_x = lv_hex.
             lv_high = lv_x.
 * a NUL cannot reach the database: the SQL text ends at it
@@ -296,6 +297,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
               IF lv_hex CN '0123456789abcdefABCDEF'.
                 EXIT.
               ENDIF.
+              lv_hex = to_upper( lv_hex ).
               lv_low_x = lv_hex.
               lv_low = lv_low_x.
               IF lv_low < 56320 OR lv_low > 57343.

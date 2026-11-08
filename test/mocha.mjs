@@ -148,7 +148,10 @@ describe("wire", () => {
   it("a quote or a backslash in a key stays data in the response: GET by key, the list, the deferred links", async () => {
     const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
     const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key.replace(/'/g, "''") + "'")})`;
-    for (const key of ['a"b', "a\\b", 'q","x":"']) {
+    // a lone CR, a backspace, a form feed and the other controls below
+    // U+0020 must be escaped too, or the stored row breaks the whole list;
+    // a quote (OData's own '') must round-trip as well
+    for (const key of ['a"b', "a\\b", 'q","x":"', "a\rb", "a\u0001b", "a\bb", "a\fb", "a\u001fb", "a'b"]) {
       let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "odd", Status: "A", Seats: 1})});
       expect(res.status, key).to.equal(201);
       res = await fetch(keyUrl(key) + "?$format=json");
@@ -163,23 +166,29 @@ describe("wire", () => {
     }
   });
 
-  it("the Location of a created row with a key outside Latin-1 is a URI", async () => {
+  // a character outside the BMP is one code point in the URI, not two
+  // lone surrogates (which came out as two U+FFFD and a 404)
+  it("the Location of a created row with a key outside Latin-1 or outside the BMP is a URI", async () => {
     const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
     const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key + "'")})`;
-    let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "Жук", Description: "odd", Status: "A", Seats: 1})});
-    expect(res.status).to.equal(201);
-    const location = res.headers.get("location");
-    expect(location).to.match(/^[\x20-\x7e]+$/);
-    res = await fetch(location + "?$format=json");
-    expect(res.status).to.equal(200);
-    expect((await res.json()).d.TravelId).to.equal("Жук");
-    expect((await fetch(keyUrl("Жук"), {method: "DELETE", headers})).status).to.equal(204);
+    for (const key of ["Жук", "\u{1F600}", "a\u{1F600}b"]) {
+      let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "odd", Status: "A", Seats: 1})});
+      expect(res.status, key).to.equal(201);
+      const location = res.headers.get("location");
+      expect(location, key).to.match(/^[\x20-\x7e]+$/);
+      res = await fetch(location + "?$format=json");
+      expect(res.status, key).to.equal(200);
+      expect((await res.json()).d.TravelId, key).to.equal(key);
+      expect((await fetch(keyUrl(key), {method: "DELETE", headers})).status, key).to.equal(204);
+    }
   });
 
-  it("a NUL in a key is a 400 in V2 and V4, in the URL and in a POST body", async () => {
+  it("a NUL in a key or a $filter literal is a 400 in V2 and V4, in the URL and in a POST body", async () => {
     const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
     expect((await fetch(`${BASE}/TravelSet('a%00b')?$format=json`)).status).to.equal(400);
     expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet('a%00b')`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/TravelSet?$filter=TravelId%20eq%20'a%00b'&$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet?$filter=TravelId%20eq%20'a%00b'`)).status).to.equal(400);
     let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "a\u0000b", Description: "nul", Status: "A", Seats: 1})});
     expect(res.status).to.equal(400);
     res = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet`, {method: "POST", headers, body: JSON.stringify({TravelId: "a\u0000c", Description: "nul", Status: "A", Seats: 1})});

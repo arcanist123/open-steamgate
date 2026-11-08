@@ -49,6 +49,15 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_value) TYPE string
       RAISING
         zcx_stg_error.
+* a NUL cannot reach the database (the SQL text ends at it): a value
+* holding one is a 400 with the code and the words of the caller
+    CLASS-METHODS refuse_nul
+      IMPORTING
+        iv_value TYPE string
+        iv_code  TYPE string
+        iv_where TYPE string
+      RAISING
+        zcx_stg_error.
 * a key predicate made fit for a URI in a header (Location): a character a
 * URI may not carry raw becomes its UTF-8 bytes as %XX, so a key outside
 * Latin-1, a blank or a percent sign survives the trip back
@@ -209,7 +218,6 @@ CLASS zcl_stg_url IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD unquote.
-    DATA lv_nul   TYPE string.
     DATA lv_quote TYPE string.
     DATA lv_two   TYPE string.
 
@@ -223,26 +231,45 @@ CLASS zcl_stg_url IMPLEMENTATION.
                             len = strlen( rv_value ) - 2 ).
       REPLACE ALL OCCURRENCES OF lv_two IN rv_value WITH lv_quote.
     ENDIF.
+    refuse_nul( iv_value = rv_value
+                iv_code  = 'STG/BAD_KEY'
+                iv_where = 'a key' ).
+  ENDMETHOD.
+
+  METHOD refuse_nul.
+    DATA lv_nul TYPE string.
+
     lv_nul = cl_abap_conv_in_ce=>uccp( '0000' ).
-    FIND lv_nul IN rv_value.
+    FIND lv_nul IN iv_value.
     IF sy-subrc = 0.
       RAISE EXCEPTION TYPE zcx_stg_error
-        EXPORTING status = 400 code = 'STG/BAD_KEY' message = 'A NUL character in a key is not accepted'.
+        EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
     ENDIF.
   ENDMETHOD.
 
   METHOD escape_key.
     DATA lv_index TYPE i.
+    DATA lv_len   TYPE i.
+    DATA lv_size  TYPE i.
     DATA lv_char  TYPE string.
+    DATA lv_unit  TYPE x LENGTH 2.
     DATA lv_x     TYPE xstring.
     DATA lv_hex   TYPE string.
 
-    DO strlen( iv_value ) TIMES.
-      lv_index = sy-index - 1.
+    lv_len = strlen( iv_value ).
+    WHILE lv_index < lv_len.
+      lv_size = 1.
       lv_char = iv_value+lv_index(1).
       IF lv_char CA 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&''()*+,;=:@/'.
         rv_value = rv_value && lv_char.
       ELSE.
+* a character outside the BMP is two UTF-16 units, a high and a low
+* surrogate: it is encoded as one code point, not as two halves
+        lv_unit = cl_abap_conv_out_ce=>uccp( lv_char ).
+        IF lv_unit >= 'D800' AND lv_unit <= 'DBFF' AND lv_index + 1 < lv_len.
+          lv_size = 2.
+          lv_char = iv_value+lv_index(2).
+        ENDIF.
         lv_x = cl_abap_codepage=>convert_to( lv_char ).
         lv_hex = lv_x.
         WHILE lv_hex IS NOT INITIAL.
@@ -250,7 +277,8 @@ CLASS zcl_stg_url IMPLEMENTATION.
           SHIFT lv_hex LEFT BY 2 PLACES.
         ENDWHILE.
       ENDIF.
-    ENDDO.
+      lv_index = lv_index + lv_size.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD parse_keys.

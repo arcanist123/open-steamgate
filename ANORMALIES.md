@@ -40,7 +40,7 @@ Format adapted from `larshp/hithub` (MIT).
 - Exact command used to run it: `POST /sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet` with `TravelId` `Жук2`; the Location header read `TravelSet('%d096%d183%d0ba2')`
 - Expected SAP behaviour: each UTF-8 byte is its own escape, `%D0%96%D1%83%D0%BA2` (unmeasured; measure on A4H, case of the hex digits included)
 - Actual open-abap behaviour: `'%' && to_lower( cl_abap_codepage=>convert_to( lv_char ) )` per character, so a two-byte character becomes `%d096`, which a client decodes as byte D0 followed by the text `96`
-- Impact on open-steamgate: the V4 `@odata.id` and Location of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) point at a different key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
+- Impact on open-steamgate: the V4 `@odata.id` and Location of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) cannot be decoded at all: byte D0 followed by the text `96` is not UTF-8, so a strict client (`decodeURIComponent`) throws and a lenient one gets U+FFFD, never the key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
 - Smallest safe workaround: none for V4 yet; V2 does not call it
 - Upstream issue: needs a PR in open-abap-core (fork route, #1218 precedent) after a measurement on A4H
 - Regression-test location: none for V4 yet; V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
