@@ -47,6 +47,9 @@ func FrontendFileOpenDialog(_ *Session, title, name, filter, extension, initial,
 	for _, selected := range strings.Split(path, "\x00") {
 		row := reflect.New(rows.Type().Elem()).Elem()
 		field := row.FieldByName("filename")
+		if !field.IsValid() { // exported in a layered build (tools/gogen/go-layers.mjs)
+			field = row.FieldByName("Filename")
+		}
 		// The generated FILE_TABLE field follows ABAP's lowercase naming.
 		reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().SetString(selected)
 		rows.Set(reflect.Append(rows, row))

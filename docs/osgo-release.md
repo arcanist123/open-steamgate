@@ -93,3 +93,10 @@ The compiled OData services and seed rows are in the executable. The optional
 webapp, pack pages, media, and ADT object store still use files from `-root`
 or `-media` when present. CI that only needs the service and data can run the
 binary in an empty working directory as shown above.
+
+Building the binary from a checkout is `node tools/gogen/osgo.mjs` (heavy).
+The generated classes go into three Go packages, so after a save of one
+class only package `main` is recompiled and linked; `docs/osgo-fast-rebuild.md`
+has the layout, the numbers and `tools/gogen/osgo-cycle.mjs`, which measures
+the edit cycle. A release build from a clean tag checkout has nothing edited,
+so its `main` holds no generated class.
