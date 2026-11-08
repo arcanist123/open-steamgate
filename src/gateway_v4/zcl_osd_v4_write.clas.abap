@@ -294,11 +294,12 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
 * request, whichever ends the LUW).
     DATA lv_key TYPE string.
     DATA lv_sep TYPE string.
+    DATA lv_argument TYPE string.
+    DATA lv_hash TYPE string.
+    DATA lv_lockhash TYPE c LENGTH 64.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
-    DATA lv_srv TYPE c LENGTH 40.
-    DATA lv_eset TYPE c LENGTH 40.
-    DATA lv_ekey TYPE c LENGTH 60.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
+    DATA lx_hash TYPE REF TO cx_abap_message_digest.
 * The identity of the entity, not the spelling of its URL: key properties in
 * the model's order, with the values the query already normalized (unquoted
 * strings, internal dates, GUIDs without hyphens in upper case)
@@ -307,16 +308,22 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
       lv_key = lv_key && lv_sep && ls_prop-name && '=' && ls_key-value.
       lv_sep = ','.
     ENDLOOP.
-* longer names and keys are cut: a collision then locks more, never less
-    lv_srv = iv_service.
-    lv_eset = is_set-name.
-    lv_ekey = lv_key.
+* A system allows a lock argument of 120 characters at most, and service,
+* set and key together can be longer: the lock argument is the SHA-256 of
+* the whole identity. Nothing is cut, so two entities share a lock only if
+* their hashes collide, and then the lock covers more, never less.
+    lv_argument = iv_service && '|' && is_set-name && '|' && lv_key.
+    TRY.
+        cl_abap_message_digest=>calculate_hash_for_char( EXPORTING if_algorithm = 'SHA256' if_data = lv_argument
+          IMPORTING ef_hashstring = lv_hash ).
+      CATCH cx_abap_message_digest INTO lx_hash.
+        zcl_osd_v4_query=>fail( iv_text = |Entity lock: { lx_hash->get_text( ) }| iv_status = 500 ).
+    ENDTRY.
+    lv_lockhash = lv_hash.
     CALL FUNCTION 'ENQUEUE_EZOSD_V4_LOCK'
       EXPORTING
         mode_zosd_v4_lock = 'E'
-        srv = lv_srv
-        eset = lv_eset
-        ekey = lv_ekey
+        lockhash = lv_lockhash
       EXCEPTIONS
         foreign_lock = 1
         system_failure = 2

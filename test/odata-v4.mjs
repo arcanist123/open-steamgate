@@ -3,6 +3,7 @@ import {execFile} from "node:child_process";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
 import {XMLParser, XMLValidator} from "fast-xml-parser";
+import {createHash} from "node:crypto";
 import {startServer} from "./start.mjs";
 
 const origin = `http://localhost:${process.env.STG_PORT ?? 3030}`;
@@ -26,6 +27,9 @@ async function send(path, method, body, headers = {}) {
   }
   return fetch(path, init);
 }
+// the argument of EZOSD_V4_LOCK: SHA-256 of service|set|canonical key
+const lockInput = (service, set, key) => ({mode_zosd_v4_lock: "E",
+  lockhash: createHash("sha256").update(`${service}|${set}|${key}`).digest("hex").toUpperCase()});
 async function schema(path) {
   const res = await fetch(path + "/$metadata");
   expect(res.status).to.equal(200);
@@ -607,7 +611,7 @@ describe("OData V4 read wire", () => {
       const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");
       const url = literal + "/NoteSet('L1')";
       expect((await send(literal + "/NoteSet", "POST", {Id: "L1", Text: "locked"})).status).to.equal(201);
-      const input = {mode_zosd_v4_lock: "E", srv: "ZOSD_V4_TEST", eset: "NoteSet", ekey: "Id=L1"};
+      const input = lockInput("ZOSD_V4_TEST", "NoteSet", "Id=L1");
       const taken = enqTake("v4-review-holder", "OTHER", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input);
       expect(taken.subrc).to.equal(0);
       try {
@@ -676,7 +680,7 @@ describe("OData V4 read wire", () => {
 
     it("locks an entity by its identity, whatever the order of the URL's key", async () => {
       const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");
-      const input = {mode_zosd_v4_lock: "E", srv: "ZSTG_DEMO_SRV", eset: "BookingSet", ekey: "TravelId=T0001,BookingId=B001"};
+      const input = lockInput("ZSTG_DEMO_SRV", "BookingSet", "TravelId=T0001,BookingId=B001");
       expect(enqTake("v4-review-key", "OTHER", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input).subrc).to.equal(0);
       try {
         for (const key of ["TravelId='T0001',BookingId='B001'", "BookingId='B001',TravelId='T0001'"]) {

@@ -153,8 +153,10 @@ matches and answers 412; `*` passes.
 
 The check and the write are one step: PATCH, PUT and DELETE first take an
 exclusive lock on the entity (lock object `EZOSD_V4_LOCK` over
-`ZOSD_V4_LOCK`: service, entity set and key, cut to 40/40/60 characters, so
-an overlong key locks more and never less; the key is the entity's identity,
+`ZOSD_V4_LOCK`, whose one key field is the SHA-256 of service, entity set
+and key, since a system allows lock keys of at most 120 characters; nothing
+is cut, and a hash collision would lock more, never less; the key is the
+entity's identity,
 its properties in the model's order with normalized values, so
 `BookingSet(BookingId='B001',TravelId='T0001')` takes the same lock as the
 other spelling), then read the current entity
