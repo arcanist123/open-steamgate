@@ -17,7 +17,10 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING VALUE(rt_values) TYPE zcl_osd_v4_provider=>ty_values RAISING zcx_stg_error.
     CLASS-METHODS add_header IMPORTING iv_name TYPE string iv_value TYPE string
       CHANGING ct_headers TYPE tihttpnvp.
-* the entity as the DPC's GET_ENTITY returns it (ZCL_OSD_V4_STICKY reads through these too)
+* the entity as the DPC's GET_ENTITY returns it, and the lock on it until the
+* end of the LUW (ZCL_OSD_V4_STICKY's Save goes through these too)
+    CLASS-METHODS lock IMPORTING iv_service TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
+      it_key_tab TYPE /iwbep/t_mgw_name_value_pair RAISING zcx_stg_error.
     CLASS-METHODS read IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
       io_context TYPE REF TO zcl_stg_request_context is_set TYPE zcl_stg_model_info=>ty_entity_set
       RETURNING VALUE(rr_entity) TYPE REF TO data
@@ -33,8 +36,6 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
       is_info TYPE zcl_osd_v4_model=>ty_property iv_ieee TYPE abap_bool
       RETURNING VALUE(rv_value) TYPE string RAISING zcx_stg_error.
     CLASS-METHODS within IMPORTING iv_digits TYPE string iv_max TYPE string RETURNING VALUE(rv_ok) TYPE abap_bool.
-    CLASS-METHODS lock IMPORTING iv_service TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
-      it_key_tab TYPE /iwbep/t_mgw_name_value_pair RAISING zcx_stg_error.
 ENDCLASS.
 
 CLASS zcl_osd_v4_write IMPLEMENTATION.

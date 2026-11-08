@@ -578,8 +578,10 @@ describe("OData V4 read wire", () => {
     const batch = (requests, headers = {}) => fetch(base + "/$batch", {
       method: "POST", headers: {"content-type": "application/json", ...headers}, body: JSON.stringify({requests}),
     });
+    // Travel has an ETag (see send): a write to it says If-Match: * here too
     const raw = (path, method, text, headers = {}) =>
-      fetch(path, {method, headers: {"content-type": "application/json", ...headers}, body: text});
+      fetch(path, {method, headers: {"content-type": "application/json",
+        ...(path.startsWith(base + "/TravelSet") ? {"if-match": "*"} : {}), ...headers}, body: text});
 
     before(async () => {
       expect((await send(base + "/TravelSet", "POST", {TravelId: "T0400", Description: "review", Status: "A", Seats: 2})).status).to.equal(201);
@@ -689,8 +691,10 @@ describe("OData V4 read wire", () => {
     const batch = (requests, headers = {}) => fetch(base + "/$batch", {
       method: "POST", headers: {"content-type": "application/json", ...headers}, body: JSON.stringify({requests}),
     });
+    // Travel has an ETag (see send): a write to it says If-Match: * here too
     const raw = (path, method, text, headers = {}) =>
-      fetch(path, {method, headers: {"content-type": "application/json", ...headers}, body: text});
+      fetch(path, {method, headers: {"content-type": "application/json",
+        ...(path.startsWith(base + "/TravelSet") ? {"if-match": "*"} : {}), ...headers}, body: text});
 
     it("locks an entity by its identity, whatever the order of the URL's key", async () => {
       const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");

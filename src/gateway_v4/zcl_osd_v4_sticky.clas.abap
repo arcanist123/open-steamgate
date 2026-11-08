@@ -441,13 +441,13 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     DATA lr_current TYPE REF TO data.
     DATA lr_entity TYPE REF TO data.
     DATA lr_row TYPE REF TO data.
-    DATA lt_values TYPE tihttpnvp.
+    DATA lt_values TYPE zcl_osd_v4_provider=>ty_values.
     DATA lt_keys TYPE /iwbep/t_mgw_name_value_pair.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA ls_entry TYPE ty_entry.
     DATA lv_stamp TYPE timestamp.
     DATA lv_if_match TYPE string.
-    DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
+    DATA lo_provider TYPE REF TO zcl_osd_v4_provider.
     DATA lo_context TYPE REF TO zcl_stg_request_context.
     DATA lx_busi TYPE REF TO /iwbep/cx_mgw_busi_exception.
     FIELD-SYMBOLS <ls_row> TYPE any.
@@ -505,10 +505,10 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         IF lv_body IS INITIAL.
           lv_body = '{}'.
         ENDIF.
-        lt_values = zcl_osd_v4_write=>values( iv_body = lv_body is_set = is_set io_model = io_model ).
+        lt_values = zcl_osd_v4_write=>values( iv_body = lv_body is_set = is_set io_model = io_model it_headers = it_headers ).
         lr_row = template( io_dpc = io_dpc io_query = io_query is_set = is_set ).
         ASSIGN lr_row->* TO <ls_row>.
-        CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set is_service = io_model->ms_service.
+        CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set.
         lo_provider->/iwbep/if_mgw_entry_provider~read_entry_data( IMPORTING es_data = <ls_row> ).
         lt_keys = row_keys( is_set = is_set is_row = <ls_row> ).
         LOOP AT lt_keys INTO ls_key WHERE value IS INITIAL.
@@ -552,14 +552,14 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
 * leaves the client's tag current. Save gives the new ETag of what it wrote.
 * Missing: 428; another tag: 412, nothing written (OData 4.01 Part 1, 8.2.4).
         precondition( iv_held = ls_entry-etag it_headers = it_headers ).
-        CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set is_service = io_model->ms_service.
-        lo_provider->set_base( ls_entry-data ).
+        CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set ir_base = ls_entry-data.
         IF ls_entry-is_new = abap_true.
           io_dpc->create_entity( EXPORTING iv_entity_name = is_set-entity_type iv_entity_set_name = is_set-name
             iv_source_name = '' io_data_provider = lo_provider it_key_tab = lo_context->mt_key_tab
             it_navigation_path = lo_context->mt_navigation_path io_tech_request_context = lo_context
             IMPORTING er_entity = lr_entity ).
         ELSE.
+          zcl_osd_v4_write=>lock( iv_service = io_model->ms_service-name is_set = is_set it_key_tab = lo_context->mt_key_tab ).
           lr_current = zcl_osd_v4_write=>read( io_dpc = io_dpc io_context = lo_context is_set = is_set ).
           IF lr_current IS NOT BOUND.
             zcl_osd_v4_query=>fail( iv_text = 'Entity not found' iv_status = 404 ).
@@ -593,10 +593,10 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD patch.
-    DATA lt_values TYPE tihttpnvp.
+    DATA lt_values TYPE zcl_osd_v4_provider=>ty_values.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
     DATA lr_copy TYPE REF TO data.
-    DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
+    DATA lo_provider TYPE REF TO zcl_osd_v4_provider.
     DATA lv_etag TYPE string.
     DATA lv_prefer TYPE string.
     FIELD-SYMBOLS <ls_buffer> TYPE any.
@@ -604,7 +604,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     FIELD-SYMBOLS <lv_from> TYPE any.
     FIELD-SYMBOLS <lv_to> TYPE any.
 
-    lt_values = zcl_osd_v4_write=>values( iv_body = iv_body is_set = is_set io_model = io_model ).
+    lt_values = zcl_osd_v4_write=>values( iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers ).
 * the session's copy carries the ETag it was started with (see Save)
     lv_etag = held( ir_buffer ).
     precondition( iv_held = lv_etag it_headers = it_headers ).
@@ -617,11 +617,12 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     ASSIGN ir_buffer->* TO <ls_buffer>.
     CREATE DATA lr_copy LIKE <ls_buffer>.
     ASSIGN lr_copy->* TO <ls_copy>.
-    CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set is_service = io_model->ms_service.
 * PATCH lays the body over the session's copy; PUT replaces it, so what the
 * body leaves out becomes initial and only the key stays
     IF iv_method = 'PATCH'.
-      lo_provider->set_base( ir_buffer ).
+      CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set ir_base = ir_buffer.
+    ELSE.
+      CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set.
     ENDIF.
     lo_provider->/iwbep/if_mgw_entry_provider~read_entry_data( IMPORTING es_data = <ls_copy> ).
     LOOP AT is_set-properties INTO ls_prop WHERE is_key = abap_true.

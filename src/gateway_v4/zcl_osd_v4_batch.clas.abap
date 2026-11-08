@@ -651,9 +651,6 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'SAP-ContextId' iv_value = lv_session
         CHANGING ct_headers = rs_response-headers ).
     ENDIF.
-    rs_response-status = 200.
-    rs_response-content_type = 'application/json;odata.metadata=minimal'.
-    rs_response-body = '{"responses":[' && lv_body && ']}'.
     IF lv_applied IS NOT INITIAL.
       zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'Preference-Applied' iv_value = lv_applied
         CHANGING ct_headers = rs_response-headers ).
