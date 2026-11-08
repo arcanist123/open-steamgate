@@ -9,7 +9,12 @@ CLASS zcl_osd_v4_batch DEFINITION PUBLIC CREATE PUBLIC.
 * starts with $<id> continues the Location of the entity request <id> created.
 * Every request is processed, as JSON Format 4.01 s19.4 has it for a JSON
 * batch; Prefer: odata.continue-on-error=false stops after the first failed
-* request or group. Multipart batches are not implemented (501).
+* request or group.
+* A multipart/mixed batch (OData 4.01 Part 1, 11.7.7; what the UI5 V4 model
+* sends) is read by the V2 parser ZCL_STG_BATCH into the same request list:
+* a change set becomes an atomicity group, and the answer goes back as
+* multipart, a change set as a nested multipart whose parts carry Content-ID,
+* a failed change set as its one error response.
   PUBLIC SECTION.
     CLASS-METHODS handle IMPORTING iv_body TYPE string it_headers TYPE tihttpnvp OPTIONAL
       iv_service_path TYPE string iv_origin TYPE string
@@ -47,6 +52,13 @@ CLASS zcl_osd_v4_batch DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS continuation IMPORTING iv_prefer TYPE string EXPORTING ev_applied TYPE string
       RETURNING VALUE(rv_continue) TYPE abap_bool.
     CLASS-METHODS result_json IMPORTING is_result TYPE ty_result RETURNING VALUE(rv_json) TYPE string.
+    CLASS-METHODS from_multipart IMPORTING iv_body TYPE string iv_content_type TYPE string
+      RETURNING VALUE(rt_requests) TYPE ty_requests RAISING zcx_stg_error.
+    CLASS-METHODS multipart IMPORTING it_results TYPE ty_results
+      RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
+    CLASS-METHODS http_part IMPORTING is_response TYPE zcl_stg_dispatcher=>ty_response iv_content_id TYPE string OPTIONAL
+      RETURNING VALUE(rv_part) TYPE string.
+    CLASS-DATA gv_counter TYPE i.
 ENDCLASS.
 
 CLASS zcl_osd_v4_batch IMPLEMENTATION.
@@ -231,8 +243,123 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+  METHOD from_multipart.
+    DATA lt_parts TYPE zcl_stg_batch=>ty_parts.
+    DATA ls_part TYPE zcl_stg_batch=>ty_part.
+    DATA ls_in TYPE zcl_stg_batch=>ty_request.
+    DATA ls_request TYPE ty_request.
+    DATA ls_header TYPE ihttpnvp.
+    DATA lv_part TYPE i.
+    DATA lv_count TYPE i.
+    lt_parts = zcl_stg_batch=>parse( iv_body = iv_body iv_boundary = zcl_stg_batch=>boundary_of( iv_content_type ) ).
+    LOOP AT lt_parts INTO ls_part.
+      lv_part = sy-tabix.
+      LOOP AT ls_part-requests INTO ls_in.
+        lv_count = lv_count + 1.
+        CLEAR ls_request.
+* ids of the internal list; a group is named after its change set
+        ls_request-id = |r{ lv_count }|.
+        IF ls_part-changeset = abap_true.
+          ls_request-group = |changeset{ lv_part }|.
+        ENDIF.
+        ls_request-method = ls_in-method.
+        ls_request-url = ls_in-url.
+        ls_request-body = ls_in-body.
+        LOOP AT ls_in-headers INTO ls_header.
+          ls_header-name = to_lower( ls_header-name ).
+          APPEND ls_header TO ls_request-headers.
+        ENDLOOP.
+        APPEND ls_request TO rt_requests.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD http_part.
+    DATA lv_crlf TYPE string.
+    DATA ls_header TYPE ihttpnvp.
+    DATA lv_reason TYPE string.
+    lv_crlf = cl_abap_char_utilities=>cr_lf.
+    lv_reason = is_response-reason.
+    IF lv_reason IS INITIAL.
+      lv_reason = 'OK'.
+    ENDIF.
+    rv_part = |Content-Type: application/http{ lv_crlf }Content-Transfer-Encoding: binary{ lv_crlf }|.
+    IF iv_content_id IS NOT INITIAL.
+      rv_part = rv_part && |Content-ID: { iv_content_id }{ lv_crlf }|.
+    ENDIF.
+    rv_part = rv_part && lv_crlf && |HTTP/1.1 { is_response-status } { lv_reason }{ lv_crlf }OData-Version: 4.0{ lv_crlf }|.
+    IF is_response-content_type IS NOT INITIAL.
+      rv_part = rv_part && |Content-Type: { is_response-content_type }{ lv_crlf }|.
+    ENDIF.
+    LOOP AT is_response-headers INTO ls_header.
+      rv_part = rv_part && |{ ls_header-name }: { ls_header-value }{ lv_crlf }|.
+    ENDLOOP.
+    rv_part = rv_part && lv_crlf && is_response-body && lv_crlf.
+  ENDMETHOD.
+
+  METHOD multipart.
+    DATA ls_result TYPE ty_result.
+    DATA ls_member TYPE ty_result.
+    DATA ls_failed TYPE ty_result.
+    DATA lv_crlf TYPE string.
+    DATA lv_boundary TYPE string.
+    DATA lv_changeset TYPE string.
+    DATA lv_out TYPE string.
+    DATA lv_inner TYPE string.
+    DATA lv_group TYPE string.
+    DATA lv_failed TYPE abap_bool.
+    DATA lv_member TYPE i.
+    lv_crlf = cl_abap_char_utilities=>cr_lf.
+    gv_counter = gv_counter + 1.
+    lv_boundary = |batchresponse_osd_v4_{ gv_counter }|.
+    LOOP AT it_results INTO ls_result.
+      IF ls_result-group IS INITIAL.
+        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && http_part( ls_result-response ).
+        CONTINUE.
+      ENDIF.
+      IF ls_result-group = lv_group.
+        CONTINUE.
+      ENDIF.
+* a change set, answered as a whole: a nested multipart when every member
+* succeeded, else the one response of the member that failed
+      lv_group = ls_result-group.
+      lv_failed = abap_false.
+      CLEAR ls_failed.
+      CLEAR lv_inner.
+      lv_member = 0.
+      gv_counter = gv_counter + 1.
+      lv_changeset = |changesetresponse_osd_v4_{ gv_counter }|.
+      LOOP AT it_results INTO ls_member WHERE group = lv_group.
+        IF ls_member-response-status >= 400.
+          IF lv_failed = abap_false OR ls_failed-response-status = 424.
+            ls_failed = ls_member.
+          ENDIF.
+          lv_failed = abap_true.
+        ENDIF.
+        lv_inner = lv_inner && |--{ lv_changeset }{ lv_crlf }| &&
+          http_part( is_response = ls_member-response iv_content_id = |{ lv_member }| ).
+        lv_member = lv_member + 1.
+      ENDLOOP.
+      IF lv_failed = abap_true.
+        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && http_part( ls_failed-response ).
+      ELSE.
+        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }Content-Type: multipart/mixed; boundary={ lv_changeset }{ lv_crlf }{ lv_crlf }| &&
+          lv_inner && |--{ lv_changeset }--{ lv_crlf }|.
+      ENDIF.
+    ENDLOOP.
+    rs_response-status = 200.
+    rs_response-content_type = |multipart/mixed; boundary={ lv_boundary }|.
+    rs_response-body = lv_out && |--{ lv_boundary }--{ lv_crlf }|.
+  ENDMETHOD.
+
   METHOD error.
     rs_response-status = iv_status.
+    CASE iv_status.
+      WHEN 400.
+        rs_response-reason = 'Bad Request'.
+      WHEN 424.
+        rs_response-reason = 'Failed Dependency'.
+    ENDCASE.
     rs_response-content_type = 'application/json;odata.metadata=minimal'.
     rs_response-body = '{"error":{"code":"V4/BATCH","message":' && zcl_osd_v4_json=>quote( iv_message ) && '}}'.
   ENDMETHOD.
@@ -325,18 +452,34 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     DATA lv_next TYPE i.
     DATA lv_length TYPE i.
     DATA lv_applied TYPE string.
+    DATA lv_multipart TYPE abap_bool.
+    DATA lv_session TYPE string.
     FIELD-SYMBOLS <ls_result> TYPE ty_result.
+    FIELD-SYMBOLS <ls_request> TYPE ty_request.
 
-    lv_type = to_lower( zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'content-type' ) ).
-    IF lv_type CS 'multipart/'.
-      zcl_osd_v4_query=>fail( iv_text = 'Multipart $batch is not implemented; send a JSON batch (application/json)'
-        iv_status = 501 ).
+    lv_type = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'content-type' ).
+    IF to_lower( lv_type ) CS 'multipart/mixed'.
+      lv_multipart = abap_true.
+      lt_requests = from_multipart( iv_body = iv_body iv_content_type = lv_type ).
+    ELSEIF to_lower( lv_type ) CS 'application/json'.
+      lt_requests = parse( iv_body ).
+    ELSE.
+      zcl_osd_v4_query=>fail( iv_text = 'A $batch is multipart/mixed or application/json' iv_status = 415 ).
     ENDIF.
-    IF lv_type NS 'application/json'.
-      zcl_osd_v4_query=>fail( iv_text = 'A JSON $batch needs Content-Type: application/json' iv_status = 415 ).
-    ENDIF.
-    lt_requests = parse( iv_body ).
     validate( lt_requests ).
+* a sticky session (SAP-ContextId) is named on the batch, and its parts are in it
+    lv_value = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'sap-contextid' ).
+    IF lv_value IS NOT INITIAL.
+      LOOP AT lt_requests ASSIGNING <ls_request>.
+        IF zcl_osd_v4_write=>header( it_headers = <ls_request>-headers iv_name = 'sap-contextid' ) IS INITIAL.
+          ls_location-name = 'sap-contextid'.
+          ls_location-value = lv_value.
+          APPEND ls_location TO <ls_request>-headers.
+        ENDIF.
+      ENDLOOP.
+      CLEAR ls_location.
+      CLEAR lv_value.
+    ENDIF.
     continuation( EXPORTING iv_prefer = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'prefer' )
       IMPORTING ev_applied = lv_applied RECEIVING rv_continue = lv_continue ).
     lv_prefix = iv_origin && iv_service_path && '/'.
@@ -458,10 +601,29 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
+* A sticky session a part opened (SAP-ContextId) is announced on the batch
+* itself: the client reads the header of the HTTP response, not of a part.
     LOOP AT lt_results INTO ls_result.
-      lv_body = lv_body && lv_sep && result_json( ls_result ).
-      lv_sep = ','.
+      lv_value = zcl_osd_v4_write=>header( it_headers = ls_result-response-headers iv_name = 'sap-contextid' ).
+      IF lv_value IS NOT INITIAL.
+        lv_session = lv_value.
+      ENDIF.
     ENDLOOP.
+    IF lv_multipart = abap_true.
+      rs_response = multipart( lt_results ).
+    ELSE.
+      LOOP AT lt_results INTO ls_result.
+        lv_body = lv_body && lv_sep && result_json( ls_result ).
+        lv_sep = ','.
+      ENDLOOP.
+      rs_response-status = 200.
+      rs_response-content_type = 'application/json;odata.metadata=minimal'.
+      rs_response-body = '{"responses":[' && lv_body && ']}'.
+    ENDIF.
+    IF lv_session IS NOT INITIAL.
+      zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'SAP-ContextId' iv_value = lv_session
+        CHANGING ct_headers = rs_response-headers ).
+    ENDIF.
     rs_response-status = 200.
     rs_response-content_type = 'application/json;odata.metadata=minimal'.
     rs_response-body = '{"responses":[' && lv_body && ']}'.

@@ -19,8 +19,16 @@ async function json(path, options) {
   expect(res.status, JSON.stringify(body)).to.equal(200);
   return body;
 }
+// The demo's Travel has an ETag (Description, Status, Seats are set_as_etag),
+// so a write to it without If-Match is 428; these tests are about the write
+// itself and say If-Match: * unless they pass their own. The ETag contract
+// is tested on its own below.
 async function send(path, method, body, headers = {}) {
   const init = {method, headers: {...headers}};
+  if (path.startsWith(base + "/TravelSet") && ["PATCH", "PUT", "DELETE"].includes(method)
+      && !Object.keys(headers).some((name) => name.toLowerCase() === "if-match")) {
+    init.headers["if-match"] = "*";
+  }
   if (body !== undefined) {
     init.headers["content-type"] = "application/json";
     init.body = typeof body === "string" ? body : JSON.stringify(body);
@@ -112,10 +120,13 @@ describe("OData V4 read wire", () => {
 
   it("projects $select for collections and entities", async () => {
     const body = await json(base + "/TravelSet?$select=TravelId,Description&$top=1");
-    expect(body.value[0]).to.have.all.keys("TravelId", "Description");
+    // control information is not a property: the ETag stays (Travel has one)
+    expect(body.value[0]).to.have.all.keys("@odata.etag", "TravelId", "Description");
     expect(body["@odata.context"]).to.equal(base + "/$metadata#TravelSet(TravelId,Description)");
     const one = await json(base + "/TravelSet('T0001')?$select=Description");
-    expect(one).to.have.all.keys("@odata.context", "Description");
+    expect(one).to.have.all.keys("@odata.context", "@odata.etag", "Description");
+    const booking = await json(base + "/BookingSet(TravelId='T0001',BookingId='B001')?$select=Customer");
+    expect(booking).to.have.all.keys("@odata.context", "Customer");
     expect((await json(base + "/TravelSet?$select=*&$top=1")).value[0]).to.have.property("Seats");
   });
 
@@ -350,7 +361,7 @@ describe("OData V4 read wire", () => {
       const body = await res.json();
       expect(body["@odata.context"]).to.equal(base + "/$metadata#TravelSet/$entity");
       expect(body).to.include({TravelId: "T0100", Description: "V4 trip", Seats: 3});
-      expect(body).not.to.have.property("@odata.etag");
+      expect(body["@odata.etag"]).to.equal('W/"V4%20trip;A;3"');
       const minimal = await send(base + "/TravelSet", "POST", {TravelId: "T0101", Seats: 1}, {prefer: "return=minimal"});
       expect(minimal.status).to.equal(204);
       expect(minimal.headers.get("location")).to.equal(base + "/TravelSet('T0101')");
@@ -403,10 +414,14 @@ describe("OData V4 read wire", () => {
     it("announces Core.OptimisticConcurrency for an entity set with set_as_etag", async () => {
       const model = await schema(literal);
       const set = array(model.EntityContainer.EntitySet).find((s) => s.Name === "NoteSet");
-      expect(set.Annotation.Term).to.equal("Core.OptimisticConcurrency");
-      expect(set.Annotation.Collection.PropertyPath).to.equal("Version");
-      const plain = await schema(base);
-      expect(array(plain.EntityContainer.EntitySet).every((s) => s.Annotation === undefined)).to.equal(true);
+      const concurrency = array(set.Annotation).find((a) => a.Term === "Core.OptimisticConcurrency");
+      expect(concurrency.Collection.PropertyPath).to.equal("Version");
+      const demo = await schema(base);
+      const travels = array(demo.EntityContainer.EntitySet).find((s) => s.Name === "TravelSet");
+      expect(array(travels.Annotation).find((a) => a.Term === "Core.OptimisticConcurrency").Collection.PropertyPath)
+        .to.deep.equal(["Description", "Status", "Seats"]);
+      const bookings = array(demo.EntityContainer.EntitySet).find((s) => s.Name === "BookingSet");
+      expect(bookings.Annotation).to.equal(undefined);
     });
 
     it("emits @odata.etag and the ETag header on create and reads", async () => {
@@ -420,7 +435,7 @@ describe("OData V4 read wire", () => {
       const list = await json(literal + "/NoteSet");
       expect(list.value[0]["@odata.etag"]).to.equal('W/"1"');
       expect(Object.keys(list.value[0])[0]).to.equal("@odata.etag");
-      expect((await fetch(base + "/TravelSet('T0001')")).headers.get("etag")).to.equal(null);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId='B001')")).headers.get("etag")).to.equal(null);
     });
 
     it("requires If-Match: 428 without, 412 on a stale tag, * and the current tag pass", async () => {
@@ -448,9 +463,10 @@ describe("OData V4 read wire", () => {
     });
 
     it("refuses a specific If-Match on an entity without an ETag", async () => {
-      const res = await send(base + "/TravelSet('T0001')", "PATCH", {Seats: 9}, {"if-match": 'W/"1"'});
+      const booking = base + "/BookingSet(TravelId='T0001',BookingId='B001')";
+      const res = await send(booking, "PATCH", {Customer: "nobody"}, {"if-match": 'W/"1"'});
       expect(res.status).to.equal(412);
-      expect((await json(base + "/TravelSet('T0001')")).Seats).not.to.equal(9);
+      expect((await json(booking)).Customer).not.to.equal("nobody");
     });
   });
 
@@ -460,11 +476,9 @@ describe("OData V4 read wire", () => {
     });
     const travel = (id, extra = {}) => ({TravelId: id, Description: "batch " + id, Status: "A", Seats: 2, ...extra});
 
-    it("answers 501 for a multipart batch and 400 for a malformed one", async () => {
-      const multipart = await fetch(base + "/$batch", {method: "POST",
-        headers: {"content-type": "multipart/mixed; boundary=b"}, body: "--b--"});
-      expect(multipart.status).to.equal(501);
-      expect((await multipart.json()).error.message).to.contain("Multipart");
+    it("answers 415 for a batch that is neither JSON nor multipart and 400 for a malformed one", async () => {
+      const plain = await fetch(base + "/$batch", {method: "POST", headers: {"content-type": "text/plain"}, body: "x"});
+      expect(plain.status).to.equal(415);
       for (const requests of [
         [{id: "1", method: "GET", url: "TravelSet", dependsOn: ["2"]}, {id: "2", method: "GET", url: "TravelSet"}],
         [{id: "1", method: "GET", url: "TravelSet"}, {id: "1", method: "GET", url: "TravelSet"}],
@@ -480,7 +494,7 @@ describe("OData V4 read wire", () => {
     it("commits one atomicity group and rolls the failing one back as a whole", async () => {
       const res = await batch([
         {id: "1", atomicityGroup: "good", method: "POST", url: "TravelSet", body: travel("T0200")},
-        {id: "2", atomicityGroup: "good", method: "PATCH", url: "TravelSet('T0200')", body: {Seats: 5}},
+        {id: "2", atomicityGroup: "good", method: "PATCH", url: "TravelSet('T0200')", body: {Seats: 5}, headers: {"if-match": "*"}},
         {id: "3", atomicityGroup: "bad", method: "POST", url: "TravelSet", body: travel("T0201")},
         {id: "4", atomicityGroup: "bad", method: "POST", url: "TravelSet", body: travel("T0001")},
         {id: "5", atomicityGroup: "bad", method: "DELETE", url: "TravelSet('T0002')"},
@@ -523,7 +537,7 @@ describe("OData V4 read wire", () => {
     it("orders by dependsOn and resolves $<id> to the entity a request created", async () => {
       const res = await batch([
         {id: "new", method: "POST", url: "TravelSet", body: travel("T0300")},
-        {id: "upd", method: "PATCH", url: "$new", dependsOn: ["new"], body: {Description: "through $new"}},
+        {id: "upd", method: "PATCH", url: "$new", dependsOn: ["new"], body: {Description: "through $new"}, headers: {"if-match": "*"}},
         {id: "get", method: "GET", url: "$new?$select=Description", dependsOn: ["upd", "new"]},
         {id: "del", method: "DELETE", url: "$new", dependsOn: ["get", "new"], headers: {"If-Match": "*"}},
       ]);
@@ -730,6 +744,230 @@ describe("OData V4 read wire", () => {
         {prefer: 'odata.continue-on-error="false"'});
       expect((await quoted.json()).responses.map((r) => r.status)).to.deep.equal([404]);
     });
+  });
+});
+
+// What a Fiori Elements V4 app (webapp/travel4, test/e2e/travel4.spec.mjs)
+// asks of the service beyond plain reads: the UI annotations in $metadata,
+// a CSRF token by HEAD, sap-* query options, reads through a navigation
+// property, and the multipart $batch the UI5 V4 model sends.
+describe("OData V4 for Fiori Elements", () => {
+  let server;
+  before(() => {
+    server = startServer(true);
+  });
+  after(() => server.close());
+
+  const CRLF = "\r\n";
+  const part = (method, url, headers = {}, body) => ["Content-Type:application/http", "Content-Transfer-Encoding:binary", "",
+    `${method} ${url} HTTP/1.1`, "Accept:application/json;odata.metadata=minimal;IEEE754Compatible=true",
+    ...Object.entries(headers).map(([k, v]) => `${k}:${v}`), "", body === undefined ? "" : JSON.stringify(body)].join(CRLF);
+  const changeset = (boundary, parts) => ["Content-Type: multipart/mixed;boundary=" + boundary, "", "",
+    ...parts.map((p, i) => `--${boundary}${CRLF}Content-ID:${i}.0${CRLF}${p}`),
+    `--${boundary}--`].join(CRLF);
+  const multipart = (parts) => fetch(base + "/$batch", {method: "POST",
+    headers: {"content-type": "multipart/mixed;boundary=batch_1", "odata-version": "4.0"},
+    body: parts.map((p) => `--batch_1${CRLF}${p}${CRLF}`).join("") + "--batch_1--" + CRLF});
+  // the parts of a multipart answer: [{status, headers, body, contentId}], a change set as an array
+  function parts(text, boundary) {
+    return text.split("--" + boundary).slice(1, -1).map((chunk) => {
+      const inner = /boundary=([^\r\n;]+)/.exec(chunk.split(CRLF + CRLF)[0]);
+      if (/multipart\/mixed/.test(chunk.split(CRLF + CRLF)[0])) {
+        return parts(chunk, inner[1].trim());
+      }
+      const [mime, http, ...rest] = chunk.replace(/^\r\n/, "").split(CRLF + CRLF);
+      const [statusLine, ...lines] = http.split(CRLF);
+      const headers = Object.fromEntries(lines.map((l) => [l.slice(0, l.indexOf(":")).toLowerCase(), l.slice(l.indexOf(":") + 1).trim()]));
+      const body = rest.join(CRLF + CRLF).trim();
+      return {status: Number(statusLine.split(" ")[1]), statusLine, headers, contentId: /Content-ID: *(\S+)/i.exec(mime)?.[1],
+        body: body === "" ? undefined : (headers["content-type"] ?? "").includes("json") ? JSON.parse(body) : body};
+    });
+  }
+
+  it("carries the UI and Common annotations of the model in CSDL", async () => {
+    const res = await fetch(base + "/$metadata");
+    const xml = await res.text();
+    const doc = new XMLParser({ignoreAttributes: false, attributeNamePrefix: ""}).parse(xml);
+    const refs = array(doc["edmx:Edmx"]["edmx:Reference"]).map((r) => r["edmx:Include"].Namespace);
+    expect(refs).to.include.members(["com.sap.vocabularies.UI.v1", "com.sap.vocabularies.Common.v1", "Org.OData.Core.V1"]);
+    const model = doc["edmx:Edmx"]["edmx:DataServices"].Schema;
+    const target = (name) => array(model.Annotations).find((a) => a.Target === name);
+    const terms = (name) => array(target(name).Annotation).map((a) => a.Term + (a.Qualifier ? "#" + a.Qualifier : ""));
+    expect(terms("ZSTG_DEMO_SRV.Travel")).to.include.members(["com.sap.vocabularies.UI.v1.HeaderInfo",
+      "com.sap.vocabularies.UI.v1.SelectionFields", "com.sap.vocabularies.UI.v1.LineItem",
+      "com.sap.vocabularies.UI.v1.Facets", "com.sap.vocabularies.UI.v1.FieldGroup#General"]);
+    expect(terms("ZSTG_DEMO_SRV.Travel/Description")).to.deep.equal(["com.sap.vocabularies.Common.v1.Label"]);
+    expect(terms("ZSTG_DEMO_SRV.Travel/Status")).to.include("com.sap.vocabularies.Common.v1.ValueList");
+    // the annotations are a sibling of the container, inside the one schema
+    expect(xml.indexOf("<Annotations")).to.be.greaterThan(xml.indexOf("</EntityContainer>"));
+    // a service without vocabulary annotations references no UI vocabulary it does not use
+    expect(await (await fetch(literal + "/$metadata")).text()).not.to.contain("com.sap.vocabularies.UI");
+  });
+
+  it("answers HEAD on the service root with a CSRF token and no body", async () => {
+    const res = await fetch(base + "/", {method: "HEAD", headers: {"x-csrf-token": "Fetch"}});
+    expect(res.status).to.equal(200);
+    expect(res.headers.get("x-csrf-token")).to.be.a("string").and.not.empty;
+    expect(res.headers.get("odata-version")).to.equal("4.0");
+    expect(await res.text()).to.equal("");
+  });
+
+  it("ignores sap-* query options and still refuses unknown ones", async () => {
+    const list = await json(base + "/TravelSet" + query({"sap-client": "001", "sap-language": "EN", "sap-context-token": "x", $top: "1"}));
+    expect(list.value).to.have.length(1);
+    expect((await fetch(base + "/TravelSet?custom=1")).status).to.equal(501);
+  });
+
+  it("reads through a navigation property: collection, count, options and a single target", async () => {
+    const bookings = await json(base + "/TravelSet('T0001')/to_Bookings" +
+      query({$count: "true", $select: "BookingId,Customer", $orderby: "BookingId desc", $top: "1"}));
+    expect(bookings["@odata.count"]).to.equal(2);
+    expect(bookings.value).to.deep.equal([{BookingId: "B002", Customer: bookings.value[0].Customer}]);
+    expect(bookings.value[0].Customer).to.be.a("string").and.not.empty;
+    const count = await fetch(base + "/TravelSet('T0001')/to_Bookings/$count");
+    expect(await count.text()).to.equal("2");
+    const travel = await json(base + "/BookingSet(TravelId='T0002',BookingId='B001')/to_Travel?$select=TravelId");
+    expect(travel.TravelId).to.equal("T0002");
+    expect(travel["@odata.context"]).to.match(/\$entity$/);
+    expect((await fetch(base + "/TravelSet('T0001')/to_Nothing")).status).to.be.oneOf([400, 404]);
+    expect((await send(base + "/TravelSet('T0001')/to_Bookings", "POST", {BookingId: "B9"})).status).to.equal(501);
+  });
+
+  it("answers a multipart $batch: reads, a change set with If-Match and ETags, Content-IDs", async () => {
+    const etag = (await fetch(base + "/TravelSet('T0002')")).headers.get("etag");
+    expect(etag).to.match(/^W\/"/);
+    const res = await multipart([
+      part("GET", "TravelSet?$count=true&$select=TravelId,Seats&$skip=0&$top=2"),
+      changeset("changeset_1", [part("PATCH", "TravelSet('T0002')",
+        {"Content-Type": "application/json;charset=UTF-8;IEEE754Compatible=true", "If-Match": etag}, {Seats: 6})]),
+      part("GET", "TravelSet('T0002')?$select=Seats"),
+    ]);
+    expect(res.status).to.equal(200);
+    const type = res.headers.get("content-type");
+    expect(type).to.match(/^multipart\/mixed; *boundary=/);
+    const answer = parts(await res.text(), /boundary=(.+)$/.exec(type)[1].trim());
+    expect(answer).to.have.length(3);
+    expect(answer[0].status).to.equal(200);
+    expect(answer[0].headers["odata-version"]).to.equal("4.0");
+    expect(answer[0].body["@odata.count"]).to.equal(4);
+    expect(answer[0].body.value).to.have.length(2);
+    expect(answer[1]).to.be.an("array").with.length(1);
+    expect(answer[1][0]).to.include({status: 204, contentId: "0"});
+    expect(answer[1][0].headers.etag).to.match(/;6"$/);
+    expect(answer[2].body.Seats).to.equal(6);
+  });
+
+  describe("sticky-session editing (Session.StickySessionSupported)", () => {
+    const action = (path, name, body = {}, headers = {}) => send(base + path + "/ZSTG_DEMO_SRV." + name, "POST", body, headers);
+    const inSession = (id) => ({"sap-contextid": id});
+
+    it("announces the session actions for an updatable entity set with an ETag, and only there", async () => {
+      const res = await fetch(base + "/$metadata");
+      const xml = await res.text();
+      const doc = new XMLParser({ignoreAttributes: false, attributeNamePrefix: ""}).parse(xml);
+      const refs = array(doc["edmx:Edmx"]["edmx:Reference"]).map((r) => r["edmx:Include"].Namespace);
+      expect(refs).to.include("com.sap.vocabularies.Session.v1");
+      const model = doc["edmx:Edmx"]["edmx:DataServices"].Schema;
+      const actions = array(model.Action);
+      for (const name of ["OsdStickyEdit", "OsdStickySave"]) {
+        const a = actions.find((x) => x.Name === name);
+        expect(a, name).to.include({IsBound: "true", EntitySetPath: "_it"});
+        expect(a.Parameter.Type).to.equal("ZSTG_DEMO_SRV.Travel");
+      }
+      const created = actions.find((x) => x.Name === "OsdStickyNew");
+      expect(array(created.Parameter).map((p) => p.Name)).to.deep.equal(["_it", "TravelId"]);
+      expect(array(created.Parameter)[0].Type).to.equal("Collection(ZSTG_DEMO_SRV.Travel)");
+      expect(model.EntityContainer.ActionImport).to.include({Name: "OsdStickyDiscard", Action: "ZSTG_DEMO_SRV.OsdStickyDiscard"});
+      const sets = array(model.EntityContainer.EntitySet);
+      const sticky = array(sets.find((x) => x.Name === "TravelSet").Annotation)
+        .find((a) => a.Term === "com.sap.vocabularies.Session.v1.StickySessionSupported");
+      expect(Object.fromEntries(sticky.Record.PropertyValue.map((p) => [p.Property, p.String]))).to.deep.equal({
+        NewAction: "ZSTG_DEMO_SRV.OsdStickyNew", EditAction: "ZSTG_DEMO_SRV.OsdStickyEdit",
+        SaveAction: "ZSTG_DEMO_SRV.OsdStickySave", DiscardAction: "OsdStickyDiscard"});
+      expect(sets.find((x) => x.Name === "BookingSet").Annotation).to.equal(undefined);
+    });
+
+    it("Edit opens a session, PATCH changes only the session's copy, Save writes it", async () => {
+      const edit = await action("/TravelSet('T0002')", "OsdStickyEdit");
+      expect(edit.status).to.equal(200);
+      const id = edit.headers.get("sap-contextid");
+      expect(id).to.be.a("string").and.not.empty;
+      const etag = edit.headers.get("etag");
+      expect((await edit.json()).TravelId).to.equal("T0002");
+      const patch = await send(base + "/TravelSet('T0002')", "PATCH", {Description: "in the session"},
+        {...inSession(id), "if-match": etag});
+      expect(patch.status).to.equal(204);
+      expect(patch.headers.get("etag")).to.not.equal(etag);
+      expect(patch.headers.get("sap-contextid")).to.equal(id);
+      expect((await json(base + "/TravelSet('T0002')")).Description).to.not.equal("in the session");
+      expect((await json(base + "/TravelSet('T0002')", {headers: inSession(id)})).Description).to.equal("in the session");
+      // a stale tag against the session's copy
+      expect((await send(base + "/TravelSet('T0002')", "PATCH", {Seats: 1}, {...inSession(id), "if-match": etag})).status)
+        .to.equal(412);
+      const save = await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(id));
+      expect(save.status).to.equal(200);
+      expect((await save.json()).Description).to.equal("in the session");
+      expect((await json(base + "/TravelSet('T0002')")).Description).to.equal("in the session");
+      // the session no longer holds it
+      expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(id))).status).to.equal(400);
+    });
+
+    it("Discard drops the session's copies; Save after a change by somebody else is 412", async () => {
+      const edit = await action("/TravelSet('T0003')", "OsdStickyEdit");
+      const id = edit.headers.get("sap-contextid");
+      await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 40}, {...inSession(id), "if-match": "*"});
+      const discard = await fetch(base + "/OsdStickyDiscard", {method: "POST", headers: {...inSession(id), "content-type": "application/json"}, body: "{}"});
+      expect(discard.status).to.equal(204);
+      expect((await json(base + "/TravelSet('T0003')", {headers: inSession(id)})).Seats).to.equal(4);
+      expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, inSession(id))).status).to.equal(400);
+      const again = await action("/TravelSet('T0003')", "OsdStickyEdit", {}, inSession(id));
+      expect(again.headers.get("sap-contextid")).to.equal(id);
+      expect((await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 41})).status).to.equal(204);
+      const late = await action("/TravelSet('T0003')", "OsdStickySave", {}, inSession(id));
+      expect(late.status).to.equal(412);
+      expect((await json(base + "/TravelSet('T0003')")).Seats).to.equal(41);
+      expect((await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 4})).status).to.equal(204);
+    });
+
+    it("New starts an entity in the session that Save creates", async () => {
+      const created = await action("/TravelSet", "OsdStickyNew", {TravelId: "T0600"});
+      expect(created.status).to.equal(200);
+      const id = created.headers.get("sap-contextid");
+      expect(await created.json()).to.include({TravelId: "T0600", Description: ""});
+      expect((await fetch(base + "/TravelSet('T0600')")).status).to.equal(404);
+      expect((await send(base + "/TravelSet('T0600')", "PATCH", {Description: "new in V4", Seats: 2},
+        {...inSession(id), "if-match": created.headers.get("etag")})).status).to.equal(204);
+      const save = await action("/TravelSet('T0600')", "OsdStickySave", {}, inSession(id));
+      expect(save.status).to.equal(200);
+      expect(await json(base + "/TravelSet('T0600')")).to.include({Description: "new in V4", Seats: 2});
+      expect((await action("/TravelSet", "OsdStickyNew", {TravelId: "T0001"})).status).to.equal(400);
+      expect((await action("/TravelSet", "OsdStickyNew", {})).status).to.equal(400);
+      expect((await action("/BookingSet(TravelId='T0001',BookingId='B001')", "OsdStickyEdit")).status).to.equal(501);
+      expect((await send(base + "/TravelSet('T0600')", "DELETE")).status).to.equal(204);
+    });
+
+    it("names the session on a batch whose part opened it", async () => {
+      const res = await multipart([part("POST", "TravelSet('T0001')/ZSTG_DEMO_SRV.OsdStickyEdit",
+        {"Content-Type": "application/json"}, {})]);
+      const id = res.headers.get("sap-contextid");
+      expect(id).to.be.a("string").and.not.empty;
+      const discard = await fetch(base + "/OsdStickyDiscard", {method: "POST", headers: inSession(id)});
+      expect(discard.status).to.equal(204);
+    });
+  });
+
+  it("rolls a failing change set back and answers it with its one error", async () => {
+    const res = await multipart([
+      changeset("changeset_2", [
+        part("POST", "TravelSet", {"Content-Type": "application/json"}, {TravelId: "T0400", Description: "multipart"}),
+        part("PATCH", "TravelSet('T0001')", {"Content-Type": "application/json", "If-Match": 'W/"stale"'}, {Seats: 1}),
+      ]),
+    ]);
+    const answer = parts(await res.text(), /boundary=(.+)$/.exec(res.headers.get("content-type"))[1].trim());
+    expect(answer).to.have.length(1);
+    expect(answer[0].status).to.equal(412);
+    expect(answer[0].body.error.message).to.be.a("string");
+    expect((await fetch(base + "/TravelSet('T0400')")).status).to.equal(404);
   });
 });
 
