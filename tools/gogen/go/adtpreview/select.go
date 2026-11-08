@@ -6,6 +6,7 @@ package adtpreview
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -25,22 +26,42 @@ var (
 	selectWord  = regexp.MustCompile(`(?i)^select\b`)
 )
 
+// indexFrom is the index of s in text at or after from, or -1, without
+// copying the rest of the text (the guard stays linear).
 func indexFrom(text []rune, s string, from int) int {
-	if from > len(text) {
-		return -1
-	}
-	if i := strings.Index(string(text[from:]), s); i >= 0 {
-		return from + len([]rune(string(text[from:])[:i]))
+	pattern := []rune(s)
+	for i := from; i+len(pattern) <= len(text); i++ {
+		match := true
+		for k, r := range pattern {
+			if text[i+k] != r {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
 	}
 	return -1
 }
 
+// MaxStatement caps the text a preview accepts, in bytes. Node has no cap;
+// osgo answers inside the work-process lock, so a guard over an unbounded
+// text would hold every other request.
+const MaxStatement = 64 << 10
+
 // SingleSelect admits one SELECT, lexed as SQLite lexes it (the Node guard
-// also knows PostgreSQL's dollar quotes and E” escapes, which SQLite does
+// also knows PostgreSQL's dollar quotes and E-prefixed escapes, which SQLite does
 // not have and which would hide a statement from this guard): comments
 // become blanks, quoted text and identifiers are opaque, and nothing may
 // follow a ';'. It returns the statement without comments, trimmed.
 func SingleSelect(sql string) (string, error) {
+	if strings.ContainsRune(sql, 0) {
+		return "", notAllowed("a NUL character")
+	}
+	if len(sql) > MaxStatement {
+		return "", &Refusal{Code: "NOT_ALLOWED", Message: "the statement is longer than " + strconv.Itoa(MaxStatement) + " bytes, the most a data preview accepts here"}
+	}
 	text := []rune(strings.TrimSpace(sql))
 	out := []rune{}
 	ended := false
