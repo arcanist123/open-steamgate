@@ -703,6 +703,16 @@ the shim, open-abap-core and a test handler at `/echo` in five seconds.
 .out/osgo [-port 3095] [-addr 127.0.0.1] [-db file.sqlite] [-root <checkout>]
 ```
 
+The binary answers like a supervised host (`go/serving`, ADR 0010 slice 1):
+`GET /osd/serving` is the readiness door with the Node host's fields
+(`ready`, `generation`, `pid`, `since`, `root`, `database`, `hot`,
+`launcherPid`, `launcherIdentity` from `OSD_LAUNCHER_IDENTITY`), every answer
+carries `X-OSD-Generation` (the build's `go:` hash, the generation the status
+service names), and SIGTERM/SIGINT/SIGHUP drain: newcomers are answered 503
+`STG/NOT_SERVING`, the steps in flight finish, the listeners close, the
+database is closed under the work process, exit 0 within 55 s. `node
+tools/osd-host-contract.mjs --base <url> --drain <pid>` is the check.
+
 With `INSTANCE=nn` (exactly two ASCII digits), OSGo defaults to HTTP `80nn`
 and HTTPS `443nn`; opt-in DIAG (`-diag` / `OSD_OSGO_DIAG=1`) and RFC
 (`-rfc` / `OSD_OSGO_RFC=1`, requires `-adt`) use `32nn` and `33nn`.
