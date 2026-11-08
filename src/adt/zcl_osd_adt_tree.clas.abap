@@ -22,6 +22,10 @@ CLASS zcl_osd_adt_tree DEFINITION PUBLIC FINAL CREATE PUBLIC.
       RETURNING VALUE(rs_response) TYPE zif_osd_adt_route=>ty_response RAISING zcx_osd_adt.
     CLASS-METHODS package_nodes IMPORTING io_json TYPE REF TO zcl_ajson iv_folders TYPE abap_bool
       RETURNING VALUE(rt_nodes) TYPE tt_node.
+    "! a function group's children: its modules (FUGR/FF), then its includes
+    "! (FUGR/I), out of the group's abapGit XML (ZCL_OSD_ADT_FUNCTION)
+    CLASS-METHODS function_nodes IMPORTING iv_name TYPE string
+      RETURNING VALUE(rt_nodes) TYPE tt_node RAISING zcx_osd_adt.
     CLASS-METHODS node_keys IMPORTING it_xml TYPE zif_osd_adt_xml=>tt_element RETURNING VALUE(rt_keys) TYPE string_table.
     CLASS-METHODS kinds IMPORTING it_nodes TYPE tt_node RETURNING VALUE(rt_kinds) TYPE tt_kind.
     CLASS-METHODS type_info IMPORTING it_kinds TYPE tt_kind EXPORTING ev_types TYPE string et_categories TYPE string_table.
@@ -173,7 +177,9 @@ CLASS zcl_osd_adt_tree IMPLEMENTATION.
     FIND FIRST OCCURRENCE OF REGEX `dataname=com\.sap\.adt\.RepositoryObjectTreeContent` IN lv_accept IGNORING CASE.
     lv_folders = boolc( sy-subrc <> 0 ).
     SPLIT lv_type AT `/` INTO lv_type lv_rest.
-    IF lv_type = `CLAS`.
+    IF lv_type = `FUGR`.
+      lt_nodes = function_nodes( lv_name ).
+    ELSEIF lv_type = `CLAS`.
       zcl_osd_adt_host=>require( `OBJECT` ).
       ls_object = zcl_osd_adt_host=>object( iv_type = `CLAS` iv_name = lv_name ).
       IF ls_object-found = abap_false.
@@ -197,6 +203,33 @@ CLASS zcl_osd_adt_tree IMPLEMENTATION.
     rs_response-status = 200.
     rs_response-content_type = zcl_osd_adt_xml=>as_xml_type( it_headers = is_request-headers iv_fallback = `com.sap.adt.RepositoryObjectTreeContent` ).
     rs_response-body = document( it_nodes = lt_nodes iv_flat = lv_flat it_keys = node_keys( is_request-xml ) ).
+  ENDMETHOD.
+  METHOD function_nodes.
+    DATA ls_group TYPE zcl_osd_adt_function=>ty_group.
+    DATA ls_read TYPE zcl_osd_adt_host=>ty_read.
+    DATA ls_module TYPE zcl_osd_adt_function=>ty_module.
+    DATA lv_include TYPE string.
+    DATA lv_base TYPE string.
+    DATA ls_node TYPE ty_node.
+    zcl_osd_adt_function=>group( EXPORTING iv_name = iv_name IMPORTING es_group = ls_group es_read = ls_read ).
+    lv_base = zcl_osd_adt_function=>group_uri( ls_group-name ).
+    LOOP AT ls_group-modules INTO ls_module.
+      CLEAR ls_node.
+      ls_node-type = `FUGR/FF`.
+      ls_node-name = ls_module-name.
+      ls_node-uri = lv_base && `/fmodules/` && zcl_osd_adt_uri=>encode_component( to_lower( ls_module-name ) ).
+      ls_node-description = ls_module-text.
+      ls_node-version = ls_read-version.
+      APPEND ls_node TO rt_nodes.
+    ENDLOOP.
+    LOOP AT ls_group-includes INTO lv_include.
+      CLEAR ls_node.
+      ls_node-type = `FUGR/I`.
+      ls_node-name = lv_include.
+      ls_node-uri = lv_base && `/includes/` && zcl_osd_adt_uri=>encode_component( to_lower( lv_include ) ).
+      ls_node-version = ls_read-version.
+      APPEND ls_node TO rt_nodes.
+    ENDLOOP.
   ENDMETHOD.
   METHOD package_nodes.
     DATA ls_node TYPE ty_node.
