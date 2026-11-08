@@ -216,6 +216,7 @@ var systemKinds = map[string]bool{
 	"LOCK_HOLDER": true, "BUILD": true, "CHANGED": true, "SERVICES": true,
 	"TRANSACTIONS": true, "XREF_WARM": true, "OBJECT_TYPES": true,
 	"TESTCLASSES": true, "SERVICE_ROWS": true, "SEGW_REGISTRATIONS": true,
+	"SQL": true, "SQLCHECK": true,
 }
 
 // Call answers one call of ZOSD_STORE. in holds the importing values

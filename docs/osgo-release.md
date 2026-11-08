@@ -8,7 +8,11 @@ services with a pure Go SQLite driver. It does not need Node, a Go installation,
 or a separate database server. Enable ADT with `-adt` or `OSD_OSGO_ADT=1` (off by default). It mounts
 `/sap/bc/adt` through the shared ABAP `ZCL_OSD_ADT_HANDLER`, plus the ADT
 logoff route. Discovery, identity, package browsing, search, source reads,
-versions and locks are served; class/interface/program creation, locked source
+versions and locks are served, and so are the DDIC documents, type structure,
+virtual folders, the data preview (SQL console and table F8 run one SELECT on
+the request's own transaction, `go/adtpreview`) and the inactive-objects feed
+(`go/adtread`); the CDS data preview still needs a DDLS parser osgo does not
+have. Class/interface/program creation, locked source
 PUTs (including class includes) and locked deletion use Go host orchestration.
 CHECK uses the configured compiler provider; outline parsing needs the compiler
 sidecar. Activation remains a refusal: saving inactive source does not rebuild

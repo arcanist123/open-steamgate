@@ -2,6 +2,7 @@ package main
 
 import (
 	"osg/gogen/abap"
+	"osg/gogen/adtread"
 	"osg/gogen/adtwrite"
 	"strings"
 	"sync"
@@ -9,7 +10,8 @@ import (
 
 var adtWriteSessions sync.Map
 
-// completeADTWrite runs before the request releases its dialog-step lock.
+// completeADTWrite runs before the request releases its dialog-step lock:
+// the host's writes (adtwrite), then its read-only routes (adtread).
 func completeADTWrite(s *abap.Session, x *abap.ICFExchange) {
 	host := false
 	for _, h := range x.RespHeaders {
@@ -20,14 +22,18 @@ func completeADTWrite(s *abap.Session, x *abap.ICFExchange) {
 	if !host {
 		return
 	}
-	provider, ok := adtWriteSessions.Load(s)
-	if !ok {
-		return
+	var response adtwrite.Response
+	handled := false
+	if provider, ok := adtWriteSessions.Load(s); ok {
+		_, query, _ := strings.Cut(x.URL, "?")
+		response, handled = adtwrite.Serve(adtwrite.Request{Method: x.Method, Path: x.Path, Query: query, Headers: x.Headers, Body: x.Body}, provider.(adtwrite.Session))
 	}
-	_, query, _ := strings.Cut(x.URL, "?")
-	response, handled := adtwrite.Serve(adtwrite.Request{Method: x.Method, Path: x.Path, Query: query, Headers: x.Headers, Body: x.Body}, provider.(adtwrite.Session))
 	if !handled {
-		return
+		var read adtread.Response
+		if read, handled = adtread.Serve(adtread.Request{Method: x.Method, Path: x.Path, Headers: x.Headers}); !handled {
+			return
+		}
+		response = adtwrite.Response(read)
 	}
 	kept := x.RespHeaders[:0]
 	for _, h := range x.RespHeaders {

@@ -93,15 +93,41 @@ response falls back to `/sap/bc/adt/discovery`: a 401 proves the ADT path is
 there, while a 200 must have an Atom service-document content type and root
 element. Each request has its own deadline, so a stalled response cannot hang
 the wait.
-The osgo default omits `write`: source save is absent, and a failed restore
-aborts the harness for safety. All other groups still run. The omitted write
-expectation is documented as unexercised; re-enable it when save is available.
-An explicit `--only write` overrides the target defaults for diagnosis.
-Measured at `bc2ab5b5`, after PR #691 (CHECKRUN on osgo) merged: **22 PASS,
-1 FAIL, 23 MISSING** of 46 exercised scenarios; one write scenario omitted.
-The exercised FAIL is `debugger.coreDiscovery` (the client cannot parse core
-discovery; it fails on the Node host too). The omitted write scenario retains
-its FAIL expectation until it is exercised.
+The osgo expectations select every group, `write` included, since source save
+landed on osgo (#855). An explicit `--only write` overrides them for diagnosis.
+
+Measured at `6847c55a` (main after #855) and again on
+`feat/osgo-adt-read-families`, every group, osgo `-adt` built by the recipe
+above:
+
+| | PASS | FAIL | MISSING | of |
+|---|---|---|---|---|
+| main `6847c55a` | 25 | 1 | 21 | 47 |
+| with `go/adtpreview` + `go/adtread` | 28 | 1 | 18 | 47 |
+
+The three that moved are `data.freestyle`, `data.table` (the data preview
+routes are mounted once `abap.ADTPreview` says the host answers SYSTEM SQL in
+the request's own step) and `activate.inactiveObjects` (a Go continuation of
+the HOST verdict, as the Node facade serves it). What is left, and why:
+
+| Scenario | osgo | Node | Why |
+|---|---|---|---|
+| `activate.object` | MISSING | PASS | Host continuation missing: Node activates from its facade by rebuilding the JS generation; osgo saves sources but builds no generation. Not read-only. |
+| `unit.run` | MISSING | PASS | Host continuation missing: Node runs ABAP Unit from its facade; osgo has no test-run continuation. |
+| `object.FUGR`, `object.FM` | MISSING | MISSING | Route not served: no `functions/groups` documents in the ABAP front or either host. |
+| `object.MSAG` | MISSING | MISSING | Route not served: `messageclass/:name` has no document anywhere. |
+| `object.INCL.mainprograms` | MISSING | MISSING | Route not served: `programs/includes/:name/mainprograms`. |
+| `whereused.references` | MISSING | MISSING | Route not served: `usageReferences` on either host. |
+| `editor.completion`, `editor.elementinfo`, `editor.definition`, `editor.typehierarchy`, `editor.prettyprinter` | MISSING | MISSING | Route not served on either host. |
+| `transport.userTransports`, `transport.configurations` | MISSING | MISSING | Route not served: there is no CTS (`transport.check` answers "no transport needed" and passes). |
+| `atc.customizing`, `atc.run` | MISSING | MISSING | Route not served: no ATC. |
+| `debugger.breakpoints` | MISSING | MISSING | Route not served: no ADT debugger. |
+| `create.validate` | MISSING | MISSING | Route not served: `programs/validation`. |
+| `debugger.coreDiscovery` | FAIL | FAIL | Client parse: HTTP 200, but the pinned client cannot parse the answer (missing category `@_term`). |
+
+So no read-only scenario Node serves is MISSING on osgo. No gap is a fixture
+problem of the osgo harness: every MISSING is a route, the FAIL is the client's
+parse of an answer both hosts give.
 
 ## The client, and why it is pinned this way
 
