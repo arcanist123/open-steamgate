@@ -40,6 +40,7 @@ func safeMutationPath(file string) error {
 }
 
 var mutationName = regexp.MustCompile(`^(/[A-Z0-9_]{1,10}/)?[A-Z0-9_]{1,30}$`)
+var mutationProgramName = regexp.MustCompile(`^(/[A-Z0-9_]{1,10}/)?[A-Z0-9_]{1,40}$`)
 
 // CreateSource creates a source skeleton and its abapGit metadata in an
 // existing writable package. Only classes have an initially active skeleton,
@@ -54,7 +55,11 @@ func CreateSource(typ, name, home, description string) error {
 	if typ != "CLAS" && typ != "INTF" && typ != "PROG" {
 		return mutationError("NOT_SUPPORTED", "unsupported create type")
 	}
-	if !mutationName.MatchString(name) {
+	pattern := mutationName
+	if typ == "PROG" {
+		pattern = mutationProgramName
+	}
+	if !pattern.MatchString(name) {
 		return mutationError("INVALID_NAME", "invalid repository name")
 	}
 	ix := storeBuild()
@@ -160,6 +165,9 @@ func DeleteSource(typ, name string) error {
 			return err
 		}
 		delete(storeState.createdActive, f)
+		// Detach this identity from the old generation; keep its immutable files.
+		delete(storeState.cfg.Active, f)
+		delete(storeState.cfg.Built, f)
 	}
 	delete(storeState.written, typ+" "+strings.ToUpper(name))
 	storeState.revision++

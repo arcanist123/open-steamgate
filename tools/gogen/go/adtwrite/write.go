@@ -62,6 +62,14 @@ func tag(source string) string {
 	sum := sha256.Sum256([]byte(source))
 	return hex.EncodeToString(sum[:])[:32]
 }
+
+// Match the CRLF templates served for absent includes by zcl_osd_adt_source.
+var classIncludeTemplates = map[string]string{
+	"definitions":     "*\"* use this source file for any type of declarations (class\r\n*\"* definitions, interfaces or type declarations) you need for\r\n*\"* components in the private section\r\n",
+	"macros":          "*\"* use this source file for any macro definitions you need\r\n*\"* in the implementation part of the class\r\n",
+	"implementations": "*\"* use this source file for the definition and implementation of\r\n*\"* local helper classes, interface definitions and type\r\n*\"* declarations\r\n",
+}
+
 func normalizedTag(s string) string {
 	return strings.Trim(strings.TrimPrefix(strings.TrimSpace(s), "W/"), `"`)
 }
@@ -199,8 +207,12 @@ func Serve(r Request, session Session) (Response, bool) {
 	if !isCreateInclude && typ == "CLAS" && include == "testclasses" && info.Empty {
 		return refuse(500, "ExceptionResourceSaveFailure", "create the testclasses include before saving it"), true
 	}
+	current := part.Scalars["EV_SOURCE"]
+	if typ == "CLAS" && info.Empty {
+		current = classIncludeTemplates[include]
+	}
 	for _, h := range r.Headers {
-		if strings.EqualFold(h[0], "if-match") && normalizedTag(h[1]) != "*" && normalizedTag(h[1]) != tag(part.Scalars["EV_SOURCE"]) {
+		if strings.EqualFold(h[0], "if-match") && normalizedTag(h[1]) != "*" && normalizedTag(h[1]) != tag(current) {
 			return refuse(412, "ExceptionResourceIsModified", "source changed since it was opened; reload before saving"), true
 		}
 	}

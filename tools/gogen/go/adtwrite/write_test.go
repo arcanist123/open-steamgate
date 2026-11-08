@@ -171,3 +171,52 @@ func TestUnrelatedHostRoute(t *testing.T) {
 		}
 	}
 }
+
+// These are the CRLF source representations served by the shared ABAP GET.
+func TestFirstConditionalIncludeSave(t *testing.T) {
+	setup(t)
+	run(t, createRequest("oo/classes", "ZCL_FIRST_SAVE"), nil, 200)
+	session := &heldSession{handle: "handle", typ: "CLAS", name: "ZCL_FIRST_SAVE", alive: true, enqueued: true}
+	for _, tc := range []struct{ include, template string }{
+		{"definitions", "*\"* use this source file for any type of declarations (class\r\n*\"* definitions, interfaces or type declarations) you need for\r\n*\"* components in the private section\r\n"},
+		{"macros", "*\"* use this source file for any macro definitions you need\r\n*\"* in the implementation part of the class\r\n"},
+		{"implementations", "*\"* use this source file for the definition and implementation of\r\n*\"* local helper classes, interface definitions and type\r\n*\"* declarations\r\n"},
+	} {
+		t.Run(tc.include, func(t *testing.T) {
+			put := Request{Method: "PUT", Path: "/sap/bc/adt/oo/classes/zcl_first_save/includes/" + tc.include + "/source/main", Query: "lockHandle=handle", Body: []byte("* first save\r\n")}
+			put.Headers = [][2]string{{"If-Match", `"stale"`}}
+			run(t, put, session, 412)
+			put.Headers = [][2]string{{"If-Match", `W/"` + tag(tc.template) + `"`}}
+			saved := run(t, put, session, 200)
+			if got := read(t, "CLAS", session.name, tc.include, "inactive"); got != "* first save\n" {
+				t.Fatalf("saved source: %q", got)
+			}
+			// A template tag must become stale once the include exists.
+			run(t, put, session, 412)
+			put.Headers = [][2]string{{"If-Match", saved.Headers[0][1]}}
+			put.Body = nil
+			saved = run(t, put, session, 200)
+			// An existing zero-byte include is empty source, not an absent template.
+			put.Headers = [][2]string{{"If-Match", saved.Headers[0][1]}}
+			run(t, put, session, 200)
+		})
+	}
+}
+
+func TestProgramCreateNameLimits(t *testing.T) {
+	setup(t)
+	for _, length := range []int{31, 40, 41} {
+		name := "Z" + strings.Repeat("P", length-1)
+		status := int32(200)
+		if length > 40 {
+			status = 400
+		}
+		run(t, createRequest("programs/programs", name), nil, status)
+		if status == 200 && read(t, "PROG", name, "main", "inactive") != "REPORT "+strings.ToLower(name)+".\n" {
+			t.Fatal("missing program skeleton")
+		}
+	}
+	for _, collection := range []string{"oo/classes", "oo/interfaces"} {
+		run(t, createRequest(collection, "Z"+strings.Repeat("C", 30)), nil, 400)
+	}
+}
