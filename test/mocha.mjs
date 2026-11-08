@@ -140,6 +140,35 @@ describe("wire", () => {
     await fetch(BASE + "/TravelSet('T0700')", {method: "DELETE", headers});
   });
 
+  // ANOMALY-2026-11-08-sql-host-variable-inlined: the transpiler inlined a
+  // host variable into the SQL text unescaped, so a quote in a key ended the
+  // literal. Measured before the pinned fix: GET of this key answered T0001,
+  // MERGE of it changed every travel's Description, and a'b was a 500.
+  it("a quote in a key stays in the key: nothing else is read or written", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const injected = encodeURIComponent("'x'' OR ''1''=''1'");
+    expect((await fetch(`${BASE}/TravelSet(${injected})?$format=json`)).status).to.equal(404);
+    const merged = await fetch(`${BASE}/TravelSet(${injected})`, {method: "MERGE", headers, body: JSON.stringify({Description: "oracle"})});
+    expect(merged.status).to.be.at.least(400);
+    const all = await (await fetch(`${BASE}/TravelSet?$format=json`)).json();
+    expect(all.d.results.map((t) => t.Description)).to.not.include("oracle");
+    expect(all.d.results.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");
+    const filtered = await (await fetch(`${BASE}/TravelSet?$format=json&$filter=` + encodeURIComponent("TravelId eq 'x'' OR ''1''=''1'"))).json();
+    expect(filtered.d.results).to.deep.equal([]);
+    // and a key with a quote round-trips
+    let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "a'b", Description: "quoted", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(201);
+    res = await fetch(`${BASE}/TravelSet('a''b')?$format=json`);
+    expect(res.status).to.equal(200);
+    expect((await res.json()).d).to.include({TravelId: "a'b", Description: "quoted"});
+    res = await fetch(`${BASE}/TravelSet('a''b')`, {method: "MERGE", headers, body: JSON.stringify({Description: "it's"})});
+    expect(res.status).to.equal(204);
+    expect((await (await fetch(`${BASE}/TravelSet('a''b')?$format=json`)).json()).d.Description).to.equal("it's");
+    res = await fetch(`${BASE}/TravelSet('a''b')`, {method: "DELETE", headers});
+    expect(res.status).to.equal(204);
+    expect((await fetch(`${BASE}/TravelSet('a''b')?$format=json`)).status).to.equal(404);
+  });
+
   it("media entity: the picture of a travel over the wire", async () => {
     // $metadata says the type has a stream, the JSON says where it is
     const meta = await (await fetch(`${BASE}/$metadata`)).text();

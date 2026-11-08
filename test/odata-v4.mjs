@@ -731,6 +731,84 @@ describe("OData V4 read wire", () => {
       expect((await quoted.json()).responses.map((r) => r.status)).to.deep.equal([404]);
     });
   });
+
+  // Post-merge critic of #856/#858 (2026-11-08). The first two are the SQL
+  // host-variable escape (ANOMALY-2026-11-08-sql-host-variable-inlined,
+  // fixed in the pinned transpiler): a quote in a key used to end the SQL
+  // literal, so x' OR '1'='1 read and wrote every row, and a'b was a 500.
+  describe("review fixes, round three", () => {
+    const batch = (requests, headers = {}) => fetch(base + "/$batch", {
+      method: "POST", headers: {"content-type": "application/json", ...headers}, body: JSON.stringify({requests}),
+    });
+    const raw = (path, method, text, headers = {}) =>
+      fetch(path, {method, headers: {"content-type": "application/json", ...headers}, body: text});
+    const injected = encodeURIComponent("'x'' OR ''1''=''1'");
+
+    it("a quote in a key is a character of the key, not the end of the SQL literal", async () => {
+      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(404);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(404);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(404);
+      const patched = await raw(base + `/TravelSet(${injected})`, "PATCH", '{"Description":"oracle"}');
+      expect(patched.status).to.equal(404);
+      const all = await json(base + "/TravelSet?$select=TravelId,Description");
+      expect(all.value.map((t) => t.Description)).to.not.include("oracle");
+      expect(all.value.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");
+      // a filter literal takes the same road into the DPC's ranges
+      const filtered = await json(base + "/TravelSet?$filter=" + encodeURIComponent("TravelId eq 'x'' OR ''1''=''1'"));
+      expect(filtered.value).to.deep.equal([]);
+    });
+
+    it("a key with a quote round-trips: create, read, update, delete", async () => {
+      const url = literal + "/NoteSet('a''b')";
+      expect((await send(literal + "/NoteSet", "POST", {Id: "a'b", Text: "t"})).status).to.equal(201);
+      const read = await fetch(url);
+      expect(read.status).to.equal(200);
+      expect(await read.json()).to.include({Id: "a'b", Text: "t", Version: 1});
+      expect((await send(url, "PATCH", {Text: "it's"}, {"if-match": "*"})).status).to.equal(204);
+      expect(await json(url)).to.include({Id: "a'b", Text: "it's", Version: 2});
+      const list = await json(literal + "/NoteSet?$filter=" + encodeURIComponent("Id eq 'a''b'"));
+      expect(list.value.map((n) => n.Id)).to.deep.equal(["a'b"]);
+      expect((await send(url, "DELETE", undefined, {"if-match": "*"})).status).to.equal(204);
+      expect((await fetch(url)).status).to.equal(404);
+      // the demo service, whose DPC updates with UPDATE ... FROM the row
+      expect((await send(base + "/TravelSet", "POST", {TravelId: "a'b", Seats: 1})).status).to.equal(201);
+      expect(await json(base + "/TravelSet('a''b')")).to.include({TravelId: "a'b", Seats: 1});
+      expect((await send(base + "/TravelSet('a''b')", "PATCH", {Seats: 2})).status).to.equal(204);
+      expect((await json(base + "/TravelSet('a''b')")).Seats).to.equal(2);
+      expect((await send(base + "/TravelSet('a''b')", "DELETE")).status).to.equal(204);
+    });
+
+    // zcl_stg_json=>skip_blanks compared a one-character string with SPACE,
+    // which is the empty string once converted, so a blank after : or , was
+    // never skipped and {"Seats": 7} was refused with 400.
+    it("accepts blanks and newlines between the tokens of a write body", async () => {
+      expect((await send(base + "/TravelSet", "POST", '{"TravelId": "T0907", "Seats": 1}')).status).to.equal(201);
+      try {
+        for (const [text, seats] of [['{"Seats": 7}', 7], ['{"Seats":8, "Description":"d"}', 8], ['{ "Seats" : 9 , "Description" : "e" }', 9],
+          ['{\n  "Seats": 10\n}', 10], ['{"Seats":\t11}', 11], ['{"Seats":12}\n', 12], [' {"Seats":13}', 13]]) {
+          const res = await raw(base + "/TravelSet('T0907')", "PATCH", text);
+          expect(res.status, JSON.stringify(text)).to.equal(204);
+          expect((await json(base + "/TravelSet('T0907')")).Seats, JSON.stringify(text)).to.equal(seats);
+        }
+        expect((await json(base + "/TravelSet('T0907')")).Description).to.equal("e");
+      } finally {
+        await send(base + "/TravelSet('T0907')", "DELETE");
+      }
+    });
+
+    it("refuses a dependsOn that is not an array, like the other mistyped members", async () => {
+      for (const dependsOn of ["a", 1, true, {a: 1}]) {
+        const res = await batch([{id: "a", method: "GET", url: "TravelSet('T0001')"},
+          {id: "b", method: "GET", url: "TravelSet('T0001')", dependsOn}]);
+        expect(res.status, JSON.stringify(dependsOn)).to.equal(400);
+        expect((await res.json()).error.message).to.contain("dependsOn must be an array");
+      }
+      const fine = await batch([{id: "a", method: "GET", url: "TravelSet('T0001')"},
+        {id: "b", method: "GET", url: "TravelSet('T0001')", dependsOn: ["a"]}]);
+      expect(fine.status).to.equal(200);
+      expect((await fine.json()).responses.map((r) => r.status)).to.deep.equal([200, 200]);
+    });
+  });
 });
 
 // This goes through the parent proxy and real child, so losing the V4
