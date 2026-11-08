@@ -540,6 +540,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lt_nav_path TYPE /iwbep/t_mgw_navigation_path.
     DATA lr_entity   TYPE REF TO data.
     DATA ls_header   TYPE ihttpnvp.
+    DATA lv_location TYPE string.
     DATA lt_values   TYPE tihttpnvp.
     DATA lt_nested   TYPE tihttpnvp.
     DATA ls_source   TYPE zcl_stg_model_info=>ty_entity_set.
@@ -629,7 +630,9 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                                       iv_namespace = is_service-namespace
                                                                       iv_base_url  = iv_base_url ) ).
         ls_header-name  = 'location'.
-        ls_header-value = |{ iv_base_url }/{ is_set-name }({ zcl_stg_json=>key_predicate( is_data = <ls_data> is_set = is_set ) })|.
+        lv_location = zcl_stg_url=>escape_key( zcl_stg_json=>key_predicate( is_data = <ls_data>
+                                                                             is_set  = is_set ) ).
+        ls_header-value = |{ iv_base_url }/{ is_set-name }({ lv_location })|.
         APPEND ls_header TO rs_response-headers.
 
       WHEN 'PUT' OR 'PATCH' OR 'MERGE'.

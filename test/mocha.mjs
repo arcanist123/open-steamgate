@@ -140,6 +140,65 @@ describe("wire", () => {
     await fetch(BASE + "/TravelSet('T0700')", {method: "DELETE", headers});
   });
 
+  // A key is data in the response too. The V2 entry built its __deferred
+  // links from the key before the key was escaped for JSON, so a key with a
+  // quote or a backslash (POST makes one) broke GET by key and every list
+  // that held the row; the Location of a created row with a key outside
+  // Latin-1 was a 500 after the row was committed; a NUL in a key was a 500.
+  it("a quote or a backslash in a key stays data in the response: GET by key, the list, the deferred links", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key.replace(/'/g, "''") + "'")})`;
+    for (const key of ['a"b', "a\\b", 'q","x":"']) {
+      let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "odd", Status: "A", Seats: 1})});
+      expect(res.status, key).to.equal(201);
+      res = await fetch(keyUrl(key) + "?$format=json");
+      expect(res.status, key).to.equal(200);
+      const one = JSON.parse(await res.text()).d;
+      expect(one.TravelId, key).to.equal(key);
+      expect(Object.keys(one), key).to.not.include("x");
+      expect(one.to_Bookings.__deferred.uri, key).to.equal(one.__metadata.uri + "/to_Bookings");
+      const all = JSON.parse(await (await fetch(BASE + "/TravelSet?$format=json")).text());
+      expect(all.d.results.map((t) => t.TravelId), key).to.include(key);
+      expect((await fetch(keyUrl(key), {method: "DELETE", headers})).status, key).to.equal(204);
+    }
+  });
+
+  it("the Location of a created row with a key outside Latin-1 is a URI", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key + "'")})`;
+    let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "Жук", Description: "odd", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(201);
+    const location = res.headers.get("location");
+    expect(location).to.match(/^[\x20-\x7e]+$/);
+    res = await fetch(location + "?$format=json");
+    expect(res.status).to.equal(200);
+    expect((await res.json()).d.TravelId).to.equal("Жук");
+    expect((await fetch(keyUrl("Жук"), {method: "DELETE", headers})).status).to.equal(204);
+  });
+
+  it("a NUL in a key is a 400 in V2 and V4, in the URL and in a POST body", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    expect((await fetch(`${BASE}/TravelSet('a%00b')?$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet('a%00b')`)).status).to.equal(400);
+    let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "a\u0000b", Description: "nul", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(400);
+    res = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet`, {method: "POST", headers, body: JSON.stringify({TravelId: "a\u0000c", Description: "nul", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(400);
+    const all = await (await fetch(BASE + "/TravelSet?$format=json")).json();
+    expect(all.d.results.map((t) => t.TravelId).filter((id) => id.startsWith("a"))).to.deep.equal([]);
+  });
+
+  // CHAR semantics: trailing blanks of a CHAR key are not part of it, so
+  // 'T0001 ' is T0001 in V2 and V4 alike.
+  it("a trailing blank in a CHAR key: V2 and V4 find the same row", async () => {
+    const v2 = await fetch(`${BASE}/TravelSet('T0001%20')?$format=json`);
+    expect(v2.status).to.equal(200);
+    expect((await v2.json()).d.TravelId).to.equal("T0001");
+    const v4 = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet('T0001%20')`);
+    expect(v4.status).to.equal(200);
+    expect((await v4.json()).TravelId).to.equal("T0001");
+  });
+
   it("media entity: the picture of a travel over the wire", async () => {
     // $metadata says the type has a stream, the JSON says where it is
     const meta = await (await fetch(`${BASE}/$metadata`)).text();
