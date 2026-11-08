@@ -1,0 +1,17 @@
+{
+ "inputs": {
+  "exit": 0,
+  "seconds": 1.5,
+  "maxRssKiB": 176988
+ },
+ "traps": {
+  "exit": 0,
+  "seconds": 268.6,
+  "maxRssKiB": 3488836
+ },
+ "full": {
+  "exit": 1,
+  "seconds": 323.4,
+  "maxRssKiB": 12523736
+ }
+}

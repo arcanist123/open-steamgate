@@ -1,0 +1,17 @@
+managed implementation in class zbp_rap_note unique;
+define behavior for ZI_RAP_NOTE alias Note
+persistent table zrap_note
+lock master
+{
+  create;
+  update;
+  delete;
+  action Approve result [1] $self;
+  determination SetStatus on modify { create; }
+  validation CheckText on save { create; update; field NoteText; }
+  mapping for zrap_note {
+    NoteId = note_id;
+    NoteText = note_text;
+    Status = status;
+  }
+}

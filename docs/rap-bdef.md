@@ -1,8 +1,8 @@
 # Behavior definitions as data (R0)
 
 `tools/rap/bdef-parse.mjs` exposes `parseBdef(source)` and a file/corpus CLI.
-This is an offline source model. No RAP behavior executes, no derived ABAP
-is generated, and the existing CDS write path is unchanged.
+This is an offline source model. No RAP behavior executes. R1 consumes it
+for [derived ABAP types](rap-derived-types.md); the existing CDS write path is unchanged.
 
 ```
 node tools/rap/bdef-parse.mjs example.bdef.asbdef --json

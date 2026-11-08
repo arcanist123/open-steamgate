@@ -1,0 +1,1 @@
+step4: build=ok run=trap at src/config.ts:93:3: lowering trap: unsupported-expr src/config.ts:99:19: identifier JSON5 is not a lowered local or module value [recovered, repanicked] cmp=differs at line 1 byte 1 (column 1; ref=2f, out=EOF) ref=e935f509b3231c78 out=e3b0c44298fc1c14

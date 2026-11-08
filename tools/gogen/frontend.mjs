@@ -3224,7 +3224,7 @@ const STRING_FNS = {
   if (type.k === "struct" || type.k === "table") throw new Unsupported(`VALUE for a ${type.k}`);
   // ultra/events: VALUE 'C2A0' of an x or xstring is its bytes, as a class
   // constant's is (ZCL_ABAPGIT_GUI_EVENT's class constructor); only hex digits
-  if ((type.k === "xstring" || type.k === "x") && v.e === "chars" && /^([0-9A-F]{2})*$/i.test(v.value)) {
+  if ((type.k === "xstring" || type.k === "x") && v.e === "chars" && /^([0-9A-Fa-f]{2})*$/.test(v.value)) {
     return {s: "assign", target: {e: "var", name, type}, value: {e: "xbytes", value: v.value, type}};
   }
   return {s: "assign", target: {e: "var", name, type}, value: convert(v, type)};

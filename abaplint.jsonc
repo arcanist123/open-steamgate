@@ -1,6 +1,6 @@
 {
   "global": {
-    "files": "/{src,packs/zvdb/src,test,gen/bsp,gen/cds,gen/segw,gen/rfc,gen/tran}/**/*.*",
+    "files": "/{src,packs/zvdb/src,test,gen/bsp,gen/cds,gen/segw,gen/rfc,gen/tran,gen/rap}/**/*.*",
     "errorOnDuplicateFilenames": true,
     "exclude": ["/test/e2e/", "/src/.*/cockpit/", "/test/fixtures/", "\\.mjs$", "\\.cjs$", "\\.stg\\.yaml$", "\\.l2\\.yaml$", "\\.l3\\.yaml$", "\\.samc\\.model\\.json$", "\\.samc\\.decl\\.json$", "\\.trace(?:\\.meta)?\\.json$"]
   },
@@ -120,7 +120,9 @@
     "implement_methods": true,
     "method_implemented_twice": true,
     "check_ddic": true,
-    "check_abstract": true,
+    "check_abstract": {
+      "exclude": ["zbp_.*\\.clas\\.abap$"]
+    },
     "begin_end_names": true,
     "unreachable_code": true,
     "contains_tab": true,
@@ -146,7 +148,7 @@
     "max_one_statement": true,
     "definitions_top": true,
     "local_class_naming": {
-      "local": "^LCL_.+$",
+      "local": "^(LCL|LHC|LSC)_.+$",
       "exception": "^LCX_.+$",
       "test": "^LTCL_.+$"
     }
