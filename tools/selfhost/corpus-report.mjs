@@ -98,6 +98,34 @@ export function reachCount(reach) {
   return {executed: spans.filter((s) => s.executed).length, bodies: spans.length};
 }
 
+/*
+ * Reached traps by kind and by module (traps/reached-traps.tsv of abapiti's
+ * --list-traps). The kind is the first pattern a row's messages match, in
+ * this order; G = an OSG typing change removes it, A = abapiti lowering.
+ */
+const KINDS = [
+  ["G untyped value (dynamic/void)", /on dynamic is not lowered|on void|<- dynamic|\/ dynamic|dynamic \/|array<dynamic>|collection key dynamic/],
+  ["A recursive union / union ABI", /recursive union literal|union type is not lowered|unionref/],
+  ["A regexp feature", /JavaScript regexp/],
+  ["A namespace import / global object", /identifier \w+ is not a lowered local or module value/],
+  ["A bigint arithmetic", /bigint/],
+  ["A number/string builtin form", /toFixed|padEnd|repeat requires|parseInt/],
+  ["A/G structural type mismatch", /classref|interfaceref|call argument type mismatch|assignment type mismatch/],
+  ["G optional parameter / Array() / untyped arithmetic", /missing argument|KindIdentifier|non-numeric/],
+];
+export function classifyTraps(tsv) {
+  const byKind = {}, byModule = {};
+  for (const line of tsv.split("\n").slice(1).filter(Boolean)) {
+    const [location, message] = line.split("\t");
+    const kind = KINDS.find(([, re]) => re.test(message))?.[0] ?? "other";
+    const module = location.replace(/:\d+:\d+$/, "");
+    byKind[kind] = (byKind[kind] ?? 0) + 1;
+    byModule[module] = (byModule[module] ?? 0) + 1;
+  }
+  const sorted = (o) => Object.fromEntries(Object.entries(o).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)));
+  return {byKind: sorted(byKind), byModule: sorted(byModule)};
+}
+
 const readText = (p) => (existsSync(p) ? readFileSync(p, "utf8") : null);
 
 export function decide(dir) {
@@ -107,6 +135,8 @@ export function decide(dir) {
   const summary = readText(join(full, "summary.txt"))?.trim() ?? "full: not run";
   const trapLine = readText(join(traps, "summary.txt"))?.trim() ?? "step4-traps: not run";
   const reached = /^step4-traps: (\d+) reached \((\d+)\/(\d+) unknown\) (\d+) unreached/.exec(trapLine);
+  const trapTsv = readText(join(traps, "reached-traps.tsv"));
+  const trapClasses = trapTsv ? classifyTraps(trapTsv) : null;
   const reachPath = existsSync(join(full, "reach.json")) ? join(full, "reach.json") : join(traps, "reach.json");
   const reach = existsSync(reachPath) ? reachCount(JSON.parse(readFileSync(reachPath, "utf8"))) : null;
   const refPath = join(full, "ref.go"), outPath = join(full, "gogen.go");
@@ -129,6 +159,7 @@ export function decide(dir) {
     pass, osgCommit: manifest.osgCommit, osgDirty: manifest.osgDirty, manifestSha256: manifest.manifestSha256, inputsSha256: manifest.inputsSha256,
     objects: objects.length, files: manifest.files.length, tally, run, summary, traps: trapLine,
     reachedTraps: reached ? Number(reached[1]) : null, unreachedTraps: reached ? Number(reached[4]) : null,
+    trapClasses, firstRuntimeTrap: run.startsWith("trap") ? run : null,
     reachedFunctions: reach, comparison: comparison && {...comparison, objects: undefined}, timings, perObject,
   };
   writeFileSync(join(dir, "report.json"), JSON.stringify(report, null, 1) + "\n");

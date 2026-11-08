@@ -64,3 +64,12 @@ test("reach count and manifest", () => {
   assert.notEqual(m.manifestSha256, buildManifest({...args, read: (f) => Buffer.from(f + "!")}).manifestSha256);
   assert.deepEqual(driverInputs(args).skippedPaths, ["/r/src/b.clas.abap"]);
 });
+
+test("trap classification by kind and module", async () => {
+  const {classifyTraps} = await import("./corpus-report.mjs");
+  const tsv = ["location\tkind: message\thits\troot-or-cascade\tmethod\tevidence",
+    "tools/a.mjs:1:1\tbody: lowering trap: method map on dynamic is not lowered\t3\troot\tx\tblock",
+    "tools/a.mjs:9:1\tbody: lowering trap: not supported in the Go prototype: JavaScript regexp /x/i\t1\troot\tx\tblock",
+    "tools/b.mjs:2:1\tbody: something new\t1\troot\tx\tblock", ""].join("\n");
+  assert.deepEqual(classifyTraps(tsv), {byKind: {"A regexp feature": 1, "G untyped value (dynamic/void)": 1, other: 1}, byModule: {"tools/a.mjs": 2, "tools/b.mjs": 1}});
+});
