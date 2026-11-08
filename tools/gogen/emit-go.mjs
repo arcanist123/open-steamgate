@@ -46,7 +46,9 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
   const safe = id.startsWith("_") ? `_${id}` : GO_RESERVED.has(id) || /^\d/.test(id) ? `${id}_` : id;
   // ABAP fields cross generated Go package boundaries in a layered build.
   // A leading capital exports them; the rest of the spelling stays stable.
-  return exportedFields ? safe[0].toUpperCase() + safe.slice(1) : safe;
+  // A name that starts with _ (RAP's %KEY is __key) gets XP in front: the
+  // second capital keeps it apart from every capitalised lower-case name.
+  return !exportedFields ? safe : safe.startsWith("_") ? `XP${safe}` : safe[0].toUpperCase() + safe.slice(1);
 };
 /** @param {string} name @returns {string} */ const selfField = (name) => `${exportedFields ? "Self" : "self"}_${typeName(name)}`;
 
