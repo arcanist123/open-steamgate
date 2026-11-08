@@ -542,6 +542,20 @@ func storeRead(ix *storeIndex, a *Answer, typ, name, include, version string) er
 		} else {
 			includePresent = false
 		}
+	} else if typ == "FUGR" && include != "main" {
+		// a function group's parts as abapGit writes them beside the group's
+		// XML (osd-store.mjs read): <group>.fugr.<part>.abap, the part named
+		// by its program name; an absent part does not exist
+		f := strings.TrimSuffix(e.File, ".fugr.xml") + ".fugr." + storeFileOf(include) + ".abap"
+		file = f
+		b, err := os.ReadFile(filepath.Join(storeState.root, f))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return storeNotFound(typ, name+" include "+include)
+			}
+			return storeRefusal(err.Error())
+		}
+		source = string(b)
 	} else {
 		b, err := os.ReadFile(filepath.Join(storeState.root, e.File))
 		if err != nil {

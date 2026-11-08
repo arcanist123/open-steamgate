@@ -7,6 +7,10 @@ CLASS zcl_osd_v4_query DEFINITION PUBLIC CREATE PUBLIC.
     DATA mv_top TYPE i VALUE -1.
     DATA mv_skip TYPE i.
     DATA mv_count TYPE abap_bool.
+* Set(key)/<navigation>: the navigation property the resource path follows
+    DATA mv_navigation TYPE string.
+* Set(key)/<namespace>.<action> or Set/<namespace>.<action>: a bound action
+    DATA mv_action TYPE string.
     METHODS constructor IMPORTING iv_path TYPE string it_options TYPE tihttpnvp
       RAISING zcx_stg_error.
     METHODS prepare IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set
@@ -59,16 +63,26 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     ELSEIF lv_rest = '/$batch'.
       ms_request-is_batch = abap_true.
     ELSE.
-      FIND REGEX '^/([^/($]+)(?:\((.*)\))?(/\$count)?/?$' IN lv_rest
-        SUBMATCHES ms_request-entity_set ms_request-key_string lv_tail.
+      FIND REGEX '^/([^/($]+)(?:\((.*)\))?(?:/([A-Za-z_][A-Za-z0-9_.]*))?(/\$count)?/?$' IN lv_rest
+        SUBMATCHES ms_request-entity_set ms_request-key_string mv_navigation lv_tail.
       IF sy-subrc <> 0.
         fail( iv_text = 'Unsupported V4 resource path' iv_status = 404 ).
       ENDIF.
       ms_request-entity_set = cl_http_utility=>unescape_url( ms_request-entity_set ).
       ms_request-key_string = cl_http_utility=>unescape_url( ms_request-key_string ).
+      IF mv_navigation CS '.'.
+        mv_action = mv_navigation.
+        CLEAR mv_navigation.
+        IF lv_tail IS NOT INITIAL.
+          fail( iv_text = 'Unsupported V4 resource path' iv_status = 404 ).
+        ENDIF.
+      ENDIF.
+      IF mv_navigation IS NOT INITIAL AND ms_request-key_string IS INITIAL.
+        fail( iv_text = 'A navigation property needs the key of its source entity' iv_status = 404 ).
+      ENDIF.
       IF lv_tail = '/$count'.
         ms_request-is_count = abap_true.
-        IF ms_request-key_string IS NOT INITIAL.
+        IF ms_request-key_string IS NOT INITIAL AND mv_navigation IS INITIAL.
           fail( iv_text = '$count requires a collection' ).
         ENDIF.
       ENDIF.
@@ -360,10 +374,13 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
           IF ls_opt-value <> 'json' AND ls_opt-value <> 'application/json'.
             fail( 'Only JSON is supported' ).
           ENDIF.
-        WHEN 'sap-client' OR 'sap-language'.
-* Host-specific hints do not change the wire shape.
         WHEN OTHERS.
-          fail( iv_text = |Query option { ls_opt-name } is not implemented| iv_status = 501 ).
+* sap-client, sap-language, sap-context-token...: host-specific hints that
+* do not change the wire shape (OData 4.01 Part 2, 5.2: custom options
+* begin with a letter, and a service ignores those it does not know)
+          IF ls_opt-name NP 'sap-*'.
+            fail( iv_text = |Query option { ls_opt-name } is not implemented| iv_status = 501 ).
+          ENDIF.
       ENDCASE.
     ENDLOOP.
   ENDMETHOD.

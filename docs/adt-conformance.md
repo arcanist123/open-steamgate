@@ -18,7 +18,17 @@ through the tables collection, repository type structure, virtual folder
 facets and contents), P1-P5 (SQL console with a row limit, its refusal of a
 write, its syntax check, table preview metadata and F8 rows) and A1 (the
 inactive-objects feed). They pass on JS and on osgo, where the preview runs
-through `go/adtpreview` and the feed through `go/adtread`. The CDS preview
+through `go/adtpreview` and the feed through `go/adtread`.
+
+`cases/families.mjs` holds the families ABAP-FS missed on both hosts
+(docs/adt-abap-port/family-specs/functions-messages-xref.md): F1-F7 (a
+function group's document, main program, a module's document and source, an
+include's source, a 404 for a module the group lacks, the group's children in
+the tree), M1-M2 (a message class's document and its text form), I1 (the
+main program of an include, out of D010INC), N1-N3 (the program and include
+preflights), U1-U2 (where-used over WBCROSSGT, and a 404) and G1-G2 (core
+discovery with one collection per workspace, discovery grouped). They are
+ABAP on both hosts; osgo seeds the cross-reference tables at build. The CDS preview
 (`/datapreview/cds`) is not a case: on osgo it answers 501, because its
 metadata needs `PARSE` of a DDLS, and osgo's store parses OUTLINE only.
 

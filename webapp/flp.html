@@ -51,6 +51,17 @@
                       }
                     },
                     {
+                      id: "travels-v4",
+                      tileType: "sap.ushell.ui.tile.StaticTile",
+                      properties: {
+                        title: "Travels (OData V4)",
+                        subtitle: "list report, sticky edit",
+                        info: "ZSTG_DEMO_SRV",
+                        icon: "sap-icon://travel-itinerary",
+                        targetURL: "#TravelV4-manage"
+                      }
+                    },
+                    {
                       id: "analytics",
                       tileType: "sap.ushell.ui.tile.StaticTile",
                       properties: {
@@ -276,6 +287,14 @@
           additionalInformation: "SAPUI5.Component=stg.booking",
           applicationType: "URL",
           url: "../sap/bc/ui5_ui5/sap/zosd_booking_ap/",
+          navigationMode: "embedded"
+        },
+        "TravelV4-manage": {
+          title: "Travels (OData V4)",
+          description: "open-steamgate demo",
+          additionalInformation: "SAPUI5.Component=osd.travel4",
+          applicationType: "URL",
+          url: "../sap/bc/ui5_ui5/sap/zosd_travel4/",
           navigationMode: "embedded"
         },
         "Flight-analyze": {

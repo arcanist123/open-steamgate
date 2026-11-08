@@ -100,3 +100,10 @@ func ADTUnavailable(_ *Session, available *string) {
 	// Fixed CHAR values store trailing blanks implicitly in this runtime.
 	*available = ""
 }
+
+// ADTAvailable answers a capability this host has: the cross-reference
+// tables (ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE) are seeded into the
+// database at build, so the ADT step's SELECTs over them answer.
+func ADTAvailable(_ *Session, available *string) {
+	*available = "X"
+}

@@ -137,6 +137,8 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
   // ADT capability answers match Node's parent kernel / non-one-runtime host.
   ["ZCL_OSD_ADT_HOST=>ONE_RUNTIME|rv_on.set(abap.context.RFCDestinations.STORE?.localSystem ? \"X\" : \"\");", {fn: "abap.ADTOneRuntime", args: ["&RV_ON:c"]}],
   ["ZCL_OSD_KERNEL_GUARD=>HAS_SERVING_DATABASE|if (globalThis.__osdAdtKernel !== undefined) rv_available.set(\" \");", {fn: "abap.ADTUnavailable", args: ["&RV_AVAILABLE:c"]}],
+  // the cross-reference tables are seeded into osgo's database at build (osg-build.mjs), so its SELECTs answer here
+  ["ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE|if (globalThis.__osdAdtKernel !== undefined) rv_available.set(\" \");", {fn: "abap.ADTAvailable", args: ["&RV_AVAILABLE:c"]}],
   ["ZCL_OSD_KERNEL_GUARD=>HAS_GENERATION|if (globalThis.__osdAdtKernel !== undefined || !((typeof process !== \"undefined\" && process.env?.OSD_ADT_ONE_RUNTIME === \"1\") || abap.context.RFCDestinations.STORE?.oneRuntimeEnabled?.() === true)) rv_available.set(\" \");", {fn: "abap.ADTUnavailable", args: ["&RV_AVAILABLE:c"]}],
   // CALL_CLASSRUN's try/catch needs an exception boundary and a caught host
   // error; fn/loop/bound/end cannot express those, so its lines stay refused.
