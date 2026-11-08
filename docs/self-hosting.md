@@ -28,6 +28,7 @@ on OSG `ae541da2` with abapiti `90f2443a` (selfhost), abaplint `9f7f098c`
 | reached traps | 92 roots, 214 unreached (`step4-traps: 92 reached (0/18 unknown) 214 unreached`) |
 | wall time | 595 s (trap listing 269 s, full run 323 s) |
 | peak RSS | 12.5 GB (full run, `go build`); 3.5 GB for the trap listing |
+| evidence | [`evidence/selfhost-corpus/`](evidence/selfhost-corpus/README.md): report, timings, summaries and the reached-trap table of each run |
 
 Reached traps by kind (the corpus report's classifier, first matching pattern):
 54 untyped `dynamic`/`void` values (G), 10 namespace imports or the global

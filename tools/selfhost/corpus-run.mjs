@@ -26,7 +26,7 @@ mkdirSync(out, {recursive: true});
 // peak RSS of the largest process a phase waited for (getrusage of the children)
 const MEASURE = "import resource,subprocess,sys,time,json\nt=time.time()\nr=subprocess.call(sys.argv[2:])\n"
   + "open(sys.argv[1],'w').write(json.dumps({'exit':r,'seconds':round(time.time()-t,1),'maxRssKiB':resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss}))\nsys.exit(r)";
-const timings = {};
+const timings = {mode: {traps: !args.includes("--no-traps"), full: !args.includes("--traps-only")}};
 function phase(name, command, extra = {}) {
   const stat = join(out, `${name}.time.json`);
   const r = spawnSync("python3", ["-c", MEASURE, stat, ...command], {cwd: root, stdio: ["ignore", "inherit", "inherit"], env: {...process.env, ...extra}});

@@ -1,0 +1,1 @@
+step4-traps: 92 reached (0/18 unknown) 214 unreached

@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {buildManifest, driverInputs} from "./corpus-inputs.mjs";
-import {compareOutputs, declarations, declKey, ownerOf, reachCount} from "./corpus-report.mjs";
+import {compareOutputs, decide, declarations, declKey, ownerOf, reachCount} from "./corpus-report.mjs";
 
 const go = (body) => Buffer.from(["// Code generated", "", "package main", "", ...body, ""].join("\n"));
 const REF = ["type ZCL_A struct {", "\tX int", "}", "", "func (me *ZCL_A) RUN() {", "\treturn", "}", "",
@@ -72,4 +72,64 @@ test("trap classification by kind and module", async () => {
     "tools/a.mjs:9:1\tbody: lowering trap: not supported in the Go prototype: JavaScript regexp /x/i\t1\troot\tx\tblock",
     "tools/b.mjs:2:1\tbody: something new\t1\troot\tx\tblock", ""].join("\n");
   assert.deepEqual(classifyTraps(tsv), {byKind: {"A regexp feature": 1, "G untyped value (dynamic/void)": 1, other: 1}, byModule: {"tools/a.mjs": 2, "tools/b.mjs": 1}});
+});
+
+// The verdict over a whole run directory (decide() and the CLI exit code):
+// every required phase must have succeeded and nothing may be unknown.
+import {mkdtempSync, mkdirSync, rmSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {spawnSync} from "node:child_process";
+import {fileURLToPath} from "node:url";
+
+function runDir({trapSummary = "step4-traps: 0 reached (0/0 unknown) 214 unreached", timings = {traps: {exit: 0}, full: {exit: 0}}, reach = true, run = "ok"} = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "selfhost-verdict-"));
+  for (const d of ["inputs", "full", "traps"]) mkdirSync(join(dir, d));
+  writeFileSync(join(dir, "inputs", "manifest.json"), JSON.stringify({objects: ["ZCL_A", "ZCL_B"], files: [], osgCommit: "x"}));
+  writeFileSync(join(dir, "full", "ref.go"), go(REF));
+  writeFileSync(join(dir, "full", "gogen.go"), go(REF));
+  writeFileSync(join(dir, "full", "summary.txt"), `step4: build=ok run=${run} cmp=equal ref=a out=a\n`);
+  if (reach) writeFileSync(join(dir, "full", "reach.json"), JSON.stringify({spans: [{executed: true}]}));
+  if (trapSummary !== null) writeFileSync(join(dir, "traps", "summary.txt"), trapSummary + "\n");
+  writeFileSync(join(dir, "timings.json"), JSON.stringify(timings));
+  return dir;
+}
+const CLI = fileURLToPath(new URL("./corpus-report.mjs", import.meta.url));
+function verdict(options) {
+  const dir = runDir(options);
+  try {
+    const cli = spawnSync(process.execPath, [CLI, dir], {encoding: "utf8"});
+    return {verdict: decide(dir).report.verdict, exit: cli.status};
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+}
+
+test("verdict: a complete clean run passes", () => {
+  assert.deepEqual(verdict(), {verdict: "PASS", exit: 0});
+});
+test("verdict: a missing trap summary with a failed trap phase is not a pass", () => {
+  assert.deepEqual(verdict({trapSummary: null, timings: {traps: {exit: 1}, full: {exit: 0}}}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: a malformed trap summary is not a pass", () => {
+  assert.deepEqual(verdict({trapSummary: "step4-traps: ERROR", timings: {traps: {exit: 1}, full: {exit: 0}}}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: unknown trap coverage is not a pass", () => {
+  assert.deepEqual(verdict({trapSummary: "step4-traps: 0 reached (1/18 unknown) 214 unreached"}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: a failed trap phase with a clean-looking summary is not a pass", () => {
+  assert.deepEqual(verdict({timings: {traps: {exit: 1}, full: {exit: 0}}}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: one reached trap fails", () => {
+  assert.deepEqual(verdict({trapSummary: "step4-traps: 1 reached (0/0 unknown) 213 unreached"}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: unknown reachability is not a pass", () => {
+  assert.deepEqual(verdict({reach: false}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: a failed full phase is not a pass even with equal files", () => {
+  assert.deepEqual(verdict({timings: {traps: {exit: 0}, full: {exit: 1}}}), {verdict: "FAIL", exit: 1});
+});
+test("verdict: --no-traps is UNCHECKED, never PASS", () => {
+  assert.deepEqual(verdict({trapSummary: null, timings: {mode: {traps: false, full: true}, full: {exit: 0}}}), {verdict: "UNCHECKED", exit: 1});
+});
+test("verdict: --traps-only is not a pass", () => {
+  assert.deepEqual(verdict({timings: {mode: {traps: true, full: false}, traps: {exit: 0}}}), {verdict: "FAIL", exit: 1});
 });

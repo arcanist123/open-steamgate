@@ -126,6 +126,34 @@ export function classifyTraps(tsv) {
   return {byKind: sorted(byKind), byModule: sorted(byModule)};
 }
 
+/**
+ * PASS only when every required phase ran and succeeded and nothing is left
+ * unknown: the full phase exited 0 with run=ok and equal bytes, the trap
+ * phase exited 0 with a well-formed summary of 0 reached and 0 unknown, and
+ * the reachability manifest exists. A run made with --no-traps is UNCHECKED,
+ * never PASS; anything else is FAIL. Each unmet condition is a reason.
+ */
+export function verdictOf({timings, run, equal, reached, reach}) {
+  const reasons = [];
+  const mode = timings.mode ?? {traps: true, full: true};
+  if (!mode.full) reasons.push("full phase not run");
+  else if (timings.full?.exit !== 0) reasons.push(`full phase exit ${timings.full?.exit ?? "missing"}`);
+  if (run !== "ok") reasons.push(`run=${run}`);
+  if (!equal) reasons.push("output differs");
+  if (!reach) reasons.push("reachability unknown (no reach.json)");
+  if (mode.traps) {
+    if (timings.traps?.exit !== 0) reasons.push(`trap phase exit ${timings.traps?.exit ?? "missing"}`);
+    if (!reached) reasons.push("trap summary missing or malformed");
+    else {
+      if (Number(reached[1]) !== 0) reasons.push(`${reached[1]} reached traps`);
+      if (Number(reached[2]) !== 0 || Number(reached[3]) !== 0) reasons.push(`unknown trap coverage ${reached[2]}/${reached[3]}`);
+    }
+  }
+  const verdict = reasons.length ? "FAIL" : mode.traps ? "PASS" : "UNCHECKED";
+  if (verdict === "UNCHECKED") reasons.push("trap phase skipped (--no-traps)");
+  return {verdict, reasons};
+}
+
 const readText = (p) => (existsSync(p) ? readFileSync(p, "utf8") : null);
 
 export function decide(dir) {
@@ -154,19 +182,21 @@ export function decide(dir) {
   const perObject = {};
   for (const o of objects) perObject[o.toUpperCase()] = run !== "ok" ? "crash" : comparison?.objects[o.toUpperCase()] ?? (comparison?.equal ? "equal" : "unattributed");
   const tally = Object.values(perObject).reduce((n, s) => ((n[s] = (n[s] ?? 0) + 1), n), {});
-  const pass = run === "ok" && comparison?.equal === true && (!reached || Number(reached[1]) === 0);
+  const {verdict, reasons} = verdictOf({timings, run, equal: comparison?.equal === true, reached, reach});
+  const pass = verdict === "PASS";
   const report = {
-    pass, osgCommit: manifest.osgCommit, osgDirty: manifest.osgDirty, manifestSha256: manifest.manifestSha256, inputsSha256: manifest.inputsSha256,
+    pass, verdict, reasons, osgCommit: manifest.osgCommit, osgDirty: manifest.osgDirty, manifestSha256: manifest.manifestSha256, inputsSha256: manifest.inputsSha256,
     objects: objects.length, files: manifest.files.length, tally, run, summary, traps: trapLine,
     reachedTraps: reached ? Number(reached[1]) : null, unreachedTraps: reached ? Number(reached[4]) : null,
     trapClasses, firstRuntimeTrap: run.startsWith("trap") ? run : null,
     reachedFunctions: reach, comparison: comparison && {...comparison, objects: undefined}, timings, perObject,
   };
   writeFileSync(join(dir, "report.json"), JSON.stringify(report, null, 1) + "\n");
-  const line = `selfhost-corpus: ${pass ? "PASS" : "FAIL"} objects=${objects.length} equal=${tally.equal ?? 0} diff=${(tally.diff ?? 0) + (tally.missing ?? 0) + (tally.extra ?? 0) + (tally.unattributed ?? 0)} crash=${tally.crash ?? 0}`
+  const line = `selfhost-corpus: ${verdict} objects=${objects.length} equal=${tally.equal ?? 0} diff=${(tally.diff ?? 0) + (tally.missing ?? 0) + (tally.extra ?? 0) + (tally.unattributed ?? 0)} crash=${tally.crash ?? 0}`
     + ` bytes=${comparison ? (comparison.equal ? "equal" : `differ@${comparison.firstDifference.line}:${comparison.firstDifference.byte}`) : "none"}`
     + ` reached-functions=${reach ? `${reach.executed}/${reach.bodies}` : "?"} traps=${reached ? `${reached[1]} reached ${reached[4]} unreached` : "?"}`
-    + ` ref=${comparison?.refSha256.slice(0, 16) ?? "none"} out=${comparison?.outSha256.slice(0, 16) ?? "none"}`;
+    + ` ref=${comparison?.refSha256.slice(0, 16) ?? "none"} out=${comparison?.outSha256.slice(0, 16) ?? "none"}`
+    + (reasons.length ? ` (${reasons.join("; ")})` : "");
   return {report, line};
 }
 
