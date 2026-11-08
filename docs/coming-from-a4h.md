@@ -72,10 +72,16 @@ discovery on 44300 `200`, `TravelSet` answers, and the log says
 the `osd-data` volume and survives `docker rm`; the certificate is
 `osd-tls`. Stop with `docker stop osd`, remove with `docker rm osd`.
 
-`showcase-draft` moves with `main`. To pin what a release tested, use the
-version tag GHCR also carries: `0.7.1696` (the current stable release,
-with the demo packs) or `0.7.1696-core` (without), `0.7.2114` for the
-newest prerelease.
+`showcase-draft` is a moving tag, but it does not follow every merge: the
+Docker image workflow publishes on a `vscode-v*` / `vscode-stable-v*` tag
+push or on a manual dispatch with `publish=true`, and only after the
+image passed its acceptance suite ([`docker-ci.md`](docker-ci.md)). To
+know what you run, read `commit` from
+`http://localhost:3030/sap/bc/adt/core/http/build`, or pin a version tag
+GHCR also carries: `0.7.1696` (the current stable release, with the demo
+packs), `0.7.1696-core` (without), `0.7.2114` for the newest prerelease
+(on 2026-11-08 `latest`, `showcase` and `showcase-draft` all resolved to
+that prerelease, not to the stable).
 
 Prefer Compose or Portainer? [`docs/spin.md`](spin.md) has one pasteable
 stack per database (SQLite, DuckDB, PostgreSQL, HANA Express); the SQLite
@@ -141,9 +147,11 @@ system; see its [README](../editors/vscode/README.md).
 
 Each release carries `osd-linux-x64`, `osd-linux-arm64`,
 `osd-darwin-arm64`, `osd-darwin-x64`, `osd-windows-x64.exe` and
-`osd-windows-arm64.exe`: `chmod +x osd-linux-x64 && ./osd-linux-x64 up`
+`osd-windows-arm64.exe`: `mv osd-linux-x64 osd && chmod +x osd && ./osd up`
 copies the embedded system into your user data directory and serves on
-3030. `./osd doctor` says what a binary contains. The release binaries
+3030 (HTTP only: the binary makes no certificate, so Eclipse reaches it
+over RFC with `./osd protocols` in a second terminal, section 2).
+`./osd doctor` says what a binary contains. The release binaries
 were not downloaded for this page. What was measured: `npm run binary`
 in the clone builds the **checkout-mode** binary (105 MB in 1.3 s, Bun
 1.4.3, no embedded seed, as `build/osd doctor` says), and on this host
@@ -176,7 +184,22 @@ exists.
 | URL | `https://localhost:44330` from `npm start`, `https://localhost:44300` from the Docker image |
 | User / password | `DEVELOPER` / anything |
 | System ID shown | `OSD` (change it only with `OSD_SID`, together with the projects that point at it: ADT refuses a system whose id changed under a project) |
-| Certificate | self-signed, created by `npm run osd:tls` into `.local/tls/osd.crt` (the start log prints the SHA-256), or by the container on first start into the `osd-tls` volume. Java rejects a certificate for an address it does not name: it names `localhost`, `127.0.0.1`, `::1` and the host's own addresses; set `TLS_SAN=DNS:your-host.example` before the first container start if you connect by another name. Eclipse asks once whether to trust it. |
+| Certificate | self-signed; Eclipse asks once whether to trust it. Java checks the *subject alternative names*, so the certificate must name the address you type. The two paths make different ones (see below). |
+
+What each path puts into the certificate, read off the code that makes it:
+
+| path | made by | names in it |
+| --- | --- | --- |
+| `npm start` in a clone | `npm run osd:tls` (`tools/osd-tls.mjs`), once, into `.local/tls/osd.crt`; the start log prints the SHA-256 | `DNS:localhost`, `DNS:osd`, `IP:127.0.0.1`, `IP:::1` and every non-loopback **IPv4** address of the machine at that moment (so a client on the host OS reaching a WSL system by its address is fine) |
+| Docker image | `docker/image/entrypoint.mjs` on first start, into the `osd-tls` volume | exactly `TLS_SAN`, default `DNS:osd,DNS:localhost,IP:127.0.0.1`. **Not** `::1`, not the host's addresses. `TLS_SAN` *replaces* the list, so to add a name keep the defaults in it: `docker run … -e TLS_SAN=DNS:osd,DNS:localhost,IP:127.0.0.1,DNS:your-host.example …` on the **first** start (the variable has to be passed into the container; an existing `osd-tls` volume keeps its old certificate, remove the volume to get a new one) |
+
+So from a container, connect as `https://localhost:44300` or
+`https://127.0.0.1:44300`, not by `::1` and not by the machine's own name
+unless you put it into `TLS_SAN` first. The critic of this page executed
+the entrypoint's certificate block against the four names: with the
+default list `localhost` and `127.0.0.1` verify, `::1` and
+`your-host.example` do not; with `TLS_SAN=DNS:your-host.example` alone only
+that name verifies.
 
 What answered over HTTPS on this host: `curl -k https://localhost:44330/sap/bc/adt/discovery` → 200, and the same with `--cacert .local/tls/osd.crt` → 200.
 
@@ -223,7 +246,7 @@ share, and the build names every override with both files.
 ```sh
 node bin/osd.mjs up --layer /path/to/your-repo        # a folder or a .zip, repeatable
 OSD_LAYERS=/path/to/a:/path/to/b npm start            # the same as an environment variable
-./osd up --layer your-repo.zip                        # the binary
+./osd up --layer your-repo.zip                        # the binary, after mv osd-linux-x64 osd
 ```
 
 In VS Code, open the repository folder in the workspace and restart OSD;
@@ -244,10 +267,15 @@ each class answered over ADT.
 interfaces, reports (`PROG`), function groups, tables, table types, data
 elements, domains, message classes, search helps, lock objects, CDS DDL
 sources, transactions that name a class, and `W3MI` / `SMIM` media. The
-package objects (`DEVC`) give the tree its folders. Not run: dynpro
-screens (`SUBMIT` to a dynpro report throws, `CALL TRANSACTION` is a
-no-op, see section 5), anything whose dependency is a standard object this
-tree does not have.
+package objects (`DEVC`) give the tree its folders. `SUBMIT` is a
+subset: the static forms `SUBMIT zprog [WITH p = v …] AND RETURN` and
+`SUBMIT … VIA JOB … AND RETURN` are lowered onto the batch-report runtime
+before transpiling (`tools/osd-narrow-submit.mjs`, cases in
+`test/narrow-submit.mjs`; the jobs row of the README); every other form,
+a dynamic program name among them, and a report that needs a dynpro are
+refused by the build. Not run: dynpro screens (`CALL TRANSACTION` is a no-op, see
+section 5), anything whose dependency is a standard object this tree does
+not have.
 
 **Seeing what did not compile.** The build is one command and it fails
 closed:
@@ -268,10 +296,26 @@ naming its ABAP statement ([`using-osd.md` §9](using-osd.md#9-when-something-is
 `cl_abap_unit_assert`, `cl_http_utility`, `cl_abap_conv_*`, `/ui2/cl_json`
 and a few hundred others: those come from
 [open-abap-core](https://github.com/open-abap/open-abap-core) and are a
-subset, sometimes a stub. Things like `BAPI_*`, `SFLIGHT`, `T000`,
-`CL_SALV_TABLE`, `CL_GUI_ALV_GRID` are not there (section 5). Before you
-spend time: `npm run probe -- <folder>` computes the dependency closure of
-a folder against what the libraries implement.
+subset, sometimes a stub. `BAPI_*`, `SFLIGHT`, `T000` and the rest of the
+standard dictionary are not there at all (section 5). `CL_SALV_TABLE`,
+`CL_GUI_ALV_GRID` and the other `cl_gui_*` names **do** exist, as the
+substitutes of [open-abap-gui](https://github.com/open-abap/open-abap-gui)
+(a library of this tree, pinned in `libs.lock.json`): they render to HTML
+instead of a control, are work in progress, and nothing on this page
+verified how much of a given class behaves like SAP's. Before you spend
+time, compute the closure of your folder against the libraries:
+
+```sh
+npm run probe -- <folder> \
+  --lib .local/lars/open-abap-odata/src \
+  --lib .local/lars/open-abap-gui/src \
+  --lib .local/lars/open-abap-apc/src
+```
+
+The `--lib` lines matter: the probe's defaults are open-abap-core,
+express-icf-shim and this tree's `src/` (its OData default points at a
+folder bootstrap no longer uses), so without them Gateway, GUI and APC
+names are reported missing although the build has them.
 
 ## 4. Work
 
@@ -312,13 +356,13 @@ project runs as it is ([`using-osd.md`](using-osd.md)).
 
 | A4H | open-steamgate | what to do instead |
 | --- | --- | --- |
-| SAP GUI with dynpro: SE80, SE11, SE16, SM30, your `CALL SCREEN` programs | **No dynpro processor.** Port 3200 accepts SAP GUI and shows one fixed screen (`R Tape loading error, 0:1`) so a GUI can connect and you can see it is not SAP; `SUBMIT` to a dynpro report throws, `CALL TRANSACTION` is a no-op. The classic transactions here (SE16, ST05, Easy Access) are HTML pages written by ABAP classes | Lars Hvam's [open-abap-gui](https://github.com/open-abap/open-abap-gui) is the off-stack dynpro work: GUI controls, classic report and dynpro processing rendered as HTML, work in progress (its converter is already a library of this tree, `cl_gui_*` and SALV included). Selection screens exist today as a terminal UI and as a real SAP GUI screen over DIAG in `osabap`, the report-to-binary compiler (README) |
+| SAP GUI with dynpro: SE80, SE11, SE16, SM30, your `CALL SCREEN` programs | **No dynpro processor.** Port 3200 accepts SAP GUI and shows one fixed screen (`R Tape loading error, 0:1`) so a GUI can connect and you can see it is not SAP; a report that needs a dynpro is refused, `CALL TRANSACTION` is a no-op, only the static `SUBMIT … AND RETURN` / `VIA JOB` forms run (section 3). The classic transactions here (SE16, ST05, Easy Access) are HTML pages written by ABAP classes | Lars Hvam's [open-abap-gui](https://github.com/open-abap/open-abap-gui) is the off-stack dynpro work: GUI controls, classic report and dynpro processing rendered as HTML, work in progress (its converter and its `cl_gui_*` / SALV substitutes are already a library of this tree). Selection screens exist today as a terminal UI and as a real SAP GUI screen over DIAG in `osabap`, the report-to-binary compiler (README) |
 | Standard DDIC: `SFLIGHT`, `T000`, `MARA`, the whole dictionary | **None of it**; clean-room, no SAP source and no SAP tables. The demo data is airship travels | Bring your own tables as abapGit `TABL`/`DTEL`/`DOMA` files; released data elements and domains exist in open-abap-core |
-| BAPIs, standard function modules, `CL_SALV_*`, `CL_GUI_*`, SAP's classes | A subset of `CL_*`/`IF_*` from open-abap-core, some methods stubbed with `ASSERT 1 = 'todo'`. No BAPIs | `npm run probe -- <folder>` tells you the closure before you start; missing pieces go upstream to open-abap-core as small PRs |
+| BAPIs, standard function modules, SAP's class library | A subset of `CL_*`/`IF_*` from open-abap-core, some methods stubbed with `ASSERT 1 = 'todo'`; `CL_SALV_*` / `CL_GUI_*` as open-abap-gui's HTML substitutes, behaviour unverified here. No BAPIs | the probe command of section 3 tells you the closure before you start; missing pieces go upstream to open-abap-core as small PRs |
 | `sy-mandt = '001'`, your logon client | **`sy-mandt = 123`**, fixed by the runtime; ADT and the session cookie say client `001`. Open SQL on a client-dependent table adds **no implicit `MANDT` condition**, so rows of every client are visible ([`ANORMALIES.md`](../ANORMALIES.md)) | Never branch on `sy-mandt`; put `MANDT` into your seed rows yourself and do not rely on an implicit client filter |
 | `sy-sysid = 'A4H'`, your timezone, real `sy-uzeit` | `sy-sysid = OSD` (or `OSD_SID`); the runtime is **UTC** and fixed-point arithmetic is always on | Do not depend on local time in tests |
 | Full ABAP 7.58 / ABAP Cloud syntax check in ADT, ATC | abaplint's `open-abap` dialect: a 7.02 baseline plus a curated set of newer features (section 6); no ATC | abaplint runs on the tree (`npm run lint`); `npm run segw:cloud` is an informational pass with `syntax.version: Cloud` |
-| RAP (BDEF, EML, managed scenarios), OData V4 | Being built right now (BDEF parser and derived types in the tree, EML and V4 in progress); code-based SEGW and SADL over CDS are what works end to end | Classic `_DPC_EXT`, CDS with `@OData.publish`, `stg-compile` |
+| RAP (BDEF, EML, managed and unmanaged scenarios, draft), OData V4 | RAP, 2026-11-08: a **managed** BDEF runs **handler-direct**: the runtime calls the pool's determinations, validations, actions and the save sequence itself, there is **no EML** (`MODIFY/READ/COMMIT ENTITIES` do not transpile), no draft, no unmanaged save, and the managed BO is not yet served over OData ([`rap-runtime.md`](rap-runtime.md)). OData V4: every V2 service also answers on `/sap/opu/odata4/sap/<service>/` with reads, entity writes, ETags and JSON `$batch`; no actions/functions, no deep insert, no multipart `$batch`, no Fiori Elements V4 app yet ([`odata-v4.md`](odata-v4.md)). Code-based SEGW and SADL over CDS are what works end to end | Classic `_DPC_EXT`, CDS with `@OData.publish`, `stg-compile` |
 | Transport system, SAP-owned namespaces | Everything is a file in git; a "transport" is a commit, a branch is a system copy | `git` |
 | Debugger in Eclipse | Not served over ADT | The VS Code extension debugs ABAP lines through Node's debugger |
 | SAP's licence and a developer key | MIT; the one SAP-licensed thing you *can* attach is HANA Express as a database, under SAP's own terms | |
@@ -345,8 +389,8 @@ built with the command of section 3 on this host:
 So the syntax people write today, 7.40 through `FINAL`, is accepted, and
 what limits a program is the library (section 5), not the parser. The
 7.02 baseline still shows: a statement abaplint has not opted into the
-dialect is refused by the build with `FAILED: … <file>:<line>`, and the
-transpiler has no `SUBMIT` and no dynpro.
+dialect is refused by the build with `FAILED: … <file>:<line>`, `SUBMIT`
+is the static subset of section 3, and there is no dynpro.
 
 ABAP source is 7-bit ASCII here as on a system; an em dash in a comment
 is a lint error.
