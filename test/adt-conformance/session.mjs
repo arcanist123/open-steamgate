@@ -6,10 +6,10 @@ export class Session {
     this.headers = headers;
     this.cookies = new Map();
   }
-  async request({method = 'GET', path, query, headers = {}, body}) {
+  async request({method = 'GET', path, query, headers = {}, body, timeout = this.timeout}) {
     const url = new URL(path.startsWith('/sap/') ? path : '/sap/bc/adt' + path, this.base);
     for (const [key, value] of Object.entries(query ?? {})) if (value !== undefined) url.searchParams.set(key, value);
-    const res = await fetch(url, {method, redirect: 'manual', signal: AbortSignal.timeout(this.timeout), body,
+    const res = await fetch(url, {method, redirect: 'manual', signal: AbortSignal.timeout(timeout), body,
       headers: {...this.headers, cookie: [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; '),
         ...(this.token ? {'x-csrf-token': this.token} : {}), 'x-sap-adt-sessiontype': 'stateful', ...headers}});
     for (const cookie of res.headers.getSetCookie()) {

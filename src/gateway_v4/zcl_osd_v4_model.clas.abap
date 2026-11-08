@@ -5,6 +5,8 @@ CLASS zcl_osd_v4_model DEFINITION PUBLIC CREATE PUBLIC.
              name TYPE string,
              edm_type TYPE string,
              facets TYPE string,
+* set_as_etag in the MPC: the property is (part of) the entity's ETag
+             is_etag TYPE abap_bool,
            END OF ty_property.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
     DATA ms_service TYPE zcl_stg_model_info=>ty_service READ-ONLY.
@@ -14,6 +16,7 @@ CLASS zcl_osd_v4_model DEFINITION PUBLIC CREATE PUBLIC.
     METHODS metadata RETURNING VALUE(rv_xml) TYPE string.
     METHODS property IMPORTING iv_type TYPE string iv_name TYPE string
       RETURNING VALUE(rs_property) TYPE ty_property.
+    METHODS has_etag IMPORTING iv_type TYPE string RETURNING VALUE(rv_etag) TYPE abap_bool.
     CLASS-METHODS xml IMPORTING iv_text TYPE string RETURNING VALUE(rv_text) TYPE string.
   PRIVATE SECTION.
 ENDCLASS.
@@ -53,6 +56,7 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
         ls_info-entity_type = lv_name.
         ls_info-name = ls_prop-name.
         ls_info-edm_type = lo_property->mv_edm_type.
+        ls_info-is_etag = lo_property->mv_etag.
         CASE ls_info-edm_type.
           WHEN ''.
             ls_info-edm_type = 'Edm.String'.
@@ -92,6 +96,11 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     READ TABLE mt_properties INTO rs_property WITH KEY entity_type = iv_type name = iv_name.
   ENDMETHOD.
 
+  METHOD has_etag.
+    READ TABLE mt_properties WITH KEY entity_type = iv_type is_etag = abap_true TRANSPORTING NO FIELDS.
+    rv_etag = boolc( sy-subrc = 0 ).
+  ENDMETHOD.
+
   METHOD metadata.
     DATA ls_set TYPE zcl_stg_model_info=>ty_entity_set.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
@@ -105,10 +114,19 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     DATA lv_attr TYPE string.
     DATA lv_partner TYPE string.
     DATA lv_keys TYPE string.
+    DATA lv_core TYPE string.
+    DATA lv_paths TYPE string.
 
     lv_ns = xml( ms_service-namespace ).
+* Optimistic concurrency is announced through the Core vocabulary, which is
+* referenced only when some entity type of the service has an ETag.
+    READ TABLE mt_properties WITH KEY is_etag = abap_true TRANSPORTING NO FIELDS.
+    IF sy-subrc = 0.
+      lv_core = '<edmx:Reference Uri="https://oasis-tcs.github.io/odata-vocabularies/vocabularies/Org.OData.Core.V1.xml">' &&
+        '<edmx:Include Namespace="Org.OData.Core.V1" Alias="Core"/></edmx:Reference>'.
+    ENDIF.
     rv_xml = '<?xml version="1.0" encoding="utf-8"?>' &&
-      '<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">' &&
+      '<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">' && lv_core &&
       '<edmx:DataServices>' && |<Schema Namespace="{ lv_ns }" xmlns="http://docs.oasis-open.org/odata/ns/edm">|.
     LOOP AT ms_service-entity_sets INTO ls_set.
       READ TABLE lt_done WITH KEY table_line = ls_set-entity_type TRANSPORTING NO FIELDS.
@@ -157,6 +175,13 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
       LOOP AT ls_set-navs INTO ls_nav WHERE target_set IS NOT INITIAL.
         rv_xml = rv_xml && |<NavigationPropertyBinding Path="{ xml( ls_nav-name ) }" Target="{ xml( ls_nav-target_set ) }"/>|.
       ENDLOOP.
+      CLEAR lv_paths.
+      LOOP AT mt_properties INTO ls_info WHERE entity_type = ls_set-entity_type AND is_etag = abap_true.
+        lv_paths = lv_paths && |<PropertyPath>{ xml( ls_info-name ) }</PropertyPath>|.
+      ENDLOOP.
+      IF lv_paths IS NOT INITIAL.
+        rv_xml = rv_xml && |<Annotation Term="Core.OptimisticConcurrency"><Collection>{ lv_paths }</Collection></Annotation>|.
+      ENDIF.
       rv_xml = rv_xml && '</EntitySet>'.
     ENDLOOP.
     rv_xml = rv_xml && '</EntityContainer></Schema></edmx:DataServices></edmx:Edmx>'.

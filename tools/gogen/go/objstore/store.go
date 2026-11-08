@@ -102,8 +102,10 @@ var storeState struct {
 	excluded      []*regexp.Regexp
 	written       map[string]bool
 	createdActive map[string][]byte
-	reason        string
-	identity      *Identity
+	// files activation published: their immutable snapshot (activate.go)
+	publishedSnapshot map[string]string
+	reason            string
+	identity          *Identity
 }
 
 // SetStore points the store at a tree and the build's facts about it. An
@@ -116,6 +118,7 @@ func SetStore(root string, config []byte, reason string) error {
 	storeState.root, storeState.cfg, storeState.excluded = "", nil, nil
 	storeState.written = map[string]bool{}
 	storeState.createdActive = map[string][]byte{}
+	storeState.publishedSnapshot = map[string]string{}
 	storeState.reason = reason
 	if root == "" || len(config) == 0 {
 		if reason == "" {
