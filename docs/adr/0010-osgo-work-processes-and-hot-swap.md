@@ -1,0 +1,298 @@
+# ADR 0010 — OSGo work processes, a stable gateway, and the hot swap of a generation
+
+**Status:** Proposed (dell, 2026-11-08), for Alice. Measured before written: the numbers in "What was measured" are from this tree on this day, with the commands.
+**Date:** 2026-11-08
+**Deciders:** Alice; open-steamgate (dell); the osgo session for the Go side; abapiti for the gogen-in-Go dependency
+**Context:** Alice's direction of 2026-11-08: osgo is the promising runtime, and it wants (1) parallelism and a scheduler, (2) a work sidecar behind the gateway that is rebuilt after an ADT activation and swapped in without restarting the gateway, (3) as much of it in ABAP as possible, Go only where the host must be Go, (4) embedding into the VS Code extension and into vsp. This ADR decides the shape; the slices at the end are the work. It joins the dispatcher track of `docs/backlog/gogen-osgo.md` ("0.6 -- the OSGo dispatcher", Alice 2026-09-30: generation gate, then dispatcher proxy, then several work processes) with what #863 made true and with what was measured today.
+
+## Context
+
+### What osgo is today (read off the code, 2026-11-08)
+
+- **One work process.** `cmd/osgo/main.go` `step()` takes `abap.WorkProcess`, a single `sync.Mutex`, around every ICF request; `abap.APCStep` and the status refresh take the same mutex. A `WAIT` gives it up (`Session.YieldSleep`) and takes it back, as `tools/osd-dialog-step.mjs` does on Node. So an osgo process answers one dialog step at a time, whatever the client count; the rest of the Go HTTP server's goroutines queue on the mutex.
+- **One connection, one LUW.** `abap/db.go` holds `var db *sql.DB` with `SetMaxOpenConns(1)` and `abap/luw.go` holds `var tx *sql.Tx`: package globals. `DialogStep` opens the transaction and commits or rolls back at the step's end (the rule of `docs/luw-buffer.md`). In-memory SQLite is one database per connection, which is why the pool is one connection; `-db <file>` opens a WAL file, still one connection.
+- **One set of class statics.** `abap.ProcessStatics` is shared by every step, which is what a system has per *internal session* and what the Node host has per process too (`ANORMALIES`: statics across test classes).
+- **A generation is the binary.** `node tools/gogen/osgo.mjs` compiles every class of the tree (822 at the last count in `tools/gogen/README.md`) to `zz_generated.go` and runs `go build`. There is no module loading in Go; a new generation is a new executable.
+- **Activation publishes and says "rebuild needed"** (#863, `docs/osgo-adt-activation.md`): `POST /activation` runs CHECKRUN, then `objstore.Activate` makes the saved source the active version in the store and snapshots it under `build/osgo-published/`; the answer carries `generationExecuted="false"`, a `type="W"` message and `X-OSD-Build: published; rebuild osgo to run it`. The published state lives as long as the process.
+- **No scheduler on Go.** The jobs facade (`tools/osd-job-scheduler.mjs`: `JOB_OPEN`/`JOB_CLOSE`, released at the start time, periodic successors, one injectable clock, every run a dialog step) and the daemon host (`tools/osd-daemon-host.mjs`) are Node. `docs/abap-daemons.md` "Go (OSGo)" says what the Go mapping is to be: a goroutine per daemon instance with its own `*abap.Session`, channels for messages and timers, every callback under `WorkProcess`; and it says that until a dispatcher proxy exists "a generation swap on Go is a process restart" and queued messages are lost (decision D3, "revisit with the Go dispatcher"). This ADR is that revisit.
+- **The lock server** (ADR 0008, `go/enq`) is one goroutine owning the table, requests over a channel; E3 (a socket, so several processes share one table) is "0.7 nice".
+- **A database file is tied to the whole seed script.** `abap/icf_db.go` `OpenDBFile` writes `ScriptVersion(script)` (a hash of the tables *and* the seed rows) into `PRAGMA user_version` and refuses a file whose mark differs: "seeded by another build". A class-only edit leaves the script alone; a changed `data/*.tabu.json` row or a DDIC change refuses the previous generation's file.
+- **The stop is a kill.** `cmd/osgo` installs no signal handler; the VS Code launcher's `terminate()` sends SIGTERM and SIGKILL after a grace, which for osgo today is the same thing. There is no `/osd/serving` on osgo (`GET /health` answers `{"status":"ready"}`) and no `X-OSD-Generation` header.
+
+### What the Node host already does, and what carries over
+
+- The supervisor (`tools/osd-runtime.mjs`) keeps generations by content hash, starts the new child, waits for ready, quiesces the old one (55 s budget), and the launcher reads `/osd/serving` (`ready`, `generation`, `pid`, `root`, `database`, `hot.swaps`).
+- The warm compile (`docs/warm-compile.md`): a class save reaches the serving process in **463 ms median**, of which the build is ~410 ms and the module swap 4 ms, under the work-process lock between two dialog steps. Go has nothing like `import()` of a rebuilt module; the equivalent on Go is a process, which is the whole reason for the sidecar.
+- The daemon swap policy (D2, option A): the daemon restarts in the new generation from its start parameter, mailbox held in the stable layer and replayed after an ack-after-commit with message-ID dedup; timers dropped and re-armed in `ON_RESTART`. Confirmed against the sandbox (P10).
+- ADR 0001: git is the version layer; the liveness id is a counter per supervisor; a DB file carries a schema fingerprint and a mismatch is reported, never served silently.
+- Decisions on record: "generation swap first, then dispatcher and work processes" (Alice 2026-09-23/30, `gogen-osgo.md`); the osgo runtime is to need no Node or Bun (2026-10-22); gogen gets its own repository once its closure imports no `tools/osd-*` except a typed host-I/O module; every new capability is its own small module with a README.
+
+### What a real system does here (the shape we copy)
+
+An AS ABAP instance is one dispatcher process and N work processes (dialog, update, batch, enqueue, spool), separate OS processes, **each with its own standard database connection**, sharing memory (program buffer, roll area, lock table on the enqueue server). HTTP(S) is the ICM's, a process of its own, which hands a request to the dispatcher's queue; the dispatcher assigns it a work process and rolls the user context in and out between steps (so one session's steps run on different work processes); a work process owns one dialog step at a time; a program change is picked up lazily, per session, at the next dialog step after activation (the old load stays in the buffer until its last user is gone); a work process that dumps rolls its LUW back and lives on; a work process that exceeds `rdisp/max_wprun_time` gets a `TIME_OUT` dump; a work process that dies is restarted by the dispatcher and its session's uncommitted work is gone; the session's dialog locks go with it, while locks already handed to the update task at `COMMIT WORK` are released by that update's completion, not by the dialog session's end. The public shape (SM50, SM66, SM36/SM37, SM12) is what our status tables and the ABAP views already copy; this ADR copies the process shape too, with two deliberate simplifications: our "program buffer" is an executable, and a session is pinned to the generation it started in and drained within a grace, which is our policy and not a description of the system's roll-in/roll-out.
+
+## What was measured (2026-11-08, this tree at the branch point, 4 shared cores, load 3.5-5 from neighbouring jobs)
+
+Everything ran under the shared heavy-build lock (`flock`), one run at a time, with `tools/osd-bench-http.mjs` (closed loop, N clients, 5 s counted after 1 s warm-up, the load generator on the same host, so every absolute number is low and the ratios are what to read). Tree: merge base `378b0504` of `main` plus this branch; Go 1.26.0; `modernc.org/sqlite`. The host ran `tools/gogen/.out/osgo -adt -port 8085 -root <this checkout> -home <fresh directory>`: `-home` makes the database **a WAL file** (`<home>/osgo.sqlite`, seeded at start by `OpenDBFile`), not the in-memory database of a bare start, so the numbers are the file-backed mode, the one the swap needs. The edit for the rebuild row was one comment line appended to `src/demo/zcl_zstg_demo_dpc_ext.clas.abap`, reverted afterwards. The raw output of the bench runs is reproduced below the table.
+
+**The cycle a class change costs today** (`node tools/osd-build.mjs`, then `node tools/gogen/osgo.mjs`, each timed with `date`):
+
+| phase | cold (first build in a fresh clone) | after a one-line edit of `ZCL_ZSTG_DEMO_DPC_EXT` (Go build cache warm) |
+| --- | --- | --- |
+| `osd-build.mjs` (transpile: gen/, output/, 2403 objects) | 39.6 s | 40.2 s |
+| gogen front end (1066 classes) | 22.6 s | 23.0 s |
+| `go build` | 57.5 s | 103.6 s |
+| `osgo.mjs` total | 90.6 s | 139.1 s |
+| osgo start to `/health` ready | 3.5 s | (same binary shape) |
+| **edit to serving the new code** | **~130 s + restart** | **~180 s + restart** |
+
+Against this the ADT activation itself (#863: CHECKRUN + publish) is a fraction of a second, and the Node host's warm path swaps a class in 463 ms. The build is the long pole; the swap is what this ADR adds so that the build's result lands without a restart.
+
+**Requests per second, one osgo process (today's one work process)**, `node tools/osd-bench-http.mjs --url <url> --clients 1,4,16 --seconds 5`:
+
+| request | 1 client | 4 clients | 16 clients |
+| --- | --- | --- | --- |
+| ADT GET `/sap/bc/adt/oo/classes/zcl_zstg_demo_dpc_ext/source/main` | 11 (p50 92 ms) | 12 (p50 328 ms) | 18 (p50 1168 ms, p99 1529 ms) |
+| OData GET `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$top=10&$format=json` | 1463 (p50 0.63 ms) | 3844 (p50 0.84 ms) | 3144 (p50 4.1 ms, p99 16.7 ms) |
+
+Raw output (`node tools/osd-bench-http.mjs --url <the URL above> --clients 1,4,16 --seconds 5 --warmup 1`, text mode; `--json` writes the same fields as JSON):
+
+```
+.../source/main  clients=1   rps=11      p50=91.65ms   p95=124.18ms  p99=240.21ms   errors=0
+.../source/main  clients=4   rps=12.2    p50=328.25ms  p95=554.99ms  p99=604.22ms   errors=0
+.../source/main  clients=16  rps=17.8    p50=1168.04ms p95=1469.29ms p99=1529.42ms  errors=0
+.../TravelSet    clients=1   rps=1462.8  p50=0.63ms    p95=0.97ms    p99=1.33ms     errors=0
+.../TravelSet    clients=4   rps=3844    p50=0.84ms    p95=2.04ms    p99=3.86ms     errors=0
+.../TravelSet    clients=16  rps=3143.8  p50=4.1ms     p95=11.48ms   p99=16.65ms    errors=0
+RSS 73 MB; SIGTERM to exit 0.007 s; start to /health ready 3.53 s
+```
+
+Reading the numbers, and what they can and cannot say:
+
+- **The ADT read is the case that wants work processes.** One source read is 92 ms end to end over HTTP (the tool measures nothing finer; where inside `ZCL_OSD_ADT_HANDLER` the time goes is a profile not taken here), and with 16 clients the throughput rises by 60 % while the median waits 1.2 s. The hypothesis, to be proven by slice 5's bench and not asserted here: it is a queue on one mutex rather than a saturated CPU, and since a source read writes nothing, M work processes with parallel read transactions give up to M times this, bounded by the cores. If the profile shows the time is CPU in the handler, the gain is smaller and the fix is elsewhere.
+- **The OData read is cheap and already overlaps.** 0.63 ms a request alone; four clients give 2.6 times more because the HTTP parsing and the JSON writing happen outside the mutex and one closed-loop client is latency-bound. At 16 clients the rate falls and the tail grows (p99 16.7 ms): the mutex again, now visible. Work processes help here too, less dramatically.
+- **The stop is not a drain.** SIGTERM ended the process in 7 ms: a step in flight would have been cut, its LUW rolled back by SQLite, its client left without an answer. Slice 1.
+- **A class edit is three minutes today**, all of it build (`go build` of the changed 20 MB `zz_generated.go` is 104 s on this host; the 57 s of the cold build is probably a cache hit on an identical generated package built by a neighbouring job of the same commit, not measured further). The process restart after it is 3.5 s to ready, which is the part this ADR removes from the developer's view; the 180 s stays until gogen-in-Go compiles only what changed. The warm compile on Node (463 ms) shows what "only what changed" is worth.
+- Not measured: writes under concurrency, the proxy hop (slice 3 measures it), DuckDB (the Go host opens SQLite only), anything on Windows, CPU utilisation during the runs, and the ADT read over a tree other than this checkout. Shared-host load was 1.5 to 2.8 during the bench; the ratios held across the three client counts in one run and were not repeated, so they are a baseline to re-measure, not a stable figure.
+
+## Decision options
+
+| | (a) N goroutine work processes in one osgo process | (b) N sidecar processes behind an in-process gateway | (c) mixed: one gateway process; one sidecar per *generation*, M goroutine work processes inside it |
+| --- | --- | --- | --- |
+| parallelism | M dialog steps at once over a connection pool; the mutex becomes per-step connection ownership | N processes, one step each; the gateway load-balances | M steps at once inside the serving sidecar; N is 1 except during a swap (2) |
+| hot swap of a generation | **impossible in-process**: Go cannot unload code, and `plugin` is Linux/macOS only, same-toolchain only, never unloaded; a swap is a restart of the one process, which drops every APC socket and every pinned session | a new binary is a new sidecar; sessions pinned to the old one finish there; the old exits when drained | the same as (b); the gateway starts the new sidecar, routes new steps to it, drains the old |
+| shared state | all in one address space: enqueue, statics, daemon mailboxes, APC sockets, generation counter | enqueue must be a server (ADR 0008 E3); mailboxes and APC sockets in the gateway; statics per process for free | enqueue in the gateway (E3) or in the serving sidecar with a hand-over at the swap; statics per work process (a `Statics` per goroutine); APC sockets and mailboxes in the gateway |
+| database | one pool in one process; in-memory SQLite impossible with M connections (one database per connection), so a WAL file or a shared-cache URI | N processes on one SQLite WAL file (many readers, one writer at a time, `busy_timeout`); a native DuckDB file has one owning process, so an overlap needs a database-serving process | one sidecar holds the pool; during a swap two sidecars share the WAL file for the drain window; the same DuckDB limit as (b). The Go host opens SQLite only today; DuckDB is a Node backend, so this column is a constraint on a future, not a measurement |
+| a dumping step | the step's LUW rolls back, 500, the work process goes on (today) | the same | the same |
+| a hung step (a loop without `WAIT`) | a goroutine cannot be cancelled: the step holds its connection for ever; the other M-1 run; the only cure is to end the process, which ends them too | kill that process (SM50 "cancel without core"); the gateway restarts one | the gateway starts a fresh sidecar of the **same** generation, drains the one with the hung goroutine and kills it when the grace is up; lost: the hung step, any step still running at the grace, and the in-memory state of sessions pinned to that sidecar. If the hung step holds the database's write lock, every writer in both sidecars waits until the kill (see "The database under M work processes") |
+| a crash (Go fatal: OOM, concurrent map write, a `panic` outside `recover`) | every step in flight is lost; every APC socket drops; the process restarts cold | one step lost; the gateway keeps the sockets and the lock table | the sidecar's M steps are lost (their LUWs roll back with the connection); the gateway keeps sockets, locks, mailboxes and starts a replacement |
+| IPC cost per request | none | one hop over a Unix socket or loopback per request (measured below as the ceiling: the proxy overhead is the whole cost) | the same hop, once |
+| memory | one binary (85 MB on disk) once | 85 MB × N on disk is shared by the page cache; RSS × N | RSS × 2 during a swap, × 1 otherwise |
+| what must be Go | everything of the host already is | the gateway (sockets, spawn, signals, routing, health) and the sidecar's host | the same as (b) |
+| matches the system's shape | no (one process) | yes (dispatcher + WPs) | yes, with the WPs of one generation sharing one program load, which is also the system's shape |
+
+**Chosen: (c).** The generation is the process, so a swap, a crash and a hung step all have the same cure, the one a system uses: start another process, drain and end this one. The work process is a goroutine inside the generation, so M steps share one connection pool and one copy of the code. (a) alone cannot do the one thing Alice asked for first, the swap without a restart; keeping the sockets outside the generated executable is what rules it out. Between (b) and (c) the terms are the same: both pay one proxy hop per request, both need the lock server in the gateway before the first overlapping swap, both have the DuckDB limit, and separate processes share executable pages in either. The actual trade-off: (c) has one process heap and one connection pool per generation and loses all M active steps on a fatal sidecar failure; (b) isolates each step in a process and pays a heap and a Go runtime per work process, plus the lock server's socket on every lock from day one. (c) is chosen for the smaller footprint and because it is the order the dispatcher track already decided (generation gate, then dispatcher proxy, then several work processes); the IPC and database costs that would separate the two are measured in slices 3 and 5, not here.
+
+## What is shared, and where it lives
+
+| state | lives in | why there |
+| --- | --- | --- |
+| sockets (HTTP, HTTPS, WebSocket upgrades, DIAG, RFC listeners) | gateway | they must survive a swap; a client never sees a generation change as a closed connection |
+| generation table: id, pid, socket, state (`starting`, `serving`, `draining`, `retired`), sessions pinned, steps active | gateway | the only state that is *about* generations; the counter of ADR 0001 point 4 |
+| the ADT stateful session → generation pin | gateway | the cut is at the entry of the call stack (a request, a WS message, a GUI step), never inside a class; an open stateful session finishes in the generation it started in |
+| the lock table (ENQ, ADR 0008) | gateway, as the goroutine it already is, reached by the sidecar over the E3 socket | a lock held by a session must survive the swap of the code that took it; the system's enqueue server is a process of its own for the same reason |
+| the LUW of a dialog step | the work process's own connection, never shared | one step, one transaction (`docs/luw-buffer.md`); a goroutine WP = one `*sql.Conn` taken for the step and returned after commit or rollback. On SQLite that is **many readers, one writer** (next section) |
+| class statics (`CLASS-DATA`, class constructors run) | one `abap.Statics` per **logical internal session**, kept in the sidecar's session table and borrowed by whichever work process runs that session's step; access serialised per session (one step of a session at a time, as on a system) | a system keeps them in the internal session, rolled in with the user context; a stateful session's step 1 on WP1 and step 2 on WP2 must see the same `CLASS-DATA`, and a session must never inherit another's. `Session.Statics` is already a private store per `Session` (`abap/statics.go`, `statics_test.go` checks isolation). See "Statics" below for the cost |
+| APC: the socket | gateway | a socket must not die with a generation (`docs/abap-daemons.md` point 7 wanted this as "a separate decision"; this is it) |
+| APC: the handler object and its state | the sidecar the session is pinned to; on a swap the handler is created again in the new one and gets `ON_START` again | the roll area is not serialised (reload decision 2026-09-23) |
+| daemon mailboxes, message IDs, timers | gateway (the "stable layer" of D2); timers dropped and re-armed by `ON_RESTART` | D3 said "revisit with the Go dispatcher": the mailbox now has a process to live in, so queued messages survive a swap on Go as they do on Node |
+| job scheduler: the clock and the tick | gateway | one clock for the instance (`rdisp/btctime` is the dispatcher's); the tick must fire during a swap too |
+| job scheduler: what is due, successors, the run | ABAP in the serving sidecar (`JOB_*` tables, `ZOSD_JOB_*`), the tick calls it as a dialog step | the logic is data over tables and belongs in ABAP; the gateway only knows "it is time" |
+| published source (#863) | the content-named snapshot `build/osgo-published/`, read back by every new sidecar at start | today it dies with the process; a file is the thin layer that survives it and needs no new store |
+| the business database | a file (`-home`/`-db`, SQLite WAL) opened by the serving sidecar; shared by two sidecars only during the drain window | ADR 0001 point 6: rows are per instance and persisted; a swap must not eat a client's rows |
+| the runtime's own caches (lazy table providers, the status snapshot, parsed registries) | explicitly instance-wide registries in the sidecar, separate from `CLASS-DATA` | a system's shared buffers are not internal-session state either; keeping them apart is what lets statics be per session without paying the caches per session |
+| the webapp, packs, media | files under `-root`, served by the gateway directly | static, no generation |
+
+## The database under M work processes
+
+The one-mutex host opens one transaction around every dialog step (`abap/luw.go`, `DialogStep`), reads or writes. With M work processes that cannot stay as it is, and what replaces it depends on the engine:
+
+- **SQLite (WAL), the only engine the Go host opens today.** Many readers, **one writer** per database file, in WAL mode too. A deferred transaction takes no lock until its first write; `BEGIN IMMEDIATE` takes the write lock at once, so a step that opens with `BEGIN IMMEDIATE` queues on every other writer whether or not it ever writes, and M connections opened that way are the old mutex spelled as a database lock (the critic's probe: a second `BEGIN IMMEDIATE` fails `database is locked` after `busy_timeout`, while a plain `SELECT` beside the first proceeds). A deferred transaction that reads and then writes can fail at the upgrade (`SQLITE_BUSY_SNAPSHOT`) when another writer committed meanwhile, and an ABAP step cannot be replayed after its external effects. So the policy is decided by the **kind of step**, not by the transaction:
+  - a **read step** (ICF GET/HEAD; an ADT read; `$metadata`; an OData read without a function import) opens a deferred transaction on a connection in `query_only` mode: it never takes the write lock, M of them run in parallel, and a write attempt inside one is a dump (as a write in a GET is already outside the LUW bracket, `docs/luw-buffer.md`).
+  - a **modifying step** (POST, PUT, MERGE, DELETE, `$batch`, a function import, a job run, a daemon callback, an APC message) opens `BEGIN IMMEDIATE`: writers are serialised at the database, one at a time, with `busy_timeout` set to the drain grace so a writer waits rather than fails while a swap is in flight. **Writes are not parallel on SQLite**, and this ADR does not claim they are: the parallelism bought is of the read steps, which is where the measured queue is (the ADT read).
+  - a **hung writer** holds the one write lock, and then every writer in both sidecars of a drain window waits. The fence is `sqlite3_interrupt` on the hung step's connection (the driver exposes it through the context cancellation of its statements; the step's next statement fails and the goroutine unwinds as a dump, its LUW rolled back), and if the step is in a loop without a statement, the process kill at the grace. A replacement sidecar can therefore serve read steps at once and writers only after the fence; the failure table says so.
+  - **proof before the pool is built** (slice 5's first test): parallel reads beside a held write lock, a read-then-write step refused cleanly at the upgrade instead of replayed, and a hung writer with a read request and a write request beside it, each observed.
+- **DuckDB**: one owning process per file, MVCC inside it, several connections may write with optimistic conflicts at commit; no two processes. **PostgreSQL and HANA**: full MVCC, many writers, a connection per work process is the normal shape and both step kinds open the same transaction. The step-kind policy costs nothing there and the read/write distinction is only used for SQLite's lock.
+
+The seed mark and the schema fingerprint are two things from here on: `ScriptVersion` is computed over the **DDL statements only** (tables, views, indexes) and stamped as the schema fingerprint; the seed rows run separately into an empty file and leave their own mark in `osd_schema` (which seed, when), so a rebuilt generation with changed seed rows opens an existing file and never re-seeds it.
+
+## Statics: per logical internal session
+
+Chosen: a `Statics` store per logical internal session (a stateful ADT session, an APC session, a daemon instance, a job run, or one stateless request), owned by the sidecar's session table and borrowed by the work process that runs the session's step; one step of a session at a time. The runtime's own caches move to instance-wide registries, outside `CLASS-DATA`.
+
+The cost, honestly: a stateless request is a new internal session on a system, so its class constructors run again for every request; both hosts today keep statics process-wide and run them once (an `ANORMALIES` entry already). Per-session statics make the stateless path pay what a system pays. Mitigation: the store is lazy (`Session.Static` allocates a slot on first access), so a request pays only for the classes it touches; the demo's OData read touches a handful. Slice 5 measures the OData bench before and after and the number decides whether stateless requests may share one store per work process as an opt-in (which would be the per-WP model, with its scheduling dependence, confined to steps that have no next step).
+
+The alternative rejected: statics per work process. Stateful session A's step 1 on WP1 and step 2 on WP2 would see different `CLASS-DATA`, and session B scheduled on WP1 would inherit A's state and constructor flags: results that depend on the pool's scheduling.
+
+## The hot swap of a generation
+
+The sequence, with the owner of each step. "Builder" is whatever turns the tree into an executable: today `node tools/gogen/osgo.mjs` (gogen on Node + `go build`); the goal is gogen-in-Go (self-hosting step 4, harness in place, whole input set **not equal** as of 2026-11-08, `docs/self-hosting.md`). The gateway does not care which; it invokes a command and waits for a path.
+
+1. **Activation** (sidecar, ABAP `ZCL_OSD_ADT_HANDLER` + `go/adtactivate`): CHECKRUN over the saved source; a clean set is published: active version in `objstore`, content-named snapshot under `build/osgo-published/`. This is #863 as it is. New: the answer's `X-OSD-Build` says `published; building <id>` instead of `published; rebuild osgo to run it` when a builder is configured, and the warning text says so too. Nothing waits for the build: Eclipse and the extension count the warning as success, as today.
+2. **Build request** (gateway): the sidecar tells the gateway "generation inputs changed" over its control socket (or the gateway's own watcher on `build/osgo-published/` sees the new snapshot; both are fine, the socket is the one that carries the object list). The gateway debounces (the warm compile's 30 ms is for a file watcher; here 500 ms, since a build is seconds, not half a second) and starts the builder with the tree and the published snapshots as inputs, output `build/osgo-gen/<input-hash>/osgo`. Same inputs, same name, no build (`docs/generations.md`). One build at a time; a second request while one runs is queued and coalesced.
+3. **Start** (gateway): spawn the new executable with `-sidecar <control socket>`, `-db <the same file>`, `-root <the same tree>`; it opens the database **read-only until promoted** and answers `ready` on its control socket when its boot is done. Today's start writes: `OpenDBFile` seeds and marks, `prepareStore` and `dbstore.go` run UPDATEs on the registry rows, the status refresh writes its rows. A candidate must not do any of that on the shared file: its boot writes go to a candidate-local attached schema (an in-memory `ATTACH`, the registries and status rows written there and read through a view that unions both), the smoke step runs on read transactions only, and the attached rows are flushed into the file in one transaction at promotion. Proven by a populated-file test: a candidate that fails its smoke leaves every business row and every registry row as it found them. The gateway runs a smoke step through it (`GET /health` and one `$metadata` of a registered service) before it counts as `serving`-capable. A sidecar that fails to start or to answer the smoke is retired at once and the old one stays; the failure is reported on `/osd/serving` and in the log, never silently.
+4. **Schema check** (new sidecar, before promotion): compare the schema fingerprint it would create (DDL only) with the file's. Equal: go on. Different: refuse the swap, say so (`X-OSD-Build: built; schema differs, restart needed`), leave the old generation serving. See "The database across generations".
+5. **Promote** (gateway, atomic flip of the routing table): new sessions and stateless requests go to the new generation; every session already pinned stays with the old one. The daemon mailboxes are held (admission paused) from this moment. Locks need no step: the lock table is the gateway's (slice 3), an owner is (generation, session id, LUW id), so a lock held by a pinned session in the old generation refuses a conflicting request from the new one until the rightful release, and a session that ends with the old generation ends its dialog locks while locks handed to the update owner at `COMMIT WORK` are released by that update's completion.
+6. **Drain** (old sidecar): it admits no new step; the steps in flight finish; `WAIT`s finish; pinned stateful sessions keep going until they end or until the drain grace (55 s, the Node supervisor's budget; a daemon's step may ask for more, D2) runs out. Daemons get `ON_BEFORE_RESTART_BY_SYSTEM(202)` in the old generation and `ON_RESTART` in the new one with the same instance ID (D2, measured P10); then the held mailboxes are released in order, each message removed on the ack after commit.
+7. **Retire** (gateway): when the old sidecar's step count is zero and no session is pinned to it, the gateway sends it `stop`; it closes the database and exits 0. Past the grace, the gateway kills it; whatever LUW was open rolls back with the connection (SQLite WAL guarantees that). The generation table keeps the retired row (id, built from, served from/to, why it ended) until the gateway exits; `/osd/serving` lists the serving generation and the one draining, if any.
+
+What a client sees: `X-OSD-Generation` on every response (the Node host's header), so a test can wait for "the next answer carries the new generation" as `test/adt-conformance` X1 does on Node. Nothing else changes for the client; no connection is closed by the swap.
+
+Rollback is step 5 in the other direction with the roles swapped, which costs nothing extra: the previous executable is still under `build/osgo-gen/`, and "switch to generation X" is a start + promote + drain of the current one. ADR 0001's red line stands: a generation is never moved between instances; it is rebuilt from the tree.
+
+### What "published" means after #863
+
+Three states of an object, and what answers each:
+
+| state | the source the store reads as active | the code that runs | who says so |
+| --- | --- | --- | --- |
+| **active** | the build's own snapshot | this build | nothing to say |
+| **published** (#863) | the activated source, snapshot under `build/osgo-published/` | still the build's | `X-OSD-Build: published; …`, `generationExecuted="false"`, a `W` message; ABAP Unit answers 409 for a class in this state (`objstore.Live`), because running old code as new would be a false green |
+| **live** (this ADR) | the same snapshot | the new generation, built from it | `X-OSD-Generation` changes; `X-OSD-Build: live <generation>`; the unit run's 409 goes away because the serving sidecar's build digest now matches |
+
+The snapshot directory is the hand-over: the builder reads it as an input layer over the tree (the later folder wins, the layer rule of `abap_transpile.json`), and the new sidecar reads it at start to know which objects are published in it, so the state survives the process that made it. A snapshot whose digest is part of the serving generation's inputs is no longer "published", it is "active", and the store can forget it (`build/osgo-published/` is content-named, so the cleanup is a list comparison). This removes the one limit #863 wrote down, "published state lasts for the life of the process".
+
+### The database across generations
+
+Today's mark is `ScriptVersion(tables + seed rows)` in `PRAGMA user_version`, and a file with another mark is refused. For the swap, the mark splits into the two things ADR 0001 point 7 keeps apart:
+
+- **The schema fingerprint**: sha256 of the DDL only, the same 16 hex the Node host's `osd-persist.mjs` stamps in `osd_schema`. A new generation whose DDL hashes the same **is** compatible with the file; different seed rows are not a reason to refuse, because the seed runs only into an empty file. A generation whose DDL differs refuses the *swap* (step 4) and says that a restart with `-home` reset (or a migration, below) is needed. Loudly, never silently; the policy of ADR 0001 ("report and rebuild clean" by default) applies to a restart, not to a swap, since a swap that wiped rows would be a wipe nobody asked for.
+- **Additive migrations, later**: when the diff between the two DDLs is only new tables or new nullable columns, the new sidecar may apply `CREATE TABLE` / `ALTER TABLE ADD COLUMN` inside one transaction before promotion and re-stamp the fingerprint; the old sidecar does not read the new columns, so both can share the file during the drain. Anything else (a dropped or retyped column, a changed key) is a restart. Measured or not, this is the smallest useful migration class and the only one worth automating in a dev loop.
+- **Lazy derived tables** (ADR 0005) are filled per generation and must publish atomically for both sidecars during the drain (astra's review, 2026-09-30): a derived table carries the generation that filled it, and a sidecar fills its own and never reads the other's.
+
+## The scheduler, and where it runs
+
+Three kinds of timed work, one clock:
+
+- **Batch jobs** (SM36 shape: `JOB_OPEN`, `JOB_SUBMIT`, `JOB_CLOSE` with start date/time and periods; `TBTCO`-shaped rows in `ZOSD_JOB_*`; `docs/job-standard-fms.md`, `docs/job-identity.md`). The **tick** is the gateway's: one timer per instance, fired every second or at the next due time, surviving swaps. On each tick the gateway runs one dialog step in the serving generation, `ZCL_OSD_JOB_SCHEDULER=>TICK` (the ABAP port of `tools/osd-job-scheduler.mjs`: release what is due, create the periodic successor at the instance's start, queue the run). A released job then **runs** as a dialog step in a batch work process: a goroutine of the same sidecar with its own quota (a system's BTC processes are separate so that a long job never takes a dialog slot; here it is the same mechanism, a second semaphore). A job is rows, so it survives swap and crash; a job that was running when its sidecar died is `A` (aborted) on the next tick, as on a system after a WP crash.
+- **Daemons and their timers** (`docs/abap-daemons.md`): a goroutine per instance with its own `Session` in the serving sidecar, mailbox and message IDs in the gateway, every callback a dialog step; timers are the daemon's own (`time.AfterFunc` in its goroutine) and are dropped at the swap and re-armed in `ON_RESTART` (D2 point 5).
+- **APC**: sockets in the gateway, handler steps in the sidecar, one step per message under a work process, as `abap.APCStep` does now.
+
+The injectable clock of the Node facade (`installAbapClock`) stays the test seam: the gateway's tick reads it, so a frozen `.http` case runs the same on both hosts.
+
+## Which parts are ABAP, which must be Go
+
+**Go, because the host must be Go** (each a package of its own with a README, no `go/abap` import, no `tools/osd-*`): the gateway's listeners and WebSocket upgrades; the generation table and routing; process spawn, the control socket, signals and the drain; the builder invocation and the debounce; the job tick timer; the lock server (already `go/enq`); the daemon mailbox store; the file watcher on `build/osgo-published/`; health and `/osd/serving`. In the sidecar: the work-process pool (M goroutines, a connection each, a `Statics` each), the per-step deadline, the control-socket client.
+
+**ABAP, transpiled by gogen, in the sidecar**: the ADT handler (already); the job scheduler's logic (`ZCL_OSD_JOB_SCHEDULER`, port of the Node module) and the `JOB_*` function modules (already ABAP); the daemon host, PCP and AMC producer (already ABAP by D6); the enqueue function modules as clients of the lock server; the status application (`ZCL_OSD_STATUS` already reads the status tables) extended with the generation rows and the work-process rows the gateway writes, so SM50/SM66-shaped views are ABAP over data, as on a system. The dispatcher **table as data** (`ZOSD_WP`: number, kind, state, generation, step started, user, report) is written by the sidecar's host at each step's begin and end and read by ABAP; the dispatcher's *decisions* (which generation gets a new session) stay Go, because the gateway runs no ABAP: a gateway that ran ABAP would itself be a generation, and then nothing would be stable.
+
+By lines, as the tree stands (hand-written code only; `zz_generated.go`, 400,891 lines of generated Go, is ABAP's output and counts as ABAP):
+
+| component | today | after this ADR | lines today |
+| --- | --- | --- | --- |
+| ADT handler and its documents (`src/adt`) | ABAP | ABAP | 13,445 |
+| jobs facade: `JOB_*` modules and classes (`src/jobs`) | ABAP | ABAP | 2,002 |
+| job scheduler tick logic (`tools/osd-job-scheduler.mjs`, with the daemon host and the dialog step) | JS, Node only | ABAP (`ZCL_OSD_JOB_SCHEDULER`), the tick timer Go | 1,068 |
+| status application (`src/status`) | ABAP | ABAP, plus generation and work-process rows | 602 |
+| LUW bracket, HTTP handler, ICF (`src/luw`, `src/http`, `src/icf`) | ABAP | ABAP | 355 |
+| daemons, APC, AMC handlers (`src/daemons`, `src/apc`, `src/amc`) | ABAP | ABAP | 156 |
+| the Go runtime kernel (`go/abap`: statements, LUW, DB, ICF exchange) | Go | Go, `Session` owns connection/transaction/statics | 12,295 |
+| `cmd/osgo` host (listeners, routes, ADT host glue, status) | Go | Go, split into gateway and sidecar | 1,536 |
+| lock server (`go/enq`; `tools/osd-enq.mjs` on Node) | Go (and JS) | Go, in the gateway, over a socket | 1,018 (309 JS) |
+| APC and AMC host (`go/apc`, `go/amc`) | Go | Go, sockets in the gateway | 1,687 |
+| object store (`go/objstore`) | Go | Go | 4,829 |
+| supervisor with generations (`tools/osd-runtime.mjs`) | JS, Node only | Go (`go/gateway`), new | 952 |
+| gateway: generation table, routing, spawn, drain, tick | does not exist | Go, new, estimated 1,500 to 2,500 | - |
+
+Honest line: a system's dispatcher and work-process host are C; ours are Go. What is ABAP is everything that reads, presents or decides on *data*, and everything a system also writes in ABAP (the jobs facade, daemons, status). The ratio moves toward ABAP as gogen-in-Go lands, not before.
+
+## Failure modes, and what a system does
+
+| failure | a system | here, with (c) |
+| --- | --- | --- |
+| a step dumps (uncaught exception) | short dump, LUW rolled back, WP lives on, the user sees the dump | `DialogStep` rolls the LUW back, 500 with the ABAP frames, the work process goroutine returns its connection and takes the next step (today's behaviour, kept) |
+| a step hangs (no `WAIT`, no end) | `rdisp/max_wprun_time` (dialog, default 600 s): `TIME_OUT` dump, WP freed; batch: no limit; SM50 "cancel without core" ends the WP and the dispatcher restarts it | a goroutine cannot be cancelled, so: the sidecar's host records each step's start; past the deadline (600 s dialog by default, `OSD_MAX_WPRUN_S`; none for batch) it marks the work process **hung** in `ZOSD_WP`, answers the client 500 `TIME_OUT` on the gateway side, interrupts the step's connection (its next statement dumps and rolls back), and asks the gateway for a replacement: the gateway starts a fresh sidecar of the same generation, promotes, drains and kills this one at the grace. Lost: the hung step, any step not finished at the grace, the in-memory state of sessions pinned to this sidecar. Until the replacement serves, the other M-1 work processes keep answering read steps; writers wait for the interrupt or the kill if the hung step held the write lock |
+| the sidecar crashes (fatal error, OOM, killed) | a WP that dies is restarted by the dispatcher; its session's uncommitted work rolls back; its locks go with the session | the gateway sees the control socket close: in-flight steps of that sidecar answer 503 (the client retries, as against a system whose WP died mid-request), their LUWs roll back with their connections (WAL), the dialog locks of the sessions that died are released while locks already handed to an update owner at `COMMIT WORK` stay until that update completes or is aborted (`enq.Commit`, `UpdateDone`, `End` already distinguish them), APC sockets stay open and their handlers get `ON_START` again in the replacement (noted as a divergence: a system's socket dies with the WP), daemons restart from `ZOSD_DAEMON` (D5), the gateway starts a replacement of the same generation. If the replacement crashes too within a minute, the gateway stops restarting and says so |
+| the gateway crashes | the whole instance is down; the message server notices | the whole instance is down: sockets gone, locks gone, mailboxes gone (D3's honest answer: a crashed server loses its queues). The sidecar notices its control socket close and exits, so no orphan holds the database. The supervisor above (the extension, vsp, systemd) restarts the gateway, which restarts a sidecar from the last serving generation recorded on disk |
+| the builder fails | activation fails (a system has no separate build) | the activation already succeeded (published); the build's failure is reported on `/osd/serving`, in the log and in the next activation's `X-OSD-Build: build failed <id>`; the old generation keeps serving. No half-built executable is ever started: the output path is written to the side and renamed into place |
+| the database file is locked by a drained sidecar that will not exit | n/a (one DB process) | the kill at the grace ends it; SQLite's WAL recovers; the new sidecar's `busy_timeout` (5 s today) covers the window |
+
+## Embedding contracts
+
+### The VS Code extension (`editors/vscode`)
+
+What exists (`launcher.js`, read 2026-11-08): the extension spawns `tools/osd-build.mjs` with the extension host's own `process.execPath` (it *is* a Node), picks a free port in 3531-3539, polls `GET /osd/serving` until `ready: true` with a `generation`, shows the child's stdout/stderr in an output channel, opens the inspector through `POST /osd/inspector`, and stops with SIGTERM escalating to SIGKILL after 60 s (`STOP_GRACE_MS`, chosen above the supervisor's 55 s quiesce). A packaged `.vsix` carries a runnable system tree at `extension/osd/` and copies it into the extension's writable storage once. Nothing in the extension knows osgo.
+
+What the extension needs from an osgo binary, in the order it would hit them:
+
+| need | the Node host answers with | osgo today | the contract |
+| --- | --- | --- | --- |
+| a port | `--port` / `STG_PORT` | `-port`, `OSD_PORT`, `STG_PORT` | same range 3531-3539, passed as `-port`; `-addr` stays loopback |
+| readiness | `GET /osd/serving` → `{ready, generation, pid, root, database, hot}` | `GET /health` → `{"status":"ready"}` | osgo answers `/osd/serving` with the same field names (`generation` = the gateway's counter + the sidecar's build id, `root`, `database`, `pid`; `hot.swaps` = generations served); `/health` stays for CI |
+| logs | stdout lines (`osd-serve: ...`) | stdout (`database: ...`, listeners) | unchanged; the extension already shows whatever is printed |
+| stop | SIGTERM → drain → exit; SIGKILL at 60 s | no handler: SIGTERM is a kill | the gateway handles SIGTERM (and on Windows the `taskkill` the launcher's `killTree` sends): stop admitting, drain the sidecar within the grace, close the database, exit 0 |
+| which code runs | `X-OSD-Generation` on every answer; `/osd/serving` after an activation; `X-OSD-Build` on the activation | `X-OSD-Build: published; rebuild …` | `X-OSD-Generation` on every answer; the activation's `X-OSD-Build` says `building <id>` then the next `/osd/serving` says the new generation; the extension's status item already shows the Node host's `live` / `verified` words and gets `building` / `live` here |
+| where the sources are | the workspace or the bundled seed | `-root <tree>` (ADT needs the tree) | the launcher passes the same tree it would give Node |
+| where the data is | `STG_DB_PATH` under the extension's storage | `-home <dir>` | `-home <globalStorage>/osgo-home/<workspace-id>` |
+| the binary itself | n/a (bundled JS) | a release asset per platform with `.sha256` (`docs/osgo-release.md`), 85 MB | **not in the `.vsix`** (6 platforms × 85 MB): downloaded once from the release tag the extension was built with, verified against the `.sha256`, kept in `globalStorage`; `osd.engine: "node" \| "osgo"`, default `node` |
+
+The smallest first step (S, under a day): the setting `osd.engine`, a download-and-verify of the pinned asset into `globalStorage`, and a launcher branch that spawns `<binary> -port N -root <tree> -home <dir> -adt` and polls `/health` until `/osd/serving` exists on osgo (one `if` in `waitForServing`). Proven by `test/vscode-launcher.mjs` with a stub executable that answers `/health`, and by hand in a bare VS Code against the real asset. No hot swap yet: an activation shows "published; rebuild osgo", which is what osgo says today.
+
+### vsp (`github.com/oisee/vibing-steampunk`)
+
+vsp is Go 1.26, imports `github.com/oisee/open-rfc-go v0.2.0` already, and its CI runs "an advisory integration run against the OSD SAP emulator on every PR" (its README) — so vsp is already a consumer of this runtime over HTTP. `open-diag-go` has `osd-up` (starts the Node workbench, mounts the RFC bridge and the DIAG stub, `docs/architecture-split.md`). The Go runtime's module path is `osg/gogen` (`tools/gogen/go/go.mod`), which no other module can `go get`.
+
+Two boundaries are possible, and only one of them is a module:
+
+- **Linking the generated runtime into vsp's binary** — 20 MB of generated Go per generation, a generation that cannot change inside a running vsp, and vsp recompiled for every ABAP change. This is the hot-swap problem again, inside somebody else's process. Rejected.
+- **The gateway as the module, the generation as a child executable.** The gateway package of this ADR is exactly what an embedder needs: start a generation, route to it, swap it, stop it. It imports no `go/abap`, no generated code and no `tools/osd-*` (a typed host-I/O interface for "run the builder" and "read the snapshot dir" is its only outward edge), which is the "gogen own repo" condition already set for gogen. Its API, as small as it can be:
+
+  ```go
+  // package gateway (path to be fixed when the module is extracted; see below)
+  type Options struct { Binary, Root, Home string; Port int; Builder []string /* optional: the command that makes a new generation */ }
+  func Start(ctx context.Context, o Options) (*Instance, error)
+  func (i *Instance) BaseURL() string            // http://localhost:<port>
+  func (i *Instance) Generation() Generation     // id, build digest, pid, since
+  func (i *Instance) Events() <-chan Event        // Ready, Building, Swapped, Draining, Retired, Failed
+  func (i *Instance) Swap(ctx context.Context, binary string) error
+  func (i *Instance) Stop(ctx context.Context) error
+  ```
+
+  The importable path has to exist before any of this: either `tools/gogen/go` becomes `module github.com/oisee/open-steamgate/tools/gogen/go` (every `osg/gogen/...` import in the tree changes, one mechanical commit) or the gateway starts life in gogen's own repository when that split happens. The second is the one aligned with the standing goal; until then the gateway is a package here and vsp does not import it.
+
+The smallest first step for vsp (S, under a day, no module import): `vsp osd up` — download the pinned `osgo-<platform>` asset and its `.sha256` the way `vsp update` already downloads and verifies its own release, start it with `-adt -port <free> -home <vsp config dir>/osd`, wait for `/health`, register it as the system `local` in vsp's config so `vsp -s local ...` and the MCP server talk to it, stop it on Ctrl-C. Proven by vsp's own conformance script against `-s local`. This gives vsp an offline ABAP system in one command before a single line of the gateway exists, and it is the shape `osd-up` already has in open-diag-go, moved to where the ADT client lives.
+
+## Slices, in the recommended order
+
+Each is a PR of its own, each proven as stated; the sizes are S (under a day), M (two to four days), L (a week or more). The first four are the dispatcher track's steps 1 to 3 in the order they can actually be built; the measured numbers above are the baseline every slice is compared with, with the same tool.
+
+| # | size | slice | proven by |
+| --- | --- | --- | --- |
+| 1 | S | **osgo answers like a supervised host**: `GET /osd/serving` (`ready`, `generation`, `pid`, `root`, `database`), `X-OSD-Generation` on every answer, a SIGTERM handler that stops admitting, waits for the step in flight (grace 55 s) and exits 0. `tools/osd-bench-http.mjs` lands with it | `go test ./cmd/osgo` for the three; `test/vscode-launcher.mjs` `waitForServing` against the osgo binary unchanged; the bench numbers equal to today's within noise |
+| 2 | M | **`Session` owns the connection, the transaction and the statics**: `db`, `tx`, `ProcessStatics` leave the package scope; the one mutex stays, so behaviour is unchanged | `go test -race ./abap/...`; `unit-compare` 0 DIFFERENT; conformance 47/47; the bench within 5 % of slice 1 |
+| 3 | M | **the gateway package** (`go/gateway`, no `go/abap` import): listens on the public port, spawns one sidecar (the same binary with `-sidecar`), proxies HTTP and WebSocket upgrades, serves `/osd/serving` for both, forwards SIGTERM as a drain, **and owns the lock table**: `go/enq` moves into the gateway behind the E3 socket, owner identity becomes (generation, session, LUW), the sidecar's `ENQUEUE_*` are clients. One generation only, no swap yet. The lock server comes here and not later because slice 4 is the first moment two processes run ABAP against one database, and a lock table per process would let an old pinned session and a new session each hold an exclusive lock on the same key | the whole ADT and OData conformance through the gateway; the bench through the gateway against direct, the hop measured and written down; a kill of the sidecar answers 503 and the gateway restarts it; the 61 ENQ contract cases pass over the socket |
+| 4 | L | **the generation swap**: builder invocation from the published snapshot (`osgo.mjs` today, behind a typed interface), build to the side, start read-only with candidate-local boot writes, smoke, schema fingerprint check (DDL only; the seed mark split out of `PRAGMA user_version`), promote, drain, retire; `X-OSD-Build: building/live`; the snapshot restored at sidecar start. Requires slice 3's lock server | conformance X1 as on Node: activate a changed class, the next answer carries the new generation and runs the new code; a lock held by a pinned old-generation session refuses a conflicting request in the new generation until released; a test that kills the old sidecar during the drain; a test whose DDL differs and sees the refusal; a populated-file test where a failed candidate leaves every row as it was; ABAP Unit's 409 clears after the swap |
+| 5 | M | **M work processes in a sidecar**: a connection per work process on the WAL file with the step-kind policy (read steps deferred and `query_only`, modifying steps `BEGIN IMMEDIATE`, `busy_timeout` = the drain grace, `sqlite3_interrupt` as the fence), a `Statics` per logical internal session borrowed by the work process, the runtime's caches in instance-wide registries, the work-process rows in `ZOSD_WP` | first the three database proofs (parallel reads beside a held write lock; a read-then-write step refused at the upgrade, not replayed; a hung writer with a read and a write beside it), then the bench at 4 and 16 clients against slice 1 for reads **and** for a write mix (a number, not a claim); the OData bench before and after per-session statics; a stateful session's two steps on two work processes see one `CLASS-DATA`; `test/dialog-step.mjs`'s cases ported to Go under concurrency; `-race` clean |
+| 6 | M | **the hung-step policy**: step start recorded, `OSD_MAX_WPRUN_S` (600 default, none for batch), `TIME_OUT` to the client, replacement sidecar of the same generation | a looping ABAP Unit test class through `adtunit` answers 500 `TIME_OUT` while another client keeps getting answers; the replacement serves within the grace |
+| 7 | M | **the scheduler on Go**: the gateway's tick, `ZCL_OSD_JOB_SCHEDULER=>TICK` as the ABAP port of `osd-job-scheduler.mjs`, batch work processes as a second quota, daemon mailboxes in the gateway (D3 revisited: yes) | the `job-standard-fms` and daemon fixtures of the Node host pass on osgo; a job scheduled before a swap runs after it; a message queued during a swap is delivered after `ON_RESTART` |
+| 8 | S | **`osd.engine: osgo` in the extension**: download-and-verify of the pinned asset, the launcher branch, `/health` accepted until slice 1 ships | `test/vscode-launcher.mjs` with a stub executable; a bare VS Code against the real asset |
+| 9 | S | **`vsp osd up`**: the asset downloaded as `vsp update` does, started with `-adt`, registered as `-s local`, stopped on Ctrl-C | vsp's conformance script against `-s local` |
+| 10 | M | **the importable module path** and the gateway's extraction with gogen's own repository; vsp imports `gateway` and `vsp osd up` becomes a caller of `Start` | `go build ./...` in vsp with the import; `vsp osd up` behaviour unchanged |
+
+Slices 8 and 9 do not depend on 1 to 7 and can go in parallel with slice 1; slice 10 waits for the gogen split, which is somebody else's decision on timing.
+
+## Consequences
+
+- The swap without a restart exists only because the generation is a process. That is the cost: a second copy of the binary in memory during every swap, and a hop per request. The hop is measured in slice 3 and is the one number that could reverse this decision; if it is more than the gain of slice 5 at 16 clients, (a) with a cold restart is the honest alternative.
+- The build is the long pole, not the swap. Today a class change costs the whole chain below; the swap adds a second or two on top. The time a developer waits is gogen's and `go build`'s, and only gogen-in-Go with `only` (the warm compile's idea) changes that. This ADR does not shorten the build; it makes the build's result arrive without a restart and without losing sessions, sockets, locks and queued messages.
+- DuckDB (not opened by the Go host today) would stay single-owner: a swap over a DuckDB file has a cold gap (old closes, new opens) until the database is served by a process of its own, which would serve (b) and (c) alike. SQLite WAL has no gap. Written down so nobody measures it twice.
+- Statics per logical internal session end the process-wide statics divergence both hosts carry today (an `ANORMALIES` entry closes when slice 5 lands) and cost class constructors per stateless request; slice 5 measures that cost before any opt-out is allowed.
+- On SQLite the parallelism is of read steps; writers stay serialised at the database's one write lock, and a hung writer stalls every writer until the interrupt or the kill. A workload that is mostly writes gains little until the database is PostgreSQL or HANA, where the same policy gives parallel writers.
+- A gateway that runs no ABAP means the SM50-shaped views are ABAP over tables the Go host writes. That is more Go than Alice's direction (3) would like; it is the smallest amount that keeps the gateway stable, and every decision the gateway makes is one of four (which generation, start, drain, kill).
+
+## Alternatives rejected
+
+- **Go `plugin` for class-level hot load** — Linux and macOS only, same toolchain and same dependency versions required, never unloaded, so every swap leaks a generation. Windows is a release target (`osgo-windows-x64.exe`).
+- **Serialising the roll area to move sessions into the new generation** — rejected in the 2026-09-23 reload decision and again in D2 option C: an attribute of a changed class may not exist.
+- **One process, several generations as goroutine groups** — the same binary cannot hold two versions of `ZCL_X`; Go has one package namespace per build.
+- **An in-memory database shared between sidecars** — in-memory SQLite is one database per connection; the drain window needs two processes on one file.

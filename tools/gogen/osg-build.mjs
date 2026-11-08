@@ -96,10 +96,10 @@ export function osgCompileInputs({extraFolders = []} = {}) {
 }
 
 /** every class, interface and function group of the layers and libraries, compiled (a statement outside the subset is a stub) */
-export function compileOsg({extraFolders = []} = {}) {
+export function compileOsg({extraFolders = [], includeTests = new Set()} = {}) {
   const {folders, objects} = osgCompileInputs({extraFolders});
   const t0 = performance.now();
-  const program = compileProgram({folders, objects, tolerant: true, skip: (path) => hidden.has(path)});
+  const program = compileProgram({folders, objects, tolerant: true, skip: (path) => hidden.has(path), ...(includeTests.size ? {includeTests} : {})});
   const summary = `front end: ${program.classes.length} classes, ${program.partial.length} statement stubs, ${program.skipped.length} methods not compiled, ${program.broken.length} objects with syntax errors (${Math.round(performance.now() - t0)} ms)`;
   return {program, summary: `${summary}\nlayers: ${layerFolders.join(", ")}${overridden.length ? `; overridden: ${overridden.map((o) => `${o.object} by ${o.winner}`).join(", ")}` : ""}`};
 }

@@ -2,7 +2,9 @@ package main
 
 import (
 	"osg/gogen/abap"
+	"osg/gogen/adtactivate"
 	"osg/gogen/adtread"
+	"osg/gogen/adtunit"
 	"osg/gogen/adtwrite"
 	"strings"
 	"sync"
@@ -11,7 +13,8 @@ import (
 var adtWriteSessions sync.Map
 
 // completeADTWrite runs before the request releases its dialog-step lock:
-// the host's writes (adtwrite), then its read-only routes (adtread).
+// the host's writes (adtwrite), activation (adtactivate), ABAP Unit
+// (adtunit), then its read-only routes (adtread).
 func completeADTWrite(s *abap.Session, x *abap.ICFExchange) {
 	host := false
 	for _, h := range x.RespHeaders {
@@ -27,6 +30,19 @@ func completeADTWrite(s *abap.Session, x *abap.ICFExchange) {
 	if provider, ok := adtWriteSessions.Load(s); ok {
 		_, query, _ := strings.Cut(x.URL, "?")
 		response, handled = adtwrite.Serve(adtwrite.Request{Method: x.Method, Path: x.Path, Query: query, Headers: x.Headers, Body: x.Body}, provider.(adtwrite.Session))
+	}
+	if !handled {
+		_, query, _ := strings.Cut(x.URL, "?")
+		var activation adtactivate.Response
+		if activation, handled = adtactivate.Default.Serve(adtactivate.Request{Method: x.Method, Path: x.Path, Query: query, Headers: x.Headers, Body: x.Body}); handled {
+			response = adtwrite.Response(activation)
+		}
+	}
+	if !handled {
+		var unit adtunit.Response
+		if unit, handled = adtUnitHost().Serve(adtunit.Request{Method: x.Method, Path: x.Path, Headers: x.Headers, Body: x.Body}); handled {
+			response = adtwrite.Response(unit)
+		}
 	}
 	if !handled {
 		var read adtread.Response

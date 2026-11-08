@@ -165,6 +165,7 @@ func DeleteSource(typ, name string) error {
 			return err
 		}
 		delete(storeState.createdActive, f)
+		delete(storeState.publishedSnapshot, f)
 		// Detach this identity from the old generation; keep its immutable files.
 		delete(storeState.cfg.Active, f)
 		delete(storeState.cfg.Built, f)

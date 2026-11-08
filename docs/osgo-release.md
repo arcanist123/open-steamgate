@@ -15,8 +15,13 @@ the request's own transaction, `go/adtpreview`) and the inactive-objects feed
 have. Class/interface/program creation, locked source
 PUTs (including class includes) and locked deletion use Go host orchestration.
 CHECK uses the configured compiler provider; outline parsing needs the compiler
-sidecar. Activation remains a refusal: saving inactive source does not rebuild
-or publish an executable generation. Source operations require a matching tree
+sidecar. Activation checks the source and publishes it in the object store
+(`go/adtactivate`): the inactive list empties and the active version is the
+saved one, but the binary keeps running the code it was built with, and the
+answer warns that a rebuild is needed. ABAP Unit runs in process for the test
+classes compiled into the binary (`OSGO_UNIT_OWNERS`, by default the
+`$ZOSD_TEST` fixture) and refuses a class that changed since the build
+(`go/adtunit`; docs/osgo-adt-activation.md). Source operations require a matching tree
 at `-root`; an executable alone does not carry editable sources.
 
 **Readiness is `GET /osd/serving`**, the route the Node host answers and
@@ -30,7 +35,8 @@ executable was built from (the one the status service shows as the serving
 generation). `/health` stays as the liveness line for scripts that already
 use it. **Stopping** is SIGTERM (or SIGINT, SIGHUP): the binary stops
 admitting, lets the dialog steps in flight finish, closes the listeners,
-closes the database under the work process and exits 0, all within 55 s --
+closes the database under the work process and exits 0, all within 55 s (a
+step or a database close still running at the deadline is left behind) --
 the same budget the Node supervisor's quiesce has, under the launcher's 60 s
 SIGKILL. A second signal ends it at once with exit 1. `node
 tools/osd-host-contract.mjs --base <url> [--drain <pid>]` checks the
