@@ -126,6 +126,8 @@ export function serviceYaml(srvd, entityOf, file = "srvd") {
     if (b.create) ops.unshift("C");
     if (b.update) ops.push("U");
     if (b.delete) ops.push("D");
+    // `element` is the name as the CDS source spells it (cds2ddic's parse):
+    // the properties keep it, a published view keeps the upper-case name
     const nameOf = new Map(view.fields.map(f => [upper(f.name), f]));
     const prop = f => nameOf.get(upper(f.name))?.element ?? nameOf.get(upper(f.name))?.name ?? f.name;
     lines.push(`  ${type}:`);
@@ -143,8 +145,11 @@ export function serviceYaml(srvd, entityOf, file = "srvd") {
       const flags = !writable || c.readonly === "X" || c.numbering ? ", readonly: true"
         : f.key ? ", updatable: false"
         : c.readonly === "U" ? ", updatable: false" : "";
+      // every property is labelled (the CDS label, else its name): a label is
+      // a text element, and segw-gen declares GC_INCL_NAME, which a function
+      // import's own text element needs too, only for labelled properties
       const label = nameOf.get(upper(f.name))?.label;
-      lines.push(`      ${prop(f)}: {type: ${edm(f.type, `${x.entity}.${f.name}`)}, field: ${upper(f.name)}${flags}${label && upper(label) !== upper(f.name) ? `, label: ${yamlString(String(label).slice(0, 60))}` : ""}}`);
+      lines.push(`      ${prop(f)}: {type: ${edm(f.type, `${x.entity}.${f.name}`)}, field: ${upper(f.name)}${flags}, label: ${yamlString(String(label && upper(label) !== upper(f.name) ? label : prop(f)).slice(0, 60))}}`);
     }
     for (const a of b.actions) {
       if (functionNames.has(upper(a))) throw new Error(`${file}: two exposed entities have an action ${a}; a V2 function import needs one name`);

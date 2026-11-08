@@ -31,7 +31,7 @@ const included = (name, type, group, fields = []) => `  TYPES BEGIN OF ${name}.\
 export function generate(files, dependencies = []) {
   const bdefs = files.filter(f => f.filename.endsWith(".bdef.asbdef"));
   const srvds = files.filter(f => f.filename.endsWith(".srvd.srvdsrv"));
-  if (!bdefs.length && !srvds.length) return {outputs: {}, bindings: {}, plans: []};
+  if (!bdefs.length && !srvds.length) return {outputs: {}, bindings: {}};
   const reg = new core.Registry(new core.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "open-abap", errorNamespace: "."}, rules: {}})));
   const ddic = f => /\.(ddls\.(asddls|xml)|tabl\.xml|view\.xml|dtel\.xml|doma\.xml)$/.test(f.filename);
   reg.addFiles(files.filter(ddic).map(f => new core.MemoryFile(f.filename, f.contents)));
@@ -205,10 +205,10 @@ export function main() {
   }
   const {outputs, bindings, plans} = generate(files, deps);
   // the runtime adapters read the behavior pools named by the BDEFs (R2)
-  const pools = new Set(plans.map(p => (p.model.implementationClass ?? "").toLowerCase()).filter(Boolean));
+  const pools = new Set((plans ?? []).map(p => (p.model.implementationClass ?? "").toLowerCase()).filter(Boolean));
   const poolFiles = paths.filter(f => pools.has(basename(f).toLowerCase().split(".")[0]) && /\.clas\.(locals_imp\.|locals_def\.)?abap$/i.test(f))
     .map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
-  Object.assign(outputs, runtimeOutputs(plans, poolFiles));
+  Object.assign(outputs, runtimeOutputs(plans ?? [], poolFiles));
   mkdirSync(out, {recursive: true});
   outputs["bindings.json"] = JSON.stringify(bindings, null, 2) + "\n";
   for (const file of readdirSync(out)) if (!(file in outputs)) rmSync(join(out, file), {recursive: true, force: true});

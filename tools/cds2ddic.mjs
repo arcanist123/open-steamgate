@@ -196,8 +196,6 @@ export function parseDDLS(obj, reg) {
     const baseField = srcName.split(".").pop().toUpperCase();
     const t = edmOf(comps.get(baseField));
     const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
-    // element: the name as the source spells it, which a service definition
-    // exposes (a published view keeps the upper-case name)
     fields.push({name: fieldName, element: alias ?? srcName.split(".").pop(), base: baseField, key: isKey, ...t, label: label ?? fieldName, annotations: annos});
   }
 
