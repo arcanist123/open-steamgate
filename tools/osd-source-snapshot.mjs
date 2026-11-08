@@ -3,8 +3,6 @@ import {createHash, randomUUID} from "node:crypto";
 import {existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, linkSync, copyFileSync, rmSync, renameSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 
-const isSourceInput = path => /\.(abap|asddls|as[A-Za-z]+|srvdsrv|xml)$/.test(path) || path === "gen/rap/bindings.json";
-
 // Provenance keeps the original root-relative key. Storage encodes external
 // parent segments so neither snapshots nor pre-save copies escape build/.
 export function sourceSnapshotPath(file) {
@@ -16,6 +14,8 @@ export function sourceSnapshotPath(file) {
   const name = parts.pop(); // Preserve the abapGit basename for overlay inputs.
   return (absolute ? ".external/absolute/" : ".external/outside/") + parts.map(p => p === ".." ? "%2E%2E" : p === "" ? "%00" : encodeURIComponent(p)).join("/") + "/" + name;
 }
+
+const isSourceInput = path => /\.(abap|asddls|as[A-Za-z]+|srvdsrv|xml)$/.test(path) || path === "gen/rap/bindings.json";
 
 export function sourceOriginalPath(file) {
   const key = file.replaceAll("\\", "/");
