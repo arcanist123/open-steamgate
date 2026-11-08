@@ -463,6 +463,18 @@ export class ObjectStore {
       }
       return this.#versions.sourceVersion({...entry, include, file, source: readFileSync(join(this.root, file), "utf8")}, version);
     }
+    if (type === "FUGR" && include !== "main") {
+      // a function group's parts, as abapGit writes them beside the group's
+      // XML: <group>.fugr.<include>.abap for the main program (SAPL<group>),
+      // the TOP and other includes and each function module. The part is
+      // named by its program name; an absent part is not there, unlike a
+      // class include, which a class always has in principle
+      const file = entry.file.replace(/\.fugr\.xml$/, `.fugr.${fileOf(include)}.abap`);
+      if (!existsSync(join(this.root, file))) {
+        throw new NotFound(type, `${name} include ${include}`);
+      }
+      return this.#versions.sourceVersion({...entry, include, file, source: readFileSync(join(this.root, file), "utf8")}, version);
+    }
     return this.#versions.sourceVersion({...entry, include, source: readFileSync(join(this.root, entry.file), "utf8")}, version);
   }
 
@@ -1441,7 +1453,7 @@ export class ObjectStore {
   // and a healthy object costs one check to clear. The cheap direction to be
   // wrong in — the expensive one is telling a client a rename was fine.
   dependents(type, name) {
-    return registryDependents(this.registry(), type, name);
+    return registryDependents(this.registry(), type, name, {libs: this.libs});
   }
 
   // activation is that check over the object AND everything that uses it: a

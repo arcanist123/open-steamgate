@@ -136,6 +136,12 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       CHANGING
         cv_off  TYPE i.
 
+    CLASS-METHODS trim_blanks
+      IMPORTING
+        iv_text        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
+
     CLASS-METHODS epoch_ms
       IMPORTING
         iv_date      TYPE d
@@ -205,7 +211,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
     lv_len = strlen( iv_json ).
     WHILE cv_off < lv_len.
-      IF iv_json+cv_off(1) <> space AND
+      IF iv_json+cv_off(1) <> ` ` AND
          iv_json+cv_off(1) <> cl_abap_char_utilities=>newline AND
          iv_json+cv_off(1) <> cl_abap_char_utilities=>horizontal_tab AND
          iv_json+cv_off(1) <> cl_abap_char_utilities=>cr_lf(1).
@@ -213,6 +219,14 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
       cv_off = cv_off + 1.
     ENDWHILE.
+  ENDMETHOD.
+
+  METHOD trim_blanks.
+* the JSON blanks (space, tab, CR, LF) off both ends of a token. SHIFT
+* RIGHT DELETING TRAILING SPACE moved a trailing blank to the front ("9 "
+* became " 9", which failed the number check) and left a newline alone
+    rv_text = iv_text.
+    REPLACE ALL OCCURRENCES OF REGEX '^\s+|\s+$' IN rv_text WITH ``.
   ENDMETHOD.
 
   METHOD read_string.
@@ -385,8 +399,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
     IF iv_json+lv_start(1) <> '{' AND iv_json+lv_start(1) <> '['.
       lv_off = cv_off - lv_start.
       lv_token = iv_json+lv_start(lv_off).
-      SHIFT lv_token LEFT DELETING LEADING space.
-      SHIFT lv_token RIGHT DELETING TRAILING space.
+      lv_token = trim_blanks( lv_token ).
       IF lv_token <> 'true' AND lv_token <> 'false' AND lv_token <> 'null'.
         FIND REGEX '^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$' IN lv_token.
         IF sy-subrc <> 0.
@@ -458,7 +471,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
       lv_count = lv_off - lv_start.
       lv_elem = iv_json+lv_start(lv_count).
-      SHIFT lv_elem RIGHT DELETING TRAILING space.
+      lv_elem = trim_blanks( lv_elem ).
       APPEND lv_elem TO rt_elements.
     ENDDO.
     skip_blanks( EXPORTING iv_json = iv_json CHANGING cv_off = lv_off ).
@@ -584,7 +597,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
         skip_value( EXPORTING iv_json = iv_json CHANGING cv_off = lv_off ).
         lv_count = lv_off - lv_start.
         ls_pair-value = iv_json+lv_start(lv_count).
-        SHIFT ls_pair-value RIGHT DELETING TRAILING space.
+        ls_pair-value = trim_blanks( ls_pair-value ).
       ENDIF.
       IF lv_name <> '__metadata'.
         APPEND ls_pair TO rt_values.

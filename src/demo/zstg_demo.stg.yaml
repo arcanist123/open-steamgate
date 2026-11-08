@@ -24,9 +24,12 @@ entities:
     searchable: true
     properties:
       TravelId: {type: String(8), field: TRAVEL_ID, label: Travel}
-      Description: {type: String(40), label: Description}
-      Status: {type: String(1), label: Status}
-      Seats: {type: Int32, label: Seats}
+      # the three properties a user edits make the travel's ETag (SEGW's
+      # "ETag" flag, set_as_etag): the OData V4 facade then answers
+      # @odata.etag and wants If-Match on a write (docs/odata-v4.md)
+      Description: {type: String(40), label: Description, etag: true}
+      Status: {type: String(1), label: Status, etag: true}
+      Seats: {type: Int32, label: Seats, etag: true}
       # read-only, the DPC fills it from the value-help table
       StatusText: {type: String(40), field: STATUS_TEXT, readonly: true, sortable: false, filterable: false, label: Status text}
       # where the picture of this travel is read: the media resource of the
@@ -126,6 +129,9 @@ functions:
 # keeps its own local file for its list report; the demo's Travels app has none.)
 annotations:
   Travel:
+    # sticky-session editing on the OData V4 facade: Edit, Save and Create
+    # in the Fiori Elements V4 app (webapp/travel4); needs the ETag above
+    sticky: true
     header: {typeName: Travel, typeNamePlural: Travels, title: Description, imageUrl: PhotoUrl}
     selectionFields: [Status, TravelId, Description]
     lineItem:

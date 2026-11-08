@@ -8,8 +8,9 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-3b` at `f34e9bf4947daaf6464566b42b1e3ef1eaeb369c`
-(2.14.3, parser 2.120.73). [The pin move report](transpiler-pin-2.md) lists
+The current transpiler and runtime build is `local/osd-build-3d` at `9792b3c879972450aeb99b89747545a51b589522`
+(2.14.3, parser 2.120.73): `local/osd-build-3b` (`f34e9bf4`) plus the Open SQL
+host-variable escape (ANOMALY-2026-11-08-sql-host-variable-inlined). [The pin move report](transpiler-pin-2.md) lists
 the retained and dropped fork commits. The dossier below is the historical snapshot. Every one of those fixes has an entry
 in `ANORMALIES.md` and a branch in that clone, and `npm run parked` prints the
 two side by side and complains where they disagree. This is the dossier for
