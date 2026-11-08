@@ -86,10 +86,12 @@ func TstmpSubtract(s *Session, t1, t2 string) int32 {
 // RandomInt31 is CL_ABAP_RANDOM->INT as open-abap-core has it: 0 .. 2^31-2.
 func RandomInt31(s *Session) int32 { return int32(rand.Int64N(2147483647)) }
 
-// ADTOneRuntime answers "" for now: no conformance case touches datapreview;
-// it becomes "X" once the datapreview classes run on osgo.
+// ADTOneRuntime is "X" once the host answers SYSTEM SQL in the request's own
+// step (cmd/osgo -adt, adtpreview): the data preview routes then mount.
+var ADTPreview bool
+
 func ADTOneRuntime(_ *Session, on *string) {
-	*on = ""
+	*on = map[bool]string{true: "X"}[ADTPreview]
 }
 
 // ADTUnavailable answers like Node's parent kernel / non-one-runtime case:

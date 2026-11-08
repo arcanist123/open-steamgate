@@ -7,6 +7,16 @@ objectstructure and five lock/session contracts. W1–W5 create disposable
 classes, write inactive source, check it and delete with a lock handle.
 Activation and ABAP Unit are later slices. X2 ABAP Unit and activation are later slices.
 
+`cases/ddic.mjs` holds the read-only families over the `$ZOSD_TEST` fixtures
+and their seed rows: D1-D7 (data element, table, table source, a structure
+through the tables collection, repository type structure, virtual folder
+facets and contents), P1-P5 (SQL console with a row limit, its refusal of a
+write, its syntax check, table preview metadata and F8 rows) and A1 (the
+inactive-objects feed). They pass on JS and on osgo, where the preview runs
+through `go/adtpreview` and the feed through `go/adtread`. The CDS preview
+(`/datapreview/cds`) is not a case: on osgo it answers 501, because its
+metadata needs `PARSE` of a DDLS, and osgo's store parses OUTLINE only.
+
 Run heavy commands one at a time, waiting for the wrapper's slot:
 
 ```sh

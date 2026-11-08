@@ -28,5 +28,18 @@
   "W3-write-foreign": "pass",
   "W4-create-delete": "pass",
   "W5-check-inactive": "pass",
-  "C9b-checkrun-active": "pass"
+  "C9b-checkrun-active": "pass",
+  "D1-dataelement": "pass",
+  "D2-table": "pass",
+  "D3-table-source": "pass",
+  "D4-structure": "pass",
+  "D5-typestructure": "pass",
+  "D6-vfs-facets": "pass",
+  "D7-vfs-contents": "pass",
+  "P1-freestyle": "pass",
+  "P2-freestyle-refuses-write": "pass",
+  "P3-freestyle-check": "pass",
+  "P4-ddic-metadata": "pass",
+  "P5-ddic-rows": "pass",
+  "A1-inactiveobjects": "pass"
 }

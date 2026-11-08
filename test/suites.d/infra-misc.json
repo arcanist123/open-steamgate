@@ -64,6 +64,7 @@
     "test/sxml-contract.mjs",
     "test/adt-lifecycle-report.mjs",
     "test/rap-bdef-parse.mjs",
-    "test/rap-derived-types.mjs"
+    "test/rap-derived-types.mjs",
+    "test/rap-runtime-gen.mjs"
   ]
 }
