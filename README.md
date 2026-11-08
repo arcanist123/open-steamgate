@@ -6,6 +6,10 @@
 
 **An ABAP application server you can clone.**
 
+**Coming from the ABAP Cloud Developer Trial (A4H)?**
+[`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) is the first hour: run it,
+connect Eclipse, bring your own code, and the table of what A4H has that this does not.
+
 Part of the steampunk family:
 [vsp](https://github.com/oisee/vibing-steampunk) (ADT ↔ MCP),
 [abapiti](https://github.com/oisee/abapiti) (TypeScript and WASM to ABAP),
