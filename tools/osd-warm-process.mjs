@@ -7,24 +7,45 @@ import {compilerEnv} from "./osd-warm-env.mjs";
 import {sendIPC, onIPCFailure} from "./osd-ipc.mjs";
 import {fileURLToPath} from "node:url";
 import {join} from "node:path";
+import {holdExit, exitHolds} from "./osd-exit-holds.mjs";
 
 const CHILD = fileURLToPath(new URL("./osd-warm-worker.mjs", import.meta.url));
+// Every compiler worker and every frozen-input verifier this process started.
+// A verifier writes into build/ (lock, verify-pins, tmp): left running after
+// the front is gone, it outlives the process that owns that tree and races
+// whoever removes or rebuilds it (test/vscode-warm-ready.mjs, ENOTEMPTY).
 const children = new Set();
 let reaper = false;
+let stopping = false;
 function reapOnExit() {
   if (reaper) return;
   reaper = true;
   const reap = () => {
-    for (const child of children) { child.osdWarmStop(); child.kill("SIGKILL"); }
+    for (const child of children) {
+      if (child.exitCode === null && child.signalCode === null) {
+        holdExit(new Promise(resolve => child.once("exit", resolve)));
+      }
+      child.osdWarmStop();
+      child.kill("SIGKILL");
+    }
   };
   process.on("exit", reap);
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
     process.on(signal, () => {
+      stopping = true;
       reap();
-      // The runtime supervisor has its own graceful signal handler.
-      if (process.listenerCount(signal) === 1) process.exit(0);
+      // The runtime supervisor has its own graceful signal handler; it
+      // awaits these exits (tools/osd-exit-holds.mjs) before it leaves.
+      if (process.listenerCount(signal) === 1) exitHolds().then(() => process.exit(0));
     });
   }
+}
+function track(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  reapOnExit();
+  child.osdWarmStop ??= () => { child.osdCancelled ??= "the front is closing"; };
+  children.add(child);
+  child.once("exit", () => children.delete(child));
 }
 
 export class WarmCompilerProcess extends WarmCompiler {
@@ -138,7 +159,11 @@ export class WarmCompilerProcess extends WarmCompiler {
     return result;
   }
   async verify(hash) {
-    const result = await super.verify(hash);
+    // A signal has stopped this front: no new child may start after the reap.
+    if (stopping) return {verdict: "cancelled", why: "the front is closing"};
+    const running = super.verify(hash);
+    track(this.verifying);
+    const result = await running;
     if (result.verdict === "same" && this.#child) {
       sendIPC(this.#child, {method: "verified", hash}, () => {});
     }
