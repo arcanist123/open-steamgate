@@ -195,58 +195,15 @@ func CloseUnitDB(s *Session) {
 	_ = d.Close()
 }
 
-// ScriptImage runs a seed script (a JSON array of SQL statements) on an
-// in-memory database of its own and returns that database's image. The
-// process's database is not touched: a host that serves requests builds the
-// image its ABAP Unit runs copy without closing the database it serves.
-func ScriptImage(script []byte) (image []byte, err error) {
-	var stmts []string
-	if err := json.Unmarshal(script, &stmts); err != nil {
-		return nil, err
-	}
-	d, err := openSQL(":memory:")
+// ScriptImage runs a seed script on an in-memory database of its own and
+// returns that database's image. No other database is touched: a serving
+// host builds the image its ABAP Unit runs copy (Session.OpenUnitDB) beside
+// the database it serves, and each test class's session opens its own copy.
+func ScriptImage(script []byte) ([]byte, error) {
+	d, err := OpenDB(script)
 	if err != nil {
 		return nil, err
 	}
 	defer d.Close()
-	d.SetMaxOpenConns(1)
-	for i, st := range stmts {
-		if _, err := d.Exec(st); err != nil {
-			return nil, fmt.Errorf("statement %d: %w: %.200s", i, err, st)
-		}
-	}
-	conn, err := d.Conn(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	err = conn.Raw(func(driver any) error {
-		serializer, ok := driver.(interface{ Serialize() ([]byte, error) })
-		if !ok {
-			return fmt.Errorf("database driver cannot serialize")
-		}
-		image, err = serializer.Serialize()
-		return err
-	})
-	return image, err
-}
-
-// IsolateDB puts the process's database and the transaction open on it
-// aside, and opens a writable copy of image in their place with a unit LUW
-// (BeginUnitLUW), so a test class run in a serving process writes, commits
-// and rolls back only its copy. restore closes the copy and puts the
-// database and its transaction back; it must run before the step that was
-// put aside goes on. The caller holds the work process for the whole time.
-func IsolateDB(image []byte) (restore func(), err error) {
-	savedDB, savedTx := db, tx
-	db, tx = nil, nil
-	if err := OpenDBImage(image); err != nil {
-		db, tx = savedDB, savedTx
-		return nil, err
-	}
-	BeginUnitLUW()
-	return func() {
-		CloseUnitDB()
-		db, tx = savedDB, savedTx
-	}, nil
+	return d.Image()
 }

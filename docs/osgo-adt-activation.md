@@ -94,9 +94,10 @@ into the binary:
   teardown and each method.
 - Each test class runs with a fresh `abap.Session` (its own class statics)
   on a private in-memory copy of the seed database
-  (`abap.IsolateDB`). The image is built once per process from the
-  binary's own seed script. The server's database and its open
-  transaction are put aside for the run and restored after it. A test's
+  (`Session.OpenUnitDB`). The image is built once per process from the
+  binary's own seed script. The copy is the test session's own database
+  (ADR 0010 slice 2), so the server's database and its open transaction
+  are never touched by the run. A test's
   COMMIT WORK commits into the copy, which is then thrown away, which is
   what the Node host gets from its detached child.
 - The answer is the `aunit:runResult` document that the Node host sends
