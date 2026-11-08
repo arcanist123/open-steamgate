@@ -22,8 +22,26 @@ answer warns that a rebuild is needed. ABAP Unit runs in process for the test
 classes compiled into the binary (`OSGO_UNIT_OWNERS`, by default the
 `$ZOSD_TEST` fixture) and refuses a class that changed since the build
 (`go/adtunit`; docs/osgo-adt-activation.md). Source operations require a matching tree
-at `-root`; an executable alone does not carry editable sources. The readiness
-route is `GET /health`.
+at `-root`; an executable alone does not carry editable sources.
+
+**Readiness is `GET /osd/serving`**, the route the Node host answers and
+the VS Code launcher polls, so vsix and VSP consumers can rely on one
+answer from both hosts: `200` with `{"ready": true, "generation": "go:…",
+"pid", "since", "root", "database", "hot", "launcherPid"}` while the binary
+serves, and `503` `{"error": {"code": "STG/NOT_SERVING"}, "ready": false,
+"draining": true}` from the moment it was told to stop. `X-OSD-Generation`
+is on every answer and equals that `generation`, the content hash the
+executable was built from (the one the status service shows as the serving
+generation). `/health` stays as the liveness line for scripts that already
+use it. **Stopping** is SIGTERM (or SIGINT, SIGHUP): the binary stops
+admitting, lets the dialog steps in flight finish, closes the listeners,
+closes the database under the work process and exits 0, all within 55 s (a
+step or a database close still running at the deadline is left behind) --
+the same budget the Node supervisor's quiesce has, under the launcher's 60 s
+SIGKILL. A second signal ends it at once with exit 1. `node
+tools/osd-host-contract.mjs --base <url> [--drain <pid>]` checks the
+contract against a running host and times the drain; the `osgo-host` CI job
+runs it on every change.
 
 Pin a tested release tag in consumer CI and download both files from that
 tag. For example, on Linux x64:
@@ -40,7 +58,7 @@ mkdir -p "$RUNNER_TEMP/osgo-home"
 pid=$!
 ready=0
 for attempt in $(seq 1 60); do
-  if curl --fail --silent http://127.0.0.1:3095/health | grep -q '"status":"ready"'; then
+  if curl --fail --silent http://127.0.0.1:3095/osd/serving | grep -q '"ready":true'; then
     ready=1
     break
   fi
@@ -48,7 +66,8 @@ for attempt in $(seq 1 60); do
 done
 if [ "$ready" -ne 1 ]; then echo 'OSGo did not become ready' >&2; exit 1; fi
 curl --fail 'http://127.0.0.1:3095/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$top=1&$format=json'
-kill "$pid"
+kill "$pid"   # SIGTERM: drains and exits 0 within 55 s
+wait "$pid"
 ```
 
 `-home` puts the SQLite database at `<home>/osgo.sqlite`; a fresh directory

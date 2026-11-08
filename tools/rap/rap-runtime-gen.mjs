@@ -80,7 +80,7 @@ export function runtimeOutputs(plans, files) {
     const cls = iface.replace(/^zif_/, "zcl_");
     let model_ = `    rs_model-bdef = ${lit(upper(root))}.\n    rs_model-pool = ${lit(upper(pool))}.\n`;
     if (savers.length) model_ += `    rs_model-saver = ${lit(absolute(savers[0].name))}.\n`;
-    let rows = "", calls = "", methods = "", defs = "", tables = "";
+    let rows = "", results = "", calls = "", methods = "", defs = "", tables = "";
     for (const e of plan.entities) {
       const {entity, prefix: p} = e;
       if (entity.numbering) throw new Error(`${entity.entity}: ${entity.numbering} numbering through the pool is outside R2`);
@@ -176,6 +176,11 @@ export function runtimeOutputs(plans, files) {
       if (handler) model_ += `    ls_entity-handler = ${lit(absolute(handler))}.\n`;
       model_ += "    APPEND ls_entity TO rs_model-entities.\n";
       rows += `      WHEN ${lit(upper(entity.entity))}.\n        CREATE DATA rr_rows TYPE ${iface}=>t_${p}_read_result.\n`;
+      for (const c of callables) {
+        // by the CDS name or the alias, as the runtime names an entity
+        const names = [...new Set([upper(entity.entity), upper(entity.alias ?? entity.entity)])].map(e => lit(`${e}~${upper(c.name)}`)).join(" OR ");
+        if (c.kind === "A" && c.result) results += `      WHEN ${names}.\n        CREATE DATA rr_result TYPE ${iface}=>t_${p}_a${c.index}_result.\n`;
+      }
       // the derived tables a caller that knows only the model fills (R2c)
       for (const op of ["create", "update", "delete"]) {
         if (entity.operations.some(o => o.kind === op && !o.use)) tables += `      WHEN ${lit(`${upper(entity.entity)}~${upper(op)}~`)}.\n        CREATE DATA rr_table TYPE ${iface}=>t_${p}_${op}.\n`;
@@ -205,6 +210,11 @@ ${model_}  ENDMETHOD.
   METHOD zif_osd_rap_bo~new_rows.
     CASE to_upper( iv_entity ).
 ${rows}    ENDCASE.
+  ENDMETHOD.
+
+  METHOD zif_osd_rap_bo~new_result.
+    CASE to_upper( iv_entity && '~' && iv_action ).
+${results}    ENDCASE.
   ENDMETHOD.
 
   METHOD zif_osd_rap_bo~new_table.

@@ -535,6 +535,7 @@ func main() {
 		}
 	}
 	started := time.Now()
+	host := newServingHost(*root, *dbFile, started)
 	profileConfig := profiling.Selected(*pprofFlag, *pprofAddr, os.Getenv)
 	profileServer, profileListener, err := profileConfig.Start()
 	if err != nil {
@@ -651,6 +652,8 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		fmt.Fprintf(w, "{\"status\":\"ready\",\"version\":%q,\"commit\":%q}\n", releaseTag, releaseCommit)
 	}})
+	// readiness for a supervisor: the generation, ready or draining (serving.go)
+	routes = append(routes, servingRoute(host))
 	// the tiles the packs declare (test/start.mjs pack-tiles), read when this binary was built
 	routes = append(routes, route{"/app/packs.json", true, func(w http.ResponseWriter, r *http.Request) {
 		profiling.Matched(r, "/app/packs.json")
@@ -700,7 +703,8 @@ func main() {
 	sort.SliceStable(routes, func(i, j int) bool { return len(routes[i].prefix) > len(routes[j].prefix) })
 
 	upgrade := channelRoutes()
-	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
+	// every answer carries X-OSD-Generation; a drain refuses newcomers here
+	mux := host.Wrap(profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade)))
 
 	rfcPort, diagPort := protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
 	for _, svc := range icfServices {
@@ -738,7 +742,7 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Print(hostports.EndpointBanner(*port, tlsConfig, rfcPort, diagPort, osdbind.Describe(lns)))
-	log.Fatal(server.Serve(ln))
+	serveUntilSignal(host, server, ln)
 }
 
 func routeMatcher(routes []route, notFound http.HandlerFunc, upgrade func(http.ResponseWriter, *http.Request) bool) http.Handler {

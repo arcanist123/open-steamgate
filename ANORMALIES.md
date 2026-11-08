@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type
+
+- Status: `open`
+- Discovery date: `2026-11-08` (dell, reading the EML lowering of RAP R2a; reproduced in the transpiler clone)
+- Affected versions: `@abaplint/core` 2.120.73 (pinned) and 2.120.94; `@abaplint/transpiler` 2.14.3 (pinned) and 2.14.19 with the local EML lowering
+- Affected ABAP statement, runtime API or adapter: `READ ENTITIES ... RESULT DATA(lt) FAILED DATA(ls)`, `MODIFY ENTITIES ... MAPPED DATA(ls)` (every inline declaration in an EML target position)
+- Minimal ABAP reproducer: a program with `READ ENTITIES OF zi_note ENTITY Note ALL FIELDS WITH lt_keys RESULT DATA(lt_result) FAILED DATA(ls_failed).` beside a BDEF `zi_note`
+- Exact command used to run it: `new Transpiler().run(registry)` over the two files in the clone (`scratchpad/void3.cjs`, not tracked)
+- Expected SAP behaviour: the inline targets are typed from the behavior definition (`TABLE FOR READ RESULT zi_note`, `RESPONSE FOR FAILED EARLY zi_note`) and the statement fills them
+- Actual open-abap behaviour: abaplint's syntax step gives the inline targets a void type, so the transpiler emits **no declaration** for them (default options: `lt_result` is then a JavaScript `ReferenceError` at the statement) and with `unknownTypes: compileError`, as OSG builds, refuses the object with `Void type: ReadEntities`
+- Impact on open-steamgate: EML code must declare its targets (`TYPE TABLE FOR READ RESULT ...`, `TYPE RESPONSE FOR ... EARLY ...`), which R1's lowering then resolves; `docs/rap-eml.md` says so
+- Smallest safe workaround: declare the targets; nothing to do in the runtime
+- Upstream issue: needs an issue in `abaplint/abaplint` (the inferred type of an EML target is the derived type of the BDEF named in the statement); none filed, and our fork rule for abaplint applies (`npm run parked`)
+- Regression-test location: none yet; the demo `src/rap_demo/zcl_rap_note_eml` uses declared targets on purpose
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-10-17-list-position -- Converted ULINE adds positioning absent from the direct Node oracle
 
 - Status: `workaround`; osabap repairs the pinned converter's redundant ULINE
