@@ -520,8 +520,8 @@ describe("OData V4 read wire", () => {
       const res = await batch([
         {id: "new", method: "POST", url: "TravelSet", body: travel("T0300")},
         {id: "upd", method: "PATCH", url: "$new", dependsOn: ["new"], body: {Description: "through $new"}},
-        {id: "get", method: "GET", url: "$new?$select=Description", dependsOn: ["upd"]},
-        {id: "del", method: "DELETE", url: "$new", dependsOn: ["get"], headers: {"If-Match": "*"}},
+        {id: "get", method: "GET", url: "$new?$select=Description", dependsOn: ["upd", "new"]},
+        {id: "del", method: "DELETE", url: "$new", dependsOn: ["get", "new"], headers: {"If-Match": "*"}},
       ]);
       const {responses} = await res.json();
       expect(responses.map((r) => r.status)).to.deep.equal([201, 204, 200, 204]);
@@ -547,7 +547,7 @@ describe("OData V4 read wire", () => {
         {id: "c", method: "POST", url: literal.replace(origin, "") + "/NoteSet", body: {Id: "B1", Text: "b"}},
         {id: "p", method: "PATCH", url: "$c", dependsOn: ["c"], body: {Text: "c"}},
         {id: "q", method: "PATCH", url: "$c", dependsOn: ["c"], body: {Text: "c"}, headers: {"if-match": 'W/"1"'}},
-        {id: "d", method: "DELETE", url: "$c", dependsOn: ["q"], headers: {"if-match": 'W/"2"'}},
+        {id: "d", method: "DELETE", url: "$c", dependsOn: ["q", "c"], headers: {"if-match": 'W/"2"'}},
       ], {prefer: "odata.continue-on-error"});
       const {responses} = await res.json();
       expect(responses.map((r) => r.status)).to.deep.equal([201, 428, 204, 204]);
@@ -664,6 +664,67 @@ describe("OData V4 read wire", () => {
         {id: "b", method: "GET", url: "TravelSet('T0002')", dependsOn: ["g", "a"]},
       ]);
       expect((await good.json()).responses.map((r) => r.status)).to.deep.equal([200, 200]);
+    });
+  });
+
+  describe("review fixes, round two", () => {
+    const batch = (requests, headers = {}) => fetch(base + "/$batch", {
+      method: "POST", headers: {"content-type": "application/json", ...headers}, body: JSON.stringify({requests}),
+    });
+    const raw = (path, method, text, headers = {}) =>
+      fetch(path, {method, headers: {"content-type": "application/json", ...headers}, body: text});
+
+    it("locks an entity by its identity, whatever the order of the URL's key", async () => {
+      const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");
+      const input = {mode_zosd_v4_lock: "E", srv: "ZSTG_DEMO_SRV", eset: "BookingSet", ekey: "TravelId=T0001,BookingId=B001"};
+      expect(enqTake("v4-review-key", "OTHER", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input).subrc).to.equal(0);
+      try {
+        for (const key of ["TravelId='T0001',BookingId='B001'", "BookingId='B001',TravelId='T0001'"]) {
+          const res = await send(base + `/BookingSet(${key})`, "PATCH", {Customer: "bypassed lock"});
+          expect(res.status, key).to.equal(409);
+        }
+      } finally {
+        enqDrop("v4-review-key", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input);
+      }
+      expect((await json(base + "/BookingSet(TravelId='T0001',BookingId='B001')")).Customer).not.to.equal("bypassed lock");
+    });
+
+    it("validates the number as written, not as a float", async () => {
+      expect((await send(base + "/TravelSet", "POST", {TravelId: "T0500", Seats: 2})).status).to.equal(201);
+      try {
+        for (const text of ['{"Seats":2.0000000000000001}', '{"Seats":1e3}']) {
+          const res = await raw(base + "/TravelSet('T0500')", "PATCH", text);
+          expect(res.status, text).to.equal(400);
+        }
+        expect((await json(base + "/TravelSet('T0500')")).Seats).to.equal(2);
+      } finally {
+        await send(base + "/TravelSet('T0500')", "DELETE");
+      }
+      for (const [id, digits] of [["I1", "9223372036854775807"], ["I2", "9007199254740993"], ["I3", "-9223372036854775808"]]) {
+        const res = await raw(literal + "/NoteSet", "POST", `{"Id":"${id}","Counter":${digits}}`);
+        expect(res.status, digits).to.equal(201);
+        expect(await res.text(), digits).to.contain(`"Counter":${digits}`);
+        await send(literal + `/NoteSet('${id}')`, "DELETE", undefined, {"if-match": "*"});
+      }
+      for (const digits of ["9223372036854775808", "-9223372036854775809", "1.5"]) {
+        const res = await raw(literal + "/NoteSet", "POST", `{"Id":"I9","Counter":${digits}}`);
+        expect(res.status, digits).to.equal(400);
+      }
+      expect((await fetch(literal + "/NoteSet('I9')")).status).to.equal(404);
+    });
+
+    it("requires a $<id> reference in dependsOn and string request metadata", async () => {
+      const implicit = await batch([
+        {id: "a", method: "POST", url: "TravelSet", body: {TravelId: "T0501", Seats: 1}},
+        {id: "b", method: "PATCH", url: "$a", body: {Seats: 2}},
+      ]);
+      expect(implicit.status).to.equal(400);
+      expect((await fetch(base + "/TravelSet('T0501')")).status).to.equal(404);
+      const numeric = await batch([{id: 1, method: "GET", url: "TravelSet('T0001')"}]);
+      expect(numeric.status).to.equal(400);
+      const quoted = await batch([{id: "1", method: "GET", url: "TravelSet('NONE')"}, {id: "2", method: "GET", url: "TravelSet('T0001')"}],
+        {prefer: 'odata.continue-on-error="false"'});
+      expect((await quoted.json()).responses.map((r) => r.status)).to.deep.equal([404]);
     });
   });
 });

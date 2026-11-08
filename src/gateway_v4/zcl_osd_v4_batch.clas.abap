@@ -71,14 +71,38 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     DATA lv_element TYPE string.
     DATA lv_depend TYPE string.
     DATA ls_request TYPE ty_request.
+    DATA lo_json TYPE REF TO zif_ajson.
+    DATA lt_strings TYPE string_table.
+    DATA lv_member TYPE string.
+    DATA lv_path TYPE string.
+    DATA lv_index TYPE i.
 
+    APPEND 'id' TO lt_strings.
+    APPEND 'method' TO lt_strings.
+    APPEND 'url' TO lt_strings.
+    APPEND 'atomicityGroup' TO lt_strings.
     lt_values = zcl_stg_json=>parse_object( EXPORTING iv_json = iv_body IMPORTING et_nested = lt_nested ).
+* the V2 parser keeps text only; the kinds of the request members come from
+* ajson, so a numeric id or a non-string url is refused, not coerced
+    TRY.
+        lo_json = zcl_ajson=>parse( iv_body ).
+      CATCH zcx_ajson_error.
+        zcl_osd_v4_query=>fail( 'The batch body is not valid JSON' ).
+    ENDTRY.
     READ TABLE lt_nested INTO ls_pair WITH KEY name = 'requests'.
     IF sy-subrc <> 0.
       zcl_osd_v4_query=>fail( 'A JSON batch needs a "requests" array' ).
     ENDIF.
     lt_elements = zcl_stg_json=>parse_array( ls_pair-value ).
     LOOP AT lt_elements INTO lv_element.
+      lv_index = sy-tabix.
+      LOOP AT lt_strings INTO lv_member.
+        lv_path = |/requests/{ lv_index }/{ lv_member }|.
+        IF lo_json->exists( lv_path ) = abap_true
+            AND lo_json->get_node_type( lv_path ) <> zif_ajson_types=>node_type-string.
+          zcl_osd_v4_query=>fail( |Batch request { lv_index }: { lv_member } must be a string| ).
+        ENDIF.
+      ENDLOOP.
       CLEAR ls_request.
       lt_inner = zcl_stg_json=>parse_object( EXPORTING iv_json = lv_element IMPORTING et_nested = lt_inner_nested ).
       LOOP AT lt_inner INTO ls_pair.
@@ -161,6 +185,15 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
           ENDIF.
         ENDIF.
       ENDLOOP.
+* JSON Format 4.01 s19.1: a url that starts with $<id> depends on <id>, so
+* <id> has to be in dependsOn (and with it, the cross-group rule above)
+      IF ls_request-url(1) = '$'.
+        FIND REGEX '^\$([^/?]+)' IN ls_request-url SUBMATCHES lv_depend.
+        READ TABLE ls_request-depends WITH KEY table_line = lv_depend TRANSPORTING NO FIELDS.
+        IF sy-subrc <> 0.
+          zcl_osd_v4_query=>fail( |Request { ls_request-id } refers to ${ lv_depend } without depending on it| ).
+        ENDIF.
+      ENDIF.
       APPEND ls_request-id TO lt_ids.
       lv_previous = ls_request-group.
     ENDLOOP.
@@ -184,6 +217,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     LOOP AT lt_items INTO lv_item.
       CONDENSE lv_item NO-GAPS.
       SPLIT lv_item AT '=' INTO lv_name lv_value.
+      REPLACE ALL OCCURRENCES OF '"' IN lv_value WITH ''.
       IF lv_name <> 'odata.continue-on-error' AND lv_name <> 'continue-on-error'.
         CONTINUE.
       ENDIF.

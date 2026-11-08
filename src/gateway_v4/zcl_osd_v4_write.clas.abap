@@ -22,7 +22,7 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
       is_info TYPE zcl_osd_v4_model=>ty_property iv_ieee TYPE abap_bool
       RETURNING VALUE(rv_value) TYPE string RAISING zcx_stg_error.
     CLASS-METHODS within IMPORTING iv_digits TYPE string iv_max TYPE string RETURNING VALUE(rv_ok) TYPE abap_bool.
-    CLASS-METHODS lock IMPORTING iv_service TYPE string iv_set TYPE string
+    CLASS-METHODS lock IMPORTING iv_service TYPE string is_set TYPE zcl_stg_model_info=>ty_entity_set
       it_key_tab TYPE /iwbep/t_mgw_name_value_pair RAISING zcx_stg_error.
     CLASS-METHODS read IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
       io_context TYPE REF TO zcl_stg_request_context is_set TYPE zcl_stg_model_info=>ty_entity_set
@@ -66,6 +66,9 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
     DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
     DATA ls_value TYPE zcl_osd_v4_provider=>ty_value.
+    DATA lt_lexemes TYPE tihttpnvp.
+    DATA ls_lexeme TYPE ihttpnvp.
+    DATA lv_value TYPE string.
     IF iv_body IS INITIAL.
       zcl_osd_v4_query=>fail( 'A JSON object is required as the request body' ).
     ENDIF.
@@ -79,6 +82,10 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     IF lo_json->get_node_type( '/' ) <> zif_ajson_types=>node_type-object.
       zcl_osd_v4_query=>fail( 'The request body must be a JSON object' ).
     ENDIF.
+* ajson knows the token kinds but hands numbers over as floating point; the
+* V2 parser keeps each scalar's literal text. A number is validated and
+* written as the client wrote it.
+    lt_lexemes = zcl_stg_json=>parse_object( iv_body ).
     lv_ieee = boolc( to_lower( header( it_headers = it_headers iv_name = 'content-type' ) ) CS 'ieee754compatible=true' ).
     lt_members = lo_json->members( '/' ).
     LOOP AT lt_members INTO lv_name.
@@ -114,7 +121,12 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         APPEND ls_value TO rt_values.
         CONTINUE.
       ENDIF.
-      ls_value-value = scalar( iv_name = lv_name iv_kind = lv_kind iv_value = lo_json->get( lv_path )
+      lv_value = lo_json->get( lv_path ).
+      IF lv_kind = zif_ajson_types=>node_type-number.
+        READ TABLE lt_lexemes INTO ls_lexeme WITH KEY name = lv_name.
+        lv_value = ls_lexeme-value.
+      ENDIF.
+      ls_value-value = scalar( iv_name = lv_name iv_kind = lv_kind iv_value = lv_value
         is_info = ls_info iv_ieee = lv_ieee ).
       ls_value-is_text = boolc( ls_info-edm_type = 'Edm.String' ).
       APPEND ls_value TO rt_values.
@@ -286,13 +298,18 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     DATA lv_srv TYPE c LENGTH 40.
     DATA lv_eset TYPE c LENGTH 40.
     DATA lv_ekey TYPE c LENGTH 60.
-    LOOP AT it_key_tab INTO ls_key.
-      lv_key = lv_key && lv_sep && ls_key-name && '=' && ls_key-value.
+    DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
+* The identity of the entity, not the spelling of its URL: key properties in
+* the model's order, with the values the query already normalized (unquoted
+* strings, internal dates, GUIDs without hyphens in upper case)
+    LOOP AT is_set-properties INTO ls_prop WHERE is_key = abap_true.
+      READ TABLE it_key_tab INTO ls_key WITH KEY name = ls_prop-name.
+      lv_key = lv_key && lv_sep && ls_prop-name && '=' && ls_key-value.
       lv_sep = ','.
     ENDLOOP.
 * longer names and keys are cut: a collision then locks more, never less
     lv_srv = iv_service.
-    lv_eset = iv_set.
+    lv_eset = is_set-name.
     lv_ekey = lv_key.
     CALL FUNCTION 'ENQUEUE_EZOSD_V4_LOCK'
       EXPORTING
@@ -305,7 +322,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         system_failure = 2
         OTHERS = 3.
     IF sy-subrc = 1.
-      zcl_osd_v4_query=>fail( iv_text = |{ iv_set }({ lv_key }) is being changed by another request| iv_status = 409 ).
+      zcl_osd_v4_query=>fail( iv_text = |{ is_set-name }({ lv_key }) is being changed by another request| iv_status = 409 ).
     ELSEIF sy-subrc <> 0.
       zcl_osd_v4_query=>fail( iv_text = 'The lock server refused the entity lock' iv_status = 500 ).
     ENDIF.
@@ -423,7 +440,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
 
       WHEN 'PATCH' OR 'PUT'.
         lt_values = values( iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers ).
-        lock( iv_service = io_model->ms_service-name iv_set = is_set-name it_key_tab = lo_context->mt_key_tab ).
+        lock( iv_service = io_model->ms_service-name is_set = is_set it_key_tab = lo_context->mt_key_tab ).
         lr_current = read( io_dpc = lo_dpc io_context = lo_context is_set = is_set ).
         IF lr_current IS NOT BOUND.
           zcl_osd_v4_query=>fail( iv_text = 'Entity not found' iv_status = 404 ).
@@ -471,7 +488,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         ENDIF.
 
       WHEN 'DELETE'.
-        lock( iv_service = io_model->ms_service-name iv_set = is_set-name it_key_tab = lo_context->mt_key_tab ).
+        lock( iv_service = io_model->ms_service-name is_set = is_set it_key_tab = lo_context->mt_key_tab ).
         lr_current = read( io_dpc = lo_dpc io_context = lo_context is_set = is_set ).
         IF lr_current IS NOT BOUND.
           zcl_osd_v4_query=>fail( iv_text = 'Entity not found' iv_status = 404 ).

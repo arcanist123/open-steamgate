@@ -16,6 +16,8 @@ CLASS zcl_osd_v4_test_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_a
              id TYPE c LENGTH 10,
              text TYPE c LENGTH 80,
              version TYPE i,
+* Int64, not stored: a create answers with the value it was given
+             counter TYPE p LENGTH 10 DECIMALS 0,
            END OF ty_note.
     TYPES tt_notes TYPE STANDARD TABLE OF ty_note WITH DEFAULT KEY.
     METHODS define REDEFINITION.
@@ -64,6 +66,8 @@ CLASS zcl_osd_v4_test_mpc IMPLEMENTATION.
     lo_prop = lo_type->create_property( iv_property_name = 'Version' iv_abap_fieldname = 'VERSION' ).
     lo_prop->set_type_edm_int32( ).
     lo_prop->set_as_etag( ).
+    lo_prop = lo_type->create_property( iv_property_name = 'Counter' iv_abap_fieldname = 'COUNTER' ).
+    lo_prop->set_type_edm_int64( ).
     lo_type->bind_structure( 'ZCL_OSD_V4_TEST_MPC=>TY_NOTE' ).
     lo_set = lo_type->create_entity_set( 'NoteSet' ).
     lo_set->set_creatable( abap_true ).

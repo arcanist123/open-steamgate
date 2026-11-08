@@ -104,11 +104,13 @@ the model refuses answers 405 and never reaches the DPC.
 | `PATCH`/`PUT` with `Prefer: return=representation` | 200 with the entity after the update |
 | `DELETE TravelSet('T0001')` | 204 |
 
-Request bodies are V4 JSON, read with their token kinds (ajson): strings
+Request bodies are V4 JSON, read with their token kinds (ajson) and, for
+numbers, the literal text as the client wrote it (no float round trip): strings
 for `Edm.String`, `Edm.Date` (`2026-11-07`), `Edm.DateTimeOffset` (`Z` or an
 offset, stored as UTC), `Edm.TimeOfDay` (`12:30:45`) and hyphenated GUIDs;
 JSON numbers for numeric types; `true`/`false` for booleans. Integers must be
-integral and within the range of their type (Byte, SByte, Int16, Int32,
+written as integers (no fraction, no exponent: `2.0000000000000001` and
+`1e3` are 400) and lie within the range of their type (Byte, SByte, Int16, Int32,
 Int64); a Decimal must fit its Precision and Scale; a string must fit its
 MaxLength. `Int64` and `Decimal` may come as strings under
 `IEEE754Compatible=true`. A JSON `null` clears a nullable property and is
@@ -152,7 +154,10 @@ matches and answers 412; `*` passes.
 The check and the write are one step: PATCH, PUT and DELETE first take an
 exclusive lock on the entity (lock object `EZOSD_V4_LOCK` over
 `ZOSD_V4_LOCK`: service, entity set and key, cut to 40/40/60 characters, so
-an overlong key locks more and never less), then read the current entity
+an overlong key locks more and never less; the key is the entity's identity,
+its properties in the model's order with normalized values, so
+`BookingSet(BookingId='B001',TravelId='T0001')` takes the same lock as the
+other spelling), then read the current entity
 and its ETag through the DPC's `get_entity`, check `If-Match`, and write.
 The lock has `_SCOPE 2` and lasts until the LUW ends (the end of the request,
 or of the batch). A write to an entity another session has locked answers
@@ -173,7 +178,9 @@ Each request runs through the same dispatch as a single request.
 
 - `url` is relative to the service root, an absolute path, or an absolute
   URL; a `url` that starts with `$<id>` continues the `Location` of the
-  entity request `<id>` created (`$new`, `$new?$select=...`).
+  entity request `<id>` created (`$new`, `$new?$select=...`), and `<id>`
+  must be in its `dependsOn` (400 otherwise).
+- `id`, `method`, `url` and `atomicityGroup` must be JSON strings (400).
 - An `atomicityGroup` is one LUW: a `COMMIT WORK` fences it, the first
   failing member rolls the whole group back, and the group commits only when
   every member succeeded. Of a failed group, the failing request carries its
