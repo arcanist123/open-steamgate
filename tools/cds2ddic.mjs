@@ -185,7 +185,7 @@ export function parseDDLS(obj, reg) {
       }
       const fieldName = (alias ?? inner).toUpperCase();
       const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
-      fields.push({name: fieldName, base: inner.split(".").pop().toUpperCase(), key: isKey,
+      fields.push({name: fieldName, element: alias ?? inner.split(".").pop(), base: inner.split(".").pop().toUpperCase(), key: isKey,
         ...t.edm, abapType: t.abap, casted: true, label: label ?? fieldName, annotations: annos});
       continue;
     }
@@ -196,7 +196,9 @@ export function parseDDLS(obj, reg) {
     const baseField = srcName.split(".").pop().toUpperCase();
     const t = edmOf(comps.get(baseField));
     const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
-    fields.push({name: fieldName, base: baseField, key: isKey, ...t, label: label ?? fieldName, annotations: annos});
+    // element: the name as the source spells it, which a service definition
+    // exposes (a published view keeps the upper-case name)
+    fields.push({name: fieldName, element: alias ?? srcName.split(".").pop(), base: baseField, key: isKey, ...t, label: label ?? fieldName, annotations: annos});
   }
 
   const associations = [];

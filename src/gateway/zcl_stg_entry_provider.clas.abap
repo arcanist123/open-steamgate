@@ -30,6 +30,12 @@ CLASS zcl_stg_entry_provider DEFINITION PUBLIC CREATE PUBLIC.
       RAISING
         /iwbep/cx_mgw_tech_exception.
 
+* the ABAP field names (upper case) of the properties the request gave:
+* what a behavior's field control is checked against (zif_stg_sadl_behavior)
+    METHODS fields
+      RETURNING
+        VALUE(rt_fields) TYPE string_table.
+
     CLASS-METHODS convert_value
       IMPORTING
         iv_value    TYPE string
@@ -205,6 +211,18 @@ CLASS zcl_stg_entry_provider IMPLEMENTATION.
           cv_target = iv_value.
         ENDIF.
     ENDCASE.
+  ENDMETHOD.
+
+  METHOD fields.
+    DATA ls_value    LIKE LINE OF mt_values.
+    DATA ls_property TYPE zcl_stg_model_info=>ty_property.
+
+    LOOP AT mt_values INTO ls_value.
+      READ TABLE ms_set-properties INTO ls_property WITH KEY name = ls_value-name.
+      IF sy-subrc = 0.
+        APPEND to_upper( ls_property-fieldname ) TO rt_fields.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD set_base.
