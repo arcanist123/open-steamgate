@@ -196,13 +196,15 @@ export function buildRegistry(store, configPath = "abaplint.jsonc") {
   return registry;
 }
 
-// isLibrary(filename): a file of a library (abap_transpile.json `libs`).
-// A library object is never a dependent: it is read-only, the build takes it
+// libs: the store's library roots (abap_transpile.json `libs`). A library object is never a dependent: it is read-only, the build takes it
 // as a dependency and never refuses over it, and it may carry issues of its
 // own that this tree cannot resolve (a DDIC type it does not ship). The full
 // registry fallback below reached them all, and one edit whose reader closure
 // crossed the limit was refused over a library's own unknown types.
-export function registryDependents(registry, type, name, {isLibrary = () => false} = {}) {
+export function registryDependents(registry, type, name, {libs = []} = {}) {
+  const files = new Set(libs.flatMap(lib => lib.files ?? []).map(file => "/" + file));
+  const prefixes = libs.filter(lib => lib.files === undefined).map(lib => "/" + lib.path + "/");
+  const isLibrary = file => files.has(file) || prefixes.some(prefix => file.startsWith(prefix));
   const index = referenceIndex(registry);
   const self = registry.getObject(TYPES[type]?.sameFileAs ?? type, name);
   const limit = 256;
