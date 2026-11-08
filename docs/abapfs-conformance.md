@@ -104,16 +104,19 @@ above:
 |---|---|---|---|---|
 | main `6847c55a` | 25 | 1 | 21 | 47 |
 | with `go/adtpreview` + `go/adtread` | 28 | 1 | 18 | 47 |
+| with `go/adtactivate` + `go/adtunit` | 30 | 1 | 16 | 47 |
 
 The three that moved are `data.freestyle`, `data.table` (the data preview
 routes are mounted once `abap.ADTPreview` says the host answers SYSTEM SQL in
 the request's own step) and `activate.inactiveObjects` (a Go continuation of
-the HOST verdict, as the Node facade serves it). What is left, and why:
+the HOST verdict, as the Node facade serves it). `activate.object` and
+`unit.run` moved next (`feat/osgo-adt-activate-unit`): activation checks and
+publishes in the object store, with a rebuild warning when the code changed,
+and ABAP Unit runs the fixture's test class compiled into the binary
+(docs/osgo-adt-activation.md). What is left, and why:
 
 | Scenario | osgo | Node | Why |
 |---|---|---|---|
-| `activate.object` | MISSING | PASS | Host continuation missing: Node activates from its facade by rebuilding the JS generation; osgo saves sources but builds no generation. Not read-only. |
-| `unit.run` | MISSING | PASS | Host continuation missing: Node runs ABAP Unit from its facade; osgo has no test-run continuation. |
 | `object.FUGR`, `object.FM` | MISSING | MISSING | Route not served: no `functions/groups` documents in the ABAP front or either host. |
 | `object.MSAG` | MISSING | MISSING | Route not served: `messageclass/:name` has no document anywhere. |
 | `object.INCL.mainprograms` | MISSING | MISSING | Route not served: `programs/includes/:name/mainprograms`. |
@@ -125,7 +128,7 @@ the HOST verdict, as the Node facade serves it). What is left, and why:
 | `create.validate` | MISSING | MISSING | Route not served: `programs/validation`. |
 | `debugger.coreDiscovery` | FAIL | FAIL | Client parse: HTTP 200, but the pinned client cannot parse the answer (missing category `@_term`). |
 
-So no read-only scenario Node serves is MISSING on osgo. No gap is a fixture
+So no scenario Node serves is MISSING on osgo. No gap is a fixture
 problem of the osgo harness: every MISSING is a route, the FAIL is the client's
 parse of an answer both hosts give.
 
