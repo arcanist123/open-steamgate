@@ -683,8 +683,8 @@
       "reason": "Self-contained Go host continuation for read-only HOST-verdict ADT routes (activation/inactiveobjects), mirroring tools/adt-facade.mjs; no generated ABAP types. Critic #859 S2: the full uriOf/ADT_TYPE maps."
     },
     "go:serving": {
-      "lines": 325,
-      "reason": "ADR 0010 slice 1: the supervised-host contract of a one-process host (/osd/serving, X-OSD-Generation, SIGTERM drain under the work process), standard library only, no go/abap import; the Go half of tools/osd-serve.mjs and the facade in front of it."
+      "lines": 369,
+      "reason": "ADR 0010 slice 1: the supervised-host contract of a one-process host (/osd/serving, X-OSD-Generation, SIGTERM drain under the work process), standard library only, no go/abap import; the Go half of tools/osd-serve.mjs and the facade in front of it. Critic of #874: the wake-up takes the mutex before it broadcasts, the database close is bounded by the grace like the rest of the stop, a test hook into the check-to-wait instant, a no-op lock for a host without a work process."
     }
   },
   "readmeMissing": [

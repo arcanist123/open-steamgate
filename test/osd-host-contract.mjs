@@ -8,7 +8,7 @@ import {checkHostContract, timeDrain} from "../tools/osd-host-contract.mjs";
 
 const answer = (status, body, headers = {}) => new Response(typeof body === "string" ? body : JSON.stringify(body), {
   status, headers: {"content-type": "application/json; charset=utf-8", ...headers}});
-const servingBody = {ready: true, pid: 4242, since: "2026-11-08T12:00:00.000Z", generation: "go:0123456789abcdef",
+const servingBody = {ready: true, pid: 4242, launcherPid: 4242, since: 1794139200000, generation: "go:0123456789abcdef",
   hot: {swaps: 0, unverified: false}, root: "/tree", database: ":memory:"};
 const host = (overrides = {}) => async (url) => {
   const path = new URL(url).pathname;
@@ -16,7 +16,8 @@ const host = (overrides = {}) => async (url) => {
   if (path === "/osd/serving") {
     return answer(overrides.status ?? 200, {...servingBody, ...(overrides.body ?? {})}, overrides.noHeader ? {} : {"x-osd-generation": gen});
   }
-  return answer(overrides.missingStatus ?? 404, "<pre>Cannot GET</pre>", overrides.noHeaderOn404 ? {} : {"x-osd-generation": gen});
+  if (!path.startsWith("/sap/opu/odata/sap/ZSTG_NO_SUCH_SRV_")) return answer(404, "<pre>Cannot GET</pre>");
+  return answer(overrides.missingStatus ?? 404, {error: {code: "STG/SERVICE_NOT_FOUND"}}, overrides.noHeaderOn404 ? {} : {"x-osd-generation": gen});
 };
 
 describe("tools/osd-host-contract.mjs", function () {
@@ -33,12 +34,14 @@ describe("tools/osd-host-contract.mjs", function () {
     ["ready false", {body: {ready: false}}, /ready is true/],
     ["a 503", {status: 503}, /answers 200/],
     ["no generation", {body: {generation: ""}}, /not empty/],
-    ["no pid", {body: {pid: undefined}}, /pid/],
+    ["no pid", {body: {pid: undefined}}, /pid is the serving/],
+    ["no launcherPid", {body: {launcherPid: undefined}}, /launcherPid/],
     ["hot missing", {body: {hot: undefined}}, /hot describes/],
+    ["since as an ISO string", {body: {since: "2026-11-08T12:00:00.000Z"}}, /epoch milliseconds/],
     ["no header", {noHeader: true}, /X-OSD-Generation equals/],
     ["a header that differs from the body", {header: "go:other"}, /X-OSD-Generation equals/],
     ["no header on the 404", {noHeaderOn404: true}, /every answer/],
-    ["an unknown door that is not 404", {missingStatus: 200}, /404/],
+    ["an unknown service that is not 404", {missingStatus: 200}, /404/],
   ]) {
     it(`refuses ${what}`, async () => {
       let error;

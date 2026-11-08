@@ -6,8 +6,11 @@
 //
 //   node tools/osd-host-contract.mjs --base http://127.0.0.1:3095
 //       GET /osd/serving is 200 JSON with ready: true, a generation, a pid,
-//       root, database and hot; X-OSD-Generation is on that answer and on a
-//       404, and equals the body's generation.
+//       launcherPid, root, database and hot; X-OSD-Generation is on that
+//       answer and on the OData front's 404 for an unknown service (an answer
+//       the same ABAP gives on both hosts, so the header is checked on an
+//       ABAP answer and not on a route one host lacks), equal to the body's
+//       generation.
 //   node tools/osd-host-contract.mjs --base <url> --drain <pid> [--grace-ms 55000]
 //       also sends SIGTERM to <pid> and times its exit: it must be gone
 //       within the grace (the launcher's SIGKILL follows at 60 s).
@@ -27,18 +30,20 @@ export async function checkHostContract(base, {fetchAnswer = fetch} = {}) {
   assert.equal(typeof body.generation, "string", "generation is a string");
   assert.ok(body.generation.length > 0, "generation is not empty");
   assert.ok(Number.isInteger(body.pid) && body.pid > 0, "pid is the serving process");
+  assert.ok(Number.isInteger(body.launcherPid) && body.launcherPid > 0, "launcherPid is the process a launcher owns");
   assert.equal(typeof body.root, "string", "root names the tree");
   assert.equal(typeof body.database, "string", "database names the file or :memory:");
   assert.ok(body.hot && typeof body.hot === "object", "hot describes the warm swaps");
   assert.ok(Number.isInteger(body.hot.swaps), "hot.swaps counts");
   assert.equal(typeof body.hot.unverified, "boolean", "hot.unverified is a flag");
-  assert.ok(!Number.isNaN(Date.parse(body.since)), "since is a date");
+  // the Node child answers Date.now() at its start (tools/osd-serve.mjs)
+  assert.ok(Number.isInteger(body.since) && body.since > 0, "since is the start in epoch milliseconds");
   // Node labels an unverified warm generation "<hash> warm-unverified" in the
   // header and in the body alike, so the two are equal as strings
   const header = serving.headers.get("x-osd-generation");
   assert.equal(header, body.generation, "X-OSD-Generation equals the body's generation");
-  const missing = await fetchAnswer(`${url}/osd/no-such-door-${Date.now().toString(36)}`);
-  assert.equal(missing.status, 404, "an unknown door is 404");
+  const missing = await fetchAnswer(`${url}/sap/opu/odata/sap/ZSTG_NO_SUCH_SRV_${Date.now().toString(36).toUpperCase()}/`);
+  assert.equal(missing.status, 404, "an unknown OData service is 404 (STG/SERVICE_NOT_FOUND)");
   assert.equal(missing.headers.get("x-osd-generation"), body.generation, "X-OSD-Generation is on every answer, the 404 included");
   return body;
 }

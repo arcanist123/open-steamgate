@@ -166,7 +166,7 @@ func (h *Host) Serving(notFound http.Handler) http.HandlerFunc {
 		body := map[string]any{
 			"ready":       true,
 			"pid":         h.pid,
-			"since":       h.o.Started.UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+			"since":       h.o.Started.UnixMilli(), // the Node child's Date.now() at start
 			"generation":  h.o.Generation,
 			"hot":         map[string]any{"swaps": 0, "unverified": false},
 			"root":        h.o.Root,
@@ -219,19 +219,36 @@ func (h *Host) Drain(ctx context.Context) bool {
 		h.since = time.Now()
 	}
 	h.mu.Unlock()
-	stop := context.AfterFunc(ctx, func() { h.cond.Broadcast() })
+	// the wake-up takes the mutex first: a waiter is then either before its
+	// check of ctx.Err (and sees the end) or inside Wait (and is woken); a
+	// broadcast between the two would be lost, and a hung step sends no
+	// other (critic of #874)
+	stop := context.AfterFunc(ctx, func() {
+		h.mu.Lock()
+		h.mu.Unlock()
+		h.cond.Broadcast()
+	})
 	defer stop()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for h.inflight > 0 && ctx.Err() == nil {
+		if beforeWait != nil {
+			beforeWait()
+		}
 		h.cond.Wait()
 	}
 	return h.inflight == 0
 }
 
+// beforeWait is a test's hook into the instant between the waiter's check
+// and its Wait -- the window a wake-up could be lost in; nil in production.
+var beforeWait func()
+
 // Quiesce takes the work process and runs final with it held -- the moment
 // no dialog step is half-way, where the database may be closed -- or gives
-// up when ctx ends first (a step that hangs); false then, final not run.
+// up when ctx ends first: a step that hangs (final not run), or a final that
+// does not return (a close stuck on a checkpoint; left running, the process
+// is about to end). False in both cases; the grace bounds the whole stop.
 func Quiesce(ctx context.Context, lock sync.Locker, final func()) bool {
 	got := make(chan struct{})
 	go func() {
@@ -254,11 +271,22 @@ func Quiesce(ctx context.Context, lock sync.Locker, final func()) bool {
 			return false
 		}
 	}
-	defer lock.Unlock()
-	if final != nil {
-		final()
+	if final == nil {
+		lock.Unlock()
+		return true
 	}
-	return true
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer lock.Unlock()
+		final()
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // Stop is how the process ends once a signal arrived.
@@ -313,13 +341,29 @@ func (h *Host) stop(sig os.Signal, stop Stop) {
 				h.o.Logf("listeners: %v", err)
 			}
 		}
-		quiet := true
-		if stop.Lock != nil {
-			quiet = Quiesce(ctx, stop.Lock, stop.Final)
-		} else if stop.Final != nil {
-			stop.Final()
+		// the database close is bounded like the rest: a close that does not
+		// return within the grace is left behind too (the WAL file recovers
+		// on the next open), and the exit code is still 0 -- the stop ran to
+		// its end, the grace decided what it left
+		quiet := Quiesce(ctx, lockOrNone(stop.Lock), stop.Final)
+		if !quiet {
+			h.o.Logf("the database was not closed within the grace: left to the next open")
 		}
 		h.o.Logf("stopped in %d ms (drained %v, database closed %v)", time.Since(t0).Milliseconds(), clean, quiet)
 		stop.Exit(0)
 	})
+}
+
+// noLock stands in for a missing work process: a host without one quiesces
+// with no step to wait for.
+type noLock struct{}
+
+func (noLock) Lock()   {}
+func (noLock) Unlock() {}
+
+func lockOrNone(l sync.Locker) sync.Locker {
+	if l == nil {
+		return noLock{}
+	}
+	return l
 }

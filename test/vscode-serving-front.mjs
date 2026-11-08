@@ -37,6 +37,21 @@ describe("VS Code serving front identity", () => {
       expect(response.headers.get("content-length")).to.equal(String(Buffer.byteLength(JSON.stringify(body))));
     } finally { await close(front); await close(nextWorker); }
   });
+  it("keeps the child's X-OSD-Generation on the re-serialised answer (the shared host contract)", async () => {
+    const worker = express();
+    worker.get("/osd/serving", (_req, res) => res.set("X-OSD-Generation", "gen-1 warm-unverified").json({ready: true, generation: "gen-1 warm-unverified", pid: 7}));
+    const child = await listen(worker);
+    const runtime = {running: true, url: address(child), async ensure() {}};
+    const app = express();
+    app.all("/osd/serving", servingFront(runtime, {...metadata, startingWaitMs: 10}));
+    const front = await listen(app);
+    try {
+      const response = await fetch(`${address(front)}/osd/serving`);
+      expect(response.status).to.equal(200);
+      expect(response.headers.get("x-osd-generation")).to.equal("gen-1 warm-unverified");
+      expect((await response.json()).generation).to.equal("gen-1 warm-unverified");
+    } finally { await close(front); await close(child); }
+  });
   it("adds identity to normal, starting, non-GET and failed fallback responses", async () => {
     const worker = express();
     worker.all("/osd/serving", (_req, res) => res.json({ready: true, generation: "worker", launcherPid: 99, launcherIdentity: "worker"}));

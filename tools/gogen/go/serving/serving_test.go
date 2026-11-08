@@ -95,8 +95,8 @@ func TestServingAnswer(t *testing.T) {
 	if int(body["pid"].(float64)) != os.Getpid() || int(body["launcherPid"].(float64)) != os.Getpid() {
 		t.Fatalf("pid %v launcherPid %v", body["pid"], body["launcherPid"])
 	}
-	if body["since"] != "2026-11-08T12:00:00.000Z" {
-		t.Fatalf("since %v (Node's Date JSON)", body["since"])
+	if body["since"] != float64(time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC).UnixMilli()) {
+		t.Fatalf("since %v (the Node child's epoch milliseconds)", body["since"])
 	}
 	hot := body["hot"].(map[string]any)
 	if hot["swaps"] != float64(0) || hot["unverified"] != false {
@@ -395,5 +395,71 @@ func TestGraceExpiryStillExitsZero(t *testing.T) {
 	}
 	if finalRan {
 		t.Fatal("the database was closed under a lock a step still holds")
+	}
+}
+
+// the cancellation must not be lost between the waiter's check and its
+// Wait (critic of #874): the context ends exactly there, and the wake-up
+// is given time to fire before the waiter sleeps. Without the mutex around
+// the broadcast the waiter never wakes, since a hung step sends no other.
+func TestDrainCancellationBetweenCheckAndWaitIsNotLost(t *testing.T) {
+	h := newHost(t, 0)
+	if !h.admit(true) {
+		t.Fatal("admit")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	beforeWait = func() {
+		beforeWait = nil
+		cancel()
+		time.Sleep(50 * time.Millisecond)
+	}
+	defer func() { beforeWait = nil }()
+	finished := make(chan bool, 1)
+	go func() { finished <- h.Drain(ctx) }()
+	select {
+	case clean := <-finished:
+		if clean {
+			t.Fatal("a hung step was reported drained")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the drain lost the cancellation between its check and its wait")
+	}
+}
+
+// a database close that never returns does not hold the process past the
+// grace: exit 0, "database closed false", the lock still held by the close
+func TestStuckFinalIsBoundedByTheGrace(t *testing.T) {
+	h := newHost(t, 120*time.Millisecond)
+	var lock sync.Mutex
+	never := make(chan struct{})
+	defer close(never)
+	exit := make(chan int, 1)
+	signals := make(chan os.Signal, 1)
+	go h.OnSignal(signals, Stop{Lock: &lock, Final: func() { <-never }, Exit: func(code int) { exit <- code }})
+	t0 := time.Now()
+	signals <- syscall.SIGTERM
+	select {
+	case code := <-exit:
+		if code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a stuck close held the stop past the grace")
+	}
+	if took := time.Since(t0); took > time.Second {
+		t.Fatalf("the stop took %s against a grace of 120 ms", took)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if Quiesce(ctx, &lock, nil) {
+		t.Fatal("the stuck close gave the lock back")
+	}
+}
+
+func TestQuiesceWithoutALock(t *testing.T) {
+	ran := false
+	if !Quiesce(context.Background(), lockOrNone(nil), func() { ran = true }) || !ran {
+		t.Fatal("a host without a work process still runs final")
 	}
 }
