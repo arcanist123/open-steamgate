@@ -3,12 +3,12 @@ INTERFACE zif_stg_sadl_behavior PUBLIC.
 * "Serving"): the SADL data provider still reads the entity through the
 * view, and hands create, update, delete and actions to an implementation
 * of this interface instead of writing the table itself. The rows are the
-* view's own rows (zif_stg_cds_source=>create_line); IT_FIELDS names the
+* view's own rows (the CDS source's create_line); IT_FIELDS names the
 * components the request gave (upper case), which is what the behavior's
 * field control is checked against. A refusal is a business exception with
 * the behavior's message text, and then nothing has been written.
-* Implemented by ZCL_OSD_RAP_SADL over the managed RAP runtime; the SADL
-* data provider creates it by name, so a tree without RAP still compiles.
+* Implemented in src/rap/ over the managed RAP runtime; the SADL data
+* provider creates that class by name, so a tree without RAP still compiles.
 
 * whether IV_ENTITY (a CDS entity name) has a behavior this implementation runs
   METHODS handles

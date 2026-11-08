@@ -3,7 +3,7 @@ CLASS zcl_osd_rap_sadl DEFINITION PUBLIC FINAL CREATE PUBLIC.
 * docs/rap-runtime.md, "Serving"). A CDS entity that is the entity of a
 * managed behavior definition is written through ZCL_OSD_RAP_RUNTIME --
 * field control, numbering, determinations, validations, the save
-* sequence -- and is still read through its view by ZCL_STG_SADL_DPC.
+* sequence -- and is still read through its view by the SADL data provider.
 *
 * One request is one RAP transaction: MODIFY (or the action), then the save
 * sequence. A FAILED row, from the interaction phase or from a validation

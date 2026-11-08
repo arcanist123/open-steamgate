@@ -31,7 +31,8 @@ CLASS zcl_stg_entry_provider DEFINITION PUBLIC CREATE PUBLIC.
         /iwbep/cx_mgw_tech_exception.
 
 * the ABAP field names (upper case) of the properties the request gave:
-* what a behavior's field control is checked against (zif_stg_sadl_behavior)
+* what a behavior's field control is checked against (the SADL behavior
+* interface of src/sadl/)
     METHODS fields
       RETURNING
         VALUE(rt_fields) TYPE string_table.
