@@ -214,6 +214,8 @@ export interface Layers extends Omit<SymbolLayers, 'classes' | 'consts' | 'struc
   readonly consts?: Map<string, Constant>;
   readonly structs?: StructDefinitions;
   readonly tables?: readonly DatabaseTable[];
+  // whole-program analyses shared by the emissions of one layered build (go-layers.mjs)
+  readonly analysis?: {ownership?: Ownership; moves?: MovePair};
 }
 export interface Signature {
   readonly params: readonly {readonly type?: IR.Type}[];

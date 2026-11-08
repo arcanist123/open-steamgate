@@ -242,6 +242,9 @@ export function writeLayers(program, plan, {mainDir, pkgDir, importPath, unitBui
   const allClassNames = new Set(program.classes.map((c) => c.name));
   const markerOf = (i) => `Gogen${names[i][0].toUpperCase()}${names[i].slice(1)}Layer`;
   const sources = [];
+  // the whole-program analyses (ownership, table moves) are the same for
+  // every tier: computed by the first emission, reused by the others
+  const analysis = {};
   for (let i = 0; i <= last; i++) {
     const dir = i === last ? mainDir : pkgDir(i);
     mkdirSync(dir, {recursive: true});
@@ -258,7 +261,7 @@ export function writeLayers(program, plan, {mainDir, pkgDir, importPath, unitBui
       events: new Map([...program.events].filter(([, ev]) => (layer.get(ev.decl) ?? interfaceLayer.get(ev.decl) ?? 0) === i)),
       externalClasses: new Set([...allClassNames].filter((n) => i === last ? layer.get(n) < last : !own.has(n))),
       ...(below.length ? {imports: below.map(importPath), importMarkers: below.map(markerOf)} : {}),
-      ...(i === last ? {} : {marker: markerOf(i)}),
+      ...(i === last ? {} : {marker: markerOf(i)}), analysis,
     }, unitBuild, symbols, i === last ? "main" : importPath(i)));
   }
   writeSymbols(mainDir, symbols);

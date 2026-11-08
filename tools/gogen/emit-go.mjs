@@ -339,7 +339,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   for (const cls of /** @type {readonly import("./emit-go-types.ts").Class[]} */ (program.classes ?? program)) for (const method of cls.methods ?? []) collectStable(method.body);
   exportedFields = Boolean(layers);
   HELPER_IMPORTS = new Set();
-  OWNERSHIP = (/** @type {import("./emit-go-types.ts").AnalyzeOwnership} */ (analyzeOwnership))(program);
+  const own = /** @type {import("./emit-go-types.ts").AnalyzeOwnership} */ (analyzeOwnership); OWNERSHIP = layers?.analysis ? (layers.analysis.ownership ??= own(program)) : own(program); // analysis: one per go-layers.mjs writeLayers
   const classes = layers?.classes ?? (Array.isArray(program) ? program : program.classes);
   /** @type {import("./emit-go-types.ts").StructDefinitions} */ const structs = layers?.structs ?? (Array.isArray(program) ? new Map() : program.structs);
   CLONES = new Map();
@@ -349,7 +349,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   DYNAMIC_DISPATCH = Array.isArray(program) ? [] : program.dynamicDispatch ?? []; CLASSES = new Map((Array.isArray(program) ? classes : program.classes).map((c) => [c.name, c]));
   POLY = new Set();
   for (const cls of CLASSES.values()) if (cls.super) POLY.add(cls.super);
-  movePair = (/** @type {import("./emit-go-types.ts").AnalyzeTableMoves} */ (analyzeTableMoves))(program, stable, goType);
+  const moves = /** @type {import("./emit-go-types.ts").AnalyzeTableMoves} */ (analyzeTableMoves); movePair = layers?.analysis ? (layers.analysis.moves ??= moves(program, stable, goType)) : moves(program, stable, goType);
   HELPER_IMPORTS.add("hostclass");
   EVENTS = Array.isArray(program) ? new Map() : (program.events ?? new Map());
   /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ const consts = /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ (layers?.consts ?? (Array.isArray(program) ? /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ (new Map()) : program.consts));

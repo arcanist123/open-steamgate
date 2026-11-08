@@ -713,6 +713,17 @@ service names), and SIGTERM/SIGINT/SIGHUP drain: newcomers are answered 503
 database is closed under the work process, exit 0 within 55 s. `node
 tools/osd-host-contract.mjs --base <url> --drain <pid>` is the check.
 
+The generated classes are three Go packages, not one (2026-11-08,
+`docs/osgo-fast-rebuild.md`): `go/generated/osgo/core` (the libraries and
+the tree's objects they use), `go/generated/osgo/app` (the tree) and package
+main beside `main.go` (the objects `git status` shows as edited, plus
+`OSGO_HOT`). `go-layers.mjs` is the split, shared with `unit.mjs`;
+`osgo-layers.mjs` says which object starts where. A save of a class
+recompiles package main and links while Go's cache keeps the rest;
+`--unlayered` (or `OSGO_LAYERS=0`) builds the single package as before. The
+generation is hashed from the unlayered emission either way.
+`node tools/gogen/osgo-cycle.mjs` measures the edit cycle phase by phase.
+
 With `INSTANCE=nn` (exactly two ASCII digits), OSGo defaults to HTTP `80nn`
 and HTTPS `443nn`; opt-in DIAG (`-diag` / `OSD_OSGO_DIAG=1`) and RFC
 (`-rfc` / `OSD_OSGO_RFC=1`, requires `-adt`) use `32nn` and `33nn`.

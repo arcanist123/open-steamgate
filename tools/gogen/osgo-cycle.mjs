@@ -54,7 +54,8 @@ function goTrace(path) {
   if (!existsSync(path)) return out;
   // a Chrome trace array, which go may leave unterminated
   const text = readFileSync(path, "utf8").trim().replace(/^\[/, "").replace(/\]$/, "").replace(/,\s*$/, "");
-  const events = JSON.parse(`[${text}]`);
+  let events;
+  try { events = JSON.parse(`[${text}]`); } catch (e) { console.error(`osgo-cycle: ${path} unreadable (${e.message}); no compile/link split`); return out; }
   const open = new Map();
   for (const e of events) {
     const name = String(e.name ?? "");
@@ -123,7 +124,7 @@ async function build(label) {
   const t = goTrace(trace);
   for (const [pkg, v] of Object.entries(t.compileMs)) row[`compile ${pkg}`] = v;
   row.link = t.linkMs;
-  row["packages compiled"] = t.packagesCompiled;
+  row["go build actions"] = t.packagesCompiled;
   if (env.GOCACHE) rmSync(env.GOCACHE, {recursive: true, force: true});
   const status = readFileSync(join(home, "tools/gogen/go/cmd/osgo/zz_status.go"), "utf8");
   row.generation = /const buildGeneration = "([^"]+)"/.exec(status)?.[1];

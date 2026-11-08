@@ -27,7 +27,8 @@ import {editedObjects, osgoTiers} from "./osgo-layers.mjs";
 // zz_boot.go (what boots, which SICF nodes are mounted, the launchpad tiles
 // and the pack folders, as read from the checkout now).
 import {execFileSync} from "node:child_process";
-import {existsSync, mkdirSync, rmSync, writeFileSync} from "node:fs";
+import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {join, relative} from "node:path";
 import {columnRegistry, compileProgram} from "./frontend.mjs";
 import {home} from "./home.mjs";
@@ -333,7 +334,24 @@ ${webapps.map((w) => `\t${JSON.stringify(w.path)}: ${JSON.stringify(relative(hom
 `);
 mkdirSync(join(here, ".out"), {recursive: true});
 phase("emit");
-try { execFileSync("gofmt", ["-w", dir, ...(layered ? [layersDir] : [])], {stdio: ["ignore", "pipe", "pipe"]}); } catch (e) { console.log(`gofmt: ${String(e.stderr).split("\n").slice(0, 10).join("\n")}`); process.exit(1); }
+// A generated package whose emission is the one formatted last time gets its
+// formatted copy back from .out/gofmt instead of another gofmt pass: on a
+// save that is core and app, 20 MB of Go.
+const fmtCache = join(here, ".out", "gofmt");
+const layerFiles = layered ? ["core", "app"].map((p) => ({pkg: p, file: join(layersDir, p, "zz_generated.go")})) : [];
+for (const f of layerFiles) {
+  f.key = createHash("sha256").update(readFileSync(f.file)).digest("hex");
+  f.reused = existsSync(join(fmtCache, `${f.pkg}.go`)) && existsSync(join(fmtCache, `${f.pkg}.sha256`)) && readFileSync(join(fmtCache, `${f.pkg}.sha256`), "utf8") === f.key;
+  if (f.reused) copyFileSync(join(fmtCache, `${f.pkg}.go`), f.file);
+}
+try { execFileSync("gofmt", ["-w", dir, ...layerFiles.filter((f) => !f.reused).map((f) => f.file)], {stdio: ["ignore", "pipe", "pipe"]}); } catch (e) { console.log(`gofmt: ${String(e.stderr).split("\n").slice(0, 10).join("\n")}`); process.exit(1); }
+mkdirSync(fmtCache, {recursive: true});
+for (const f of layerFiles.filter((x) => !x.reused)) {
+  // the key last, so an interrupted copy is never taken for a formatted one
+  rmSync(join(fmtCache, `${f.pkg}.sha256`), {force: true});
+  copyFileSync(f.file, join(fmtCache, `${f.pkg}.go`));
+  writeFileSync(join(fmtCache, `${f.pkg}.sha256`), f.key);
+}
 phase("gofmt");
 const t1 = performance.now();
 // OSGO_GO_TRACE=<file>: go build's own trace of its actions (Chrome trace
