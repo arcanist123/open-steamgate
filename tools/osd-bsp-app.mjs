@@ -90,16 +90,19 @@ ${items}   </PAGES>
 // segments, back to `/sap/`. Counted once, here, rather than written as a
 // run of `../` somebody has to trust.
 const UP_TO_SAP = "../".repeat(4);
-const bspServiceUri = (service) => `${UP_TO_SAP}opu/odata/sap/${service}/`;
+// A V4 data source (settings.odataVersion "4.0") is served at /sap/opu/odata4/
+// (docs/odata-v4.md), the same service under a second root.
+const bspServiceUri = (service, v4 = false) => `${UP_TO_SAP}opu/${v4 ? "odata4" : "odata"}/sap/${service}/`;
+const isV4 = (ds) => String(ds?.settings?.odataVersion ?? "") === "4.0";
 
 /** A pack names its services in its own manifest, one URI per OData source. */
 export function manifestRebased(text) {
   const m = JSON.parse(text);
   for (const ds of Object.values(m["sap.app"]?.dataSources ?? {})) {
     if (ds?.type !== "OData" || typeof ds.uri !== "string") continue;
-    const service = /(?:^|\/)opu\/odata\/sap\/([^/?#]+)(?=\/|[?#]|$)/i.exec(ds.uri)?.[1];
+    const service = /(?:^|\/)opu\/odata4?\/sap\/([^/?#]+)(?=\/|[?#]|$)/i.exec(ds.uri)?.[1];
     if (service === undefined || service === "." || service === "..") continue;
-    ds.uri = bspServiceUri(service);
+    ds.uri = bspServiceUri(service, isV4(ds));
   }
   return JSON.stringify(m, undefined, 2) + "\n";
 }
@@ -125,7 +128,7 @@ export function manifestFor(text, service) {
       // `/open-steamgate/main/sap/opu/odata/sap/<srv>/` on Pages -- the one
       // spelling that is right in both, and the same correction the
       // launchpad's component URLs needed an hour earlier.
-      ds.uri = bspServiceUri(service);
+      ds.uri = bspServiceUri(service, isV4(ds));
     }
   }
   return JSON.stringify(m, undefined, 2) + "\n";
