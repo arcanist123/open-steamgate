@@ -147,8 +147,8 @@ entities:
     deletable: false
     operations: [R, Q]
     properties:
-      ClassName: {type: String(30), field: CLASS_NAME, readonly: true, label: Class}
-      MethodName: {type: String(30), field: METHOD_NAME, readonly: true, label: Method}
+      ClassName: {type: String(30), field: CLASSNAME, readonly: true, label: Class}
+      MethodName: {type: String(30), field: METHODNAME, readonly: true, label: Method}
       Kind: {type: String(10), field: KIND, readonly: true, label: Kind}
       Portable: {type: String(1), field: PORTABLE, readonly: true, label: Portable subset}
       Engine: {type: String(20), field: ENGINE, readonly: true, label: Engine}

@@ -70,7 +70,7 @@ describe("tools/amdp-status: the facts a destination gives about itself", () => 
   it("turns the facts into two Environment rows", () => {
     const rows = amdpFactRows({db: "duckdb", driver: true, configured: false, session: "none", methods: [1, 2]});
     expect(rows.map((r) => [r.section, r.name, r.value])).to.deep.equal([
-      ["AMDP", "Portable engine (pAMDP)", "duckdb"], ["AMDP", "HANA destination (eAMDP)", "not configured"]]);
+      ["AMDP", "pAMDP portable engine", "duckdb"], ["AMDP", "eAMDP HANA destination", "not configured"]]);
     expect(rows[1].note).to.include("2 AMDP method(s)");
     expect(amdpFactRows({db: "sqlite", driver: true, configured: true, session: "closed", methods: []})[1].value).to.equal("session closed (stale)");
     expect(amdpFactRows({db: "sqlite", driver: false, configured: false, session: "none", methods: []})[1].value).to.equal("no HANA driver in this build");
@@ -114,7 +114,7 @@ describe("AmdpMethodSet: the engine of each AMDP method across the child boundar
 
         const state = await snapshot(process.cwd(), {runtime, env: {STG_DB: "hana"}});
         expect(state.amdp).to.deep.equal(body.amdp);
-        expect(state.database.find((f) => f.section === "AMDP" && f.name === "Portable engine (pAMDP)").value)
+        expect(state.database.find((f) => f.section === "AMDP" && f.name === "pAMDP portable engine").value)
           .to.equal(engine === "duckdb" ? "duckdb" : "off");
         const posted = await fetch(`${runtime.url}/sap/bc/osd/status/`, {
           method: "POST", headers: {"content-type": "application/json"}, body: JSON.stringify(state),

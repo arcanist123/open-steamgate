@@ -95,10 +95,10 @@ export function amdpFactRows(facts) {
       : facts.session === "connected" ? "session connected"
         : facts.session === "closed" ? "session closed (stale)" : "configured, no session yet";
   return [
-    {section: "AMDP", name: "Portable engine (pAMDP)", value: portable ? "duckdb" : "off",
+    {section: "AMDP", name: "pAMDP portable engine", value: portable ? "duckdb" : "off",
       note: portable ? "SQLScript bodies in the portable subset run on the system DuckDB connection"
         : "the portable IR runs only when the system database is DuckDB (STG_DB=duckdb)"},
-    {section: "AMDP", name: "HANA destination (eAMDP)", value: destination,
+    {section: "AMDP", name: "eAMDP HANA destination", value: destination,
       note: `${facts.methods.length} AMDP method(s) in the tree; see the AMDP facet for each`},
   ];
 }
