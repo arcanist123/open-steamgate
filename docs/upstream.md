@@ -545,3 +545,38 @@ in inbox 007 still fail 5/7; those operators are outside this fix. Validation
 uses core 2.120.64 because 2.120.65 changes a CREATE DATA operand node.
 The OSG proof used a disposable dependency copy; the original shared local
 2.13.93 dependencies were preserved.
+
+## EML lowering for the transpiler (2026-11-08, RAP R2a)
+
+Not an anomaly: a gap. `@abaplint/transpiler` parses `MODIFY ENTITIES`,
+`READ ENTITIES`, `COMMIT ENTITIES` and `ROLLBACK ENTITIES` (abaplint, v754
+and OpenABAP) and emits `throw new Error("ModifyEntities, not supported,
+transpiler")` for the first two and nothing for the last two (`Statement
+CommitEntities not supported`). The patch on branch `rap-eml` of the job's
+own clone of `abaplint/transpiler` (`transpiler-rap-eml.patch` beside it;
+nothing pushed) lowers the four statements onto a kernel class,
+`KERNEL_RAP_EML`, in the convention `CALL TRANSFORMATION`, `AUTHORITY-CHECK`
+and `SCAN` already use: a guard, then one call per operation with the names
+as strings and the tables and targets as they are
+([rap-eml.md](rap-eml.md), "The calling convention"). The kernel class is
+this repository's `src/rap/kernel_rap_eml`; the transpiler ships none, as
+it ships none of the others.
+
+Files: `packages/transpiler/src/statements/_eml.ts` (walker over the flat
+statement, shared), `modify_entities.ts`, `read_entities.ts`, new
+`commit_entities.ts` and `rollback_entities.ts`, `index.ts`. Tests:
+`packages/transpiler/test/single_statements.ts` (the emitted code for
+fourteen forms, the two existing EML expectations replaced), and
+`test/statements/eml.ts` at the root (a fake kernel class records what the
+running statements hand it: names, tables, targets, sy-subrc). Not lowered,
+said at run time with the addition's name: `OPERATIONS`, `BY` (deep EML),
+`RELATING TO`, `AUGMENTING`, `LINK`, `READ ... EXECUTE`, `IN SIMULATION
+MODE`.
+
+Sending: a branch inside `abaplint/transpiler` (the regression workflow
+rule), after the critic reads the draft against the diff; the draft PR text
+is `transpiler-rap-eml-PR.md` in the job folder. Until it is in a release
+and the pin moves, `src/rap_demo/zcl_rap_note_eml` stays in the
+`exclude_filter` of `abap_transpile.json` (the unpatched transpiler stops
+the whole build on `COMMIT ENTITIES`); the facade and the kernel entry
+are proven without EML syntax by `test/unit/zcl_osd_rap_eml_test`.
