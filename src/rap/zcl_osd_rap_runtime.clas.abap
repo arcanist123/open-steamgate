@@ -120,11 +120,6 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
       RETURNING
         VALUE(rv_count) TYPE i.
 
-* the adapter of the behavior definition: its model and derived tables
-    METHODS bo
-      RETURNING
-        VALUE(ri_bo) TYPE REF TO zif_osd_rap_bo.
-
   PROTECTED SECTION.
   PRIVATE SECTION.
     TYPES:
@@ -1386,10 +1381,6 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
 
   METHOD trace.
     rt_trace = mt_trace.
-  ENDMETHOD.
-
-  METHOD bo.
-    ri_bo = mo_bo.
   ENDMETHOD.
 
   METHOD pending.

@@ -4,7 +4,7 @@ R2 of [the RAP plan](oracle-rap.md): a managed behavior definition runs. Its
 behavior pool's determinations, validations and action are called, its
 instances live in a transactional buffer until the save sequence writes them
 into the persistent table, and the LUW ends in `COMMIT WORK` or
-`ROLLBACK WORK`. It is served over OData V2 (read-write) and V4 (read) from a
+`ROLLBACK WORK`. It is served over OData V2 and V4 (reads and writes; actions over V2) from a
 service definition: see [Serving (R2c)](#serving-r2c).
 
 ```
@@ -153,6 +153,7 @@ PATCH  /sap/opu/odata/sap/ZUI_RAP_NOTE/Note('<32 hex>')     MERGE and PUT too ->
 DELETE /sap/opu/odata/sap/ZUI_RAP_NOTE/Note('<32 hex>')     -> 204
 POST   /sap/opu/odata/sap/ZUI_RAP_NOTE/Approve?NoteId='<32 hex>'   the action -> 200, the note
 GET    /sap/opu/odata4/sap/ZUI_RAP_NOTE/Note                V4 reads of the same instances
+POST   /sap/opu/odata4/sap/ZUI_RAP_NOTE/Note                V4 create -> 201, same behavior (PATCH, DELETE too)
 npx mocha test/rap-serve.mjs                 # after npm run transpile
 ```
 
@@ -251,19 +252,20 @@ request context, with the function's name and parameters
 ### V4
 
 V4 reads (`$metadata`, the set, by key, `$filter`, `$count`) work as for any
-service of the registry ([odata-v4.md](odata-v4.md)). V4 writes and bound
-actions (`POST .../Note('...')/ZUI_RAP_NOTE.Approve`) are not served: the V4
-facade answers writes with 405 and actions with 501 until the V4 write slice
-(PR #858, not merged when this was written) lands; the RAP path itself is
-the provider's and needs no change for it.
+service of the registry ([odata-v4.md](odata-v4.md)), and so do V4 writes
+since the V4 write slice (#858): POST, PATCH and DELETE reach the same
+provider and so the same behavior (numbering, determination, validation),
+which needed no change for it (`test/rap-serve.mjs`, "reads and creates the
+same instances over V4"). Bound actions (`POST .../Note('...')/ZUI_RAP_NOTE.Approve`)
+are not a resource path the V4 facade knows and answer 404; over V2 they work.
 
 ### Not in R2c
 
 Service bindings, `Edm.Guid` for UUID keys, ETags and `If-Match`, V2
 `$batch` changesets as one RAP transaction (each operation is its own),
 deep insert through compositions, action parameters, static and factory
-actions, messages as `sap-message` headers (only the error body), V4 writes
-and V4 bound actions, a Fiori Elements app over the service.
+actions, messages as `sap-message` headers (only the error body), V4 bound
+actions, a Fiori Elements app over the service.
 
 ## Not in R2
 

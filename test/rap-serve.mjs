@@ -189,7 +189,7 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).status, 404);
   });
 
-  it("reads the same instances over V4", async () => {
+  it("reads and creates the same instances over V4", async () => {
     const id = (await create("seen over V4")).body.d.NoteId;
     const meta = await fetch(`${v4}/$metadata`);
     assert.equal(meta.status, 200);
@@ -199,8 +199,22 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     assert.deepEqual(list.body.value, [{NoteId: id, NoteText: "seen over V4", Status: "N"}]);
     const one = await call(`${v4}/Note('${id}')`);
     assert.equal(one.body.Status, "N");
-    // writes over V4 wait for the V4 write slice; the facade refuses them
+    // a V4 write reaches the same behavior: numbering and the determination
+    // fill what the body left out
     const post = await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "v4 write"})});
-    assert.equal(post.status, 405);
+    assert.equal(post.status, 201, JSON.stringify(post.body));
+    assert.equal(post.body.NoteText, "v4 write");
+    assert.equal(post.body.Status, "N");
+    assert.ok(post.body.NoteId);
+    const key = `${v4}/Note('${post.body.NoteId}')`;
+    const patch = await call(key, {method: "PATCH", headers: write, body: JSON.stringify({NoteText: "v4 edit"})});
+    assert.ok([200, 204].includes(patch.status), `${patch.status} ${JSON.stringify(patch.body)}`);
+    assert.equal((await call(key)).body.NoteText, "v4 edit");
+    const action = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    // bound actions are not a V4 resource path the facade knows yet
+    assert.equal(action.status, 404);
+    const del = await call(key, {method: "DELETE", headers: write});
+    assert.equal(del.status, 204);
+    assert.equal((await call(key)).status, 404);
   });
 });
