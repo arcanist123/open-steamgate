@@ -1,15 +1,16 @@
 import {expect} from "chai";
 import fs from "node:fs";
-import {syncBuiltinESMExports} from "node:module";
+import {createRequire, syncBuiltinESMExports} from "node:module";
 import {pathToFileURL} from "node:url";
 import {generationIdentity, settleVerification, startVerification, VERIFY_HISTORY_LIMIT} from "../tools/osd-warm-verification.mjs";
 import {verifyNext} from "../tools/osd-store-verify.mjs";
 import {warmVerdict} from "../tools/osd-hot.mjs";
-import {spawn} from "node:child_process";
+import {spawn, spawnSync} from "node:child_process";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
-import {build, gc, layout, lock} from "../tools/osd-build.mjs";
+import {build, gc, layout, lock, LOCK_WRITE_GRACE_MS} from "../tools/osd-build.mjs";
+import {SERVING_QUIESCE_LIMIT_MS, EXIT_HOLD_LIMIT_MS} from "../tools/osd-runtime.mjs";
 import {WarmCompiler, warmRule} from "../tools/osd-warm.mjs";
 import {WarmCompilerProcess} from "../tools/osd-warm-process.mjs";
 import {closeWarm} from "../tools/osd-store-warm.mjs";
@@ -504,20 +505,24 @@ if (process.argv[2] === 'verify') {
 // test/vscode-warm-ready.mjs. The front now kills it and leaves after it exits.
 describe("warm verifier on a signal to the front", function () {
   this.timeout(20000);
-  it("kills the running verifier and exits only after it is gone", async () => {
+  it("kills the running verifier, and the supervisor exits only after it is gone", async () => {
+    // The real handlers, in the order a front installs them: the runtime
+    // supervisor's (tools/osd-runtime.mjs, owns process.exit) first, the warm
+    // compiler's on its first child. Without the supervisor's wait for the
+    // exit holds, the process leaves before the verifier's exit is seen.
     const script = `
       import {spawn} from "node:child_process";
+      import {reapOnExit} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-runtime.mjs")).href)};
       import {WarmCompiler} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-warm.mjs")).href)};
       import {WarmCompilerProcess} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-warm-process.mjs")).href)};
-      import {exitHolds} from ${JSON.stringify(pathToFileURL(resolve("tools/osd-exit-holds.mjs")).href)};
       // a verifier that would outlive its front: it ignores SIGTERM
       WarmCompiler.prototype.verify = function () {
         const child = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], {stdio: "ignore"});
+        child.once("exit", (code, signal) => console.log(JSON.stringify({verifierExit: signal ?? code})));
         this.verifying = child;
-        return new Promise(resolve => child.once("exit", () => resolve({verdict: child.osdCancelled ? "cancelled" : "failed", why: child.osdCancelled})));
+        return new Promise(resolve => child.once("exit", () => resolve({verdict: "cancelled", why: child.osdCancelled})));
       };
-      // the supervisor's handler, as tools/osd-runtime.mjs has it
-      process.on("SIGTERM", async () => { await exitHolds(); process.exit(0); });
+      reapOnExit();
       const compiler = new WarmCompilerProcess({root: process.cwd()});
       compiler.verify("0123456789abcdef");
       console.log(JSON.stringify({verifier: compiler.verifying.pid}));
@@ -533,6 +538,53 @@ describe("warm verifier on a signal to the front", function () {
     try { process.kill(pid, 0); } catch (error) { alive = error.code !== "ESRCH"; }
     if (alive) process.kill(pid, "SIGKILL");
     expect(code).to.equal(0);
+    expect(lines.slice(1), "the supervisor exited before the verifier did").to.deep.equal([{verifierExit: "SIGKILL"}]);
     expect(alive, "the verifier outlived the front").to.equal(false);
+  });
+});
+
+describe("what a killed build or verifier leaves in build/", function () {
+  let root;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "osd-verifier-"));
+    mkdirSync(join(root, "build"), {recursive: true});
+  });
+  afterEach(() => rmSync(root, {recursive: true, force: true}));
+
+  it("takes over an empty build lock once it is past the write grace, not before", () => {
+    const paths = layout(root);
+    // killed between openSync(lock, "wx") and writing its pid
+    writeFileSync(paths.lock, "");
+    let busy;
+    try { lock(paths)(); } catch (error) { busy = error; }
+    expect(busy?.code, "a lock written microseconds ago may still be its owner's").to.equal("BUSY");
+    const old = (Date.now() - LOCK_WRITE_GRACE_MS - 1000) / 1000;
+    fs.utimesSync(paths.lock, old, old);
+    const release = lock(paths);
+    expect(readFileSync(paths.lock, "utf8")).to.equal(String(process.pid));
+    release();
+    expect(existsSync(paths.lock)).to.equal(false);
+  });
+
+  it("sweeps a verify-pins renewal left before its rename, and keeps a live one's", () => {
+    const dir = join(root, "build", "verify-pins");
+    mkdirSync(dir);
+    const dead = spawnSync(process.execPath, ["-e", "process.stdout.write(String(process.pid))"]);
+    const orphan = join(dir, `${dead.stdout}.0000.json.tmp`);
+    const live = join(dir, `${process.pid}.1111.json.tmp`);
+    const stale = join(dir, `${process.pid}.2222.json.tmp`);
+    for (const file of [orphan, live, stale]) writeFileSync(file, "{}");
+    const old = (Date.now() - 400000) / 1000;
+    fs.utimesSync(stale, old, old);
+    expect(verificationPins(root)).to.deep.equal([]);
+    expect([orphan, live, stale].map(existsSync)).to.deep.equal([false, true, false]);
+  });
+
+  it("stops within the launcher's grace: quiesce and exit holds side by side", () => {
+    const {STOP_GRACE_MS} = createRequire(import.meta.url)("../editors/vscode/launcher.js");
+    expect(Math.max(SERVING_QUIESCE_LIMIT_MS, EXIT_HOLD_LIMIT_MS)).to.be.lessThan(STOP_GRACE_MS);
+    const handler = readFileSync(resolve("tools/osd-runtime.mjs"), "utf8");
+    expect(handler, "the holds are awaited together with the quiesce, not after it")
+      .to.include("await Promise.all([quiesced, exitHolds(EXIT_HOLD_LIMIT_MS)]);");
   });
 });

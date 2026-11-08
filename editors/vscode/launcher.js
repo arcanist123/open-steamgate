@@ -1779,6 +1779,7 @@ async function unpackTar(chunks, dest) {
 
 
 module.exports = {
+  STOP_GRACE_MS,
   WARM_MEMORY_FLOOR_BYTES,
   writeTar,
   unpackTar,

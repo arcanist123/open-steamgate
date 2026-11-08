@@ -49,7 +49,15 @@ export const liveChildren = () => [...CHILDREN];
 export const servingStateSnapshot = () => liveChildren().map((child) => ({pid: child.pid, exitCode: child.exitCode, signalCode: child.signalCode}));
 let reaperInstalled = false;
 
-function reapOnExit() {
+// The stop budget, which editors/vscode/launcher.js STOP_GRACE_MS must exceed:
+// the serving quiesce and the exit holds run side by side, so the longest
+// of the two, not their sum.
+export const SERVING_QUIESCE_LIMIT_MS = 55000;
+export const EXIT_HOLD_LIMIT_MS = 10000;
+
+/** installs the supervisor's exit and signal handlers once (exported for
+ *  test/warm-verifier.mjs, which signals a process that has them) */
+export function reapOnExit() {
   if (reaperInstalled === true) {
     return;
   }
@@ -73,21 +81,25 @@ function reapOnExit() {
       stopping = true;
       // Let each worker finish its current request and close its database.
       // In particular DuckDB must checkpoint before the container exits.
-      await Promise.all([...CHILDREN].map(child => new Promise(resolve => {
+      const quiesced = Promise.all([...CHILDREN].map(child => new Promise(resolve => {
         if (child.exitCode !== null || child.signalCode !== null) return resolve();
         // editors/vscode/launcher.js STOP_GRACE_MS waits longer than this
         // a child still in the database step finishes it first (tools/osd-boot-guard.mjs):
         // the boot limit, not the serving quiesce's 55 s, before it is killed
-        const limit = child.osdDatabaseStep === true ? (Number(process.env.OSD_BOOT_TIMEOUT_MS) || 15 * 60 * 1000) : 55000;
+        const limit = child.osdDatabaseStep === true ? (Number(process.env.OSD_BOOT_TIMEOUT_MS) || 15 * 60 * 1000) : SERVING_QUIESCE_LIMIT_MS;
         const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, limit);
         child.once("exit", () => { clearTimeout(timer); resolve(); });
         sendIPC(child, {type: "quiesce", grace: 45000}, error => {
           if (error) child.kill("SIGTERM");
         });
       })));
-      // children another module started and killed on this signal (the
-      // warm compiler's worker and verifier) are gone before the process is
-      await exitHolds();
+      // Children another module started and killed on this signal (the warm
+      // compiler's worker and verifier) are gone before the process is. This
+      // handler runs before theirs (it was installed first), so their holds
+      // exist only once this emit is over: one turn first, then both waits
+      // together, which keeps the stop within max(55 s, 10 s).
+      await null;
+      await Promise.all([quiesced, exitHolds(EXIT_HOLD_LIMIT_MS)]);
       process.exit(0);
     });
   }
