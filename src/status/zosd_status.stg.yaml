@@ -131,6 +131,30 @@ entities:
       Value: {type: String(240), field: VALUE, readonly: true, label: Value}
       Note: {type: String(240), field: NOTE, readonly: true, label: Note}
 
+  # Every AMDP method of the tree (BY DATABASE PROCEDURE / FUNCTION FOR HDB)
+  # with the engine its body runs on at the moment of the snapshot: read off
+  # the AMDP destination's real session and the system connection
+  # (tools/amdp-status.mjs), classified in ZCL_OSD_STATUS=>ENGINE. The page
+  # used to say "HDB" off the system connection while the eAMDP session was
+  # dead (docs/backlog/data-analytics.md); this row says what a call would do.
+  AmdpMethod:
+    set: AmdpMethodSet
+    description: "the AMDP methods of the tree and where each body runs now"
+    source: {cds: ZC_OSD_AMDP, struct: "ZCL_STG_CDS_ZVOSDAMDP=>TY_ROW"}
+    keys: [ClassName, MethodName]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      ClassName: {type: String(30), field: CLASS_NAME, readonly: true, label: Class}
+      MethodName: {type: String(30), field: METHOD_NAME, readonly: true, label: Method}
+      Kind: {type: String(10), field: KIND, readonly: true, label: Kind}
+      Portable: {type: String(1), field: PORTABLE, readonly: true, label: Portable subset}
+      Engine: {type: String(20), field: ENGINE, readonly: true, label: Engine}
+      Reason: {type: String(240), field: REASON, readonly: true, label: Reason}
+      Refusal: {type: String(240), field: REFUSAL, readonly: true, label: Portable refusal}
+
 associations:
   SystemToProcesses:
     from: System
@@ -157,6 +181,11 @@ associations:
     to: Database
     cardinality: 1:N
     navigation: {System: to_Database}
+  SystemToAmdp:
+    from: System
+    to: AmdpMethod
+    cardinality: 1:N
+    navigation: {System: to_Amdp}
 
 annotations:
   System:
@@ -181,6 +210,7 @@ annotations:
       - {id: Services, label: Services, lineItem: to_Services}
       - {id: Packs, label: Packs, lineItem: to_Packs}
       - {id: Database, label: Environment, lineItem: to_Database}
+      - {id: Amdp, label: AMDP methods, lineItem: to_Amdp}
     fieldGroups:
       General: [Sid, HostKind, GenLive, GenServing, Synced, Workers, StartedAt, SnapAt, RootHint, Pid]
       Runtime: [HostKind, Workers, StartedAt, Pid]
@@ -296,3 +326,24 @@ annotations:
   Database/Name: {label: Fact}
   Database/Value: {label: Value}
   Database/Note: {label: Note}
+
+  AmdpMethod:
+    header: {typeName: AMDP method, typeNamePlural: AMDP methods, title: MethodName, description: Engine}
+    selectionFields: [ClassName, Engine]
+    lineItem:
+      - {value: ClassName, label: Class}
+      - {value: MethodName, label: Method}
+      - {value: Kind, label: Kind}
+      - {value: Engine, label: Engine}
+      - {value: Reason, label: Reason}
+    facets:
+      - {id: AmdpGeneral, label: General, fieldGroup: General}
+    fieldGroups:
+      General: [ClassName, MethodName, Kind, Portable, Engine, Reason, Refusal]
+  AmdpMethod/ClassName: {label: Class}
+  AmdpMethod/MethodName: {label: Method}
+  AmdpMethod/Kind: {label: Kind}
+  AmdpMethod/Portable: {label: Portable subset}
+  AmdpMethod/Engine: {label: Engine}
+  AmdpMethod/Reason: {label: Reason}
+  AmdpMethod/Refusal: {label: Portable refusal}
