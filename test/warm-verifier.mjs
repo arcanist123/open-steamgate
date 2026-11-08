@@ -10,7 +10,8 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, st
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {build, gc, layout, lock, LOCK_WRITE_GRACE_MS} from "../tools/osd-build.mjs";
-import {SERVING_QUIESCE_LIMIT_MS, EXIT_HOLD_LIMIT_MS} from "../tools/osd-runtime.mjs";
+import {SERVING_QUIESCE_LIMIT_MS, EXIT_HOLD_LIMIT_MS, stopBudgetMs, stopChildren} from "../tools/osd-runtime.mjs";
+import {holdExit} from "../tools/osd-exit-holds.mjs";
 import {WarmCompiler, warmRule} from "../tools/osd-warm.mjs";
 import {WarmCompilerProcess} from "../tools/osd-warm-process.mjs";
 import {closeWarm} from "../tools/osd-store-warm.mjs";
@@ -580,11 +581,31 @@ describe("what a killed build or verifier leaves in build/", function () {
     expect([orphan, live, stale].map(existsSync)).to.deep.equal([false, true, false]);
   });
 
-  it("stops within the launcher's grace: quiesce and exit holds side by side", () => {
+  it("states the real stop budget: serving children within the launcher's grace, a database step not", () => {
     const {STOP_GRACE_MS} = createRequire(import.meta.url)("../editors/vscode/launcher.js");
-    expect(Math.max(SERVING_QUIESCE_LIMIT_MS, EXIT_HOLD_LIMIT_MS)).to.be.lessThan(STOP_GRACE_MS);
-    const handler = readFileSync(resolve("tools/osd-runtime.mjs"), "utf8");
-    expect(handler, "the holds are awaited together with the quiesce, not after it")
-      .to.include("await Promise.all([quiesced, exitHolds(EXIT_HOLD_LIMIT_MS)]);");
+    const serving = {}, seeding = {osdDatabaseStep: true};
+    expect(stopBudgetMs([serving], {})).to.equal(SERVING_QUIESCE_LIMIT_MS).and.be.lessThan(STOP_GRACE_MS);
+    expect(stopBudgetMs([], {})).to.equal(EXIT_HOLD_LIMIT_MS);
+    // the deliberate exception: a seed is not killed half-way for the launcher
+    expect(stopBudgetMs([serving, seeding], {})).to.equal(15 * 60 * 1000).and.be.greaterThan(STOP_GRACE_MS);
+    expect(stopBudgetMs([seeding], {OSD_BOOT_TIMEOUT_MS: "70000"})).to.equal(70000).and.be.greaterThan(STOP_GRACE_MS);
+    expect(stopBudgetMs([seeding], {OSD_BOOT_TIMEOUT_MS: "20000"})).to.equal(20000);
+  });
+
+  it("waits for the serving quiesce and the exit holds side by side, not one after the other", async function () {
+    this.timeout(15000);
+    // a real serving child that takes 1 s to quiesce, and an exit hold that
+    // outlasts its 1 s bound: the bound runs from the signal, beside the
+    // quiesce (about 1 s), not after it (about 2 s)
+    const child = spawn(process.execPath, ["-e", "process.on('message', m => { if (m.type === 'quiesce') setTimeout(() => process.exit(0), 1000); })"],
+      {stdio: ["ignore", "ignore", "inherit", "ipc"]});
+    await new Promise(resolve => child.once("spawn", resolve));
+    const started = performance.now();
+    const stopping = stopChildren([child], {env: {}, holdMs: 1000});
+    holdExit(sleep(4000));
+    await bounded(stopping, 10000);
+    const took = performance.now() - started;
+    expect(child.exitCode, "the child quiesced, it was not killed").to.equal(0);
+    expect(took).to.be.within(950, 1700);
   });
 });
