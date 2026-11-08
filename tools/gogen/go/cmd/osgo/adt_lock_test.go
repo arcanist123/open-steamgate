@@ -63,7 +63,7 @@ func TestOsgoAPCStepsReleaseHolderSessions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			step := &abap.Session{Statics: abap.ProcessStatics}
+			step := &abap.Session{}
 			err := runAPCStep(step, test.name, func() {
 				if _, err := hostclass.KERNEL_LOCK.Enqueue(step, lockRequest("APC-"+test.name), nil); err != nil {
 					t.Error(err)

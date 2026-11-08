@@ -7,10 +7,6 @@ type Statics struct {
 	slots []any
 }
 
-// ProcessStatics preserves class state across host requests. Hosts sharing it
-// serialize ABAP entry (concurrent hosts take WorkProcess). Unit classes use private stores.
-var ProcessStatics = &Statics{}
-
 // Factories are registered only during package initialization, before sessions run.
 var staticsFactories []func() any
 
