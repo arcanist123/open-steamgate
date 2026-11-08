@@ -7,6 +7,8 @@ import {writeGo} from "./symbols.ts";
 //                                           refused when gen/ is not the tree's generation, --stale-gen overrides)
 //   node tools/gogen/osgo.mjs --echo     -> .out/osgo-echo  (the shim, open-abap-core and a test handler at /echo)
 //   .out/osgo [-port 3095] [-db file.sqlite] [-root <checkout>]
+//   --unit-owners A,B|none (or OSGO_UNIT_OWNERS): the classes whose ABAP Unit
+//   tests the ADT test runner can run (osgo-adt-unit.mjs; default the fixture)
 //
 // The generated half of the program is written beside go/cmd/osgo/main.go:
 // zz_generated.go (the classes), zz_db.json (tables and seed rows) and
@@ -19,6 +21,7 @@ import {columnRegistry, compileProgram} from "./frontend.mjs";
 import {home} from "./home.mjs";
 import {adtSourceHash} from "../osd-adt-gogen-gate.mjs";
 import {lintFolders, lintBuildSpec, lintEngineGo, lintBuildOptions, goLintEngineGo, withGoLintModule} from "./lint-engine.mjs";
+import {unitOwners, unitClasses, unitGo} from "./osgo-adt-unit.mjs";
 
 const here = import.meta.dirname;
 const echo = process.argv.includes("--echo");
@@ -35,6 +38,8 @@ if (!/^\d+$/.test(sourceEpoch)) throw new Error(`invalid SOURCE_DATE_EPOCH: ${so
 const builtAt = new Date(Number(sourceEpoch) * 1000).toISOString().slice(0, 16).replace("T", " ");
 
 let program;
+let unit = {classes: [], missing: []};
+const owners = echo ? [] : unitOwners();
 let statements = [];
 let services = [];
 const notServed = [];
@@ -61,9 +66,11 @@ if (echo) {
     process.exit(2);
   }
   if (stale) console.warn(`osgo: WARNING ${stale}`);
-  const built = compileOsg({extraFolders});
+  const built = compileOsg({extraFolders, includeTests: new Set(owners)});
   program = built.program;
   console.log(built.summary);
+  unit = unitClasses(program, owners);
+  console.log(`ABAP Unit: ${unit.classes.length} test classes of ${owners.length} owners (${owners.join(", ") || "none"})${unit.missing.length ? `; left out: ${unit.missing.join("; ")}` : ""}`);
   const db = await osgDatabase(program);
   statements = db.statements;
   console.log(db.summary);
@@ -121,6 +128,7 @@ if (echo) {
 const go = writeGo(join(dir, "zz_generated.go"), program);
 writeFileSync(join(dir, "zz_db.json"), JSON.stringify(statements));
 writeFileSync(join(dir, "zz_store.json"), store);
+writeFileSync(join(dir, "zz_unit.go"), unitGo(unit.classes));
 // the table registry as JSON, the column registry a dynamic WHERE parser reads
 writeFileSync(join(dir, "zz_tables.json"), JSON.stringify(columnRegistry(program), null, 1));
 const has = (fn) => go.includes(`\nfunc ${fn}(`);

@@ -5,7 +5,12 @@ system. This first slice covers discovery, HEAD, identity, package browsing,
 search, class documents, default/active/inactive source, includes, versions,
 objectstructure and five lock/session contracts. W1–W5 create disposable
 classes, write inactive source, check it and delete with a lock handle.
-Activation and ABAP Unit are later slices. X2 ABAP Unit and activation are later slices.
+`cases/activation.mjs` holds X1-X4: activation of the unchanged `$ZOSD_TEST`
+fixture class (the plain success document), activation of a disposable class
+saved with a syntax error (cancelled, a located E message, still inactive),
+and ABAP Unit on the fixture's passing method and on its deliberate failure.
+They pass on JS and on osgo (`go/adtactivate`, `go/adtunit`,
+docs/osgo-adt-activation.md).
 
 `cases/ddic.mjs` holds the read-only families over the `$ZOSD_TEST` fixtures
 and their seed rows: D1-D7 (data element, table, table source, a structure
