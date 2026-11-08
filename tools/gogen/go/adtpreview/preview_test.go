@@ -15,8 +15,8 @@ func TestSingleSelect(t *testing.T) {
 		"select a -- ; drop\n from t":         "select a  \n from t",
 		"SELECT ';DELETE' FROM t /* ; x */":   "SELECT ';DELETE' FROM t",
 		"SELECT \"a;b\" FROM t":               "SELECT \"a;b\" FROM t",
-		"SELECT $q$;x$q$ FROM t":              "SELECT $q$;x$q$ FROM t",
-		"SELECT E'it\\'s;' FROM t":            "SELECT E'it\\'s;' FROM t",
+		"SELECT 'it''s;' FROM t":              "SELECT 'it''s;' FROM t",
+		"SELECT [a;] FROM t":                  "SELECT [a;] FROM t",
 		"  SELECT 'a''b' FROM t ;  -- tail\n": "SELECT 'a''b' FROM t",
 	} {
 		got, err := SingleSelect(in)
@@ -29,7 +29,6 @@ func TestSingleSelect(t *testing.T) {
 		"SELECT 1; DELETE FROM t": "DELETE",
 		"SELECT 1; ;":             ";",
 		"SELECT /* open":          "UNTERMINATED COMMENT",
-		"SELECT $a$ x":            "UNTERMINATED STRING",
 		"":                        "",
 	} {
 		_, err := SingleSelect(in)
@@ -154,5 +153,95 @@ func TestBehind(t *testing.T) {
 	chain = Provider{DB: func() Querier { return tx }}.Behind(fixed{})
 	if v, _ := chain.System("SQLCHECK", "", `{"statement":"SELECT 1"}`); v.(map[string]any)["ok"] != true {
 		t.Errorf("an unanswered kind is previewed: %v", v)
+	}
+}
+
+// What a PostgreSQL-minded lexer lets through on SQLite, where the driver
+// runs every statement of a text.
+var smuggled = []string{
+	"SELECT 1 AS a$q$; DELETE FROM item; SELECT 2 AS b$q$",
+	"SELECT CAST(1 AS E'\\'); DELETE FROM item; --'",
+	"SELECT 1 AS a$q$; PRAGMA user_version=7; SELECT 2 AS b$q$",
+	"SELECT 1 AS a$q$; COMMIT; SELECT 2 AS b$q$",
+	"SELECT 1 /* /* */; DELETE FROM item; /* */ */",
+	"SELECT [a]]; DELETE FROM item; --]",
+}
+
+func untouched(t *testing.T, tx *sql.Tx) {
+	t.Helper()
+	var n, version int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM item").Scan(&n); err != nil || n != 3 {
+		t.Errorf("rows after the preview: %d, %v", n, err)
+	}
+	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 0 {
+		t.Errorf("user_version after the preview: %d, %v", version, err)
+	}
+	var only int
+	if err := tx.QueryRow("PRAGMA query_only").Scan(&only); err != nil || only != 0 {
+		t.Errorf("query_only left on: %d, %v", only, err)
+	}
+	// the step still owns its transaction and commits its own row
+	if _, err := tx.Exec("INSERT INTO item VALUES ('009', 'own', 1, NULL)"); err != nil {
+		t.Errorf("step write after the preview: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Errorf("step commit after the preview: %v", err)
+	}
+}
+
+func TestSmuggledStatementsAreRefused(t *testing.T) {
+	for _, in := range smuggled {
+		if _, err := SingleSelect(in); err == nil {
+			t.Errorf("lexer admitted %q", in)
+		}
+		if err := oneStatement(SQLite(in)); err == nil {
+			t.Errorf("statement proof admitted %q", in)
+		}
+		for _, kind := range []string{"SQL", "SQLCHECK"} {
+			tx := fixture(t)
+			out := system(t, tx, kind, map[string]any{"statement": in})
+			if out["code"] != "NOT_ALLOWED" {
+				t.Errorf("%s %q answered %v", kind, in, out)
+			}
+			untouched(t, tx)
+		}
+	}
+	// a ';' inside quotes or a comment is not a second statement
+	for _, in := range []string{"SELECT ';' FROM item", "SELECT 1 /* ; */", "SELECT \"a;\" FROM item", "SELECT [a;] FROM item"} {
+		if err := oneStatement(in); err != nil {
+			t.Errorf("statement proof refused %q: %v", in, err)
+		}
+	}
+}
+
+func TestQueryOnlyFenceHoldsWithoutTheGuards(t *testing.T) {
+	saved := guard
+	defer func() { guard = saved }()
+	guard.lex = func(s string) (string, error) { return s, nil }
+	guard.one = func(string) error { return nil }
+	for _, in := range []string{
+		"SELECT 1; DELETE FROM item; SELECT 2",
+		"SELECT 1; PRAGMA user_version = 7; SELECT 2",
+		"SELECT 1; INSERT INTO item VALUES ('004', 'x', 1, NULL); SELECT 2",
+	} {
+		tx := fixture(t)
+		out := system(t, tx, "SQL", map[string]any{"statement": in})
+		if out["code"] != "SQL_ERROR" {
+			t.Errorf("%q answered %v", in, out)
+		}
+		untouched(t, tx)
+	}
+}
+
+func TestLimitParsing(t *testing.T) {
+	tx := fixture(t)
+	for limit, want := range map[string]float64{"": 0, "1": 1, " 2 ": 2, "-5": 3, "abc": 3} {
+		out := system(t, tx, "SQL", map[string]any{"statement": "SELECT id FROM item", "limit": limit})
+		if out["count"] != want {
+			t.Errorf("limit %q gave %v rows; want %v", limit, out["count"], want)
+		}
+	}
+	if out := system(t, tx, "SQL", map[string]any{"statement": "SELECT id FROM item"}); out["count"] != 3.0 {
+		t.Errorf("absent limit: %v", out)
 	}
 }

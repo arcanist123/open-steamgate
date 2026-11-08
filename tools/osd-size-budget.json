@@ -675,12 +675,12 @@
       "reason": "Self-contained Go host continuation for ADT source PUT, class includes, and class/interface/program CREATE and DELETE. Protocol parsing, refusal documents, ETag fencing and session authorization stay independent of generated ABAP types; filesystem/index ownership remains in objstore. PR #855 review: twelve production lines mirror the shared ABAP GET templates when fencing first saves of absent class includes. This representation policy belongs with the existing ETag protocol adapter."
     },
     "go:adtpreview": {
-      "lines": 502,
-      "reason": "Self-contained Go host answer to SYSTEM SQL/SQLCHECK for the ADT data preview (tools/adt-preview-sql.mjs, adt-single-select.mjs, osd-data.mjs query/check): single-SELECT guard, Open SQL rewrites, cell rendering, savepoint fence on the step transaction. No go/abap dependency."
+      "lines": 564,
+      "reason": "Self-contained Go host answer to SYSTEM SQL/SQLCHECK for the ADT data preview (tools/adt-preview-sql.mjs, adt-single-select.mjs, osd-data.mjs query/check): single-SELECT guard, Open SQL rewrites, cell rendering, savepoint fence on the step transaction. No go/abap dependency. Critic #859 M1: SQLite-faithful lexing, a sqlite3_complete proof of one statement (build-tagged, any ; refused without SQLite) and a PRAGMA query_only fence."
     },
     "go:adtread": {
-      "lines": 100,
-      "reason": "Self-contained Go host continuation for read-only HOST-verdict ADT routes (activation/inactiveobjects), mirroring tools/adt-facade.mjs; no generated ABAP types."
+      "lines": 107,
+      "reason": "Self-contained Go host continuation for read-only HOST-verdict ADT routes (activation/inactiveobjects), mirroring tools/adt-facade.mjs; no generated ABAP types. Critic #859 S2: the full uriOf/ADT_TYPE maps."
     }
   },
   "readmeMissing": [

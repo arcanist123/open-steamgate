@@ -14,6 +14,13 @@ import (
 	"osg/gogen/objstore"
 )
 
+// guard is the two statement checks; a test switches them off to prove the
+// query_only fence on its own.
+var guard = struct {
+	lex func(string) (string, error)
+	one func(string) error
+}{SingleSelect, oneStatement}
+
 // Querier is the calling step's connection: its open transaction, or the
 // database when none is open.
 type Querier interface {
@@ -28,7 +35,7 @@ type Provider struct{ DB func() Querier }
 
 type input struct {
 	Statement *string `json:"statement"`
-	Limit     string  `json:"limit"`
+	Limit     *string `json:"limit"`
 	Fallback  string  `json:"fallback"`
 	Trim      bool    `json:"trim"`
 }
@@ -95,10 +102,16 @@ func (p Provider) System(kind, _, raw string) (any, error) {
 			statement = in.Fallback
 		}
 	}
+	// Node reads Number(limit ?? "100"): absent is 100 and "" is 0. A
+	// negative or non-numeric limit, which Node turns into an unbounded
+	// LIMIT or an SQL error, is 100 here.
 	limit := 100
-	if in.Limit != "" {
-		if n, err := strconv.Atoi(strings.TrimSpace(in.Limit)); err == nil && n >= 0 {
+	if in.Limit != nil {
+		text := strings.TrimSpace(*in.Limit)
+		if n, err := strconv.Atoi(text); err == nil && n >= 0 {
 			limit = n
+		} else if text == "" {
+			limit = 0
 		}
 	}
 	return Run(p.DB(), kind, statement, limit), nil
@@ -110,7 +123,7 @@ func Run(db Querier, kind, statement string, limit int) any {
 	started := time.Now()
 	fenced := false
 	answer, err := func() (any, error) {
-		checked, err := SingleSelect(statement)
+		checked, err := guard.lex(statement)
 		if err != nil {
 			return nil, err
 		}
@@ -118,6 +131,13 @@ func Run(db Querier, kind, statement string, limit int) any {
 			return nil, err
 		}
 		fenced = true
+		// a read-only connection while the preview runs: a write the guards
+		// let through still cannot change the database
+		restore, err := queryOnly(db)
+		if err != nil {
+			return nil, err
+		}
+		defer restore()
 		if kind == "SQLCHECK" {
 			return map[string]any{"ok": true}, Check(db, checked)
 		}
@@ -143,6 +163,26 @@ func Run(db Querier, kind, statement string, limit int) any {
 		return cells
 	}
 	return map[string]any{"ok": true, "ms": ms}
+}
+
+// queryOnly sets PRAGMA query_only and returns what puts it back.
+func queryOnly(db Querier) (func(), error) {
+	var was int
+	rows, err := db.Query("PRAGMA query_only")
+	if err != nil {
+		return nil, err
+	}
+	if rows.Next() {
+		err = rows.Scan(&was)
+	}
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec("PRAGMA query_only = 1"); err != nil {
+		return nil, err
+	}
+	return func() { _, _ = db.Exec("PRAGMA query_only = " + strconv.Itoa(was)) }, nil
 }
 
 // sqliteMessage drops the driver's wrapping ("SQL logic error: ... (1)"),
@@ -175,7 +215,11 @@ func Check(db Querier, statement string) error {
 	if err != nil {
 		return err
 	}
-	stmt, err := db.Prepare(strings.ReplaceAll(SQLite(text), limitZeroes, ""))
+	final := strings.ReplaceAll(SQLite(text), limitZeroes, "")
+	if err := guard.one(final); err != nil {
+		return err
+	}
+	stmt, err := db.Prepare(final)
 	if err != nil {
 		return err
 	}
@@ -191,7 +235,11 @@ func Query(db Querier, statement string, limit int) (*Cells, error) {
 	if !limitAtEnd.MatchString(text) {
 		text += " LIMIT " + strconv.Itoa(limit)
 	}
-	rows, err := db.Query(SQLite(text))
+	final := SQLite(text)
+	if err := guard.one(final); err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(final)
 	if err != nil {
 		return nil, err
 	}
