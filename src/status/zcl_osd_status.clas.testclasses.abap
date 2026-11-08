@@ -71,6 +71,13 @@ CLASS ltcl_status IMPLEMENTATION.
     cl_abap_unit_assert=>assert_char_cp( act = lv_json
       exp = '*"mtdname":"SQUARES"*"portable":true*"engine":"portable-duckdb"*' ).
 
+* facts marked unknown (a work process that did not answer) are not facts:
+* the rows of the last snapshot that had them stay as they were
+    lv_rows = zcl_osd_status=>refresh( '{"system":{"sid":"OSG"},"amdp":{"unknown":true,"db":"unknown",' &&
+      '"driver":false,"configured":false,"session":"none","methods":[]}}' ).
+    SELECT COUNT(*) FROM zosd_amdp INTO lv_count.
+    cl_abap_unit_assert=>assert_equals( act = lv_count exp = 2 ).
+
 * a snapshot without the AMDP facts replaces the rows with none: a method
 * that is gone from the tree must not linger with a stale engine
     zcl_osd_status=>refresh( snapshot_json( iv_sid = 'OSG' iv_pid = '4711' ) ).
@@ -232,6 +239,7 @@ CLASS ltcl_engine DEFINITION FOR TESTING RISK LEVEL HARMLESS DURATION SHORT FINA
   PRIVATE SECTION.
     METHODS duckdb_portable FOR TESTING RAISING cx_static_check.
     METHODS duckdb_refused_no_fallback FOR TESTING RAISING cx_static_check.
+    METHODS duckdb_refused_at_call FOR TESTING RAISING cx_static_check.
     METHODS sqlite_no_hana FOR TESTING RAISING cx_static_check.
     METHODS no_driver FOR TESTING RAISING cx_static_check.
     METHODS hana_live FOR TESTING RAISING cx_static_check.
@@ -284,6 +292,22 @@ CLASS ltcl_engine IMPLEMENTATION.
     classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_true iv_session = 'connected'
               iv_portable = abap_false iv_refusal = 'FLOOR has no measured portable rendering'
               iv_engine = 'unavailable' iv_reason_cp = '*no HANA fallback*FLOOR*' ).
+  ENDMETHOD.
+
+  METHOD duckdb_refused_at_call.
+*   compiled into the IR, but DuckDB's lowering refuses a construct of it
+*   (tools/amdp-gen.mjs writes the refusal down beside the IR): the call
+*   refuses, so the label must not say portable-duckdb
+    classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_true iv_refusal = 'the function FLOOR has no measured rendering on duckdb'
+              iv_engine = 'portable-refused' iv_reason_cp = 'pAMDP:*refuses*call*FLOOR*' ).
+*   on SQLite the call goes to HANA anyway; the note says what DuckDB would do
+    classify( iv_db = 'sqlite' iv_driver = abap_true iv_configured = abap_true iv_session = 'connected'
+              iv_portable = abap_true iv_refusal = 'the function FLOOR has no measured rendering on duckdb'
+              iv_engine = 'hdb' iv_reason_cp = 'eAMDP:*DuckDB would refuse*FLOOR*' ).
+*   a refusal without text still reads as a sentence
+    classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_false iv_engine = 'unavailable' iv_reason_cp = '*no HANA fallback' ).
   ENDMETHOD.
 
   METHOD sqlite_no_hana.

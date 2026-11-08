@@ -4,7 +4,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {ServingRuntime} from "../tools/osd-runtime.mjs";
 import {snapshot, childAmdpFacts} from "../tools/osd-status.mjs";
-import {acceptAmdpFacts, amdpFactRows, amdpFacts, methodRows} from "../tools/amdp-status.mjs";
+import {acceptAmdpFacts, amdpFactRows, amdpFacts, methodRows, unknownAmdpFacts} from "../tools/amdp-status.mjs";
 import {AmdpDestination} from "../tools/amdp-destination.mjs";
 import {runtimeRootFixture} from "./helpers/runtime-root.mjs";
 
@@ -28,6 +28,21 @@ describe("tools/amdp-status: the facts a destination gives about itself", () => 
       {clsname: "ZCL_ONE", mtdname: "GOOD", kind: "procedure", portable: true, refusal: ""},
     ]);
     expect(methodRows(undefined)).to.deep.equal([]);
+  });
+
+  it("carries DuckDB's refusal of a compiled body, so the label cannot say portable-duckdb", () => {
+    const refused = new Map([["Z_AMDP_3", {module: "Z_AMDP_3", class: "ZCL_ONE", method: "FLOORS", kind: "procedure",
+      portable: {body: []}, portableDuckdbRefusal: {code: "UNSUPPORTED_DIALECT", message: "the function FLOOR has no measured rendering on duckdb"}}]]);
+    expect(methodRows(refused)).to.deep.equal([{clsname: "ZCL_ONE", mtdname: "FLOORS", kind: "procedure", portable: true,
+      refusal: "the function FLOOR has no measured rendering on duckdb"}]);
+  });
+
+  it("says 'not known' when a work process did not answer, and guesses nothing", () => {
+    const facts = unknownAmdpFacts();
+    expect(facts.unknown).to.equal(true);
+    const rows = amdpFactRows(facts);
+    expect(rows.map((r) => r.value)).to.deep.equal(["not known", "not known"]);
+    expect(JSON.stringify(rows)).not.to.include("no HANA driver").and.not.to.include("0 AMDP method");
   });
 
   it("reads the session off the destination, not off its configuration", async () => {

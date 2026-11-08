@@ -68,7 +68,7 @@ tables are served as they are.
 `AmdpMethodSet` (facet **AMDP methods**, table `ZOSD_AMDP`, view
 `ZC_OSD_AMDP`) lists every `BY DATABASE PROCEDURE / FUNCTION FOR HDB` method
 of the tree with the engine a call would use at the moment of the snapshot:
-`portable-duckdb`, `hdb`, `hdb-stale`, `hdb-idle` or `unavailable` with a
+`portable-duckdb`, `portable-refused`, `hdb`, `hdb-stale`, `hdb-idle` or `unavailable` with a
 reason. The facts come from the AMDP destination itself (its session's
 `readyState`, whether a driver and a HANA are configured) and from the system
 connection, through `tools/amdp-status.mjs`; a work process adds them to

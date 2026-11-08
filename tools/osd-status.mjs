@@ -40,7 +40,7 @@ import {generatorFoldersOf, folderOf, packsOf, webappsOf} from "./osd-packs.mjs"
 import {layers} from "./osd-inputs.mjs";
 import {identity} from "./osd-identity.mjs";
 import {databaseDescriptor} from "./osd-database-identity.mjs";
-import {acceptAmdpFacts, amdpFactRows, amdpFacts} from "./amdp-status.mjs";
+import {acceptAmdpFacts, amdpFactRows, amdpFacts, unknownAmdpFacts} from "./amdp-status.mjs";
 
 const PAGE = 4096;
 
@@ -428,7 +428,7 @@ export async function snapshot(root = process.cwd(), options = {}) {
   // is a child (it holds the session), this process's otherwise; a child that
   // does not answer leaves the facts at "nothing known", never at a guess
   const amdp = options.amdp ?? await childAmdpFacts(runtime)
-    ?? (runtime === undefined ? await amdpFacts({client: options.client}) : {db: "unknown", driver: false, configured: false, session: "none", methods: []});
+    ?? (runtime === undefined ? await amdpFacts({client: options.client}) : unknownAmdpFacts());
 
   const facadePort = Number(options.listeners?.[0]?.port ?? 0);
   const processes = [{

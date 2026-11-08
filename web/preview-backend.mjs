@@ -20,7 +20,7 @@ import {previewFields} from "./generated/preview-fields.mjs";
 import {applyRows as applyXref} from "../tools/osd-xref-seed.mjs";
 import {servicesFromRows, serviceForPath} from "../tools/osd-icf-routing.mjs";
 import {currentRows} from "../tools/osd-icf-apply.mjs";
-import {amdpFactRows, amdpFacts} from "../tools/amdp-status.mjs";
+import {amdpFactRows, amdpFacts, unknownAmdpFacts} from "../tools/amdp-status.mjs";
 import {readRequest} from "./preview-runtime.mjs";
 
 // test/setup.mjs looks for this before it touches the file system: the seed
@@ -332,7 +332,9 @@ async function statusSnapshot() {
   // driver in the bundle, and the destination says so when asked
   let amdp;
   try { amdp = await amdpFacts(); } catch { amdp = undefined; }
-  amdp ??= {db: database === "duckdb" ? "duckdb" : "sqlite", driver: false, configured: false, session: "none", methods: []};
+  // amdpFacts catches its own errors; should it ever throw, say "not known"
+  // rather than read the engine off the build setting
+  amdp ??= unknownAmdpFacts();
   // every path a person can click is written from outside this system's
   // root, because in the browser preview that root is not the origin's
   const outside = (path) => (path.startsWith("/") ? `${identity.mount}${path}` : path);

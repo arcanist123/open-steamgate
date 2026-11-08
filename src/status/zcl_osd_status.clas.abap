@@ -125,6 +125,9 @@ CLASS zcl_osd_status DEFINITION PUBLIC CREATE PUBLIC.
              configured TYPE abap_bool,
              session    TYPE string,
              methods    TYPE tt_amdp_method,
+*            set when the process holding the destination did not answer:
+*            nothing was observed, and REFRESH keeps the rows it has
+             unknown    TYPE abap_bool,
            END OF ty_amdp.
 
     TYPES: BEGIN OF ty_snapshot,
@@ -156,6 +159,8 @@ CLASS zcl_osd_status DEFINITION PUBLIC CREATE PUBLIC.
 * the method is in the subset, with no HANA fallback there; on every other
 * database it goes natively to HANA over the destination's own session.
 *   portable-duckdb  pAMDP on the system DuckDB connection
+*   portable-refused compiled into the IR, but DuckDB refuses the call
+*                    (a construct with no measured rendering; EV_REASON names it)
 *   hdb              eAMDP, the destination session is connected
 *   hdb-stale        eAMDP, the session is closed; the next call reconnects once
 *   hdb-idle         eAMDP, HANA configured, no session opened yet
@@ -211,12 +216,21 @@ CLASS zcl_osd_status IMPLEMENTATION.
     IF iv_db = 'duckdb'.
 *     the destination hands a DuckDB system the compiled IR, and nothing
 *     else: a method outside the subset is refused there, not sent to HANA
-      IF iv_portable = abap_true.
+*     a compiled body can still carry a refusal: tools/amdp-gen.mjs lowers
+*     it for DuckDB at build time and writes down what the call will refuse
+*     (a function with no measured rendering, FLOOR or LEFT among them)
+      IF iv_portable = abap_true AND iv_refusal IS INITIAL.
         ev_engine = 'portable-duckdb'.
         ev_reason = 'pAMDP: the compiled SQLScript IR runs on the system DuckDB connection'.
+      ELSEIF iv_portable = abap_true.
+        ev_engine = 'portable-refused'.
+        ev_reason = 'pAMDP: compiled, but DuckDB refuses the call, and has no HANA fallback: ' && iv_refusal.
       ELSE.
         ev_engine = 'unavailable'.
-        ev_reason = 'not in the portable SQLScript subset, and DuckDB has no HANA fallback: ' && iv_refusal.
+        ev_reason = 'not in the portable SQLScript subset, and DuckDB has no HANA fallback'.
+        IF iv_refusal IS NOT INITIAL.
+          ev_reason = ev_reason && ': ' && iv_refusal.
+        ENDIF.
       ENDIF.
       RETURN.
     ENDIF.
@@ -240,8 +254,10 @@ CLASS zcl_osd_status IMPLEMENTATION.
       ev_reason = 'eAMDP: HANA configured, no session opened yet; the first call connects'.
     ENDIF.
 
-    IF iv_portable = abap_true.
+    IF iv_portable = abap_true AND iv_refusal IS INITIAL.
       ev_reason = ev_reason && '; portable subset: yes, used only when the system database is DuckDB'.
+    ELSEIF iv_portable = abap_true.
+      ev_reason = ev_reason && '; portable IR compiled, but DuckDB would refuse the call: ' && iv_refusal.
     ENDIF.
   ENDMETHOD.
 
@@ -392,7 +408,12 @@ CLASS zcl_osd_status IMPLEMENTATION.
     DELETE FROM zosd_svc WHERE path <> ''.
     DELETE FROM zosd_pack WHERE name <> ''.
     DELETE FROM zosd_db WHERE name <> ''.
-    DELETE FROM zosd_amdp WHERE class_name <> ''.
+*   AMDP facts nobody observed are not a snapshot of the AMDP rows
+    IF ls_snap-amdp-unknown = abap_false.
+      DELETE FROM zosd_amdp WHERE class_name <> ''.
+    ELSE.
+      CLEAR lt_amdp.
+    ENDIF.
 
     INSERT zosd_sys FROM ls_sys.
     rv_rows = 1.

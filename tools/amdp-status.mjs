@@ -15,7 +15,7 @@
 // part of the snapshot contract ZCL_OSD_STATUS=>REFRESH parses:
 //
 //   "amdp": {"db": "duckdb", "driver": true, "configured": false,
-//            "session": "none",
+//            "session": "none",   (+ "unknown": true when nothing was observed)
 //            "methods": [{"clsname": "ZCL_OSD_AMDP_DEMO", "mtdname": "SQUARES",
 //                         "kind": "procedure", "portable": true, "refusal": ""}]}
 //
@@ -31,6 +31,12 @@ const NAME = /^[A-Z0-9_/]{1,30}$/;
 
 const noFacts = (db = "unknown") => ({db, driver: false, configured: false, session: "none", methods: []});
 
+/** what a host says when the process that holds the destination did not
+ *  answer (a pool child busy at boot, or mid hot swap): "not known", with
+ *  `unknown` set so ZCL_OSD_STATUS=>REFRESH keeps the last rows it had
+ *  instead of replacing them with none */
+export const unknownAmdpFacts = () => ({...noFacts(), unknown: true});
+
 /** the methods the destination knows, one row each, sorted by class and method */
 export function methodRows(procedures) {
   const rows = [];
@@ -41,7 +47,11 @@ export function methodRows(procedures) {
       mtdname: String(p.method ?? "").toUpperCase().slice(0, 30),
       kind: p.kind === "function" ? "function" : "procedure",
       portable: p.portable !== undefined,
-      refusal: String(p.portableRefusal?.message ?? "").replace(/\s+/g, " ").trim().slice(0, 240),
+      // the compiler's refusal, or for a compiled body the refusal DuckDB's
+      // lowering raises when it is called (tools/amdp-gen.mjs, dialectCheck);
+      // ZCL_OSD_STATUS=>ENGINE says portable-refused for the second
+      refusal: String(p.portableRefusal?.message ?? p.portableDuckdbRefusal?.message ?? "")
+        .replace(/\s+/g, " ").trim().slice(0, 240),
     });
   }
   return rows.sort((a, b) => a.clsname.localeCompare(b.clsname) || a.mtdname.localeCompare(b.mtdname));
@@ -89,6 +99,13 @@ export function acceptAmdpFacts(body) {
 
 /** the same facts as two rows of the Environment facet, beside Engine and Storage */
 export function amdpFactRows(facts) {
+  if (facts.unknown === true) {
+    const note = "the work process holding the AMDP destination did not answer; nothing is guessed";
+    return [
+      {section: "AMDP", name: "pAMDP portable engine", value: "not known", note},
+      {section: "AMDP", name: "eAMDP HANA destination", value: "not known", note},
+    ];
+  }
   const portable = facts.db === "duckdb";
   const destination = !facts.driver ? "no HANA driver in this build"
     : !facts.configured ? "not configured"
