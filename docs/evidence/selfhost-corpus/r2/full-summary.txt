@@ -1,0 +1,1 @@
+step4: build=ok run=trap at tools/gogen/frontend.mjs:82:59: value outside supported numeric, ordering or conversion domain [recovered, repanicked] cmp=differs at line 1 byte 1 (column 1; ref=2f, out=EOF) ref=e935f509b3231c78 out=e3b0c44298fc1c14

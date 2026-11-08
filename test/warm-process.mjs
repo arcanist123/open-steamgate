@@ -34,6 +34,24 @@ describe("warm compiler process: source isolation and bounded cold fallback", fu
     for (let i = 0; i < 200 && !paused; i++) await sleep(10);
     expect(paused, "worker reached the dispatch/hash pause").to.equal(true);
   };
+  // A save while the compiler is paused must not wait for it. The store API
+  // is synchronous unless a source-lock turn is held (tools/osd-store-source-lock.mjs),
+  // and then it returns a promise that settles only after that turn. The
+  // worker stays paused until the test resumes it, so a save that has to wait
+  // for the compile can never settle here: "returned synchronously" is the
+  // event, independent of the machine's speed. The 200 ms budget is CPU time,
+  // what the save's own code spends: its wall time is mostly fsync
+  // (tools/osd-durable.mjs), and on a shared 4-core host the first save after
+  // a publication took 0.3-1.3 s of wall time for 1-3 ms of CPU.
+  const saveWhilePaused = (name, n, what) => {
+    const cpu = process.cpuUsage();
+    const result = save(name, n);
+    const spent = process.cpuUsage(cpu);
+    const ms = (spent.user + spent.system) / 1000;
+    expect(result instanceof Promise, `save of ${name} waited for ${what}`).to.equal(false);
+    expect(ms, `CPU time of a save during ${what}`).to.be.lessThan(200);
+    return result;
+  };
   const gone = () => {
     expect(child?.exitCode !== null || child?.signalCode !== null, "compiler was reaped before fallback returned").to.equal(true);
   };
@@ -240,24 +258,16 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
     mode("pause-build");
     const publishing = activate();
     await waitPaused();
-    let saved = false;
-    const saveStarted = performance.now();
-    const saving = Promise.resolve(save("zcl_b", 20)).then(() => { saved = true; });
-    await sleep(20);
-    const savedBeforeResume = saved;
-    const saveMs = performance.now() - saveStarted;
+    saveWhilePaused("zcl_b", 20, "a paused build");
     const beforeResume = store.read("CLAS", "ZCL_B").source;
     mode("normal");
     sendIPC(child, {method: "resume"});
     const result = await publishing;
-    await saving;
     expect(result).to.include({ok: true});
     expect(result.transpile.warm).to.equal(true);
     expect(store.completeActivation(checked, result.transpile.built)).to.equal(true);
     expect(out("zcl_a")).to.include("IntegerFactory.get(2)");
     expect(out("zcl_b"), "an unrelated save must never enter A's live generation").to.include("IntegerFactory.get(1)").and.not.include("get(20)");
-    expect(savedBeforeResume, "save completes while compilation is paused").to.equal(true);
-    expect(saveMs).to.be.lessThan(200);
     expect(beforeResume).to.include("rv = 20.");
     expect(store.stateOf(store.find("CLAS", "ZCL_B")).version).to.equal("inactive");
     // The superseded dispatch was discarded; only the current isolated view is certified.
@@ -276,10 +286,7 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
     mode("pause-prime"); paused = false;
     const priming = store.warmUp();
     await waitPaused();
-    const started = performance.now();
-    const saving = Promise.resolve(save("zcl_a", 7));
-    await Promise.race([saving, sleep(200).then(() => { throw new Error("save blocked by prime"); })]);
-    expect(performance.now() - started).to.be.lessThan(200);
+    saveWhilePaused("zcl_a", 7, "a paused prime");
     expect(out("zcl_a")).to.include("IntegerFactory.get(1)");
     mode("normal"); sendIPC(child, {method: "resume"});
     expect(await priming).to.not.equal(undefined, store.warmState.reason);
@@ -295,9 +302,7 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
     mode("pause-build");
     const publishing = activate();
     await waitPaused();
-    const started = performance.now();
-    await Promise.race([Promise.resolve(save("zcl_a", 8)), sleep(200).then(() => { throw new Error("save blocked by build"); })]);
-    expect(performance.now() - started).to.be.lessThan(200);
+    saveWhilePaused("zcl_a", 8, "a paused build");
     expect(out("zcl_a")).to.include("IntegerFactory.get(1)");
     mode("normal"); sendIPC(child, {method: "resume"});
     const result = await publishing;
@@ -316,9 +321,7 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
     const publishing = store.publish({force: true, activate: [{type: "CLAS", name: "ZCL_A"}]});
     await pausedBuild;
     try {
-      const started = performance.now();
-      await Promise.race([Promise.resolve(save("zcl_a", 9)), sleep(200).then(() => { throw new Error("save blocked by cold compile"); })]);
-      expect(performance.now() - started).to.be.lessThan(200);
+      saveWhilePaused("zcl_a", 9, "a paused cold compile");
       expect(out("zcl_a")).to.include("IntegerFactory.get(1)");
     } finally { release(); }
     const result = await publishing;
@@ -333,10 +336,8 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
     mode("pause-finished-build");
     const publishing = activate();
     await waitPaused();
-    const started = performance.now();
-    await Promise.race([Promise.resolve(save("zcl_a", 10)), sleep(200).then(() => { throw new Error("save blocked by publication"); })]);
-    await save("zcl_b", 20);
-    expect(performance.now() - started).to.be.lessThan(200);
+    saveWhilePaused("zcl_a", 10, "a finished build before its publication");
+    saveWhilePaused("zcl_b", 20, "a finished build before its publication");
     expect(out("zcl_a")).to.include("IntegerFactory.get(1)");
     let release, reached;
     const gate = new Promise(r => { release = r; });
@@ -359,9 +360,7 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
     mode("pause-finished-prime");
     const priming = store.warmUp();
     await waitPaused();
-    const started = performance.now();
-    await Promise.race([Promise.resolve(save("zcl_a", 11)), sleep(200).then(() => { throw new Error("save blocked by loaded prime"); })]);
-    expect(performance.now() - started).to.be.lessThan(200);
+    saveWhilePaused("zcl_a", 11, "a loaded, paused prime");
     mode("normal"); sendIPC(child, {method: "resume"});
     expect(await priming).to.not.equal(undefined, store.warmState.reason);
     expect(compiler.primed).to.equal(true);
@@ -372,7 +371,11 @@ main({heapLimit: ${512 * 1048576}, beforeCompile: async ({method}) => {
   });
 
   it("kills and awaits a hung mid-prime child, activates cold within the deadline, and leaves subsequent publications available", async () => {
-    await compiler.drop();
+    // Re-prime the running child rather than a fresh one: the deadline is
+    // counted from dispatch, and a fresh worker spends ~600 ms starting and
+    // loading the compiler before it can reach the hang, so a 500 ms
+    // deadline killed it there and the pause was never reported. The hang
+    // under test is the prime itself; start-up is not what it bounds.
     await save("zcl_a", 3);
     mode("hang-prime");
     store.warmDeadlineMs = 500;

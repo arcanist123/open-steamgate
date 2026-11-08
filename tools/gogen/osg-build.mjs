@@ -74,8 +74,12 @@ for (const f of libs.flatMap(walk)) if (layerFiles.has(f.split("/").pop())) hidd
 const {cockpitAppsOf} = await import(`${home}/tools/osd-cockpit-apps.mjs`);
 for (const app of cockpitAppsOf(home, layerFolders)) for (const f of walk(app.dir)) hidden.add(f);
 
-/** every class, interface and function group of the layers and libraries, compiled (a statement outside the subset is a stub) */
-export function compileOsg({extraFolders = []} = {}) {
+/**
+ * What compileOsg hands the front end: the folders in layer order, the objects
+ * and the files left out (`hidden`). One definition, so a harness that replays
+ * the build (tools/selfhost/) compiles exactly what osgo.mjs compiles.
+ */
+export function osgCompileInputs({extraFolders = []} = {}) {
   // a pack that fetches a folder and has not: a smaller system than its
   // manifest describes, refused as osd-build.mjs's prepare() refuses it,
   // rather than compiled from whatever is on disk
@@ -88,6 +92,12 @@ export function compileOsg({extraFolders = []} = {}) {
   }
   const folders = [...layers, ...libs, ...extraFolders];
   const objects = [...new Set(folders.flatMap(walk).filter((f) => !hidden.has(f) && (/\.(clas|intf)\.abap$/.test(f) || /\.fugr\.xml$/.test(f)) && !f.includes("testclasses")).map((f) => f.split("/").pop().split(".")[0]))];
+  return {folders, objects, hidden};
+}
+
+/** every class, interface and function group of the layers and libraries, compiled (a statement outside the subset is a stub) */
+export function compileOsg({extraFolders = []} = {}) {
+  const {folders, objects} = osgCompileInputs({extraFolders});
   const t0 = performance.now();
   const program = compileProgram({folders, objects, tolerant: true, skip: (path) => hidden.has(path)});
   const summary = `front end: ${program.classes.length} classes, ${program.partial.length} statement stubs, ${program.skipped.length} methods not compiled, ${program.broken.length} objects with syntax errors (${Math.round(performance.now() - t0)} ms)`;
