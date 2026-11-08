@@ -3,15 +3,18 @@ CLASS zcl_osd_v4_http DEFINITION PUBLIC CREATE PUBLIC.
     INTERFACES if_http_extension.
     CLASS-METHODS dispatch IMPORTING iv_method TYPE string iv_path TYPE string
       it_options TYPE tihttpnvp OPTIONAL iv_origin TYPE string DEFAULT 'http://localhost'
+      iv_body TYPE string OPTIONAL it_headers TYPE tihttpnvp OPTIONAL
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
   PRIVATE SECTION.
+* the Allow header of a 405, set by run before it refuses a method
+    CLASS-DATA gv_allow TYPE string.
     CLASS-METHODS context IMPORTING io_query TYPE REF TO zcl_osd_v4_query
       is_set TYPE zcl_stg_model_info=>ty_entity_set iv_base TYPE string
       RETURNING VALUE(rv_context) TYPE string.
     CLASS-METHODS service_document IMPORTING io_model TYPE REF TO zcl_osd_v4_model iv_base TYPE string
       RETURNING VALUE(rv_json) TYPE string.
     CLASS-METHODS run IMPORTING iv_method TYPE string iv_path TYPE string
-      it_options TYPE tihttpnvp iv_origin TYPE string
+      it_options TYPE tihttpnvp iv_origin TYPE string iv_body TYPE string it_headers TYPE tihttpnvp
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
     CLASS-METHODS expand IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
@@ -29,6 +32,11 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_proto TYPE string.
     DATA lv_host TYPE string.
     DATA lv_query TYPE string.
+    DATA lv_method TYPE string.
+    DATA lv_path TYPE string.
+    DATA lv_body TYPE string.
+    DATA lv_writes TYPE abap_bool.
+    DATA lt_headers TYPE tihttpnvp.
 * ANORMALIES: posted-form-has-no-fields, V4 GET addendum. Decode once
 * from the raw query: names, form spaces and literal encoded plus signs.
     lv_query = server->request->get_header_field( '~query_string' ).
@@ -42,11 +50,32 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lv_proto = 'http'.
     ENDIF.
     lv_host = server->request->get_header_field( 'host' ).
-    ls_response = dispatch( iv_method = server->request->get_header_field( '~request_method' )
-      iv_path = server->request->get_header_field( '~path' ) it_options = lt_options
-      iv_origin = |{ lv_proto }://{ lv_host }{ server->request->get_header_field( 'x-forwarded-prefix' ) }| ).
+    lv_method = to_upper( server->request->get_header_field( '~request_method' ) ).
+    lv_path = server->request->get_header_field( '~path' ).
+    server->request->get_header_fields( CHANGING fields = lt_headers ).
+    IF lv_method <> 'GET' AND lv_method <> 'HEAD'.
+      lv_body = server->request->get_cdata( ).
+    ENDIF.
+* One modifying request is one LUW, as in ZCL_STG_HTTP_HANDLER: the COMMIT
+* before is the fence, a failure rolls back. $batch brackets its own groups.
+    lv_writes = boolc( lv_method <> 'GET' AND lv_method <> 'HEAD' AND lv_path NP '*/$batch' ).
+    IF lv_writes = abap_true.
+      COMMIT WORK.
+    ENDIF.
+    ls_response = dispatch( iv_method = lv_method iv_path = lv_path it_options = lt_options
+      iv_origin = |{ lv_proto }://{ lv_host }{ server->request->get_header_field( 'x-forwarded-prefix' ) }|
+      iv_body = lv_body it_headers = lt_headers ).
+    IF lv_writes = abap_true.
+      IF ls_response-status >= 400.
+        ROLLBACK WORK.
+      ELSE.
+        COMMIT WORK.
+      ENDIF.
+    ENDIF.
     server->response->set_header_field( name = 'OData-Version' value = '4.0' ).
-    server->response->set_header_field( name = 'content-type' value = ls_response-content_type ).
+    IF ls_response-content_type IS NOT INITIAL.
+      server->response->set_header_field( name = 'content-type' value = ls_response-content_type ).
+    ENDIF.
     LOOP AT ls_response-headers INTO ls_header.
       server->response->set_header_field( name = ls_header-name value = ls_header-value ).
     ENDLOOP.
@@ -62,8 +91,13 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_code TYPE string.
     DATA lv_message TYPE string.
     DATA ls_header TYPE ihttpnvp.
+    DATA lv_allow TYPE string.
+* a batch dispatches its requests through here again: keep the caller's Allow
+    lv_allow = gv_allow.
+    CLEAR gv_allow.
     TRY.
-        rs_response = run( iv_method = iv_method iv_path = iv_path it_options = it_options iv_origin = iv_origin ).
+        rs_response = run( iv_method = to_upper( iv_method ) iv_path = iv_path it_options = it_options
+          iv_origin = iv_origin iv_body = iv_body it_headers = it_headers ).
       CATCH zcx_stg_error INTO lx_error.
         rs_response-status = lx_error->status.
         lv_code = lx_error->code.
@@ -92,6 +126,10 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     CASE rs_response-status.
       WHEN 200.
         rs_response-reason = 'OK'.
+      WHEN 201.
+        rs_response-reason = 'Created'.
+      WHEN 204.
+        rs_response-reason = 'No Content'.
       WHEN 400.
         rs_response-reason = 'Bad Request'.
       WHEN 404.
@@ -99,13 +137,27 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       WHEN 405.
         rs_response-reason = 'Method Not Allowed'.
         ls_header-name = 'Allow'.
-        ls_header-value = 'GET'.
+        ls_header-value = gv_allow.
+        IF ls_header-value IS INITIAL.
+          ls_header-value = 'GET'.
+        ENDIF.
         APPEND ls_header TO rs_response-headers.
+      WHEN 409.
+        rs_response-reason = 'Conflict'.
+      WHEN 412.
+        rs_response-reason = 'Precondition Failed'.
+      WHEN 415.
+        rs_response-reason = 'Unsupported Media Type'.
+      WHEN 424.
+        rs_response-reason = 'Failed Dependency'.
+      WHEN 428.
+        rs_response-reason = 'Precondition Required'.
       WHEN 501.
         rs_response-reason = 'Not Implemented'.
       WHEN OTHERS.
         rs_response-reason = 'Internal Server Error'.
     ENDCASE.
+    gv_allow = lv_allow.
   ENDMETHOD.
 
   METHOD run.
@@ -126,15 +178,28 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_count_json TYPE string.
     DATA lv_sep TYPE string.
     DATA ls_paging TYPE /iwbep/s_mgw_paging.
+    DATA lv_service_url TYPE string.
+    DATA lv_etag TYPE string.
     FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
     FIELD-SYMBOLS <ls_row> TYPE any.
 
-    IF iv_method <> 'GET'.
-      zcl_osd_v4_query=>fail( iv_text = 'V4 currently supports GET only' iv_status = 405 ).
-    ENDIF.
     CREATE OBJECT lo_query EXPORTING iv_path = iv_path it_options = it_options.
     CREATE OBJECT lo_model EXPORTING iv_service = lo_query->ms_request-service.
-    lv_base = |{ iv_origin }/sap/opu/odata4/sap/{ lo_model->ms_service-name }/$metadata|.
+    lv_service_url = |{ iv_origin }/sap/opu/odata4/sap/{ lo_model->ms_service-name }|.
+    lv_base = lv_service_url && '/$metadata'.
+    IF lo_query->ms_request-is_batch = abap_true.
+      IF iv_method <> 'POST'.
+        gv_allow = 'POST'.
+        zcl_osd_v4_query=>fail( iv_text = '$batch takes POST' iv_status = 405 ).
+      ENDIF.
+      rs_response = zcl_osd_v4_batch=>handle( iv_body = iv_body it_headers = it_headers
+        iv_service_path = |/sap/opu/odata4/sap/{ lo_model->ms_service-name }| iv_origin = iv_origin ).
+      RETURN.
+    ENDIF.
+    IF iv_method <> 'GET' AND ( lo_query->ms_request-is_metadata = abap_true
+        OR lo_query->ms_request-is_service_root = abap_true OR lo_query->ms_request-is_count = abap_true ).
+      zcl_osd_v4_query=>fail( iv_text = |{ iv_method } is not allowed on this resource| iv_status = 405 ).
+    ENDIF.
     rs_response-status = 200.
     rs_response-content_type = 'application/json;odata.metadata=minimal'.
     IF lo_query->ms_request-is_metadata = abap_true.
@@ -150,6 +215,19 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     lo_query->prepare( is_set = ls_set io_model = lo_model ).
     lo_context = lo_query->mo_context.
     lo_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name ).
+    IF iv_method <> 'GET'.
+      IF lo_query->ms_request-key_string IS INITIAL AND iv_method <> 'POST'.
+        gv_allow = 'GET, POST'.
+        zcl_osd_v4_query=>fail( iv_text = |{ iv_method } needs an entity key| iv_status = 405 ).
+      ELSEIF lo_query->ms_request-key_string IS NOT INITIAL
+          AND iv_method <> 'PATCH' AND iv_method <> 'PUT' AND iv_method <> 'DELETE'.
+        gv_allow = 'GET, PATCH, PUT, DELETE'.
+        zcl_osd_v4_query=>fail( iv_text = |{ iv_method } is not allowed on an entity| iv_status = 405 ).
+      ENDIF.
+      rs_response = zcl_osd_v4_write=>execute( iv_method = iv_method io_query = lo_query io_model = lo_model
+        is_set = ls_set iv_service_url = lv_service_url iv_body = iv_body it_headers = it_headers ).
+      RETURN.
+    ENDIF.
     lv_context = context( io_query = lo_query is_set = ls_set iv_base = lv_base ).
     IF lo_query->ms_request-key_string IS NOT INITIAL.
       lo_dpc->get_entity( EXPORTING iv_entity_name = ls_set-entity_type iv_entity_set_name = ls_set-name
@@ -163,11 +241,11 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lv_row = zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_set io_model = lo_model
         it_select = lo_query->mt_select it_nav = lt_nav ).
       lv_context = lv_context && '/$entity'.
-      rs_response-body = '{"@odata.context":' && zcl_osd_v4_json=>quote( lv_context ).
-      IF lv_row <> '{}'.
-        rs_response-body = rs_response-body && ',' && substring( val = lv_row off = 1 ).
-      ELSE.
-        rs_response-body = rs_response-body && '}'.
+      rs_response-body = zcl_osd_v4_json=>document( iv_context = lv_context iv_entity = lv_row ).
+      lv_etag = zcl_osd_v4_json=>etag( is_data = <ls_row> is_set = ls_set io_model = lo_model ).
+      IF lv_etag IS NOT INITIAL.
+        zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'ETag' iv_value = lv_etag
+          CHANGING ct_headers = rs_response-headers ).
       ENDIF.
       RETURN.
     ENDIF.
