@@ -41,5 +41,9 @@
   "P3-freestyle-check": "pass",
   "P4-ddic-metadata": "pass",
   "P5-ddic-rows": "pass",
-  "A1-inactiveobjects": "pass"
+  "A1-inactiveobjects": "pass",
+  "X1-activate-active": "pass",
+  "X2-activate-syntax-error": "pass",
+  "X3-unit-pass": "pass",
+  "X4-unit-failure": "pass"
 }

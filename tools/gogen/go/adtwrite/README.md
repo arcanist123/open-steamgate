@@ -23,7 +23,8 @@ retain their 30-character limit. New class active skeletons are retained for the
 process lifetime;
 a restart requires rebuilding to retain their active version. Source files and
 metadata remain on disk. No executable generation is activated by these writes.
-Activation and all other HOST operations retain their existing refusals.
+Activation (`go/adtactivate`) and ABAP Unit (`go/adtunit`) are separate HOST continuations; see
+docs/osgo-adt-activation.md.
 
 Run `go test ./adtwrite ./objstore` and `go vet ./adtwrite ./objstore` from
 the Go module. The HTTP W1-W5 cases exercise the generated host integration;

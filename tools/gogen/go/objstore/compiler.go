@@ -36,7 +36,9 @@ func compilerInput(ix *storeIndex, typ, name, version string) (CompilerInput, er
 	in.Target = e.File
 	for _, file := range storeFilesOf(e) {
 		if version == "active" {
-			if _, proven := storeActiveBytes(file); proven {
+			// an overlay without a build snapshot (a created or newly
+			// activated file) has no path for the compiler to read
+			if _, proven := storeActiveBytes(file); proven && storeState.cfg.Active[file] != "" {
 				in.Files = append(in.Files, storeState.cfg.Active[file])
 				in.Expected[storeState.cfg.Active[file]] = storeState.cfg.Built[file]
 				in.Logical = append(in.Logical, file)
