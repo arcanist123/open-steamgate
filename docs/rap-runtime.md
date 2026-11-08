@@ -185,9 +185,15 @@ read-only properties (`readonly : update` as not updatable), and each
 instance action a V2 function import named after the action: `POST`, its
 parameters the keys, its result the entity, `sap:action-for` the entity type.
 An exposed entity without a behavior is a read-only set. Every property is
-labelled (the CDS label, else its name), because segw-gen declares the text
-element container `GC_INCL_NAME` only for labelled properties while a
-function import's own text element needs it too.
+labelled (the CDS label, else its name), the title a Fiori client shows.
+The classes are `ZCL_<service>_MPC/_DPC(_EXT)` for a name of up to 18
+characters; a longer one (at most 26) keeps 12 and adds 6 hex characters of
+its hash, so two services sharing a prefix get classes of their own.
+
+segw-gen (and its ABAP twin `ZCL_STG_SEGW_GEN`) declared the text element
+container `GC_INCL_NAME` only when a property had a label, while a function
+import and its parameters always name it: a model with an action and no
+labelled property did not compile. Both now declare it for any of the three.
 
 A RAW16 UUID key is served as a 32-character hex `Edm.String`
 (`Note('333C0064...')`): the V2 wire has no `Edm.Guid` conversion (hyphenated
@@ -225,6 +231,12 @@ Two rules a client meets:
   unchanged on update it is no write and is dropped, so a client that sends
   the whole entity (PUT, or a create carrying the empty managed key) is not
   refused for it.
+- **PUT replaces, PATCH and MERGE merge.** On PUT an editable field the body
+  does not give is written initial (flagged in `%control`, so the mandatory
+  check and the validations see it: a PUT without `NoteText` is 400 and the
+  row stays), and a read-only field keeps its value; on PATCH and MERGE only
+  the given fields change. `zcl_stg_entry_provider->merges( )` tells the two
+  apart, and `zif_stg_sadl_behavior~update` takes `iv_replace`.
 - **Keys** come from the URL on update and delete, from the function
   import's parameters for an action, and are drawn by managed numbering on
   create; the created key is taken from MAPPED.

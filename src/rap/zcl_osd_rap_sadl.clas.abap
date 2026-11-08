@@ -432,6 +432,7 @@ CLASS zcl_osd_rap_sadl IMPLEMENTATION.
     DATA lr_failed   TYPE REF TO data.
     DATA lr_reported TYPE REF TO data.
     DATA lx_error    TYPE REF TO zcx_osd_rap.
+    DATA lv_sent     TYPE abap_bool.
     FIELD-SYMBOLS <lt_tab>      TYPE STANDARD TABLE.
     FIELD-SYMBOLS <ls_line>     TYPE any.
     FIELD-SYMBOLS <lv_value>    TYPE any.
@@ -450,7 +451,14 @@ CLASS zcl_osd_rap_sadl IMPLEMENTATION.
               CHANGING  cs_to     = <ls_line> ).
     LOOP AT ls_entity-fields INTO ls_field WHERE key = abap_false.
       READ TABLE it_fields TRANSPORTING NO FIELDS WITH KEY table_line = ls_field-name.
-      IF sy-subrc <> 0.
+      IF sy-subrc = 0.
+        lv_sent = abap_true.
+      ELSE.
+        lv_sent = abap_false.
+      ENDIF.
+* PATCH and MERGE change what they give; PUT replaces, so an editable field
+* it does not give is written initial, and a read-only one keeps its value
+      IF lv_sent = abap_false AND ( iv_replace = abap_false OR ls_field-readonly IS NOT INITIAL ).
         CONTINUE.
       ENDIF.
 * a read-only field sent as it is is no write (PUT sends the whole entity);

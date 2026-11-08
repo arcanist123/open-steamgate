@@ -105,6 +105,13 @@ CLASS zcl_stg_sadl_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_
       RETURNING
         VALUE(rt_fields) TYPE string_table.
 
+* PUT replaces the entity, PATCH and MERGE lay values over it
+    METHODS replaces
+      IMPORTING
+        io_data_provider  TYPE REF TO /iwbep/if_mgw_entry_provider
+      RETURNING
+        VALUE(rv_replace) TYPE abap_bool.
+
 * the row as the view reads it, found by the keys in CS_ROW
     METHODS read_row
       IMPORTING
@@ -678,7 +685,8 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
                            is_row     = <ls_row>
                            is_current = <ls_current>
                            it_fields  = payload_fields( io_data_provider = io_data_provider
-                                                        is_entity        = ls_entity ) ).
+                                                        is_entity        = ls_entity )
+                           iv_replace = replaces( io_data_provider ) ).
       read_row( EXPORTING is_entity = ls_entity
                 CHANGING  cs_row    = <ls_row> ).
       es_data = <ls_row>.
@@ -819,6 +827,21 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
         LOOP AT is_entity-fields INTO ls_field.
           APPEND to_upper( ls_field-name ) TO rt_fields.
         ENDLOOP.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD replaces.
+    DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
+
+* another provider: every field counts as given (payload_fields), which
+* replaces the entity whichever this flag says
+    TRY.
+        lo_provider ?= io_data_provider.
+        IF lo_provider->merges( ) = abap_false.
+          rv_replace = abap_true.
+        ENDIF.
+      CATCH cx_sy_move_cast_error.
+        rv_replace = abap_true.
     ENDTRY.
   ENDMETHOD.
 

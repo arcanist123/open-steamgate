@@ -58,6 +58,20 @@ describe("RAP service definitions (R2c generator)", () => {
     ]) assert.ok(yaml.split("\n").includes(line), `${line}\n---\n${yaml}`);
   });
 
+  it("gives services sharing a 12-character prefix classes of their own", () => {
+    const files = demo().filter(f => !f.filename.endsWith(".srvd.srvdsrv") && !f.filename.endsWith(".srvd.xml"));
+    for (const name of ["Z123456789012345678A", "Z123456789012345678B", "ZUI_RAP_NOTE"]) {
+      files.push({filename: `${name.toLowerCase()}.srvd.srvdsrv`, contents: `define service ${name} { expose ZI_RAP_NOTE as Note; }`});
+    }
+    const {outputs} = generate(files);
+    const classes = Object.entries(outputs).filter(([f]) => f.endsWith(".stg.yaml"))
+      .map(([, yaml]) => yaml.split("\n").find(l => l.startsWith("classes: ")));
+    assert.equal(classes.length, 3);
+    assert.equal(new Set(classes).size, 3, classes.join("\n"));
+    assert.ok(classes.includes("classes: {mpc: ZCL_ZUI_RAP_NOTE_MPC, mpc_ext: ZCL_ZUI_RAP_NOTE_MPC_EXT, dpc: ZCL_ZUI_RAP_NOTE_DPC, dpc_ext: ZCL_ZUI_RAP_NOTE_DPC_EXT}"));
+    for (const c of classes) for (const name of c.match(/ZCL_\w+/g)) assert.ok(name.length <= 30, name);
+  });
+
   it("serves an entity without behavior read-only", () => {
     const files = demo().filter(f => !f.filename.includes(".bdef.") && !f.filename.startsWith("zbp_"));
     const yaml = generate(files).outputs["zui_rap_note.stg.yaml"];
@@ -139,6 +153,22 @@ describe("RAP managed BO over OData (R2c wire)", function () {
       body: JSON.stringify({NoteId: id, NoteText: "put text", Status: current.Status})});
     assert.equal(res.status, 204, JSON.stringify(res.body));
     assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.NoteText, "put text");
+  });
+
+  it("replaces on PUT: an omitted editable field is initial, so the mandatory text is refused", async () => {
+    const id = (await create("original text")).body.d.NoteId;
+    for (const body of [{NoteId: id, Status: "N"}, {}]) {
+      const res = await call(`${v2}/Note('${id}')`, {method: "PUT", headers: write, body: JSON.stringify(body)});
+      assert.equal(res.status, 400, JSON.stringify(body));
+      assert.match(res.body.error.message.value, /NOTETEXT is mandatory/);
+      const row = (await call(`${v2}/Note('${id}')?$format=json`)).body.d;
+      assert.deepEqual([row.NoteText, row.Status], ["original text", "N"]);
+    }
+    // the read-only status, omitted, keeps its value
+    const res = await call(`${v2}/Note('${id}')`, {method: "PUT", headers: write, body: JSON.stringify({NoteText: "replaced text"})});
+    assert.equal(res.status, 204, JSON.stringify(res.body));
+    const row = (await call(`${v2}/Note('${id}')?$format=json`)).body.d;
+    assert.deepEqual([row.NoteText, row.Status], ["replaced text", "N"]);
   });
 
   it("runs the instance action as a V2 function import", async () => {

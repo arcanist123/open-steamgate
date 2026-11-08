@@ -30,13 +30,16 @@ INTERFACE zif_stg_sadl_behavior PUBLIC.
       /iwbep/cx_mgw_tech_exception.
 
 * change one instance and save it. IS_ROW: the keys and the values,
-* IS_CURRENT: the instance as it is before the request
+* IS_CURRENT: the instance as it is before the request. IV_REPLACE (PUT):
+* an editable field the request did not give becomes initial; otherwise
+* (PATCH, MERGE) only the given fields change
   METHODS update
     IMPORTING
       iv_entity  TYPE csequence
       is_row     TYPE any
       is_current TYPE any
       it_fields  TYPE string_table
+      iv_replace TYPE abap_bool DEFAULT abap_false
     RAISING
       /iwbep/cx_mgw_busi_exception
       /iwbep/cx_mgw_tech_exception.

@@ -529,4 +529,23 @@ describe("the hand-written demo MPC and the generated one declare the same types
     expect(shared.length, "no shared type at all: this would pass on nothing").to.be.greaterThan(2);
     for (const k of shared) expect(gen[k], `${k} differs`).to.deep.equal(hand[k]);
   });
+
+  it("declares the text element container for an action when no property is labelled", () => {
+    const r = compile(`project: ZSTG_INCL
+service: ZSTG_INCL_SRV
+entities:
+  Thing:
+    keys: [Id]
+    properties:
+      Id: String(4)
+functions:
+  Touch:
+    method: POST
+    returns: {entity: Thing}
+    parameters: {Id: String(4)}
+`);
+    const mpc = Object.entries(r.classes).find(([f]) => /_mpc\.clas\.abap$/.test(f))[1];
+    expect(mpc).to.contain("iv_text_element_container = gc_incl_name");
+    expect(mpc).to.match(/constants GC_INCL_NAME type STRING/);
+  });
 });

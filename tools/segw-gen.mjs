@@ -693,7 +693,7 @@ ${types}
 protected section.
 private section.
 `;
-  if (textElements.length > 0) {
+  if (textElements.length > 0 || m.functionImports.some((fi) => fi.textElement || fi.parameters.some((fp) => fp.textElement))) { // each names it
     s += `\n  constants GC_INCL_NAME type STRING value '${cls.padEnd(30, "=")}CP' ##NO_TEXT.\n`;
   }
   s += "\n";

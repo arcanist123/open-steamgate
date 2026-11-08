@@ -36,6 +36,12 @@ CLASS zcl_stg_entry_provider DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rt_fields) TYPE string_table.
 
+* whether the request lays its values over the entity as it is (PATCH,
+* MERGE: a base was set) rather than replacing it (PUT, POST)
+    METHODS merges
+      RETURNING
+        VALUE(rv_merges) TYPE abap_bool.
+
     CLASS-METHODS convert_value
       IMPORTING
         iv_value    TYPE string
@@ -223,6 +229,12 @@ CLASS zcl_stg_entry_provider IMPLEMENTATION.
         APPEND to_upper( ls_property-fieldname ) TO rt_fields.
       ENDIF.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD merges.
+    IF mr_base IS BOUND.
+      rv_merges = abap_true.
+    ENDIF.
   ENDMETHOD.
 
   METHOD set_base.
