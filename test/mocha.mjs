@@ -149,7 +149,7 @@ describe("wire", () => {
     const injected = encodeURIComponent("'x'' OR ''1''=''1'");
     expect((await fetch(`${BASE}/TravelSet(${injected})?$format=json`)).status).to.equal(404);
     const merged = await fetch(`${BASE}/TravelSet(${injected})`, {method: "MERGE", headers, body: JSON.stringify({Description: "oracle"})});
-    expect(merged.status).to.be.at.least(400);
+    expect(merged.status).to.equal(400);
     const all = await (await fetch(`${BASE}/TravelSet?$format=json`)).json();
     expect(all.d.results.map((t) => t.Description)).to.not.include("oracle");
     expect(all.d.results.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");

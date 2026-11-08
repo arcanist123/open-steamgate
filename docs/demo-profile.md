@@ -1,6 +1,6 @@
 # Where the demo's time goes
 
-Current build pin: `local/osd-build-3c` at `1d78e366254537c88841aa6d5beebd3547ea22c9` (2.14.3, parser 2.120.73).
+Current build pin: `local/osd-build-3d` at `9792b3c879972450aeb99b89747545a51b589522` (2.14.3, parser 2.120.73).
 The measurements below are historical snapshots; see [the pin move report](transpiler-pin-2.md).
 
 *Backlog E.7, measured 2026-09-17. A 16-core x86-64 workstation, Node 26,

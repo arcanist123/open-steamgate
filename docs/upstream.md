@@ -8,7 +8,7 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-3c` at `1d78e366254537c88841aa6d5beebd3547ea22c9`
+The current transpiler and runtime build is `local/osd-build-3d` at `9792b3c879972450aeb99b89747545a51b589522`
 (2.14.3, parser 2.120.73): `local/osd-build-3b` (`f34e9bf4`) plus the Open SQL
 host-variable escape (ANOMALY-2026-11-08-sql-host-variable-inlined). [The pin move report](transpiler-pin-2.md) lists
 the retained and dropped fork commits. The dossier below is the historical snapshot. Every one of those fixes has an entry
