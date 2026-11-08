@@ -6,6 +6,7 @@ package adtpreview
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -21,30 +22,46 @@ func notAllowed(word string) error {
 }
 
 var (
-	wordAtStart   = regexp.MustCompile(`^\w+`)
-	dollarTag     = regexp.MustCompile(`^\$(?:[A-Za-z_]\w*)?\$`)
-	escapedPrefix = regexp.MustCompile(`(?i)(?:^|\W)E$`)
-	selectWord    = regexp.MustCompile(`(?i)^select\b`)
+	wordAtStart = regexp.MustCompile(`^\w+`)
+	selectWord  = regexp.MustCompile(`(?i)^select\b`)
 )
 
-func hasAt(text []rune, i int, s string) bool {
-	return i+len(s) <= len(text) && string(text[i:i+len(s)]) == s
-}
-
+// indexFrom is the index of s in text at or after from, or -1, without
+// copying the rest of the text (the guard stays linear).
 func indexFrom(text []rune, s string, from int) int {
-	if from > len(text) {
-		return -1
-	}
-	if i := strings.Index(string(text[from:]), s); i >= 0 {
-		return from + len([]rune(string(text[from:])[:i]))
+	pattern := []rune(s)
+	for i := from; i+len(pattern) <= len(text); i++ {
+		match := true
+		for k, r := range pattern {
+			if text[i+k] != r {
+				match = false
+				break
+			}
+		}
+		if match {
+			return i
+		}
 	}
 	return -1
 }
 
-// SingleSelect admits one SELECT: comments become blanks, quoted text,
-// identifiers and dollar-quoted strings are opaque, and nothing may follow
-// a ';'. It returns the statement without comments, trimmed.
+// MaxStatement caps the text a preview accepts, in bytes. Node has no cap;
+// osgo answers inside the work-process lock, so a guard over an unbounded
+// text would hold every other request.
+const MaxStatement = 64 << 10
+
+// SingleSelect admits one SELECT, lexed as SQLite lexes it (the Node guard
+// also knows PostgreSQL's dollar quotes and E-prefixed escapes, which SQLite does
+// not have and which would hide a statement from this guard): comments
+// become blanks, quoted text and identifiers are opaque, and nothing may
+// follow a ';'. It returns the statement without comments, trimmed.
 func SingleSelect(sql string) (string, error) {
+	if strings.ContainsRune(sql, 0) {
+		return "", notAllowed("a NUL character")
+	}
+	if len(sql) > MaxStatement {
+		return "", &Refusal{Code: "NOT_ALLOWED", Message: "the statement is longer than " + strconv.Itoa(MaxStatement) + " bytes, the most a data preview accepts here"}
+	}
 	text := []rune(strings.TrimSpace(sql))
 	out := []rune{}
 	ended := false
@@ -69,23 +86,12 @@ func SingleSelect(sql string) (string, error) {
 			continue
 		}
 		if c == '/' && next == '*' {
-			depth := 1
-			i += 2
-			for i < len(text) && depth > 0 {
-				switch {
-				case hasAt(text, i, "/*"):
-					depth++
-					i += 2
-				case hasAt(text, i, "*/"):
-					depth--
-					i += 2
-				default:
-					i++
-				}
-			}
-			if depth > 0 {
+			// SQLite's block comments do not nest: the first */ ends one.
+			end := indexFrom(text, "*/", i+2)
+			if end < 0 {
 				return "", notAllowed("unterminated comment")
 			}
+			i = end + 2
 			out = append(out, ' ')
 			continue
 		}
@@ -101,18 +107,6 @@ func SingleSelect(sql string) (string, error) {
 			i++
 			continue
 		}
-		if c == '$' {
-			if tag := dollarTag.FindString(string(text[i:])); tag != "" {
-				n := len([]rune(tag))
-				end := indexFrom(text, tag, i+n)
-				if end < 0 {
-					return "", notAllowed("unterminated string")
-				}
-				out = append(out, text[i:end+n]...)
-				i = end + n
-				continue
-			}
-		}
 		if c == '\'' || c == '"' || c == '`' || c == '[' {
 			closing := c
 			if c == '[' {
@@ -120,17 +114,13 @@ func SingleSelect(sql string) (string, error) {
 			}
 			start := i
 			i++
-			// PostgreSQL E'...' allows escaped quotes; ordinary SQL doubles them.
-			escaped := c == '\'' && escapedPrefix.MatchString(string(out))
+			// SQLite has no backslash escapes and no dollar quoting: a quote
+			// is doubled to stay inside, and [...] ends at its first ].
 			for i < len(text) {
-				if escaped && text[i] == '\\' {
-					i += 2
-					continue
-				}
 				ch := text[i]
 				i++
 				if ch == closing {
-					if i < len(text) && text[i] == closing {
+					if closing != ']' && i < len(text) && text[i] == closing {
 						i++
 						continue
 					}

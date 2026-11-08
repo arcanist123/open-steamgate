@@ -54,10 +54,17 @@ func user(headers [][2]string) string {
 	return "DEVELOPER"
 }
 
+// uriOf's collections (osd-store.mjs TYPES[type].adt) and ADT_TYPE, both of
+// tools/adt-documents.mjs, in full: a type without a collection has no URI.
 var collections = map[string]string{"CLAS": "oo/classes", "INTF": "oo/interfaces", "PROG": "programs/programs",
-	"INCL": "programs/includes", "DDLS": "ddic/ddl/sources", "SRVD": "ddic/srvd/sources"}
+	"FUGR": "functions/groups", "TABL": "ddic/tables", "DTEL": "ddic/dataelements", "DOMA": "ddic/domains",
+	"TTYP": "ddic/tabletypes", "DDLS": "ddic/ddl/sources", "SRVD": "ddic/srvd/sources", "VIEW": "ddic/views",
+	"SHLP": "ddic/searchhelps", "MSAG": "messageclass", "SICF": "sicf", "SAPC": "apc", "SAMC": "amc",
+	"DEVC": "packages", "INCL": "programs/includes"}
 var adtTypes = map[string]string{"CLAS": "CLAS/OC", "INTF": "INTF/OI", "PROG": "PROG/P", "INCL": "PROG/I",
-	"DDLS": "DDLS/DF", "SRVD": "SRVD/SRV"}
+	"FUGR": "FUGR/F", "TABL": "TABL/DT", "STRU": "TABL/DS", "DTEL": "DTEL/DE", "DOMA": "DOMA/DD",
+	"TTYP": "TTYP/DA", "VIEW": "VIEW/DV", "DDLS": "DDLS/DF", "SRVD": "SRVD/SRV", "SHLP": "SHLP/DH",
+	"MSAG": "MSAG/N", "SICF": "SICF", "SAPC": "SAPC", "SAMC": "SAMC", "DEVC": "DEVC/K"}
 
 var escaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
 

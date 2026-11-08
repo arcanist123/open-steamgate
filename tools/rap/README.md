@@ -4,13 +4,15 @@
 `tokenize.mjs` supplies source spans and reuses abaplint token/position classes.
 `bdef-gen.mjs` generates ordinary ABAP types under `gen/rap/`;
 `lower-derived.mjs` lowers explicit derived declarations in the source loader.
-There is no runtime in this folder.
+`rap-runtime-gen.mjs` (called by `bdef-gen.mjs`) writes the typed adapter of
+each managed BDEF and `ZCL_OSD_RAP_REGISTRY` for the ABAP runtime in
+`src/rap/` ([R2](../../docs/rap-runtime.md)).
 
 ```
 node tools/rap/bdef-parse.mjs example.bdef.asbdef --json
 node tools/rap/bdef-parse.mjs --corpus corpus-directory
 node tools/rap/bdef-gen.mjs
-npx mocha test/rap-bdef-parse.mjs test/rap-derived-types.mjs
+npx mocha test/rap-bdef-parse.mjs test/rap-derived-types.mjs test/rap-runtime-gen.mjs
 ```
 
 Import `parseBdef(source)` or `corpusCounts(directory)` without CLI side effects.

@@ -8,6 +8,7 @@ import {parseDDLS} from "../cds2ddic.mjs";
 import {contentFoldersOf, winningByLayer} from "../osd-packs.mjs";
 import {libraryPath} from "../osd-lib-path.mjs";
 import {runsAs} from "../osd-main.mjs";
+import {runtimeOutputs} from "./rap-runtime-gen.mjs";
 
 const upper = s => s.toUpperCase();
 const ident = s => /^[A-Z_%][A-Z0-9_%]*$/i.test(s);
@@ -63,10 +64,10 @@ export function generate(files, dependencies = []) {
       if (!f.virtual && !sourceType) throw new Error(`Unresolved CDS field ${name}.${f.name}`);
       const abap = f.abapType ?? sourceType;
       if (!ident(f.name) || !abap || /todo|unknown|void/i.test(abap)) throw new Error(`Unresolved CDS field ${name}.${f.name}`);
-      return {name: f.name.toLowerCase(), type: abap, key: f.key};
+      return {name: f.name.toLowerCase(), type: abap, key: f.key, base: f.base};
     });
   };
-  const outputs = {}, bindings = {};
+  const outputs = {}, bindings = {}, plans = [];
   const bind = (form, kind, ref, type) => {
     const key = upper(`${form} FOR ${kind} ${ref}`);
     if (bindings[key] && bindings[key] !== type) throw new Error(`Ambiguous RAP reference ${ref}`);
@@ -80,10 +81,13 @@ export function generate(files, dependencies = []) {
     const iface = `zif_rap_${digest(upper(root))}`;
     let body = `INTERFACE ${iface} PUBLIC.\n`;
     const responses = new Map();
+    const plan = {root, iface, model, entities: []};
+    plans.push(plan);
     for (const [index, entity] of model.entities.entries()) {
       if (entity.associations.length || entity.functions.length || entity.determineActions.length) throw new Error(`${entity.entity}: associations/functions/determine actions are outside R1`);
       const p = `e${index}`;
       const fields = fieldsOf(entity.entity);
+      plan.entities.push({entity, prefix: p, fields, source: views.get(upper(entity.entity)).source});
       if (entity.persistentTable && !reg.getObject("TABL", entity.persistentTable)) throw new Error(`${entity.entity}: missing persistent table ${entity.persistentTable}`);
       for (const mapping of entity.mappings) {
         const table = reg.getObject("TABL", mapping.table);
@@ -103,7 +107,7 @@ export function generate(files, dependencies = []) {
       body += struct(`${p}_control`, fields.map(f => [f.name, "x LENGTH 1"]));
       // %data includes all CDS fields with a key group; %tky shares its key fields.
       body += included(`${p}_data`, `${p}_tky`, "%tky", pairs(fields.filter(f => !f.key)));
-      body += struct(`${p}_fail`, [["cause", "x LENGTH 1"]]);
+      body += struct(`${p}_fail`, [["cause", "i"]]);
       const opFields = entity.operations.map(o => [`%${o.kind}`, "x LENGTH 1"]);
       if (entity.actions.length) {
         body += struct(`${p}_actions`, entity.actions.map(a => [a.name.toLowerCase(), "x LENGTH 1"]));
@@ -164,7 +168,7 @@ export function generate(files, dependencies = []) {
     }
     outputs[`${iface}.intf.abap`] = body + "ENDINTERFACE.\n";
   }
-  return {outputs, bindings};
+  return {outputs, bindings, plans};
 }
 
 export function main() {
@@ -179,11 +183,16 @@ export function main() {
     const dir = join(libraryPath(root, name), "src");
     deps.push(...walk(dir).filter(f => /\.(tabl|view|dtel|doma)\.xml$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")})));
   }
-  const {outputs, bindings} = generate(files, deps);
+  const {outputs, bindings, plans} = generate(files, deps);
+  // the runtime adapters read the behavior pools named by the BDEFs (R2)
+  const pools = new Set(plans.map(p => (p.model.implementationClass ?? "").toLowerCase()).filter(Boolean));
+  const poolFiles = paths.filter(f => pools.has(basename(f).toLowerCase().split(".")[0]) && /\.clas\.(locals_imp\.|locals_def\.)?abap$/i.test(f))
+    .map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+  Object.assign(outputs, runtimeOutputs(plans, poolFiles));
   mkdirSync(out, {recursive: true});
   outputs["bindings.json"] = JSON.stringify(bindings, null, 2) + "\n";
   for (const file of readdirSync(out)) if (!(file in outputs)) rmSync(join(out, file), {recursive: true, force: true});
   for (const [file, contents] of Object.entries(outputs)) writeFileSync(join(out, file), contents);
-  console.log(`bdef-gen: ${Object.keys(outputs).length - 1} type interfaces`);
+  console.log(`bdef-gen: ${Object.keys(outputs).filter(f => f.endsWith(".intf.abap")).length} type interfaces, ${Object.keys(outputs).filter(f => f.endsWith(".clas.abap")).length} runtime classes`);
 }
 if (runsAs("bdef-gen.mjs")) main();

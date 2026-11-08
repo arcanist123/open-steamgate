@@ -42,6 +42,7 @@ Named ABAP includes preserve both direct access (`row-noteid`) and component
 groups (`row-%key-noteid`). `%key` groups CDS keys, `%pky` adds `%pid` for late
 numbering, and `%tky` adds `%is_draft` for draft-enabled definitions. `%data`
 groups the entity payload. Flags and field-control markers use `x LENGTH 1`;
+`%fail-cause` is an integer (the `if_abap_behv=>cause` values of R2);
 content IDs use `c LENGTH 128`, and preliminary IDs use `x LENGTH 16`.
 
 | Kind | Row contents beyond identity |
@@ -96,11 +97,12 @@ outside the explicit lowering surface. A BDEF can describe draft identity or
 late numbering for compilation; this supplies no draft or numbering execution.
 
 `src/rap_demo/` is original source: a managed root over `ZRAP_NOTE`, CRUD,
-Approve, SetStatus and CheckText. Its pool's `lhc_note` uses explicit derived
-method parameter declarations. Bodies are intentionally minimal. Implicit
-`FOR MODIFY` / `FOR DETERMINE` / `FOR VALIDATE` handler signatures, implicit
-response parameters, handler inheritance/dispatch, persistence and transactions
-are not implemented. R2 supplies the managed runtime; R1 proves compilation.
+Approve, SetStatus, Normalize and CheckText. Its pool's `lhc_note` uses explicit
+derived method parameter declarations. Implicit `FOR MODIFY` /
+`FOR DETERMINE` / `FOR VALIDATE` handler signatures and implicit response
+parameters are not implemented. R1 proves compilation; the managed runtime
+(handler dispatch, buffer, save sequence, persistence) is R2,
+[docs/rap-runtime.md](rap-runtime.md).
 
 Option b would require abaplint to resolve BDEF/CDS dependencies into concrete
 `StructureType`/`TableType` objects for explicit forms and implicit method

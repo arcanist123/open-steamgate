@@ -55,7 +55,10 @@ function fixture() {
   return {root, clone, ref};
 }
 
-describe("local transpiler pin", () => {
+describe("local transpiler pin", function () {
+  // These run git and fake npm synchronously; on a loaded CI runner one case
+  // took over mocha's default 2 s three times on 2026-11-08 (#859, #861, #865).
+  this.timeout(30000);
   it("refuses temporary paths, scratchpads and symlinks into temporary storage", () => {
     assert.throws(() => pinPath("ref", {TRANSPILER: "/tmp/transpiler"}), /persistent/);
     assert.throws(() => pinPath("ref", {TRANSPILER: resolve("scratchpad/transpiler")}), /persistent/);

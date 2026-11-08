@@ -76,6 +76,10 @@ export class NotWarm extends Error {
 //   - osd-gui-convert (2026-09-26): a report's source (*.prog.abap), which
 //     the rule below already sends cold -- only a class or an interface is
 //     ever warm;
+//   - rap/bdef-gen (2026-11-08, R2): a behavior pool's local handler and
+//     saver classes, their methods and parameter names, which bind the
+//     runtime adapter -- any class inheriting CL_ABAP_BEHAVIOR_HANDLER or
+//     _SAVER is cold;
 //   - cds2ddic, stg-compile, segw-*, osd-bsp-registry, osd-fm-registry:
 //     other object types (DDLS, TABL, IWSV, WAPA, FUGR, YAML), and which
 //     class files exist.
@@ -111,6 +115,9 @@ export function warmRule({path, before, after, amdpText = ""}) {
   }
   if (/\bTYPE\s+(TABLE|STRUCTURE|RESPONSE|REQUEST)\s+FOR\b/i.test(before + "\n" + after)) {
     return `${name}: RAP derived types are lowered during a cold build`;
+  }
+  if (/\bINHERITING\s+FROM\s+cl_abap_behavior_(handler|saver)\b/i.test(before + "\n" + after)) {
+    return `${name}: a behavior pool's handler or saver (rap-runtime-gen reads its methods)`;
   }
   if (AMDP.test(before) || AMDP.test(after)) {
     return `${name}: an AMDP body (amdp-gen reads it)`;
