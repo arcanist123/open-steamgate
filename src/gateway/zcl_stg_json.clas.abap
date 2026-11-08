@@ -221,10 +221,10 @@ CLASS zcl_stg_json IMPLEMENTATION.
     ENDWHILE.
   ENDMETHOD.
 
+  METHOD trim_blanks.
 * the JSON blanks (space, tab, CR, LF) off both ends of a token. SHIFT
 * RIGHT DELETING TRAILING SPACE moved a trailing blank to the front ("9 "
 * became " 9", which failed the number check) and left a newline alone
-  METHOD trim_blanks.
     rv_text = iv_text.
     REPLACE ALL OCCURRENCES OF REGEX '^\s+|\s+$' IN rv_text WITH ``.
   ENDMETHOD.
