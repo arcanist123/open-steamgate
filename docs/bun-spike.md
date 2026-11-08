@@ -236,6 +236,15 @@ Six walls, in the order they came, each measured before it was closed.
    share one runtime object (`mod.runtimeRef === runtime.ABAP`). The only
    other bare import generated code makes, `../test/setup.mjs` by path, is
    intercepted by `onResolve` and answered from the bundle the same way.
+   The same wall came back on 2026-11-08 for the one other module a
+   checkout-mode binary loads from disk: the gui converter
+   (`.local/lars/open-abap-gui/converter/src/api.mjs`, not bundled because
+   a checkout build must succeed without `.local/lars`) imports
+   `@abaplint/core` and two of its files by name, and `build/osd up` died
+   in `osd-gui-convert` with "Cannot find module '@abaplint/core'". Every
+   package such a module imports is now a `build.module` of `HOST_PACKAGES`
+   in `bin/osd.mjs`, `test/osd-binary.mjs` compares that list with the
+   converter's imports, and `osd doctor` loads the converter and says so.
 2. **`%23` in a relative specifier**, the part-one anomaly, is alive in the
    binary's resolver for external files. Closed by the same plugin:
    `onResolve({filter: /%(23|25)/})` decodes against the importer.

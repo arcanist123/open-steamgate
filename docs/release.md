@@ -171,9 +171,12 @@ still build and upload to a draft without waiting for tagged tests.
 
 `npm run binary` defaults to checkout mode: it builds from a fresh checkout
 after `npm ci`, without `.local/lars` or an embedded system seed. Run that
-binary from an open-steamgate checkout. `--seed` (or `OSD_BINARY_SEED=1`)
-requires the bootstrapped libraries and packs and embeds the seed. Run
-`osd doctor` to see which mode a binary contains.
+binary from a bootstrapped open-steamgate checkout (`npm run bootstrap`):
+the gui converter is loaded from the checkout's `.local/lars/open-abap-gui`
+at run time, with its `@abaplint/core` answered by the binary's own copy.
+`--seed` (or `OSD_BINARY_SEED=1`) requires the bootstrapped libraries and
+packs and embeds the seed. Run `osd doctor` to see which mode a binary
+contains and whether the converter loads.
 
 **Every binary is checked by its content before it is uploaded**
 (`scripts/release-verify.mjs`, 2026-09-30): the header must name the target

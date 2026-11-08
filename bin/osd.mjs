@@ -17,18 +17,25 @@
 // generated after the binary was built imports "@abaplint/runtime" by name
 // and "../test/setup.mjs" by path, and neither is on disk beside it: a Bun
 // runtime plugin answers both with the binary's own copies, so the
-// generated code and the host run one runtime. Second, every bundled
+// generated code and the host run one runtime. The gui converter of a
+// checkout-mode binary is the other module loaded from disk at run time
+// (.local/lars/open-abap-gui, which a checkout build must not depend on),
+// and it imports @abaplint/core by name: answered the same way, from the
+// binary's one copy (HOST_PACKAGES below). Second, every bundled
 // module shares one import.meta.url, so the "am I the script being run"
 // guards of the tools would all fire on import: argv[1] is set to a name
 // no module ends with, and the modes are dispatched here.
 import * as runtime from "@abaplint/runtime";
 import * as core from "@abaplint/core";
+import * as coreSyntax from "@abaplint/core/build/src/abap/5_syntax/syntax.js";
+import * as coreParser from "@abaplint/core/build/src/abap/abap_parser.js";
 import {Transpiler, Chunk} from "@abaplint/transpiler";
 import {config as validationConfig} from "@abaplint/transpiler/build/src/validation.js";
 import {CallFunctionTranspiler} from "@abaplint/transpiler/build/src/statements/call_function.js";
 import * as guiConverter from "../.local/lars/open-abap-gui/converter/src/api.mjs";
 import * as setup from "../test/setup.mjs";
 import {pathToFileURL} from "node:url";
+import {existsSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {createRequire} from "node:module";
 import {buildIdentity} from "../tools/osd-transpiler.mjs";
@@ -87,6 +94,24 @@ const sea = (() => {
 })();
 process.env.OSD_SELF = JSON.stringify(compiled || sea ? [process.execPath] : [process.execPath, resolve(process.argv[1])]);
 
+// Every package a module loaded from disk at run time imports by name, and
+// the binary's own copy that answers it: a compiled binary resolves no bare
+// specifier from any node_modules and onResolve never sees one
+// (docs/bun-spike.md part three, wall 1), so each one is a build.module.
+// Generated code imports the runtime; the gui converter, loaded from
+// .local/lars/open-abap-gui in checkout mode, imports the core and two of
+// its files by their paths. test/osd-binary.mjs reads this list and checks
+// it against what the converter actually imports, so a lib bump that adds
+// one fails there and not in `osd up`. It stays above the name restoration:
+// test/vscode-abap-debug-view.mjs bundles that loop alone, sliced from it to
+// the plugin below.
+const HOST_PACKAGES = {
+  "@abaplint/runtime": runtime,
+  "@abaplint/core": core,
+  "@abaplint/core/build/src/abap/5_syntax/syntax.js": coreSyntax,
+  "@abaplint/core/build/src/abap/abap_parser.js": coreParser,
+};
+
 // The bundle renames a top-level class whose name collides with another
 // (types.Date became Date2, types.String String2, measured with `osd
 // doctor`), and the runtime tells types apart by constructor.name in some
@@ -103,7 +128,9 @@ if (typeof Bun !== "undefined") {
   Bun.plugin({
     name: "osd-host",
     setup(build) {
-      build.module("@abaplint/runtime", () => ({exports: runtime, loader: "object"}));
+      for (const [name, exports] of Object.entries(HOST_PACKAGES)) {
+        build.module(name, () => ({exports, loader: "object"}));
+      }
       build.onResolve({filter: /\/test\/setup\.mjs$/}, () => ({path: "osd:setup", namespace: "osd-host"}));
       // the transpiler writes a namespace as %23 in an import and as # in
       // the file name (a URL against a path), and Bun's resolver takes the
@@ -269,6 +296,35 @@ switch (mode) {
     }
     const {doctorWarmPin} = await import("../tools/osd-warm-capabilities.mjs");
     await doctorWarmPin(Transpiler, core);
+    // the gui converter: bundled into a seeded binary, loaded from the
+    // checkout's .local/lars by a checkout-mode one -- where its imports by
+    // name are answered by HOST_PACKAGES, which is what is checked here by
+    // loading it. A library not bootstrapped yet is a state, not a defect.
+    if (embeddedSeed) {
+      console.log("gui converter: bundled (seeded binary)");
+    } else if (!isCheckout(process.cwd())) {
+      console.log("gui converter: not in a checkout, nothing to load");
+    } else {
+      const {guiConverterPath} = await import("../tools/osd-gui-convert.mjs");
+      let path;
+      try {
+        path = guiConverterPath(process.cwd());
+      } catch (error) {
+        console.log(`gui converter: not available -- ${error.message}`);
+      }
+      if (path !== undefined && !existsSync(path)) {
+        console.log(`gui converter: ${path} is missing; run npm run bootstrap`);
+      } else if (path !== undefined) {
+        try {
+          const {convertProgram} = await import(path);
+          if (typeof convertProgram !== "function") throw new Error("the module exports no convertProgram");
+          console.log(`gui converter: loaded from ${path}`);
+        } catch (error) {
+          console.log(`gui converter: FAILED to load ${path}: ${error.message}`);
+          process.exitCode = 1;
+        }
+      }
+    }
     // what the bundle did to the runtime: a class the runtime looks up by
     // its name must still carry that name after bundling
     const renamed = [];
