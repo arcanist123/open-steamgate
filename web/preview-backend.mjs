@@ -454,10 +454,13 @@ export function handleRequest(request) {
 export function resetBackend() {
   return serialized(async () => {
     // the connection is replaced: no step (an APC event) may be half-way
-    // through it. The demo data below is a dialog step of its own and takes
-    // the work process itself, so it comes after, as it does at start
+    // through it. It is closed inside setup(), both engines, by the same
+    // line the Node path has always had -- here it was a DuckDB-only
+    // disconnect, and the sql.js Database reset replaced was left open in
+    // the fixed asm.js heap until the reseed ran out of it. The demo data
+    // below is a dialog step of its own and takes the work process itself,
+    // so it comes after, as it does at start
     await exclusive(async () => {
-      if (preview.database === "duckdb") await preview.db?.disconnect();
       preview.stored = undefined;
       const setup = await import("../test/setup.mjs");
       await setup.setup(globalThis.abap, preview.schemas, preview.insert);

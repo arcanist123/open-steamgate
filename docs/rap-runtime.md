@@ -16,9 +16,10 @@ node tools/osd-unit.mjs CLAS ZCL_OSD_RAP_TEST   # after npm run transpile
 
 EML (`MODIFY ENTITIES`, `READ ENTITIES`, `COMMIT ENTITIES`) is **not** in R2
 and R2 needs no transpiler change. The runtime calls the pool's handler and
-saver methods directly. EML comes later through a transpiler PR that rewrites
-the statements onto this runtime (R3); a managed slice does not need it,
-because only the runtime modifies instances.
+saver methods directly. EML comes through a transpiler patch that lowers
+the statements onto `KERNEL_RAP_EML` over this runtime, R2a,
+[rap-eml.md](rap-eml.md); a managed slice does not need it, because only
+the runtime modifies instances.
 
 The price is the handler's contract while there is no EML: a determination or
 action cannot `READ ENTITIES` / `MODIFY ENTITIES IN LOCAL MODE`, so it gets the

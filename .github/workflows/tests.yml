@@ -519,6 +519,14 @@ jobs:
           node tools/abapfs-conformance.mjs --url "http://127.0.0.1:$STG_PORT" --expected test/fixtures/abapfs-conformance/expected-osgo.json --out .local/conformance/abapfs-osgo
           abapfs_rc=$?
           cat .local/conformance/abapfs-osgo/report.md >> "$GITHUB_STEP_SUMMARY"
+          # The supervised-host contract (go/serving, ADR 0010 slice 1): the
+          # same check test/osd-child.mjs runs against the Node facade, then
+          # SIGTERM must drain and exit 0 within the 55 s grace. Required, not
+          # advisory: it is the readiness vsix/VSP consumers rely on.
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$STG_PORT" --drain "$pid" || { echo "::error::osgo host contract failed"; exit 1; }
+          wait "$pid"; drain_rc=$?
+          trap - EXIT
+          [ "$drain_rc" -eq 0 ] || { echo "::error::osgo exited $drain_rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgo-adt.log"; exit 1; }
           exit "$abapfs_rc"
 
   # An independent parallel gate; no additional work in the suite shards.

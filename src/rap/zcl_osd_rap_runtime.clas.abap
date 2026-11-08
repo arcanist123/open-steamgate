@@ -105,6 +105,11 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
 * forget the buffer without writing it
     METHODS rollback.
 
+* the behavior definition this runtime runs
+    METHODS bo
+      RETURNING
+        VALUE(ri_bo) TYPE REF TO zif_osd_rap_bo.
+
 * what ran, in order: phases, determinations, validations and actions
     METHODS trace
       RETURNING
@@ -1368,6 +1373,10 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     APPEND 'ROLLBACK' TO mt_trace.
     mi_luw->discard( ).
     CLEAR: mt_inst, mt_done.
+  ENDMETHOD.
+
+  METHOD bo.
+    ri_bo = mo_bo.
   ENDMETHOD.
 
   METHOD trace.

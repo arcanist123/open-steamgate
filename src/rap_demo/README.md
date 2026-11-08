@@ -17,3 +17,9 @@ copied.
 are bound to the BDEF by name. `test/unit/zcl_osd_rap_test` drives it through
 `ZCL_OSD_RAP_RUNTIME`; `npx mocha test/rap-derived-types.mjs
 test/rap-runtime-gen.mjs` checks the types and the generated adapter.
+
+`ZCL_RAP_NOTE_EML` drives the same BO with real EML statements
+([docs/rap-eml.md](../../docs/rap-eml.md)); it is excluded from the
+transpile in `abap_transpile.json` until the pinned transpiler carries the
+EML lowering (`COMMIT ENTITIES` has no statement transpiler there), lint
+still reads it.

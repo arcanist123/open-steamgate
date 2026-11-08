@@ -127,6 +127,40 @@ test("the cross-reference is there at start and after a reset", async () => {
   }
 });
 
+// Reset frees the database it replaces. sql.js in the worker is the asm.js
+// build (webpack's alias, dist/sql-asm.js) with a FIXED heap -- one
+// ArrayBuffer of 22151168 bytes, no growth -- and a Database that is not
+// closed keeps its page cache in it: resetBackend() rebuilt the database
+// beside the old connection (test/setup.mjs closed the one it replaced on
+// Node only), so every reset leaked a system's worth of heap until the
+// reseed aborted with "Aborted(OOM)" -- first at adabd1d0, where the tree
+// had grown past what one leaked connection still left room for. Three
+// resets in a row: the accumulation cannot pass three times even where one
+// passed.
+test("reset frees the database it replaces: three resets in a row still answer", async () => {
+  const profile = await mkdtemp(join(tmpdir(), "stg-preview-reset-"));
+  const context = await chromium.launchPersistentContext(profile, {headless: true, serviceWorkers: "allow"});
+  try {
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/index.html?stay=1`);
+    await controlled(page);
+    await page.goto(`${ORIGIN}/sap/bc/zstg_icf_demo/stamp`, {waitUntil: "domcontentloaded"});
+    for (let n = 1; n <= 3; n++) {
+      const reset = await page.evaluate(async () => {
+        const r = await fetch("/__preview/reset", {redirect: "manual", cache: "no-store"});
+        return r.type === "opaqueredirect" ? r.type : `${r.status} ${(await r.text()).slice(0, 400)}`;
+      });
+      expect(reset, `reset ${n}`).toBe("opaqueredirect");
+      const se16 = await page.evaluate(async () =>
+        (await fetch("/sap/bc/osd/se16/?t=WBCROSSGT&f_include=ZCL_STG_SEGW_REPO&max=500", {cache: "no-store"})).text());
+      expect(se16, `after reset ${n}`).toContain("CL_ABAP_ZIP");
+    }
+  } finally {
+    await context.close();
+    await rm(profile, {recursive: true, force: true});
+  }
+});
+
 // The static preview build: no server answers /sap/opu/odata/sap/, the
 // service worker does, with the transpiled DPC over sql.js.
 //
