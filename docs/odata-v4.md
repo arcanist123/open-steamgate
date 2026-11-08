@@ -231,12 +231,15 @@ Part 1, 11.7.7; what the UI5 V4 model sends) is parsed by the V2 parser
 same loop: a part is a request outside any group, a change set is an
 atomicity group (one LUW, all or nothing). The answer is `200` with
 `multipart/mixed`: one `application/http` part per request, each with
-`OData-Version: 4.0`; a change set that succeeded as a nested multipart
-whose parts carry `Content-ID` (the member's position, which is how UI5
-matches them); a change set that failed as the one response of the member
-that failed. Without `Prefer: odata.continue-on-error` the answer stops
-after the first failure. `$<Content-ID>` references inside a multipart batch
-are not resolved.
+`OData-Version: 4.0`; a change set that succeeded as a nested multipart;
+a change set that failed as the one response of the member that failed.
+Every response part carries the `Content-ID` of its request part (the
+client's own identifier; a change set member without one is named by its
+position), and a request's Content-ID is its id, so a URL `$<Content-ID>`
+continues the `Location` of the entity that part created, as in the JSON
+format. A change set holds changes: a GET in one is 400 (OData 4.01 Part 1,
+11.7.7.1). Without `Prefer: odata.continue-on-error` the answer stops after
+the first failure.
 
 ## Sticky-session editing (what Fiori Elements V4 edits through)
 
@@ -246,17 +249,21 @@ the list report, only for a draft-enabled entity set or one with
 there is no non-draft edit without one of the two (read off
 `sap/fe/core/converters` in 1.120: `getInsertUpdateActionsTemplating`
 and the header/footer action converters). SEGW has neither, so the facade
-offers a sticky session itself (`ZCL_OSD_V4_STICKY`) for every entity set
-the model lets update **and** whose entity type has an ETag. The ETag is
-the condition because Save is optimistic: it is how Save notices that the
-entity changed while the session held its copy.
+offers a sticky session itself (`ZCL_OSD_V4_STICKY`), **on request**: for an
+entity set whose model marks the entity type with
+`Session.StickySessionSupported` (`sticky: true` in the type's entry of a
+YAML `annotations:` block, which `stg-compile` writes as that annotation
+with an empty record), which the model lets update and whose entity type
+has an ETag. The ETag is required because Save is optimistic: it is how
+Save notices that the entity changed while the session held its copy. In
+the demo only `Travel` asks for it.
 
 For such a set `$metadata` carries, in the service namespace:
 
 | Element | Call | What it does |
 | --- | --- | --- |
 | `OsdStickyEdit`, bound to the entity, `EntitySetPath="_it"` | `POST Set(key)/<ns>.OsdStickyEdit` | reads the entity through `GET_ENTITY` into the session's buffer; checks `If-Match` when one is sent; answers the entity, its `ETag` and `SAP-ContextId` |
-| `OsdStickySave`, bound to the entity | `POST Set(key)/<ns>.OsdStickySave` | compares the ETag taken at Edit with the current one (412 if it moved), writes the buffer through `UPDATE_ENTITY` (or `CREATE_ENTITY` for a new one), drops it, answers the entity |
+| `OsdStickySave`, bound to the entity | `POST Set(key)/<ns>.OsdStickySave` | `If-Match`, when sent, must name an ETag the session handed out for its copy (412 otherwise); compares the ETag taken at Edit with the database's (412 if it moved), writes the buffer through `UPDATE_ENTITY` (or `CREATE_ENTITY` for a new one), drops it, answers the entity |
 | `OsdStickyNew`, bound to the collection, the key properties as parameters | `POST Set/<ns>.OsdStickyNew` | starts a new entity in the buffer (400 if it exists or a key is missing); Fiori Elements asks for the parameters in a dialog |
 | `OsdStickyDiscard`, unbound, with an `ActionImport` | `POST OsdStickyDiscard` | drops every buffer of the session; 204 |
 
@@ -265,14 +272,27 @@ four names. A request carrying `SAP-ContextId` reads (`GET Set(key)`) and
 changes (`PATCH`/`PUT Set(key)`, `If-Match` against the buffer's ETag) the
 session's copy instead of the database; every answer to such a request
 names the session again, and a `$batch` names the session a part opened,
-because the client reads that header on the batch. The buffer lives in the
-serving process (class data); there is no enqueue lock and no session
-timeout, and a buffer nobody saves or discards stays until the process
-ends. The row type of a new entity is the line type of the DPC's
+because the client reads that header on the batch. Save accepts any tag the
+session handed out (Edit, New, each PATCH), not only the latest: the UI5
+model sends Save while the answer to its last PATCH, which carries the new
+tag, is still on the way (Fiori Elements 1.120, create and Save). Only the
+session writes its copy, so an older tag of the same session is no foreign
+change; a tag from anywhere else is 412.
+
+The buffers live in the serving process (class data). There is no enqueue
+lock. A session idle for 900 seconds is dropped (announced as
+`SAP-Http-Session-Timeout`, so the UI5 model keeps a live one alive; any
+request carrying `SAP-ContextId` counts as activity); at most 50 sessions
+hold buffers and a new one evicts the least recently used. Both are
+`ZCL_OSD_V4_STICKY=>CONFIGURE( )`. A Save in a session that was dropped
+answers 400. Inside a `$batch`, an atomicity group (a change set) that
+fails gives the buffers back as they were before it, like the rows: a PATCH
+of a copy, an Edit, a New or a Save in a failed group leaves the session as
+it was. The row type of a new entity is the line type of the DPC's
 `GET_ENTITYSET` answer, since the model library keeps the bound structure
 name private.
 
-The demo's Travel has an ETag for this: `etag: true` on Description,
+The demo's Travel asks for it (`sticky: true`) and has an ETag for it: `etag: true` on Description,
 Status and Seats in `src/demo/zstg_demo.stg.yaml` (SEGW's ETag flag,
 `set_as_etag`). Its V2 `$metadata` says `ConcurrencyMode="Fixed"` on those
 properties since; the V2 path does not check `If-Match`.

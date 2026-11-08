@@ -129,6 +129,9 @@ functions:
 # keeps its own local file for its list report; the demo's Travels app has none.)
 annotations:
   Travel:
+    # sticky-session editing on the OData V4 facade: Edit, Save and Create
+    # in the Fiori Elements V4 app (webapp/travel4); needs the ETag above
+    sticky: true
     header: {typeName: Travel, typeNamePlural: Travels, title: Description, imageUrl: PhotoUrl}
     selectionFields: [Status, TravelId, Description]
     lineItem:

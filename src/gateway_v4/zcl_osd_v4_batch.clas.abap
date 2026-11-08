@@ -29,12 +29,15 @@ CLASS zcl_osd_v4_batch DEFINITION PUBLIC CREATE PUBLIC.
              headers TYPE tihttpnvp,
              body    TYPE string,
              depends TYPE string_table,
+* multipart: the part's MIME Content-ID, echoed on its response part
+             content_id TYPE string,
            END OF ty_request.
     TYPES ty_requests TYPE STANDARD TABLE OF ty_request WITH DEFAULT KEY.
     TYPES: BEGIN OF ty_result,
              id       TYPE string,
              group    TYPE string,
              response TYPE zcl_stg_dispatcher=>ty_response,
+             content_id TYPE string,
            END OF ty_result.
     TYPES ty_results TYPE STANDARD TABLE OF ty_result WITH DEFAULT KEY.
     CLASS-METHODS parse IMPORTING iv_body TYPE string RETURNING VALUE(rt_requests) TYPE ty_requests
@@ -257,10 +260,20 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       LOOP AT ls_part-requests INTO ls_in.
         lv_count = lv_count + 1.
         CLEAR ls_request.
-* ids of the internal list; a group is named after its change set
-        ls_request-id = |r{ lv_count }|.
+* the id is the part's Content-ID, so that $<Content-ID> references and the
+* answer's Content-ID are the client's own; a part without one gets an
+* internal id. A change set is an atomicity group and holds changes only
+* (OData 4.01 Part 1, 11.7.7.1).
+        ls_request-content_id = ls_in-content_id.
+        ls_request-id = ls_in-content_id.
+        IF ls_request-id IS INITIAL.
+          ls_request-id = |~part{ lv_count }|.
+        ENDIF.
         IF ls_part-changeset = abap_true.
-          ls_request-group = |changeset{ lv_part }|.
+          ls_request-group = |~changeset{ lv_part }|.
+          IF ls_in-method = 'GET' OR ls_in-method = 'HEAD'.
+            zcl_osd_v4_query=>fail( |A change set holds changes, not { ls_in-method } { ls_in-url }| ).
+          ENDIF.
         ENDIF.
         ls_request-method = ls_in-method.
         ls_request-url = ls_in-url.
@@ -309,12 +322,14 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     DATA lv_group TYPE string.
     DATA lv_failed TYPE abap_bool.
     DATA lv_member TYPE i.
+    DATA lv_id TYPE string.
     lv_crlf = cl_abap_char_utilities=>cr_lf.
     gv_counter = gv_counter + 1.
     lv_boundary = |batchresponse_osd_v4_{ gv_counter }|.
     LOOP AT it_results INTO ls_result.
       IF ls_result-group IS INITIAL.
-        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && http_part( ls_result-response ).
+        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| &&
+          http_part( is_response = ls_result-response iv_content_id = ls_result-content_id ).
         CONTINUE.
       ENDIF.
       IF ls_result-group = lv_group.
@@ -330,6 +345,11 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       gv_counter = gv_counter + 1.
       lv_changeset = |changesetresponse_osd_v4_{ gv_counter }|.
       LOOP AT it_results INTO ls_member WHERE group = lv_group.
+* a member without a Content-ID of its own is named by its position
+        lv_id = ls_member-content_id.
+        IF lv_id IS INITIAL.
+          lv_id = |{ lv_member }|.
+        ENDIF.
         IF ls_member-response-status >= 400.
           IF lv_failed = abap_false OR ls_failed-response-status = 424.
             ls_failed = ls_member.
@@ -337,11 +357,12 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
           lv_failed = abap_true.
         ENDIF.
         lv_inner = lv_inner && |--{ lv_changeset }{ lv_crlf }| &&
-          http_part( is_response = ls_member-response iv_content_id = |{ lv_member }| ).
+          http_part( is_response = ls_member-response iv_content_id = lv_id ).
         lv_member = lv_member + 1.
       ENDLOOP.
       IF lv_failed = abap_true.
-        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && http_part( ls_failed-response ).
+        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| &&
+          http_part( is_response = ls_failed-response iv_content_id = ls_failed-content_id ).
       ELSE.
         lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }Content-Type: multipart/mixed; boundary={ lv_changeset }{ lv_crlf }{ lv_crlf }| &&
           lv_inner && |--{ lv_changeset }--{ lv_crlf }|.
@@ -454,6 +475,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     DATA lv_applied TYPE string.
     DATA lv_multipart TYPE abap_bool.
     DATA lv_session TYPE string.
+    DATA lt_sticky TYPE zcl_osd_v4_sticky=>ty_entries.
     FIELD-SYMBOLS <ls_result> TYPE ty_result.
     FIELD-SYMBOLS <ls_request> TYPE ty_request.
 
@@ -489,6 +511,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       CLEAR ls_result.
       ls_result-id = ls_request-id.
       ls_result-group = ls_request-group.
+      ls_result-content_id = ls_request-content_id.
 
       IF ls_request-group IS NOT INITIAL AND ls_request-group <> lv_group.
 * a new atomicity group: the COMMIT is the fence, so that the ROLLBACK of a
@@ -497,6 +520,9 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
         lv_group_failed = abap_false.
         lv_group_first = lines( lt_results ) + 1.
         COMMIT WORK.
+* the sticky sessions' buffers are not in the database: a failing group
+* gives them back as they were, like the rows (ZCL_OSD_V4_STICKY)
+        lt_sticky = zcl_osd_v4_sticky=>snapshot( ).
       ENDIF.
 
       lv_blocked = abap_false.
@@ -568,6 +594,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
 * succeeded answer 424 rather than a success that did not last
           lv_group_failed = abap_true.
           ROLLBACK WORK.
+          zcl_osd_v4_sticky=>restore( lt_sticky ).
           LOOP AT lt_results ASSIGNING <ls_result> FROM lv_group_first.
             APPEND <ls_result>-id TO lt_failed.
             DELETE lt_locations WHERE name = <ls_result>-id.

@@ -852,7 +852,8 @@ describe("OData V4 for Fiori Elements", () => {
     expect(answer[0].body["@odata.count"]).to.equal(4);
     expect(answer[0].body.value).to.have.length(2);
     expect(answer[1]).to.be.an("array").with.length(1);
-    expect(answer[1][0]).to.include({status: 204, contentId: "0"});
+    // the client's own Content-ID comes back
+    expect(answer[1][0]).to.include({status: 204, contentId: "0.0"});
     expect(answer[1][0].headers.etag).to.match(/;6"$/);
     expect(answer[2].body.Seats).to.equal(6);
   });
@@ -885,6 +886,79 @@ describe("OData V4 for Fiori Elements", () => {
         NewAction: "ZSTG_DEMO_SRV.OsdStickyNew", EditAction: "ZSTG_DEMO_SRV.OsdStickyEdit",
         SaveAction: "ZSTG_DEMO_SRV.OsdStickySave", DiscardAction: "OsdStickyDiscard"});
       expect(sets.find((x) => x.Name === "BookingSet").Annotation).to.equal(undefined);
+      // opt-in: NoteSet of the test service is updatable and has an ETag, and
+      // its model does not ask for a sticky session
+      expect(await (await fetch(literal + "/$metadata")).text()).not.to.contain("OsdSticky");
+    });
+
+    it("Save checks If-Match against the session's copy", async () => {
+      const edit = await action("/TravelSet('T0003')", "OsdStickyEdit");
+      const id = edit.headers.get("sap-contextid");
+      const patch = await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 55}, {...inSession(id), "if-match": "*"});
+      const stale = await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": 'W/"definitely-stale"'});
+      expect(stale.status).to.equal(412);
+      // a tag of another entity is no version of this copy either
+      const other = (await fetch(base + "/TravelSet('T0001')")).headers.get("etag");
+      expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": other})).status).to.equal(412);
+      expect((await json(base + "/TravelSet('T0003')")).Seats).to.equal(4);
+      // the tag Edit handed out still names a version of this session's copy
+      // (UI5 sends Save before the answer to its last PATCH has arrived)
+      expect(patch.headers.get("etag")).to.not.equal(edit.headers.get("etag"));
+      const save = await action("/TravelSet('T0003')", "OsdStickySave", {}, {...inSession(id), "if-match": edit.headers.get("etag")});
+      expect(save.status).to.equal(200);
+      expect((await json(base + "/TravelSet('T0003')")).Seats).to.equal(55);
+      expect((await send(base + "/TravelSet('T0003')", "PATCH", {Seats: 4})).status).to.equal(204);
+    });
+
+    it("a failing atomicity group gives the session's copies back, Save included", async () => {
+      const batchIn = (id, requests) => fetch(base + "/$batch", {method: "POST",
+        headers: {"content-type": "application/json", "sap-contextid": id}, body: JSON.stringify({requests})});
+      const edit = await action("/TravelSet('T0001')", "OsdStickyEdit");
+      const id = edit.headers.get("sap-contextid");
+      const before = (await json(base + "/TravelSet('T0001')", {headers: inSession(id)})).Seats;
+      const failed = await batchIn(id, [
+        {id: "a", atomicityGroup: "g", method: "PATCH", url: "TravelSet('T0001')", headers: {"if-match": "*"}, body: {Seats: 77}},
+        {id: "b", atomicityGroup: "g", method: "PATCH", url: "TravelSet('T0002')", headers: {"if-match": 'W/"stale"'}, body: {Seats: 1}},
+      ]);
+      expect((await failed.json()).responses.map((r) => r.status)).to.deep.equal([424, 412]);
+      expect((await json(base + "/TravelSet('T0001')", {headers: inSession(id)})).Seats).to.equal(before);
+      // Save inside a failing group: the database rolls back and the copy stays
+      await send(base + "/TravelSet('T0001')", "PATCH", {Seats: 66}, {...inSession(id), "if-match": "*"});
+      const saveFailed = await batchIn(id, [
+        {id: "s", atomicityGroup: "g", method: "POST", url: "TravelSet('T0001')/ZSTG_DEMO_SRV.OsdStickySave", body: {}},
+        {id: "x", atomicityGroup: "g", method: "PATCH", url: "TravelSet('T0002')", headers: {"if-match": 'W/"stale"'}, body: {Seats: 1}},
+      ]);
+      expect((await saveFailed.json()).responses.map((r) => r.status)).to.deep.equal([424, 412]);
+      expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(before);
+      const save = await action("/TravelSet('T0001')", "OsdStickySave", {}, inSession(id));
+      expect(save.status).to.equal(200);
+      expect((await json(base + "/TravelSet('T0001')")).Seats).to.equal(66);
+      expect((await send(base + "/TravelSet('T0001')", "PATCH", {Seats: before})).status).to.equal(204);
+    });
+
+    it("drops a session idle past the timeout, and evicts the least recently used one past the cap", async () => {
+      const {zcl_osd_v4_sticky} = await import("../output/zcl_osd_v4_sticky.clas.mjs");
+      const configure = (idle, max) => zcl_osd_v4_sticky.configure({
+        iv_idle_seconds: new abap.types.Integer().set(idle), iv_max_sessions: new abap.types.Integer().set(max)});
+      try {
+        await configure(1, 50);
+        const edit = await action("/TravelSet('T0002')", "OsdStickyEdit");
+        expect(edit.headers.get("sap-http-session-timeout")).to.equal("1");
+        const id = edit.headers.get("sap-contextid");
+        await new Promise((resolve) => setTimeout(resolve, 2200));
+        expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(id))).status).to.equal(400);
+        await configure(900, 2);
+        const ids = [];
+        for (const key of ["T0001", "T0002", "T0003"]) {
+          ids.push((await action(`/TravelSet('${key}')`, "OsdStickyEdit")).headers.get("sap-contextid"));
+        }
+        expect(new Set(ids).size).to.equal(3);
+        expect((await action("/TravelSet('T0001')", "OsdStickySave", {}, inSession(ids[0]))).status).to.equal(400);
+        expect((await action("/TravelSet('T0003')", "OsdStickySave", {}, inSession(ids[2]))).status).to.equal(200);
+        expect((await action("/TravelSet('T0002')", "OsdStickySave", {}, inSession(ids[1]))).status).to.equal(200);
+      } finally {
+        await configure(900, 50);
+      }
     });
 
     it("Edit opens a session, PATCH changes only the session's copy, Save writes it", async () => {
@@ -954,6 +1028,19 @@ describe("OData V4 for Fiori Elements", () => {
       const discard = await fetch(base + "/OsdStickyDiscard", {method: "POST", headers: inSession(id)});
       expect(discard.status).to.equal(204);
     });
+  });
+
+  it("echoes the client's Content-IDs and refuses a read inside a change set", async () => {
+    const res = await multipart([
+      "Content-ID: read-9\r\n" + part("GET", "TravelSet('T0001')?$select=TravelId"),
+      changeset("changeset_3", [part("PATCH", "BookingSet(TravelId='T0001',BookingId='B001')",
+        {"Content-Type": "application/json"}, {Customer: "Ada Lovelace"})]).replace("Content-ID:0.0", "Content-ID:42"),
+    ]);
+    const answer = parts(await res.text(), /boundary=(.+)$/.exec(res.headers.get("content-type"))[1].trim());
+    expect(answer[0]).to.include({status: 200, contentId: "read-9"});
+    expect(answer[1][0]).to.include({status: 204, contentId: "42"});
+    const read = await multipart([changeset("changeset_4", [part("GET", "TravelSet('T0001')")])]);
+    expect(read.status).to.equal(400);
   });
 
   it("rolls a failing change set back and answers it with its one error", async () => {

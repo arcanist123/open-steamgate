@@ -18,8 +18,9 @@ transpiled MPC and DPC, same rows, a different wire.
   `src/demo/zstg_demo.stg.yaml`.
 
 Edit, Save, Cancel and Create work through the facade's sticky session
-(`Session.StickySessionSupported`, `ZCL_OSD_V4_STICKY`): Fiori Elements V4
-offers them only for a draft or sticky-session entity set. Create asks for
+(`Session.StickySessionSupported`, `ZCL_OSD_V4_STICKY`), which the demo's
+YAML asks for with `sticky: true` on Travel: Fiori Elements V4 offers them
+only for a draft or sticky-session entity set. Create asks for
 the travel's key in a dialog (the NewAction's parameter). The demo's Travel
 has an ETag (Description, Status, Seats), so every change carries
 `If-Match`.

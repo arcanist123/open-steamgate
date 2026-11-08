@@ -210,6 +210,8 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
     FIELD-SYMBOLS <ls_row> TYPE any.
 
+* a request in a sticky session keeps it alive (and idle ones are dropped)
+    zcl_osd_v4_sticky=>touch( it_headers ).
     CREATE OBJECT lo_query EXPORTING iv_path = iv_path it_options = it_options.
     CREATE OBJECT lo_model EXPORTING iv_service = lo_query->ms_request-service.
     lv_service_url = |{ iv_origin }/sap/opu/odata4/sap/{ lo_model->ms_service-name }|.

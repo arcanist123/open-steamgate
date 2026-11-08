@@ -6,9 +6,11 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
 * for a draft or a sticky-session entity set, so a plain SEGW service gets
 * this from the facade, not from its DPC.
 *
-* Offered for an entity set the model lets update and whose entity type has
-* an ETag (set_as_etag): the ETag is how Save notices that somebody changed
-* the entity while the session held its copy.
+* Offered for an entity set whose entity type the model marks with
+* Session.StickySessionSupported (stg-compile writes that marker for
+* `sticky: true` in a YAML annotations block), which the model lets update
+* and whose entity type has an ETag (set_as_etag): the ETag is how Save
+* notices that somebody changed the entity while the session held its copy.
 *
 * EditAction reads the entity through GET_ENTITY into a buffer of the
 * session (SAP-ContextId); PATCH/PUT and GET of that entity in the session
@@ -18,11 +20,21 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
 * starts a buffer that SaveAction writes through CREATE_ENTITY;
 * DiscardAction (unbound) drops the session's buffers. No enqueue lock is
 * taken: concurrency is optimistic, by ETag, as on a single write.
+* A session idle for longer than GV_IDLE seconds is dropped (announced as
+* SAP-Http-Session-Timeout, so the UI5 model keeps a live one alive); at
+* most GV_MAX sessions hold buffers, a new one evicts the least recently
+* used. Save takes If-Match: it must name an ETag the session handed out
+* for its copy (412 otherwise).
   PUBLIC SECTION.
     CONSTANTS gc_edit TYPE string VALUE 'OsdStickyEdit'.
     CONSTANTS gc_save TYPE string VALUE 'OsdStickySave'.
     CONSTANTS gc_new TYPE string VALUE 'OsdStickyNew'.
     CONSTANTS gc_discard TYPE string VALUE 'OsdStickyDiscard'.
+* how long a session may stay idle, and how many may hold buffers at once;
+* configure( ) changes both (tests, hosts)
+    CLASS-METHODS configure IMPORTING iv_idle_seconds TYPE i iv_max_sessions TYPE i.
+* a request in a session keeps it alive; every call first drops idle sessions
+    CLASS-METHODS touch IMPORTING it_headers TYPE tihttpnvp.
     CLASS-METHODS offered IMPORTING io_model TYPE REF TO zcl_osd_v4_model
       is_set TYPE zcl_stg_model_info=>ty_entity_set RETURNING VALUE(rv_offered) TYPE abap_bool.
     CLASS-METHODS actions_xml IMPORTING io_model TYPE REF TO zcl_osd_v4_model RETURNING VALUE(rv_xml) TYPE string.
@@ -47,7 +59,6 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
       iv_service_url TYPE string iv_body TYPE string it_headers TYPE tihttpnvp
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
-  PRIVATE SECTION.
     TYPES: BEGIN OF ty_entry,
              context TYPE string,
              service TYPE string,
@@ -57,9 +68,24 @@ CLASS zcl_osd_v4_sticky DEFINITION PUBLIC CREATE PUBLIC.
 * the ETag the entity had when Edit read it; Save compares
              etag    TYPE string,
              data    TYPE REF TO data,
+* seconds since 1970 of the last request in the session
+             touched TYPE i,
+* every ETag this session handed out for its copy (Edit, New, each PATCH)
+             tags    TYPE string_table,
            END OF ty_entry.
-    CLASS-DATA gt_entries TYPE STANDARD TABLE OF ty_entry WITH DEFAULT KEY.
+    TYPES ty_entries TYPE STANDARD TABLE OF ty_entry WITH DEFAULT KEY.
+* the buffers as they are, by value: what an atomicity group that fails
+* gives back (a $batch's rollback does not reach class data)
+    CLASS-METHODS snapshot RETURNING VALUE(rt_entries) TYPE ty_entries.
+    CLASS-METHODS restore IMPORTING it_entries TYPE ty_entries.
+  PRIVATE SECTION.
+    CLASS-DATA gt_entries TYPE ty_entries.
     CLASS-DATA gv_counter TYPE i.
+    CLASS-DATA gv_idle TYPE i VALUE 900.
+    CLASS-DATA gv_max TYPE i VALUE 50.
+    CLASS-METHODS now RETURNING VALUE(rv_seconds) TYPE i.
+    CLASS-METHODS admit IMPORTING iv_context TYPE string.
+    CLASS-METHODS matches IMPORTING iv_if_match TYPE string iv_tag TYPE string RETURNING VALUE(rv_match) TYPE abap_bool.
     CLASS-METHODS key_text IMPORTING it_keys TYPE /iwbep/t_mgw_name_value_pair RETURNING VALUE(rv_key) TYPE string.
     CLASS-METHODS row_keys IMPORTING is_set TYPE zcl_stg_model_info=>ty_entity_set is_row TYPE any
       RETURNING VALUE(rt_keys) TYPE /iwbep/t_mgw_name_value_pair.
@@ -74,8 +100,130 @@ ENDCLASS.
 
 CLASS zcl_osd_v4_sticky IMPLEMENTATION.
   METHOD offered.
-    rv_offered = boolc( is_set-updatable = abap_true AND is_set-is_media = abap_false
-      AND io_model->has_etag( is_set-entity_type ) = abap_true ).
+    DATA lv_line TYPE string.
+    DATA lv_target TYPE string.
+    IF is_set-updatable = abap_false OR is_set-is_media = abap_true
+        OR io_model->has_etag( is_set-entity_type ) = abap_false.
+      RETURN.
+    ENDIF.
+* the model asks for it: Session.StickySessionSupported on the entity type
+    lv_target = |Target="{ io_model->ms_service-namespace }.{ is_set-entity_type }"|.
+    LOOP AT io_model->mt_vocabulary INTO lv_line.
+      IF lv_line CS lv_target AND lv_line CS 'com.sap.vocabularies.Session.v1.StickySessionSupported'.
+        rv_offered = abap_true.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD snapshot.
+    DATA ls_entry TYPE ty_entry.
+    DATA lr_copy TYPE REF TO data.
+    FIELD-SYMBOLS <ls_from> TYPE any.
+    FIELD-SYMBOLS <ls_to> TYPE any.
+    LOOP AT gt_entries INTO ls_entry.
+      ASSIGN ls_entry-data->* TO <ls_from>.
+      CREATE DATA lr_copy LIKE <ls_from>.
+      ASSIGN lr_copy->* TO <ls_to>.
+      <ls_to> = <ls_from>.
+      ls_entry-data = lr_copy.
+      APPEND ls_entry TO rt_entries.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD restore.
+    gt_entries = it_entries.
+  ENDMETHOD.
+
+  METHOD configure.
+    gv_idle = iv_idle_seconds.
+    gv_max = iv_max_sessions.
+  ENDMETHOD.
+
+  METHOD now.
+    DATA lv_stamp TYPE timestamp.
+    DATA lv_text TYPE string.
+    DATA lv_date TYPE d.
+    DATA lv_time TYPE t.
+    GET TIME STAMP FIELD lv_stamp.
+    lv_text = |{ lv_stamp }|.
+    lv_date = lv_text(8).
+    lv_time = lv_text+8(6).
+    rv_seconds = ( lv_date - '19700101' ) * 86400 + lv_time(2) * 3600 + lv_time+2(2) * 60 + lv_time+4(2).
+  ENDMETHOD.
+
+  METHOD touch.
+    DATA lv_now TYPE i.
+    DATA lv_limit TYPE i.
+    DATA lv_context TYPE string.
+    FIELD-SYMBOLS <ls_entry> TYPE ty_entry.
+    lv_now = now( ).
+    lv_limit = lv_now - gv_idle.
+    DELETE gt_entries WHERE touched < lv_limit.
+    lv_context = context_id( it_headers ).
+    IF lv_context IS INITIAL.
+      RETURN.
+    ENDIF.
+    LOOP AT gt_entries ASSIGNING <ls_entry> WHERE context = lv_context.
+      <ls_entry>-touched = lv_now.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD admit.
+* a new session past the cap evicts the one least recently used
+    TYPES: BEGIN OF ty_last,
+             context TYPE string,
+             touched TYPE i,
+           END OF ty_last.
+    DATA lt_last TYPE STANDARD TABLE OF ty_last WITH DEFAULT KEY.
+    DATA ls_last TYPE ty_last.
+    DATA ls_entry TYPE ty_entry.
+    DATA ls_oldest TYPE ty_last.
+    FIELD-SYMBOLS <ls_last> TYPE ty_last.
+    READ TABLE gt_entries WITH KEY context = iv_context TRANSPORTING NO FIELDS.
+    IF sy-subrc = 0.
+      RETURN.
+    ENDIF.
+    DO.
+      CLEAR lt_last.
+      LOOP AT gt_entries INTO ls_entry.
+        READ TABLE lt_last ASSIGNING <ls_last> WITH KEY context = ls_entry-context.
+        IF sy-subrc <> 0.
+          ls_last-context = ls_entry-context.
+          ls_last-touched = ls_entry-touched.
+          APPEND ls_last TO lt_last.
+        ELSEIF ls_entry-touched > <ls_last>-touched.
+          <ls_last>-touched = ls_entry-touched.
+        ENDIF.
+      ENDLOOP.
+      IF lines( lt_last ) < gv_max OR lines( lt_last ) = 0.
+        RETURN.
+      ENDIF.
+      SORT lt_last BY touched ASCENDING.
+      READ TABLE lt_last INTO ls_oldest INDEX 1.
+      DELETE gt_entries WHERE context = ls_oldest-context.
+    ENDDO.
+  ENDMETHOD.
+
+  METHOD matches.
+    DATA lt_tags TYPE string_table.
+    DATA lv_tag TYPE string.
+    DATA lv_want TYPE string.
+    lv_want = iv_tag.
+    IF lv_want CP 'W/*'.
+      lv_want = substring( val = lv_want off = 2 ).
+    ENDIF.
+    SPLIT iv_if_match AT ',' INTO TABLE lt_tags.
+    LOOP AT lt_tags INTO lv_tag.
+      CONDENSE lv_tag.
+      IF lv_tag CP 'W/*'.
+        lv_tag = substring( val = lv_tag off = 2 ).
+      ENDIF.
+      IF lv_tag = '*' OR ( lv_want IS NOT INITIAL AND lv_tag = lv_want ).
+        rv_match = abap_true.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD actions_xml.
@@ -178,6 +326,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
   METHOD buffered.
     DATA ls_entry TYPE ty_entry.
     DATA lv_context TYPE string.
+    touch( it_headers ).
     lv_context = context_id( it_headers ).
     IF lv_context IS INITIAL.
       RETURN.
@@ -203,6 +352,8 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     ENDIF.
     IF iv_context IS NOT INITIAL.
       zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'SAP-ContextId' iv_value = iv_context
+        CHANGING ct_headers = rs_response-headers ).
+      zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'SAP-Http-Session-Timeout' iv_value = |{ gv_idle }|
         CHANGING ct_headers = rs_response-headers ).
     ENDIF.
   ENDMETHOD.
@@ -242,6 +393,9 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA ls_entry TYPE ty_entry.
     DATA lv_stamp TYPE timestamp.
+    DATA lv_if_match TYPE string.
+    DATA lv_tag TYPE string.
+    DATA lv_known TYPE abap_bool.
     DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
     DATA lo_context TYPE REF TO zcl_stg_request_context.
     DATA lx_busi TYPE REF TO /iwbep/cx_mgw_busi_exception.
@@ -262,6 +416,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         OR ( lv_name <> gc_new AND io_query->ms_request-key_string IS INITIAL ).
       zcl_osd_v4_query=>fail( |{ lv_name } is bound to { is_set-name }, { gc_edit } and { gc_save } to one of its entities| ).
     ENDIF.
+    touch( it_headers ).
     lv_context = context_id( it_headers ).
     IF lv_context IS INITIAL.
       gv_counter = gv_counter + 1.
@@ -287,7 +442,10 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         ls_entry-set = is_set-name.
         ls_entry-key = lv_key.
         ls_entry-etag = zcl_osd_v4_json=>etag( is_data = <ls_current> is_set = is_set io_model = io_model ).
+        APPEND ls_entry-etag TO ls_entry-tags.
         ls_entry-data = lr_current.
+        ls_entry-touched = now( ).
+        admit( lv_context ).
         APPEND ls_entry TO gt_entries.
         rs_response = answer( ir_data = lr_current io_model = io_model is_set = is_set
           iv_service_url = iv_service_url iv_context = lv_context ).
@@ -323,7 +481,10 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         ls_entry-set = is_set-name.
         ls_entry-key = lv_key.
         ls_entry-is_new = abap_true.
+        APPEND zcl_osd_v4_json=>etag( is_data = <ls_row> is_set = is_set io_model = io_model ) TO ls_entry-tags.
         ls_entry-data = lr_row.
+        ls_entry-touched = now( ).
+        admit( lv_context ).
         APPEND ls_entry TO gt_entries.
         rs_response = answer( ir_data = lr_row io_model = io_model is_set = is_set
           iv_service_url = iv_service_url iv_context = lv_context ).
@@ -333,6 +494,26 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         READ TABLE gt_entries INTO ls_entry WITH KEY context = lv_context service = lv_service set = is_set-name key = lv_key.
         IF sy-subrc <> 0.
           zcl_osd_v4_query=>fail( |No sticky session holds { is_set-name }({ lv_key }); call { gc_edit } first| ).
+        ENDIF.
+* The client's tag must be one this session handed out for its copy
+* (OData 4.01 Part 1, 8.2.4: 412 otherwise, nothing written). Not only the
+* latest: the UI5 model sends Save while the answer to its last PATCH, and
+* with it the new tag, is still on the way (measured with Fiori Elements
+* 1.120, create then Save). Only this session writes its copy, so an older
+* tag of the same session is no foreign change; changes by others are what
+* the database check against the ETag taken at Edit, below, catches.
+        lv_if_match = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'if-match' ).
+        IF lv_if_match IS NOT INITIAL.
+          lv_known = abap_false.
+          LOOP AT ls_entry-tags INTO lv_tag.
+            IF matches( iv_if_match = lv_if_match iv_tag = lv_tag ) = abap_true.
+              lv_known = abap_true.
+              EXIT.
+            ENDIF.
+          ENDLOOP.
+          IF lv_known = abap_false.
+            zcl_osd_v4_query=>fail( iv_text = 'If-Match names no version of the session copy of the entity' iv_status = 412 ).
+          ENDIF.
         ENDIF.
         CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set is_service = io_model->ms_service.
         lo_provider->set_base( ls_entry-data ).
@@ -385,6 +566,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     FIELD-SYMBOLS <ls_copy> TYPE any.
     FIELD-SYMBOLS <lv_from> TYPE any.
     FIELD-SYMBOLS <lv_to> TYPE any.
+    FIELD-SYMBOLS <ls_entry> TYPE ty_entry.
 
     lt_values = zcl_osd_v4_write=>values( iv_body = iv_body is_set = is_set io_model = io_model ).
     zcl_osd_v4_write=>precondition( is_set = is_set io_model = io_model ir_current = ir_buffer it_headers = it_headers ).
@@ -417,6 +599,9 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
 
     rs_response-status = 204.
     lv_etag = zcl_osd_v4_json=>etag( is_data = <ls_buffer> is_set = is_set io_model = io_model ).
+    LOOP AT gt_entries ASSIGNING <ls_entry> WHERE data = ir_buffer.
+      APPEND lv_etag TO <ls_entry>-tags.
+    ENDLOOP.
     IF lv_etag IS NOT INITIAL.
       zcl_osd_v4_write=>add_header( EXPORTING iv_name = 'ETag' iv_value = lv_etag CHANGING ct_headers = rs_response-headers ).
     ENDIF.
