@@ -1222,7 +1222,11 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     server = startServer(true);
   });
   after(() => server.close());
-  const post = (path, body, headers = {}) => send(base + path, "POST", body, headers);
+  // a bound action on a Travel needs If-Match like a PATCH (428 without): the
+  // calls below that are not about it say If-Match: *
+  const post = (path, body, headers = {}) => send(base + path, "POST", body,
+    /^\/TravelSet\(.*\)\/ZSTG_DEMO_SRV\./.test(path)
+      && !Object.keys(headers).some((name) => name.toLowerCase() === "if-match") ? {"if-match": "*", ...headers} : headers);
 
   it("describes the function imports as a bound action and an unbound function with imports", async () => {
     const model = await schema(base);
@@ -1454,7 +1458,11 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     const status = (await json(base + path)).Status;
     const cancel = (headers) => fetch(base + path + "/ZSTG_DEMO_SRV.CancelTravel",
       {method: "POST", headers: {"content-type": "application/json", ...headers}, body: "{}"});
-    let res = await cancel({"if-match": 'W/"bogus"'});
+    // no If-Match on an entity with an ETag: 428, as for PATCH, row unchanged
+    let res = await cancel({});
+    expect(res.status, await res.clone().text()).to.equal(428);
+    expect((await json(base + path)).Status).to.equal(status);
+    res = await cancel({"if-match": 'W/"bogus"'});
     expect(res.status, await res.clone().text()).to.equal(412);
     expect((await json(base + path)).Status).to.equal(status);
     // held by another request: 409, row unchanged

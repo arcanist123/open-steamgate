@@ -189,8 +189,10 @@ it is read through `GET_ENTITY` first and a key nobody has is 404 before
 the DPC's `execute_action` runs. An action then takes the entity lock
 (`EZOSD_V4_LOCK`, 409 when another request holds it) and checks `If-Match`
 against the entity's current ETag (412 on a mismatch), as a PATCH does;
-sap.fe sends the ETag it holds. Unlike a PATCH, an action without
-`If-Match` is not refused with 428, since what it changes is the DPC's.
+sap.fe sends the ETag it holds. Without `If-Match` an action on an entity
+type with an ETag is 428, the same rule as PATCH/PUT/DELETE (`If-Match: *`
+opts out of the comparison); an entity type without an ETag needs none.
+A bound function only checks that the entity exists.
 An operation bound to an entity type that returns that type says
 `EntitySetPath="_it"`. A bound action called inside a sticky session
 (`SAP-ContextId`) runs against the database, not the session's buffer. A function

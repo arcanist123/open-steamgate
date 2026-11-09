@@ -374,7 +374,6 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA lv_name TYPE string.
     DATA lr_current TYPE REF TO data.
-    DATA lv_if_match TYPE string.
     FIELD-SYMBOLS <ls_bound> TYPE /iwbep/s_mgw_name_value_pair.
     lv_name = op_name( iv_name = iv_name io_model = io_model ).
     ls_action = zcl_stg_model_info=>find_action( is_service = io_model->ms_service iv_name = lv_name ).
@@ -420,9 +419,8 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
 * The binding parameter is the entity the URL names (OData 4.01 Part 1,
 * 11.5.5): it must exist (404), and an action changes it the way a PATCH
 * does -- under the entity lock, after If-Match is checked against its
-* current ETag (412). A request without If-Match is not refused (428) here:
-* an action is not an update of the entity's representation, and the DPC
-* decides what it changes.
+* current ETag: 412 on a mismatch, and 428 without If-Match when the entity
+* type has an ETag, the same rule as PATCH/PUT/DELETE (sap.fe sends it).
     IF ls_binding-kind = 'E'.
       IF ls_binding-is_function = abap_false.
         zcl_osd_v4_write=>lock( iv_service = io_model->ms_service-name is_set = is_set
@@ -432,8 +430,7 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
       IF lr_current IS NOT BOUND.
         zcl_osd_v4_query=>fail( iv_text = 'Entity not found' iv_status = 404 ).
       ENDIF.
-      lv_if_match = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'if-match' ).
-      IF ls_binding-is_function = abap_false AND lv_if_match IS NOT INITIAL.
+      IF ls_binding-is_function = abap_false.
         zcl_osd_v4_write=>precondition( is_set = is_set io_model = io_model ir_current = lr_current
           it_headers = it_headers ).
       ENDIF.
