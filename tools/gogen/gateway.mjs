@@ -268,10 +268,11 @@ func main() {
 		opts = append(opts, &IHTTPNVP{name: k, value: v})
 	}
 	// one dialog step: its database LUW is committed when it ends and rolled
-	// back when it dumps (abap.DialogStep, the kernel's rule)
+	// back when it dumps (abap.DialogStep, the kernel's rule); a read carries
+	// no request headers, so it_headers is the empty table
 	var res ZCL_STG_DISPATCHER__TY_RESPONSE
 	abap.DialogStep(s, func() {
-		res = ZCL_STG_DISPATCHER_DISPATCH(s, "GET", path, &opts, ${JSON.stringify(process.env.GW_HOST ?? "http://localhost:3091")}, "", "", "")
+		res = ZCL_STG_DISPATCHER_DISPATCH(s, "GET", path, &opts, ${JSON.stringify(process.env.GW_HOST ?? "http://localhost:3091")}, "", "", "", &[]*IHTTPNVP{})
 	})
 	fmt.Printf("%d %s\\n%s\\n%s\\n", res.status, res.reason, res.content_type, res.body)
 }
