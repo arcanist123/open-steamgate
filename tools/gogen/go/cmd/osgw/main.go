@@ -79,6 +79,10 @@ func main() {
 			}
 		}
 		log.Printf("osgw: builds after an activation: %q in %s, generations in %s", *build, root, o.GenDir)
+		// a stashed generation runs from GenDir: what osgo finds beside its
+		// own executable (the compiler sidecar osd, the media) it is told
+		// where the first one had it
+		o.Env, o.Args = besideBinary(bin, o.Args, os.Getenv)
 	}
 	g, err := osgw.Start(context.Background(), o)
 	if err != nil {
@@ -113,6 +117,35 @@ func main() {
 		log.Fatal(err)
 	}
 	select {}
+}
+
+// besideBinary: the compiler sidecar (osd) and the SMW0 media osgo looks
+// for beside its executable, named explicitly (OSGO_SIDECAR, -media) for a
+// copy that runs from elsewhere, unless they are named already
+func besideBinary(bin string, args []string, getenv func(string) string) (env, out []string) {
+	dir := filepath.Dir(bin)
+	osd := filepath.Join(dir, "osd")
+	if runtime.GOOS == "windows" {
+		osd += ".exe"
+	}
+	if getenv("OSGO_SIDECAR") == "" {
+		if st, err := os.Stat(osd); err == nil && !st.IsDir() {
+			env = append(env, "OSGO_SIDECAR="+osd)
+		}
+	}
+	out = args
+	named := false
+	for _, a := range args {
+		if a == "-media" || a == "--media" || strings.HasPrefix(a, "-media=") || strings.HasPrefix(a, "--media=") {
+			named = true
+		}
+	}
+	if media := filepath.Join(dir, "media"); !named {
+		if _, err := os.Stat(filepath.Join(media, "w3mi.json")); err == nil {
+			out = append(append([]string{}, args...), "-media", media)
+		}
+	}
+	return env, out
 }
 
 // sidecarRoot is the tree the sidecar is given (-root), else the current

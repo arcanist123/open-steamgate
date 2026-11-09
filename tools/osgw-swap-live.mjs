@@ -131,13 +131,15 @@ export async function swapLive(base, {log = console.log, waitMs = 900000} = {}) 
   await unlock(q, LOCKED, handleOf(lq2));
   await q.close();
   await p.close();
-  let retired = false;
-  for (const t = Date.now(); Date.now() - t < 70000 && !retired;) {
+  // the logoff unpins P (the gateway ends a session at the ICF logoff), so
+  // the old generation drains at once and exits 0, not killed at the grace
+  let gone;
+  for (const t = Date.now(); Date.now() - t < 30000 && !gone;) {
     const s = await serving();
-    retired = (s.gateway?.sidecars ?? []).some((x) => x.pid === start.pid && x.state === "retired");
-    if (!retired) await new Promise((r) => setTimeout(r, 250));
+    gone = (s.gateway?.sidecars ?? []).find((x) => x.pid === start.pid && x.state === "retired");
+    if (!gone) await new Promise((r) => setTimeout(r, 250));
   }
-  check(retired, "5. the old generation retires after P logged off");
+  check(gone?.why === "exit 0", `5. the old generation retires after P logged off, drained, not killed (${gone?.why ?? "still there"})`);
 
   const back = await saveAndActivate(base, original);
   check(/^published; building b\d+/.test(back.headers.get("x-osd-build") ?? ""), "6. the revert is published and builds");

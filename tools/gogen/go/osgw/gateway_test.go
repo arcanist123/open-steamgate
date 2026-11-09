@@ -136,6 +136,7 @@ func fakeSidecar() {
 		http.SetCookie(w, &http.Cookie{Name: "SAP_SESSIONID_OSD_001", Value: "", Path: "/", MaxAge: -1})
 		io.WriteString(w, "out")
 	})
+	mux.HandleFunc("/sap/public/bc/icf/logoff", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "bye") })
 	mux.HandleFunc("/body", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		fmt.Fprintf(w, "%s %d %q %q", r.Method, r.ContentLength, r.Header.Get("Expect"), b)
@@ -381,6 +382,16 @@ func TestSessionPinning(t *testing.T) {
 	get(t, front.URL+"/logoff", "Cookie", strings.SplitN(cookie, ";", 2)[0])
 	if p := g.Table()[0].Pinned; p != 0 {
 		t.Fatalf("pinned after logoff %d", p)
+	}
+	// the ICF logoff ends the session even when its answer clears no cookie
+	resp, _ = get(t, front.URL+"/login")
+	cookie = strings.SplitN(resp.Header.Get("Set-Cookie"), ";", 2)[0]
+	if p := g.Table()[0].Pinned; p != 1 {
+		t.Fatalf("pinned %d", p)
+	}
+	get(t, front.URL+"/sap/public/bc/icf/logoff", "Cookie", cookie)
+	if p := g.Table()[0].Pinned; p != 0 {
+		t.Fatalf("pinned after the ICF logoff %d", p)
 	}
 }
 

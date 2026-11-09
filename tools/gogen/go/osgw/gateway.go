@@ -20,7 +20,10 @@
 //     launcherPid = the gateway) plus the generation table.
 //   - Session pinning: a response that sets a stateful session cookie
 //     (SAP_SESSIONID_*, sap-contextid) pins that session to the sidecar that
-//     set it; with one sidecar it is bookkeeping, slice 4's swap routes by it.
+//     set it; the generation swap (swap.go) routes by it.
+//   - The swap (slice 4, swap.go): a build after a publishing activation,
+//     the result started read-only as a candidate, smoked, promoted, the old
+//     generation drained and retired.
 //   - Spawn, drain, kill: a crashed sidecar's requests in flight answer 503,
 //     the gateway starts a replacement of the same binary; a replacement that
 //     dies within RestartWindow is not replaced again. Stop sends the
@@ -80,6 +83,7 @@ func LockSocket(dir string) string { return filepath.Join(dir, "enq.sock") }
 type Options struct {
 	Binary string   // the sidecar executable (an osgo binary)
 	Args   []string // its arguments; "-sidecar <dir>" is appended
+	Env    []string // added to the gateway's environment for every sidecar
 	Dir    string   // where the sockets live; "" = a fresh directory, removed at Stop
 
 	Grace         time.Duration // the drain (serving.DefaultGrace)
@@ -253,6 +257,9 @@ func (g *Gateway) spawn(binary string, replacement, candidate bool) (*sidecar, e
 		args = append(args, "-candidate")
 	}
 	cmd := exec.Command(binary, args...)
+	if len(g.o.Env) > 0 {
+		cmd.Env = append(os.Environ(), g.o.Env...)
+	}
 	cmd.Stdout, cmd.Stderr = g.o.Stdout, g.o.Stderr
 	ownGroup(cmd)
 	if err := cmd.Start(); err != nil {
@@ -549,6 +556,24 @@ func (g *Gateway) pinFrom(sc *sidecar, resp *http.Response) {
 	}
 }
 
+// logoffPath is the ICF logoff: a session that called it successfully has
+// ended, whether or not the answer clears its cookie (osgo's does not; the
+// ADT client drops the cookie itself), so its pin goes and a drain need not
+// wait out the grace for it.
+const logoffPath = "/sap/public/bc/icf/logoff"
+
+func (g *Gateway) logoff(r *http.Request, resp *http.Response) {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 || !strings.EqualFold(strings.TrimSuffix(r.URL.Path, "/"), logoffPath) {
+		return
+	}
+	keys := sessionKeys(r)
+	g.mu.Lock()
+	for _, k := range keys {
+		delete(g.pins, k)
+	}
+	g.mu.Unlock()
+}
+
 // ServeHTTP answers /osd/serving itself and proxies everything else; wrap
 // it in Host().Wrap for the generation header and the drain (Handler).
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -574,7 +599,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sc.proxy.ServeHTTP(w, r)
 		return
 	}
-	if err := sc.pool.forward(w, r, func(resp *http.Response) { g.pinFrom(sc, resp); g.buildFrom(resp) }); err != nil {
+	if err := sc.pool.forward(w, r, func(resp *http.Response) { g.pinFrom(sc, resp); g.logoff(r, resp); g.buildFrom(resp) }); err != nil {
 		g.lostRequest(sc, w, r, err)
 	}
 }
