@@ -94,6 +94,17 @@ const noMethod = `<?xml version="1.0" encoding="utf-8"?><exc:exception xmlns:exc
 // source this binary does not run.
 const BuildHeader = "published; rebuild osgo to run it"
 
+// RebuildNote is the warning's text after the object name when nothing
+// builds: the source is active, the code is not.
+const RebuildNote = "is active in the object store; this osgo binary keeps running the code it was built with until it is rebuilt from this tree"
+
+// Builds, when a host sets it, says what follows a publishing activation:
+// the X-OSD-Build value and the warning's text after the object name. A
+// gateway's sidecar sets it (cmd/osgo -gateway-builds): "published;
+// building" asks the gateway for a build (go/osgw), which puts the build's
+// id into the header. Nil: BuildHeader and RebuildNote.
+var Builds func() (header, note string)
+
 func xml(status int32, body string) Response {
 	return Response{Status: status, Headers: [][2]string{{"content-type", "application/xml; charset=utf-8"}}, Body: []byte(body)}
 }
@@ -176,9 +187,13 @@ func (st Store) Serve(r Request) (Response, bool) {
 			published = append(published, o)
 		}
 	}
-	response := xml(200, SuccessDocument(!forced, published))
+	header, note := BuildHeader, RebuildNote
+	if Builds != nil {
+		header, note = Builds()
+	}
+	response := xml(200, successDocument(!forced, published, note))
 	if len(published) > 0 {
-		response.Headers = append(response.Headers, [2]string{"x-osd-build", BuildHeader})
+		response.Headers = append(response.Headers, [2]string{"x-osd-build", header})
 	}
 	return response, true
 }
@@ -213,11 +228,15 @@ const head = `<?xml version="1.0" encoding="utf-8"?><chkl:messages xmlns:chkl="h
 // Objects published but not live get generationExecuted="false" and a
 // warning each, which clients count as a successful activation.
 func SuccessDocument(checkExecuted bool, published []adtref.Object) string {
+	return successDocument(checkExecuted, published, RebuildNote)
+}
+
+func successDocument(checkExecuted bool, published []adtref.Object, note string) string {
 	var b strings.Builder
 	b.WriteString(head + properties(checkExecuted, true, len(published) == 0))
 	for _, o := range published {
 		b.WriteString(`<msg objDescr="` + adtref.Escape(describe(o)) + `" type="W" line="1" href="` + adtref.Escape(adtref.URIOf(o.Type, o.Name)+"/source/main") +
-			`" forceSupported="true"><shortText><txt>` + adtref.Escape(o.Name+" is active in the object store; this osgo binary keeps running the code it was built with until it is rebuilt from this tree") +
+			`" forceSupported="true"><shortText><txt>` + adtref.Escape(o.Name+" "+note) +
 			`</txt></shortText></msg>`)
 	}
 	b.WriteString("</chkl:messages>")

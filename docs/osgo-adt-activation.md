@@ -58,11 +58,38 @@ inactive set is already the store's. Activation now uses both.
      successful activation. The `X-OSD-Build` header says `published;
      rebuild osgo to run it`, so the VS Code extension shows the same thing.
 
-The **published** state lasts as long as the process does, like a created
-class's skeleton (`go/adtwrite/README.md`). After a restart the active
-version is again the build's snapshot, and the object reads as changed. The
-files on disk are untouched by activation. A rebuild of osgo from the tree
-(`node tools/gogen/osgo.mjs`) makes the code live.
+The **published** state outlives the process (ADR 0010 slice 4): activation
+writes `build/osgo-published/index.json` (file -> snapshot, digest) beside the
+snapshots, and every osgo process restores it at start
+(`objstore.RestorePublished`), so a restart or a replacement of the same
+build still reads the published source as active. A snapshot the starting
+build was built from is active there and is not restored. The write merges
+with the index on disk rather than replacing it from the writing process's
+own view: a session pinned to a draining generation can activate while
+another has published, and an entry the other generation wrote is kept. A
+drop (the working file is the build's own bytes) removes only the entry the
+process itself published, or one naming the bytes the starting build was
+built from. The files on disk
+are untouched by activation. A rebuild of osgo from the tree (`node
+tools/gogen/osgo.mjs`) makes the code live.
+
+**Behind the gateway with a builder** (`osgw -build ...`, `go/osgw` "The
+generation swap"), the sidecar runs with `-gateway-builds`: a publishing
+activation answers `X-OSD-Build: published; building b<n>` (the gateway puts
+the build's id in) and the warning says the gateway is building a new
+generation; once it serves, `/osd/serving` says `X-OSD-Build: live <it>`, the
+next answer carries the new `X-OSD-Generation`, and the unit run's 409 is gone
+because the serving binary was built from the published source. While any
+object of the tree is inactive nothing is built (`published; not building: n
+inactive object(s) would enter the build`): the build reads the tree, and an
+inactive object's working source would go live unactivated. The gate is
+sampled twice: once when the activation answer is composed (the header
+above), and again by the gateway right before the builder runs -- it asks
+every generation that still takes requests (`GET /osd/inactive`), because a
+save that is not activated can land in the debounce window between the
+answer and the build; such a build fails with the count as its reason, and
+the next activation that leaves nothing inactive builds. A save made while
+a build runs is the remaining window.
 
 A batch is all or nothing (`objstore.ActivateAll`): every object is resolved
 and every file read and snapshotted before any active version changes, so a

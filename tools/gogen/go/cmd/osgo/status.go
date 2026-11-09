@@ -448,7 +448,9 @@ func freshPath(route string) bool {
 // the read goes on
 func withFreshStatus(h statusHost, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := refreshStatus(h); err != nil {
+		if candidate.Load() {
+			// read-only until promoted (candidate.go): the tables as they are
+		} else if _, err := refreshStatus(h); err != nil {
 			log.Printf("status refresh: %v", err)
 		}
 		next(w, r)

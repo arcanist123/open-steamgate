@@ -117,6 +117,11 @@ export function generate(files, dependencies = []) {
       }
       if (opFields.length) body += struct(`${p}_op`, opFields);
       const refs = new Set([entity.entity, `${root}\\${entity.alias ?? entity.entity}`, `${root}\\${entity.entity}`]);
+      // R3: the implicit handler forms name an entity by its alias or CDS name,
+      // resolved against the behavior definition of the pool they are in
+      const pool = upper(entity.implementationClass ?? model.implementationClass ?? "");
+      const local = [...new Set([entity.alias ?? entity.entity, entity.entity])];
+      const poolBind = (kind, ref, type) => { if (pool) bind(`POOL ${pool}`, kind, ref, type); };
       for (const kind of ["CREATE", "UPDATE", "DELETE", "READ IMPORT", "READ RESULT", "MAPPED", "FAILED", "REPORTED", "LOCK", "KEY OF", "DETERMINATION", "VALIDATION"]) {
         if (["CREATE", "UPDATE", "DELETE"].includes(kind) && !entity.operations.some(o => upper(o.kind) === kind)) continue;
         const name = `${p}_${kind.toLowerCase().replaceAll(" ", "_")}`;
@@ -129,6 +134,7 @@ export function generate(files, dependencies = []) {
         if (kind === "REPORTED") extra.push(["%msg", "REF TO object"], ["%element", `${p}_control`], ["%state_area", "c LENGTH 128"], ["%global", "x LENGTH 1"]);
         body += included(name, `${p}_${fullData ? "data" : "tky"}`, fullData ? "%data" : "%tky", extra);
         body += `  TYPES t_${name} TYPE STANDARD TABLE OF ${name} WITH DEFAULT KEY.\n`;
+        for (const ref of local) poolBind(kind, ref, `${iface}=>t_${name}`);
         for (const ref of refs) {
           bind("TABLE", kind, ref, `${iface}=>t_${name}`);
           bind("STRUCTURE", kind, ref, `${iface}=>${name}`);
@@ -159,6 +165,7 @@ export function generate(files, dependencies = []) {
           body += included(name, `${p}_tky`, "%tky", extra);
           body += `  TYPES t_${name} TYPE STANDARD TABLE OF ${name} WITH DEFAULT KEY.\n`;
           for (const ref of refs) for (const form of ["TABLE", "STRUCTURE"]) bind(form, `ACTION ${kind}`, `${ref}~${action.name}`, `${iface}=>${form === "TABLE" ? "t_" : ""}${name}`);
+          for (const ref of local) poolBind(`ACTION ${kind}`, `${ref}~${action.name}`, `${iface}=>t_${name}`);
         }
       }
     }
@@ -167,6 +174,9 @@ export function generate(files, dependencies = []) {
       const name = `r_${kind.toLowerCase()}`;
       body += struct(name, fields);
       for (const phase of ["", " EARLY"]) bind("RESPONSE", kind + phase, root, `${iface}=>${name}`);
+      for (const pool of new Set([model.implementationClass, ...model.entities.map(e => e.implementationClass)].filter(Boolean).map(upper))) {
+        bind(`POOL ${pool}`, "RESPONSE", kind, `${iface}=>${name}`);
+      }
     }
     outputs[`${iface}.intf.abap`] = body + "ENDINTERFACE.\n";
   }
