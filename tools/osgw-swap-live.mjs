@@ -23,6 +23,11 @@
 //      old generation retires.
 //   6. The change is reverted and activated the same way, and the third
 //      generation serves the original code again (two swaps).
+//   7. With --db <the sidecar's database file>: the file's schema stamp is
+//      made another build's, a change is activated, and the candidate the
+//      build starts refuses the file: X-OSD-Build "built; schema differs,
+//      restart needed", the serving generation unchanged, every row of the
+//      file as it was. The stamp and the source are restored afterwards.
 import {Session} from "../test/adt-conformance/session.mjs";
 import {runsAs} from "./osd-main.mjs";
 
@@ -153,16 +158,68 @@ export async function swapLive(base, {log = console.log, waitMs = 900000} = {}) 
   return {fails, firstSwapMs: next.ms, secondSwapMs: third.ms};
 }
 
+// 7: a candidate whose schema is not the file's refuses the swap
+export async function schemaRefusal(base, db, {log = console.log, waitMs = 900000} = {}) {
+  const {DatabaseSync} = await import("node:sqlite");
+  const fails = [];
+  const check = (ok, what) => { if (!ok) fails.push(what); log(`${ok ? "ok  " : "FAIL"} ${what}`); };
+  const serving = async () => {
+    const r = await fetch(`${base}/osd/serving`);
+    return {build: r.headers.get("x-osd-build") ?? "", ...(await r.json().catch(() => ({})))};
+  };
+  const file = new DatabaseSync(db);
+  file.exec("PRAGMA busy_timeout = 10000");
+  const rows = () => file.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()
+    .map(({name}) => `${name}:${file.prepare(`SELECT count(*) AS n FROM "${name}"`).get().n}`).join(",");
+  const stamp = file.prepare("SELECT fingerprint FROM osd_schema").get()?.fingerprint;
+  check(/^[0-9a-f]{16}$/.test(String(stamp).trim()), `7. the file carries a schema stamp (${stamp})`);
+  file.prepare("UPDATE osd_schema SET fingerprint = 'ffffffffffffffff'").run();
+  const before = await serving();
+  const counts = rows();
+  const reader = await new Session(base).login();
+  const original = (await reader.request({path: `${FIXTURE}/source/main`})).body;
+  await reader.close();
+  try {
+    const act = await saveAndActivate(base, original.replace("rv_text = 'Open'.", "rv_text = 'Opened'."));
+    check(/^published; building b\d+/.test(act.headers.get("x-osd-build") ?? ""), "7. the change is published and builds");
+    let s = {};
+    for (const t = Date.now(); Date.now() - t < waitMs;) {
+      s = await serving();
+      if (s.gateway?.build?.state === "refused" || s.gateway?.build?.state === "failed" || s.gateway?.build?.state === "live") break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    log(`build: ${JSON.stringify(s.gateway?.build)}`);
+    check(s.build === "built; schema differs, restart needed", `7. X-OSD-Build says the schema differs (${s.build})`);
+    check(s.generation === before.generation && s.pid === before.pid, "7. the generation that served serves on");
+    check(rows() === counts, "7. every table of the file has the rows it had");
+  } finally {
+    file.prepare("UPDATE osd_schema SET fingerprint = ?").run(String(stamp).trim());
+    file.close();
+    const back = await saveAndActivate(base, original);
+    check(/generationExecuted="true"/.test(back.body) && !back.headers.get("x-osd-build"), "7. the reverted source is the serving build's again: nothing to build");
+  }
+  return fails;
+}
+
 async function main(argv) {
   const opt = (name) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
   const base = opt("--base")?.replace(/\/+$/, "");
-  if (!base) { console.error("usage: node tools/osgw-swap-live.mjs --base <gateway url> [--wait-ms N]"); return 2; }
+  if (!base) { console.error("usage: node tools/osgw-swap-live.mjs --base <gateway url> [--wait-ms N] [--db <sidecar database file>]"); return 2; }
   let result;
   try {
     result = await swapLive(base, {waitMs: Number(opt("--wait-ms") ?? 900000)});
   } catch (e) {
     console.error(`osgw-swap-live: ${base}: ${e?.stack ?? e}`);
     return 2;
+  }
+  const db = opt("--db");
+  if (db) {
+    try {
+      result.fails.push(...await schemaRefusal(base, db, {waitMs: Number(opt("--wait-ms") ?? 900000)}));
+    } catch (e) {
+      console.error(`osgw-swap-live: the schema refusal: ${e?.stack ?? e}`);
+      return 2;
+    }
   }
   console.log(result.fails.length ? `osgw-swap-live: FAILED (${result.fails.length})` : "osgw-swap-live: the generation swap: ok");
   return result.fails.length ? 1 : 0;

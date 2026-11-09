@@ -133,7 +133,7 @@ jobs:
           GOOS=js GOARCH=wasm go build ./sandbox/ ./adtwrite/ ./objstore/
           # ABAP's process-global string memos, the AMC broker and the lock
           # server are concurrent: test them with the race detector (enq: E0).
-          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/... ./serving/... ./enqnet/... ./osgw/... ./genbuild/... ./dbschema/... ./adtenq/... ./adtlock/... ./adtsystem/...
+          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/... ./serving/... ./enqnet/... ./osgw/... ./cmd/osgw/... ./genbuild/... ./dbschema/... ./adtenq/... ./adtlock/... ./adtsystem/...
           # the gateway and its sidecar seam build for Windows too (no SIGTERM there: the stop kills)
           GOOS=windows go vet ./osgw/ ./cmd/osgw/ ./enq/ ./enqnet/ ./genbuild/ ./dbschema/
       - name: ABAP lint bridge and CHECKRUN edit gates
