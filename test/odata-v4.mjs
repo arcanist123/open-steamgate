@@ -804,7 +804,7 @@ describe("OData V4 read wire", () => {
       try {
         for (const [text, seats] of [['{"Seats": 7}', 7], ['{"Seats":8, "Description":"d"}', 8], ['{ "Seats" : 9 , "Description" : "e" }', 9],
           ['{\n  "Seats": 10\n}', 10], ['{"Seats":\t11}', 11], ['{"Seats":12}\n', 12], [' {"Seats":13}', 13]]) {
-          const res = await raw(base + "/TravelSet('T0907')", "PATCH", text);
+          const res = await raw(base + "/TravelSet('T0907')", "PATCH", text, {"if-match": "*"});
           expect(res.status, JSON.stringify(text)).to.equal(204);
           expect((await json(base + "/TravelSet('T0907')")).Seats, JSON.stringify(text)).to.equal(seats);
         }
