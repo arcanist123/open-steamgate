@@ -281,6 +281,8 @@ Each is a PR of its own, each proven as stated; the sizes are S (under a day), M
 
 Slices 8 and 9 do not depend on 1 to 7 and can go in parallel with slice 1; slice 10 waits for the gogen split, which is somebody else's decision on timing.
 
+**Note, the build behind slice 4 (2026-11-08, [`docs/osgo-fast-rebuild.md`](../osgo-fast-rebuild.md)):** the generated classes are now three Go packages (libraries, tree, the objects being edited), so a save recompiles package `main` and links: `go build` 51.5 s -> 4.0 s, `osgo.mjs` 84.8 s -> 40.1 s, edit to `/osd/serving` ready with the new generation 126.9 s -> 82.0 s (warm Go cache, medians of three, `node tools/gogen/osgo-cycle.mjs [--unlayered] --runs 3`). The first save of a class pays one compile of the tree's package (120 s). The generation is unchanged by the layout. What stands between 82 s and the 60 s target is no longer Go: the Node transpile osgo's stale check requires (38 s, of which the generators osgo needs are 8.4 s) and the front end (22 s).
+
 ## Consequences
 
 - The swap without a restart exists only because the generation is a process. That is the cost: a second copy of the binary in memory during every swap, and a hop per request. The hop is measured in slice 3 and is the one number that could reverse this decision; if it is more than the gain of slice 5 at 16 clients, (a) with a cold restart is the honest alternative.

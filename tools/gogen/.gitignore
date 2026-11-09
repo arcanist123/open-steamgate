@@ -3,6 +3,8 @@
 go/cmd/*/zz_*.go
 go/cmd/*/zz_*.json
 go/generated/*/zz_generated.go
+# the layered osgo build (go-layers.mjs, osgo-layers.mjs)
+go/generated/osgo/
 go/cmd/gateway/main.go
 go/cmd/semantics/main.go
 go/cmd/httpc/main.go
