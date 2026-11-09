@@ -509,6 +509,15 @@ describe('per-file process isolation detector', function () {
     expect(result.output).to.include('run-setup: generation:').and.include('checked test/vscode-warm.mjs');
     expect(result.output).not.to.include('test/vscode-warm.mjs: generation:');
   });
+  it('names the file that leaves a saved-not-activated object behind, not the file whose build it moves', () => {
+    const save = "const fs=require('node:fs');it('saves',()=>{fs.mkdirSync('build/inactive/active/src',{recursive:true});fs.writeFileSync('build/inactive/active/src/zcl_x.clas.abap','active');fs.writeFileSync('build/inactive/inactive.json',JSON.stringify({inactive:{'CLAS ZCL_X':{files:['src/zcl_x.clas.abap']}}}))});";
+    const leaked = run([save, "it('builds later',()=>{});"]);
+    expect(leaked.status, leaked.output).to.be.greaterThan(0);
+    expect(leaked.output).to.include('0.cjs: inactive').and.include('CLAS ZCL_X').and.include('build/inactive/active/src/zcl_x.clas.abap');
+    expect(leaked.output).not.to.include('1.cjs: inactive');
+    const restored = run([save.replace("}))});", "}));fs.rmSync('build/inactive',{recursive:true})});")]);
+    expect(restored.status, restored.output).to.equal(0);
+  });
   for (const mutation of ['live', 'tree', 'delete', 'hash-error']) {
     it(`rejects a fresh ${mutation} change from a stale run baseline`, () => {
       const edit = mutation === 'live' ? "fs.unlinkSync('build/live');fs.symlinkSync('by-input/new-stale','build/live')"
