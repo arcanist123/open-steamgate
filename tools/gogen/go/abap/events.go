@@ -87,7 +87,7 @@ type EventSender interface {
 }
 
 // The same store as CLASS-DATA owns session-wide event registrations.
-// ProcessStatics hosts share this slot; private stores never share its tables.
+// Sessions minted from one Instance share this slot; private stores never share its tables.
 type eventRegistrations struct {
 	allHandlers    map[string]*handlerTable
 	staticHandlers map[string]*handlerTable

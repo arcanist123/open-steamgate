@@ -35,7 +35,7 @@ func hasTests(name string) bool {
 }
 
 // unitExecutor is adtunit.Executor in a serving process: one fresh session on
-// a copy of the seed database (abap.IsolateDB) per test class. Script is
+// a copy of the seed database (Session.OpenUnitDB) per test class. Script is
 // the binary's seed script; its image is built once, on the first run.
 type unitExecutor struct {
 	Script []byte
@@ -44,22 +44,20 @@ type unitExecutor struct {
 	err    error
 }
 
-// Begin isolates one test class; end restores the serving database.
+// Begin opens one test class's session on its own copy; end closes it.
 func (u *unitExecutor) Begin() (any, func(), error) {
 	u.once.Do(func() { u.image, u.err = abap.ScriptImage(u.Script) })
 	if u.err != nil {
 		return nil, nil, u.err
 	}
-	restore, err := abap.IsolateDB(u.image)
-	if err != nil {
+	// the test class's session owns its copy; the serving step's session
+	// and its transaction are not touched (ADR 0010 slice 2)
+	s := &abap.Session{}
+	if err := s.OpenUnitDB(u.image); err != nil {
 		return nil, nil, err
 	}
 	session.BeginTestClass()
-	s := &abap.Session{}
-	return s, func() {
-		abap.EndTestClass(s) // closes the copy too
-		restore()
-	}, nil
+	return s, func() { abap.EndTestClass(s) /* closes the copy too */ }, nil
 }
 
 var (

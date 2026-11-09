@@ -435,22 +435,26 @@ const generated = ["package main", "", "import (_ \"embed\"; \"encoding/json\"; 
   "durations := map[string]float64{}; startupStarted := time.Now()",
   "s := &abap.Session{}"];
 if (groups.some(({methods}) => methods.some((m) => m.db))) generated.push(
-  "var dbImage []byte; if *imageFile != \"\" { var err error; dbImage, err = os.ReadFile(*imageFile); if err != nil { panic(err) } } else { if err := abap.OpenDB(dbScript); err != nil { panic(err) }; var err error; dbImage, err = abap.DBImage(); if err != nil { panic(err) }; abap.CloseUnitDB() }; if *imageOut != \"\" { if err := os.WriteFile(*imageOut, dbImage, 0600); err != nil { panic(err) }; return }; abap.SetUnitDBImage(dbImage)");
+  "var dbImage []byte; if *imageFile != \"\" { var err error; dbImage, err = os.ReadFile(*imageFile); if err != nil { panic(err) } } else { seed, err := abap.OpenDB(dbScript); if err != nil { panic(err) }; dbImage, err = seed.Image(); if err != nil { panic(err) }; seed.Close() }; if *imageOut != \"\" { if err := os.WriteFile(*imageOut, dbImage, 0600); err != nil { panic(err) }; return }");
 else generated.push("_ = imageFile; if *imageOut != \"\" { if err := os.WriteFile(*imageOut, nil, 0600); err != nil { panic(err) }; return }");
 generated.push("if *phasesOut != \"\" { data, _ := json.Marshal(map[string]float64{\"startupSeedMs\": float64(time.Since(startupStarted).Microseconds()) / 1000}); if err := os.WriteFile(*phasesOut, data, 0600); err != nil { panic(err) } }");
 generated.push("checkpoint := func(active string) { if *resultsOut != \"\" { data, err := json.Marshal(struct { Active string `json:\"active,omitempty\"`; Rows []result `json:\"rows\"`; Durations map[string]float64 `json:\"durations\"` }{active, results, durations}); if err != nil { panic(err) }; temp := *resultsOut + \".tmp\"; if err := os.WriteFile(temp, data, 0600); err != nil { panic(err) }; if err := os.Rename(temp, *resultsOut); err != nil { panic(err) } } }");
+// any group with SQL hands every class's session the seed image (below)
+const hasDB = groups.some(({methods}) => methods.some((m) => m.db));
 for (const {key, methods} of groups) {
   const [owner, local] = key.split(":");
   const c = classes.get(key);
   const T = goName(key);
   const special = (name, receiver) => c.methods.some((m) => m.name === name)
     ? `${receiver}.${goName(name)}(s)` : "";
-  // Generated class statics are process globals. Keep each whole test class
-  // exclusive until U4 step 2 moves them into abap.Session.
-  generated.push(`if *classesFile == "" || selected[${JSON.stringify(key)}] {`, `checkpoint(${JSON.stringify(key)})`, "classStarted := time.Now()", "session.BeginTestClass()", "s = &abap.Session{}", ...(c.methods.some((m) => m.name === "CLASS_TEARDOWN") ? ["groupStart := len(results)"] : []), "classError := \"\"; classSite := \"\"", "stopClass := false");
+  // A test class runs in a Session of its own: private statics, and its
+  // own copy of the seed image as the database (abap.Session owns both).
+  // The image is handed to every class's session, because a class whose
+  // SQL the static detection missed opens its copy on its first statement.
+  generated.push(`if *classesFile == "" || selected[${JSON.stringify(key)}] {`, `checkpoint(${JSON.stringify(key)})`, "classStarted := time.Now()", "session.BeginTestClass()", "s = &abap.Session{}", ...(hasDB ? ["s.UseUnitImage(dbImage)"] : []), ...(c.methods.some((m) => m.name === "CLASS_TEARDOWN") ? ["groupStart := len(results)"] : []), "classError := \"\"; classSite := \"\"", "stopClass := false");
   // one LUW chain as the Node unit run has (abap.BeginUnitLUW): COMMIT and
   // ROLLBACK WORK end it, nothing between the methods does
-  if (methods.some((m) => m.db)) generated.push("classError = caught(func(){ if err := abap.OpenDBImage(dbImage); err != nil { panic(err) }; abap.BeginUnitLUW() }); classSite = lastSite");
+  if (methods.some((m) => m.db)) generated.push("classError = caught(func(){ if err := s.OpenUnitDB(dbImage); err != nil { panic(err) } }); classSite = lastSite");
   if (c.methods.some((m) => m.name === "CLASS_SETUP")) generated.push(`if classError == "" { classError = caught(func(){ ${funcName(key, "CLASS_SETUP")}(s) }); classSite = lastSite }`);
   for (const row of methods) {
     generated.push(`{ r := result{Class:${JSON.stringify(owner)}, Testclass:${JSON.stringify(local)}, Method:${JSON.stringify(row.method)}, Status:"SUCCESS"}`,

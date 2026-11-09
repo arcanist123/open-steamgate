@@ -9,7 +9,8 @@ name: gogen
 #
 # `go test ./abap/...` and not `go build ./...`: cmd/bench, cmd/osgo and
 # cmd/osabap compile only after their runner has generated their half, so a
-# plain build of the module fails by design. The pairs in test/fixtures/ir-pairs are shared with
+# plain build of the module fails by design (cmd/osgo's own vet and tests
+# run in tests.yml's osgo-host job, after its generated half is built). The pairs in test/fixtures/ir-pairs are shared with
 # the Node IR, so a change there runs this too: a pair main adds that the Go
 # runtime does not do yet goes into the strict known-gap list
 # (knowngaps_test.go, empty today), which turns red if one starts to pass.

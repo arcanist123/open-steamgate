@@ -528,6 +528,18 @@ jobs:
           trap - EXIT
           [ "$drain_rc" -eq 0 ] || { echo "::error::osgo exited $drain_rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgo-adt.log"; exit 1; }
           exit "$abapfs_rc"
+      # cmd/osgo is package main and compiles only beside its generated half
+      # (zz_*.go), which the conformance setup above has just written, so its
+      # own tests run here and not in gogen.yml. They were run by nobody
+      # before: a renamed kernel function (#881, StepQuerier) left the
+      # package's tests uncompilable while every check stayed green. vet
+      # covers the tagged test files too; unreachable and bools are off
+      # because the generated half trips them by construction (1466 + 1).
+      - name: Go vet and tests of cmd/osgo
+        working-directory: tools/gogen/go
+        run: |
+          go vet -tags gitprobe,profilingroutes -unreachable=false -bools=false ./cmd/osgo
+          go test -vet=off -count=1 ./cmd/osgo
 
   # An independent parallel gate; no additional work in the suite shards.
   kernel-conformance:

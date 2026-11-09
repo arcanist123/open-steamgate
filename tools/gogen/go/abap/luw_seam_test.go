@@ -8,13 +8,10 @@ import (
 )
 
 func TestGeneratedLUWDatabaseOrder(t *testing.T) {
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db.Close(); db = nil; tx = nil; hostclass.LUW.Commit = nil; hostclass.LUW.Rollback = nil }()
-	s := &Session{}
+	_, s := openTestDB(t, `["CREATE TABLE t (id TEXT)"]`)
+	defer func() { hostclass.LUW.Commit = nil; hostclass.LUW.Rollback = nil }()
 	rows := func() int {
-		r, err := conn().Query("SELECT COUNT(*) FROM t")
+		r, err := s.conn().Query("SELECT COUNT(*) FROM t")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -26,12 +23,12 @@ func TestGeneratedLUWDatabaseOrder(t *testing.T) {
 		}
 		return n
 	}
-	DialogStep(func() {
-		conn().Exec("INSERT INTO t VALUES ('A')")
-		old := tx
+	DialogStep(s, func() {
+		s.conn().Exec("INSERT INTO t VALUES ('A')")
+		old := s.tx
 		s.UpdateTask = true
 		hostclass.LUW.Commit = func(step any, u bool) error {
-			if step != any(s) || !u || s.UpdateTask || tx == old {
+			if step != any(s) || !u || s.UpdateTask || s.tx == old {
 				t.Fatal("commit hook preceded database commit/reset")
 			}
 			RollbackWork(s)
@@ -41,11 +38,11 @@ func TestGeneratedLUWDatabaseOrder(t *testing.T) {
 			return nil
 		}
 		GeneratedCommitWork(s)
-		conn().Exec("INSERT INTO t VALUES ('B')")
-		old = tx
+		s.conn().Exec("INSERT INTO t VALUES ('B')")
+		old = s.tx
 		s.UpdateTask = true
 		hostclass.LUW.Rollback = func(step any) error {
-			if step != any(s) || s.UpdateTask || tx == old || rows() != 1 {
+			if step != any(s) || s.UpdateTask || s.tx == old || rows() != 1 {
 				t.Fatal("rollback hook preceded database rollback/reset")
 			}
 			return nil

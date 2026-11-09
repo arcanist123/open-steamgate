@@ -193,7 +193,7 @@ func icfMain(s *abap.Session, file string) {
 					out = icfResponse{Dump: castdiag.DumpText(r), At: abapStack(r)}
 				}
 			}()
-			abap.DialogStep(func() {
+			abap.DialogStep(s, func() {
 				out = icf(s, rq, "/sap/opu/odata/sap")
 			})
 		}()
@@ -232,7 +232,6 @@ func abapStack(r any) string {
 var dbScript []byte
 
 func main() {
-	s := &abap.Session{Statics: abap.ProcessStatics}
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("DUMP", castdiag.DumpText(r))
@@ -240,10 +239,14 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	if err := abap.OpenDB(dbScript); err != nil {
+	d, err := abap.OpenDB(dbScript)
+	if err != nil {
 		fmt.Println("DATABASE", err)
 		os.Exit(1)
 	}
+	// one session for every request of this run: the database and the
+	// statics of the process, as the serving host's instance has them
+	s := abap.NewInstance(d).NewSession()
 	ZCL_STG_SEGW_REGISTRY_REGISTER(s)
 	// the search helps of src/ as providers, as test/start.mjs does
 	ZCL_STG_SHLP_REGISTRY_REGISTER(s)
@@ -267,7 +270,7 @@ func main() {
 	// one dialog step: its database LUW is committed when it ends and rolled
 	// back when it dumps (abap.DialogStep, the kernel's rule)
 	var res ZCL_STG_DISPATCHER__TY_RESPONSE
-	abap.DialogStep(func() {
+	abap.DialogStep(s, func() {
 		res = ZCL_STG_DISPATCHER_DISPATCH(s, "GET", path, &opts, ${JSON.stringify(process.env.GW_HOST ?? "http://localhost:3091")}, "", "", "")
 	})
 	fmt.Printf("%d %s\\n%s\\n%s\\n", res.status, res.reason, res.content_type, res.body)

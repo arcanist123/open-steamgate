@@ -53,7 +53,7 @@ func TestLUWSeam(t *testing.T) {
  ZCL_GOGEN_LUW_SEAM_UPDATE(s)
  yieldsleep.Sleep(s, time.Nanosecond)
  s.YieldSleep(time.Nanosecond)
- abap.DialogStep(func(){abap.CommitWork(s); abap.RollbackWork(s)})
+ abap.DialogStep(s, func(){abap.CommitWork(s); abap.RollbackWork(s)})
  abap.WorkProcess.Lock()
  abap.DialogStepIn(s,func(){yieldsleep.Sleep(s, time.Nanosecond)})
  abap.WorkProcess.Unlock()
@@ -84,11 +84,11 @@ func TestLUWSeam(t *testing.T) {
  }
 }
 func TestDatabaseBeforeGeneratedHook(t *testing.T) {
- if err:=abap.OpenDB([]byte("[\"CREATE TABLE zgogen_luw_tab (id INTEGER PRIMARY KEY)\"]")); err!=nil {t.Fatal(err)}
- defer func(){hostclass.LUW.Commit=nil; hostclass.LUW.Rollback=nil; abap.DB().Close()}()
- s:=&abap.Session{}
+ d,err:=abap.OpenDB([]byte("[\"CREATE TABLE zgogen_luw_tab (id INTEGER PRIMARY KEY)\"]")); if err!=nil {t.Fatal(err)}
+ defer func(){hostclass.LUW.Commit=nil; hostclass.LUW.Rollback=nil; d.Close()}()
+ s:=&abap.Session{DB: d}
  for _,commit:=range []func(*abap.Session){ZCL_GOGEN_LUW_SEAM_COMMIT,ZCL_GOGEN_LUW_SEAM_COMMIT_WAIT} {
-  abap.DialogStep(func(){
+  abap.DialogStep(s, func(){
    // Remove the preceding committed row, then write one in this LUW.
    abap.ExecWrite(s,"DELETE FROM zgogen_luw_tab",nil,nil)
    ZCL_GOGEN_LUW_SEAM_PUT(s)
@@ -103,7 +103,7 @@ func TestDatabaseBeforeGeneratedHook(t *testing.T) {
    if calls!=1 {t.Fatalf("commit calls: %d",calls)}
   })
  }
- abap.DialogStep(func(){
+ abap.DialogStep(s, func(){
   abap.ExecWrite(s,"DELETE FROM zgogen_luw_tab",nil,nil)
   hostclass.LUW.Rollback=func(step any)error {
    if step!=any(s)||ZCL_GOGEN_LUW_SEAM_ROWS(s)!=1 {t.Fatal("rollback hook ran before database rollback")}

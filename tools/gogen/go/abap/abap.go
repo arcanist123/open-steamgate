@@ -10,6 +10,7 @@
 package abap
 
 import (
+	"database/sql"
 	"fmt"
 	"math"
 	"osg/gogen/abaperr"
@@ -80,7 +81,11 @@ type Session struct {
 	// Statics holds class attributes, constructor flags and event registrations. Nil creates a private
 	// store on first access. Shared stores require serialized access.
 	Statics *Statics
-	Sy      Sy
+	// DB is the database this session's steps run on (db.go); the host sets
+	// it (Instance.NewSession). Nil: a session without a database, whose
+	// steps have no LUW and whose first statement is a host error.
+	DB *Database
+	Sy Sy
 	// UpdateTask records an update-task module called in this session LUW.
 	UpdateTask bool
 	// Handlers: the CATCH clauses of the TRYs active in this session,
@@ -96,6 +101,12 @@ type Session struct {
 	inflate           *inflate.Registry
 	localDestinations map[string]bool
 	messageCall       MessageCall
+	// the LUW (luw.go): the transaction of the open dialog step, the
+	// transaction-bound copies of the database's prepared statements, and a
+	// Unit class's seed image to open on first use (db.go)
+	tx        *sql.Tx
+	txStmts   map[string]*sql.Stmt
+	unitImage []byte
 }
 
 // ArithmeticError retains the identity of errors from pure packages.

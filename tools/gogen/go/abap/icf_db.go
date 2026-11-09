@@ -27,60 +27,60 @@ func ScriptVersion(script []byte) int32 {
 // when it carries this script's mark: one seeded by another build (other
 // tables, other seed rows) or by nobody is refused, since its differences
 // would show up only later, as SQL errors inside a dialog step.
-func OpenDBFile(path string, script []byte) (seeded bool, err error) {
+func OpenDBFile(path string, script []byte) (db *Database, seeded bool, err error) {
 	var stmts []string
 	if err := json.Unmarshal(script, &stmts); err != nil {
-		return false, err
+		return nil, false, err
 	}
 	if _, err := os.Stat(path); err != nil && !os.IsNotExist(err) {
-		return false, err
+		return nil, false, err
 	}
 	d, err := openSQL("file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	d.SetMaxOpenConns(1)
+	db = newDatabase(d)
 	var tables int
 	if err := d.QueryRow("SELECT count(*) FROM sqlite_master").Scan(&tables); err != nil {
 		d.Close()
-		return false, err
+		return nil, false, err
 	}
 	want := ScriptVersion(script)
 	if tables > 0 {
 		var have int32
 		if err := d.QueryRow("PRAGMA user_version").Scan(&have); err != nil {
 			d.Close()
-			return false, err
+			return nil, false, err
 		}
 		if have != want {
 			d.Close()
 			if have == 0 {
-				return false, fmt.Errorf("-db %s has tables but no mark of the build that seeded it (this build: %08x); remove the file or name a new one", path, want)
+				return nil, false, fmt.Errorf("-db %s has tables but no mark of the build that seeded it (this build: %08x); remove the file or name a new one", path, want)
 			}
-			return false, fmt.Errorf("-db %s was seeded by another build (its mark %08x, this build %08x): the tables or seed rows differ; remove the file or name a new one", path, have, want)
+			return nil, false, fmt.Errorf("-db %s was seeded by another build (its mark %08x, this build %08x): the tables or seed rows differ; remove the file or name a new one", path, have, want)
 		}
 	}
 	if tables == 0 {
 		tx, err := d.Begin()
 		if err != nil {
 			d.Close()
-			return false, err
+			return nil, false, err
 		}
 		for i, st := range stmts {
 			if _, err := tx.Exec(st); err != nil {
 				tx.Rollback()
 				d.Close()
-				return false, fmt.Errorf("statement %d: %w: %.200s", i, err, st)
+				return nil, false, fmt.Errorf("statement %d: %w: %.200s", i, err, st)
 			}
 		}
 		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", want)); err != nil {
 			tx.Rollback()
 			d.Close()
-			return false, err
+			return nil, false, err
 		}
 		if err := tx.Commit(); err != nil {
 			d.Close()
-			return false, err
+			return nil, false, err
 		}
 		seeded = true
 	}
@@ -89,10 +89,7 @@ func OpenDBFile(path string, script []byte) (seeded bool, err error) {
 	// file seeded before is brought to the same state)
 	if err := prepareStore(d); err != nil {
 		d.Close()
-		return false, err
+		return nil, false, err
 	}
-	previous := db
-	db = d
-	if previous != nil { _ = previous.Close() }
-	return seeded, nil
+	return db, seeded, nil
 }

@@ -170,6 +170,9 @@ func main() {
 
 // one recording on a fresh handler; a method that did not compile raises,
 // and the scene is reported with the reason instead of stopping the rest
+// one statics store for every scene of this run, as the serving process has
+var instance = abap.NewInstance(nil)
+
 func one(r run) (res result) {
 	res.Scene = r.Scene
 	defer func() {
@@ -178,7 +181,7 @@ func one(r run) (res result) {
 		}
 	}()
 	{
-		s := &abap.Session{Statics: abap.ProcessStatics}
+		s := instance.NewSession()
 		h := New_ZCL_O4D_APC_HANDLER(s)
 		h.INIT_ALL_DEMOS(s)
 		h.LOAD_DEMO(s, "main")

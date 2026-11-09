@@ -52,9 +52,12 @@ func TestGitProbe(t *testing.T) {
 	if url == "" {
 		t.Skip("OSGO_GIT_URL is not set")
 	}
-	if err := abap.OpenDB(dbScript); err != nil {
+	d, err := abap.OpenDB(dbScript)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer d.Close()
+	s := &abap.Session{DB: d}
 	var refs, clone probeOut
 	func() {
 		defer func() {
@@ -62,7 +65,7 @@ func TestGitProbe(t *testing.T) {
 				refs.Dump = dumpOf(r)
 			}
 		}()
-		for _, r := range ZCL_OSD_GIT_REFS(&abap.Session{}, url) {
+		for _, r := range ZCL_OSD_GIT_REFS(s, url) {
 			refs.Refs = append(refs.Refs, [2]string{r.sha1, r.name})
 		}
 	}()
@@ -72,7 +75,7 @@ func TestGitProbe(t *testing.T) {
 				clone.Dump = dumpOf(r)
 			}
 		}()
-		c := ZCL_OSD_GIT_CLONE(&abap.Session{}, url, "")
+		c := ZCL_OSD_GIT_CLONE(s, url, "")
 		clone.Commit, clone.Branch = c.commit, c.branch
 		for _, f := range c.files {
 			sum := sha1.Sum([]byte(f.data))

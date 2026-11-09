@@ -18,13 +18,20 @@ import (
 // which is the same rule for the three Node hosts). It lives here so that
 // every Go host gets it by calling DialogStep rather than by copying it.
 //
+// The transaction is the Session's (ADR 0010 slice 2): a step runs in a
+// Session, the Session holds the database it runs on (Session.DB) and the
+// transaction of its open step (Session.tx), and a statement of generated
+// code reaches both through the Session it was handed. Two Sessions never
+// share a transaction; whether they share a database is the host's
+// choice. With the one connection a Database has today, a step of another
+// Session on the same database while one is open is refused at begin, so
+// hosts serialise their steps (WorkProcess) as before.
+//
 // Measured on A4H (2026-09-23): COMMIT WORK, COMMIT WORK AND WAIT and
 // ROLLBACK WORK set sy-subrc to 0 and leave sy-dbcnt as it was; ROLLBACK
 // WORK undoes what the LUW wrote, a COMMIT WORK before it keeps its rows.
 // Neither PERFORM ... ON COMMIT nor CALL FUNCTION ... IN UPDATE TASK
 // compiles in this subset, so there is nothing else for a COMMIT to run.
-
-var tx *sql.Tx
 
 // querier is what a statement runs on: the step's transaction when one is
 // open, the database otherwise (a host that runs no step, or a tool).
@@ -33,20 +40,34 @@ type querier interface {
 	Exec(query string, args ...any) (sql.Result, error)
 }
 
-func conn() querier {
-	return cachedQuerier{}
+func (s *Session) conn() querier {
+	return cachedQuerier{s}
 }
 
 // StepQuerier is the calling step's transaction, or the database (adtpreview).
-func StepQuerier() any { return plainConn() }
+func (s *Session) StepQuerier() any { return s.plainConn() }
 
-func plainConn() querier {
-	// DB may lazily open the Unit class's image and its transaction.
-	DB()
-	if tx != nil {
-		return tx
+func (s *Session) plainConn() querier {
+	// database may lazily open the Unit class's image and its transaction.
+	d := s.database()
+	if s.tx != nil {
+		return s.tx
 	}
-	return DB()
+	d.usable(s)
+	return d.sql
+}
+
+// usable refuses, by name, a statement outside a step that the pool could
+// only queue forever or that would reach a closed pool: the one connection
+// (db.go) held by another session's step is refused, not queued, as begin
+// refuses a second step.
+func (d *Database) usable(s *Session) {
+	if d.sql == nil {
+		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "database is closed"})
+	}
+	if d.inStep != nil && d.inStep != s {
+		panic(NotCompiled("database", "a dialog step of another session holds this database's one connection"))
+	}
 }
 
 // The statement cache (parity-wave2). SQLite parsed every statement again:
@@ -58,46 +79,24 @@ func plainConn() querier {
 // without a ';' is cached (a prepare takes the first statement of a text
 // only), at most stmtCacheMax of them; the answers are the statement's
 // either way, and SQLite prepares again by itself when the schema changed.
+// The prepared statements belong to the Database (they are its
+// connection's); the transaction-bound copies belong to the step.
 const stmtCacheMax = 4096
 
-var (
-	stmtCache   = map[string]*sql.Stmt{}
-	stmtSeen    = map[string]int{}
-	stmtPending []string
-	txStmts     = map[string]*sql.Stmt{}
-	// the database the cache belongs to: another one (OpenDB again) starts
-	// it empty
-	stmtDB *sql.DB
-)
+type cachedQuerier struct{ s *Session }
 
-func stmtCacheFor(d *sql.DB) {
-	if stmtDB == d {
-		return
-	}
-	for _, p := range stmtCache {
-		p.Close()
-	}
-	clear(stmtCache)
-	clear(stmtSeen)
-	clear(txStmts)
-	stmtPending = stmtPending[:0]
-	stmtDB = d
-}
-
-type cachedQuerier struct{}
-
-func (cachedQuerier) Query(q string, args ...any) (*sql.Rows, error) {
-	if st := stmtFor(q); st != nil {
+func (c cachedQuerier) Query(q string, args ...any) (*sql.Rows, error) {
+	if st := c.s.stmtFor(q); st != nil {
 		return st.Query(args...)
 	}
-	return plainConn().Query(q, args...)
+	return c.s.plainConn().Query(q, args...)
 }
 
-func (cachedQuerier) Exec(q string, args ...any) (sql.Result, error) {
-	if st := stmtFor(q); st != nil {
+func (c cachedQuerier) Exec(q string, args ...any) (sql.Result, error) {
+	if st := c.s.stmtFor(q); st != nil {
 		return st.Exec(args...)
 	}
-	return plainConn().Exec(q, args...)
+	return c.s.plainConn().Exec(q, args...)
 }
 
 func cacheable(q string) bool {
@@ -111,31 +110,36 @@ func cacheable(q string) bool {
 	return false
 }
 
-func stmtFor(q string) *sql.Stmt {
-	if db == nil {
+func (s *Session) stmtFor(q string) *sql.Stmt {
+	d := s.DB
+	// outside a step while another session's step holds the connection,
+	// the pool would queue: plainConn refuses it instead
+	if d == nil || d.sql == nil || (s.tx == nil && d.inStep != nil) {
 		return nil
 	}
-	stmtCacheFor(db)
-	if p, ok := stmtCache[q]; ok {
-		if tx == nil {
+	if p, ok := d.stmtCache[q]; ok {
+		if s.tx == nil {
 			return p
 		}
-		if st, ok := txStmts[q]; ok {
+		if st, ok := s.txStmts[q]; ok {
 			return st
 		}
-		st := tx.Stmt(p)
-		txStmts[q] = st
+		st := s.tx.Stmt(p)
+		if s.txStmts == nil {
+			s.txStmts = map[string]*sql.Stmt{}
+		}
+		s.txStmts[q] = st
 		return st
 	}
-	if len(stmtCache)+len(stmtPending) >= stmtCacheMax || !cacheable(q) {
+	if len(d.stmtCache)+len(d.stmtPending) >= stmtCacheMax || !cacheable(q) {
 		return nil
 	}
-	if len(stmtSeen) > 4*stmtCacheMax {
-		clear(stmtSeen)
+	if len(d.stmtSeen) > 4*stmtCacheMax {
+		clear(d.stmtSeen)
 	}
-	stmtSeen[q]++
-	if stmtSeen[q] == 2 {
-		stmtPending = append(stmtPending, q)
+	d.stmtSeen[q]++
+	if d.stmtSeen[q] == 2 {
+		d.stmtPending = append(d.stmtPending, q)
 	}
 	return nil
 }
@@ -143,59 +147,75 @@ func stmtFor(q string) *sql.Stmt {
 // prepareSeen prepares what the step that just ended ran twice, on the
 // connection its transaction gave back; a text that does not prepare stays
 // uncached
-func prepareSeen() {
-	clear(txStmts)
-	if tx != nil || db == nil {
+func (d *Database) prepareSeen() {
+	if d.inStep != nil || d.sql == nil {
 		return
 	}
-	stmtCacheFor(db)
-	for _, q := range stmtPending {
-		if p, err := db.Prepare(q); err == nil {
-			stmtCache[q] = p
+	for _, q := range d.stmtPending {
+		if p, err := d.sql.Prepare(q); err == nil {
+			d.stmtCache[q] = p
 		}
-		delete(stmtSeen, q)
+		delete(d.stmtSeen, q)
 	}
-	stmtPending = stmtPending[:0]
+	d.stmtPending = d.stmtPending[:0]
 }
 
-func begin() {
-	if db == nil {
+func (s *Session) begin() {
+	d := s.DB
+	if d == nil {
 		return
+	}
+	if d.sql == nil {
+		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "database is closed"})
 	}
 	// one connection in the pool (db.go): a second Begin would wait for the
 	// first forever rather than fail
-	if tx != nil {
+	if s.tx != nil {
 		panic(NotCompiled("dialog step", "a dialog step is already open"))
 	}
-	t, err := db.Begin()
+	if d.inStep != nil {
+		panic(NotCompiled("dialog step", "a dialog step of another session is open on this database"))
+	}
+	t, err := d.sql.Begin()
 	if err != nil {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}
-	tx = t
+	s.tx = t
+	d.inStep = s
 }
 
-func end(commit bool) {
-	if tx == nil {
+func (s *Session) end(commit bool) {
+	if s.tx == nil {
 		return
 	}
-	t := tx
-	tx = nil
+	t := s.tx
+	s.tx = nil
+	clear(s.txStmts)
 	var err error
 	if commit {
 		err = t.Commit()
 	} else {
 		err = t.Rollback()
 	}
-	prepareSeen()
+	if d := s.DB; d != nil {
+		if d.inStep == s {
+			d.inStep = nil
+		}
+		d.prepareSeen()
+	}
 	if err != nil {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}
 }
 
-// DialogStep runs one step of work in a database LUW of its own: committed
-// when work returns, rolled back when it panics (the panic goes on).
-func DialogStep(work func()) {
-	begin()
+// InStep says whether the session's dialog step is open (its transaction).
+func (s *Session) InStep() bool { return s.tx != nil }
+
+// DialogStep runs one step of work of the session in a database LUW of its
+// own: committed when work returns, rolled back when it panics (the panic
+// goes on).
+func DialogStep(s *Session, work func()) {
+	s.begin()
 	ok := false
 	defer func() {
 		if ok {
@@ -206,7 +226,7 @@ func DialogStep(work func()) {
 		dump := recover()
 		func() {
 			defer func() { recover() }()
-			end(false)
+			s.end(false)
 		}()
 		if dump != nil { // nil: runtime.Goexit, which goes on by itself
 			panic(dump)
@@ -214,20 +234,16 @@ func DialogStep(work func()) {
 	}()
 	work()
 	ok = true
-	end(true)
+	s.end(true)
 }
 
-// DialogStepIn runs work for a known Session while marking that its host owns
+// DialogStepIn runs work for a Session while marking that its host owns
 // WorkProcess. The host has already taken the mutex; this only records that
 // ownership so an in-step yield can give the work process up selectively.
 func DialogStepIn(s *Session, work func()) {
-	if s == nil {
-		DialogStep(work)
-		return
-	}
 	s.HoldsWorkProcess = true
 	defer func() { s.HoldsWorkProcess = false }()
-	DialogStep(work)
+	DialogStep(s, work)
 }
 
 func (s *Session) YieldSleep(d time.Duration) {
@@ -242,14 +258,14 @@ func (s *Session) YieldSleep(d time.Duration) {
 	}
 	// End the database step before handing the work process to another
 	// session. COMMIT WORK alone immediately opens another transaction.
-	end(true)
+	s.end(true)
 	s.Sy.Subrc = 0
 	s.HoldsWorkProcess = false
 	WorkProcess.Unlock()
 	time.Sleep(d)
 	WorkProcess.Lock()
 	s.HoldsWorkProcess = true
-	begin()
+	s.begin()
 }
 
 // BeginUnitLUW opens the LUW a unit run works in, which is how the Node
@@ -257,21 +273,21 @@ func (s *Session) YieldSleep(d time.Duration) {
 // WORK or ROLLBACK WORK ends it (the next begins with the next write), with
 // nothing committed or rolled back between test methods. So a ROLLBACK
 // undoes back to the last COMMIT, as there. The unit runner calls it after
-// each OpenDB; a transaction left on the database OpenDB replaced is
-// rolled back first.
-func BeginUnitLUW() {
-	if tx != nil {
-		end(false)
+// each OpenUnitDB; a transaction the session still had is rolled back
+// first.
+func BeginUnitLUW(s *Session) {
+	if s.tx != nil {
+		s.end(false)
 	}
-	begin()
+	s.begin()
 }
 
 // CommitWork is COMMIT WORK [AND WAIT]. Outside a dialog step it has
 // nothing to do: autocommit already made every write durable.
 func CommitWork(s *Session) {
-	if tx != nil {
-		end(true)
-		begin()
+	if s.tx != nil {
+		s.end(true)
+		s.begin()
 	}
 	s.Sy.Subrc = 0
 }
@@ -281,12 +297,12 @@ func CommitWork(s *Session) {
 // could undo: refused rather than answered 0 as if it had undone it. Without
 // a database (a harness that runs no SQL) there is nothing written either.
 func RollbackWork(s *Session) {
-	if tx == nil && db != nil {
+	if s.tx == nil && s.DB != nil {
 		panic(NotCompiled("ROLLBACK WORK", "outside a dialog step, where every statement already committed"))
 	}
-	if tx != nil {
-		end(false)
-		begin()
+	if s.tx != nil {
+		s.end(false)
+		s.begin()
 	}
 	s.Sy.Subrc = 0
 }
