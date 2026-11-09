@@ -429,12 +429,12 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
           zcl_osd_v4_query=>fail( iv_text = 'The data provider created nothing' iv_status = 500 ).
         ENDIF.
         ASSIGN lr_entity->* TO <ls_data>.
-* the key predicate escaped per UTF-8 byte, as the V2 Location does:
-* escape_url writes one % before all bytes of a character, which no client
-* decodes
-        lv_location = zcl_stg_url=>escape_key( zcl_osd_v4_json=>key_predicate( is_data = <ls_data>
-                                                                                is_set  = is_set
-                                                                                io_model = io_model ) ).
+* the key predicate carries its own URI escaping: key_predicate encodes a
+* string value per UTF-8 byte, an ASCII key keeping the bytes escape_url
+* wrote, so the Location of an ASCII key is the one it always had
+        lv_location = zcl_osd_v4_json=>key_predicate( is_data = <ls_data>
+                                                       is_set   = is_set
+                                                       io_model = io_model ).
         lv_location = |{ iv_service_url }/{ is_set-name }({ lv_location })|.
         add_header( EXPORTING iv_name = 'Location' iv_value = lv_location CHANGING ct_headers = rs_response-headers ).
         lv_etag = zcl_osd_v4_json=>etag( is_data = <ls_data> is_set = is_set io_model = io_model ).

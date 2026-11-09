@@ -375,14 +375,27 @@ describe("OData V4 read wire", () => {
     // ANOMALY-2026-11-08-escape-url-multibyte: escape_url wrote one % before
     // all UTF-8 bytes of a character (Жук -> %d096%d183%d0ba), so the Location
     // could not be decoded and following it was the server's URIError 400
-    // page. The Location percent-encodes per UTF-8 byte, as the V2 one does
-    // (#883), and an ASCII key keeps the bytes it always had.
-    it("the Location of a created entity with a key outside ASCII is a URI that reads back", async () => {
-      for (const key of ["Жук", "\u{1F600}", "a\u{1F600}b", "T 0102", "T0102"]) {
+    // page. A character outside ASCII is percent-encoded per UTF-8 byte now;
+    // an ASCII key keeps the exact bytes cl_http_utility=>escape_url wrote
+    // before (kept set, % and lowercase hex), pinned per key below.
+    it("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII", async () => {
+      const cases = [
+        ["It's", "It%27%27s"],
+        ["a,b", "a%2cb"],
+        ["a<b", "a%3cb"],
+        ["T0102", "T0102"],
+        ["T 0102", "T%200102"],
+        ["100%", "100%25"],
+        ["Жук", "%D0%96%D1%83%D0%BA"],
+        ["\u{1F600}", "%F0%9F%98%80"],
+        ["a\u{1F600}b", "a%F0%9F%98%80b"],
+        ["Ж'ук", "%D0%96%27%27%D1%83%D0%BA"],
+      ];
+      for (const [key, escaped] of cases) {
         const res = await send(base + "/TravelSet", "POST", {TravelId: key, Description: "odd", Status: "A", Seats: 1});
         expect(res.status, key).to.equal(201);
         const location = res.headers.get("location");
-        expect(location, key).to.equal(base + "/TravelSet('" + encodeURIComponent(key) + "')");
+        expect(location, key).to.equal(base + "/TravelSet('" + escaped + "')");
         expect(location, key).to.match(/^[\x20-\x7e]*$/);
         const got = await fetch(location);
         expect(got.status, key).to.equal(200);
