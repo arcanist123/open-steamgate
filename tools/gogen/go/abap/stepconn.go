@@ -115,7 +115,11 @@ func (s *Session) pooledBegin() {
 
 // pooledEnd ends it; a step whose transaction a WAIT or a COMMIT WORK
 // already ended, or whose connection the fence broke, has nothing to end,
-// and the error that broke it is the step's own to report.
+// and the error that broke it is the step's own to report. A COMMIT that
+// fails leaves the transaction open on the connection, so the rollback
+// after it is best-effort: the step dumps either way, and the work process
+// lends a clean connection to the next step or one whose next BEGIN fails
+// loudly -- never one with a half-ended transaction nobody knows about.
 func (s *Session) pooledEnd(commit bool) {
 	if !s.stepOpen {
 		return
@@ -126,6 +130,12 @@ func (s *Session) pooledEnd(commit bool) {
 		end = "COMMIT"
 	}
 	if _, err := s.stepConn.Exec(end); err != nil {
+		if commit {
+			func() {
+				defer func() { recover() }()
+				_, _ = s.stepConn.Exec("ROLLBACK")
+			}()
+		}
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}
 }

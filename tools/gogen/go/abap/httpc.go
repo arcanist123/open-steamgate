@@ -76,24 +76,24 @@ var httpcRoots *x509.CertPool
 // httpcClient is what Node keeps on the client object: the headers of the
 // SEND in progress, the answer, and the Agent's one socket.
 type httpcClient struct {
-	headers	jsObject
-	resp	*httpcResponse
-	conn	net.Conn
-	br	*bufio.Reader
-	connKey	string
+	headers jsObject
+	resp    *httpcResponse
+	conn    net.Conn
+	br      *bufio.Reader
+	connKey string
 }
 
 type httpcResponse struct {
-	status	int32
-	headers	jsObject
-	body	[]byte
+	status  int32
+	headers jsObject
+	body    []byte
 }
 
 // jsObject is a JavaScript object with string keys and values, in the order
 // JavaScript enumerates them.
 type jsObject struct {
-	keys	[]string
-	vals	map[string]string
+	keys []string
+	vals map[string]string
 }
 
 func (o *jsObject) set(k, v string) {
@@ -227,19 +227,19 @@ func hostError(text string) {
 // characters it percent-encodes, a numeric host it reads as IPv4,
 // credentials, an IPv6 or IDN host) is refused, not guessed.
 type httpcTarget struct {
-	tls		bool
-	hostname	string
-	port		int
-	hostHdr		string
-	target		string
+	tls      bool
+	hostname string
+	port     int
+	hostHdr  string
+	target   string
 }
 
 var (
-	schemeRe	= regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.\-]*):`)
-	hostnameRe	= regexp.MustCompile(`^[a-z0-9._\-]+$`)
-	pathChars	= regexp.MustCompile(`^[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$`)
-	queryChars	= regexp.MustCompile(`^[A-Za-z0-9\-._~!$&()*+,;=:@/%?]*$`)
-	numLabel	= regexp.MustCompile(`^(0[xX][0-9A-Fa-f]*|[0-9]+)$`)
+	schemeRe   = regexp.MustCompile(`^([A-Za-z][A-Za-z0-9+.\-]*):`)
+	hostnameRe = regexp.MustCompile(`^[a-z0-9._\-]+$`)
+	pathChars  = regexp.MustCompile(`^[A-Za-z0-9\-._~!$&'()*+,;=:@/%]*$`)
+	queryChars = regexp.MustCompile(`^[A-Za-z0-9\-._~!$&()*+,;=:@/%?]*$`)
+	numLabel   = regexp.MustCompile(`^(0[xX][0-9A-Fa-f]*|[0-9]+)$`)
 )
 
 func parseTarget(raw string) httpcTarget {
@@ -265,7 +265,7 @@ func parseTarget(raw string) httpcTarget {
 	}
 	rest = rest[2:]
 	if i := strings.IndexByte(rest, '#'); i >= 0 {
-		rest = rest[:i]	// the fragment is not sent
+		rest = rest[:i] // the fragment is not sent
 	}
 	end := strings.IndexAny(rest, "/?")
 	if end < 0 {
@@ -409,7 +409,7 @@ func (c *httpcClient) alive() bool {
 		return false
 	}
 	if c.br.Buffered() > 0 {
-		return false	// bytes nobody asked for: Node's parser would fail on them
+		return false // bytes nobody asked for: Node's parser would fail on them
 	}
 	c.conn.SetReadDeadline(time.Now().Add(time.Millisecond))
 	_, err := c.br.Peek(1)
@@ -454,7 +454,7 @@ func addNodeHeader(o *jsObject, name, value string) {
 	prev, seen := o.get(name)
 	switch {
 	case name == "set-cookie":
-		o.set(name, "")	// an array there, always: the ABAP's loop skips it
+		o.set(name, "") // an array there, always: the ABAP's loop skips it
 	case !seen:
 		o.set(name, value)
 	default:
@@ -515,7 +515,7 @@ func readResponse(br *bufio.Reader, head bool) (*httpcResponse, bool, error) {
 			panic(NotCompiled(httpcWhere, "a 101 answer (an upgrade): not followed"))
 		}
 		if code >= 100 && code < 200 {
-			continue	// Node emits 'information' and waits for the answer
+			continue // Node emits 'information' and waits for the answer
 		}
 		keep := f[0] == "HTTP/1.1" && !hasToken(connection, "close") || f[0] == "HTTP/1.0" && hasToken(connection, "keep-alive")
 		switch {
@@ -525,7 +525,7 @@ func readResponse(br *bufio.Reader, head bool) (*httpcResponse, bool, error) {
 			if err != nil {
 				return nil, false, err
 			}
-			for {	// trailers, which Node keeps apart from the headers
+			for { // trailers, which Node keeps apart from the headers
 				l, err := readLine(br)
 				if err != nil {
 					return nil, false, err
