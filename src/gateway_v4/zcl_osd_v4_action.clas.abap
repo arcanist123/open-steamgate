@@ -291,6 +291,12 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
       IF lv_quoted = abap_false AND lv_value = 'null'.
         CLEAR lv_value.
       ENDIF.
+* the same MaxLength check as a read's key (zcl_stg_model_info), after the
+* null (which is handed over empty): a parameter the DPC's CHAR field would
+* cut is a 400, never a wrong answer
+      zcl_stg_model_info=>check_length( is_property = ls_param
+                                        iv_value    = lv_value
+                                        iv_what     = |Parameter of { is_action-name }:| ).
       READ TABLE ct_parameters ASSIGNING <ls_pair> WITH KEY name = ls_pair-name.
       IF sy-subrc = 0.
         <ls_pair>-value = lv_value.
@@ -356,6 +362,12 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
       IF lv_kind = zif_ajson_types=>node_type-null.
         CLEAR ls_pair-value.
       ENDIF.
+* the body's parameters go through the same MaxLength check as a function's
+* URL parameters and a read's key (a JSON null is handed over empty before
+* it): a cut value never reaches the DPC
+      zcl_stg_model_info=>check_length( is_property = ls_param
+                                        iv_value    = ls_pair-value
+                                        iv_what     = |Parameter of { is_action-name }:| ).
       READ TABLE ct_parameters ASSIGNING <ls_pair> WITH KEY name = ls_pair-name.
       IF sy-subrc = 0.
         <ls_pair>-value = ls_pair-value.

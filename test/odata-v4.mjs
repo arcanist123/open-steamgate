@@ -1373,6 +1373,29 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     expect(res.status).to.equal(204);
   });
 
+  // #889's MaxLength refusal (zcl_stg_model_info, check_keys/check_length) on
+  // the operation paths: the key of a bound operation goes through the same
+  // check a read's key does, and so does every parameter value, from the URL
+  // of a function or the body of an action. A value the DPC's CHAR field
+  // would cut is a 400 before the DPC runs, never another entity or a wrong
+  // count; trailing blanks measure at the last non-blank character.
+  it("refuses an over-long key or parameter of an operation with 400 and changes nothing", async () => {
+    const before = JSON.stringify((await json(base + "/TravelSet?$orderby=TravelId&$select=TravelId,Status")).value);
+    const tooLong = async (res) => {
+      expect(res.status, await res.clone().text()).to.equal(400);
+      expect((await res.json()).error.code).to.equal("STG/VALUE_TOO_LONG");
+    };
+    // the key of a bound action: 'T0002    X' would be cut to T0002 by the DPC
+    await tooLong(await post(`/TravelSet(${encodeURIComponent("'T0002    X'")})/ZSTG_DEMO_SRV.CancelTravel`, {}));
+    // a function's URL parameter: Status has MaxLength 1
+    await tooLong(await fetch(base + `/TravelCount(Status=${encodeURIComponent("'AB'")})`));
+    // an action's body parameter: TravelId has MaxLength 8
+    await tooLong(await post("/TravelSet('T0009')/ZSTG_DEMO_SRV.CancelTravel", {TravelId: "T0002    X"}));
+    // trailing blanks never make a parameter too long, the same as a key
+    expect((await fetch(base + `/TravelCount(Status=${encodeURIComponent("'A '")})`)).status).to.equal(200);
+    expect(JSON.stringify((await json(base + "/TravelSet?$orderby=TravelId&$select=TravelId,Status")).value)).to.equal(before);
+  });
+
   it("creates a travel with its bookings in one POST and answers the deep entity", async () => {
     let res = await post("/TravelSet", {TravelId: "T0700", Description: "Deep over V4", Status: "A", Seats: 1,
       to_Bookings: [{BookingId: "B001", Customer: "Barbara Liskov", FlightDate: "2026-12-01"},
@@ -1498,13 +1521,25 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     const values = ["'", "A'", "' OR '1'='1", '"', "\\", '"},{"x":1', '{"TravelId":"T0002"}', "A\u2028"];
     for (const value of values) {
       const count = await answer(`/TravelCount(Status=${literal(value)})`);
-      expect(count.status, value).to.equal(200);
-      expect(count.body.value, value).to.be.a("number");
-      // the binding's key wins over a body parameter of the same name
+      // Status has MaxLength 1: a value that fits is counted, a longer one is
+      // the same 400 as an over-long key (check_length, as on V2)
+      if (value.length <= 1) {
+        expect(count.status, value).to.equal(200);
+        expect(count.body.value, value).to.be.a("number");
+      } else {
+        expect(count.status, value).to.equal(400);
+      }
+      // the binding's key wins over a body parameter of the same name, and a
+      // body parameter longer than TravelId's MaxLength 8 is a 400 before it
+      // can reach the DPC
       const cancel = await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel",
         {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: JSON.stringify({TravelId: value})});
-      expect(cancel.status, value).to.equal(200);
-      expect(cancel.body.TravelId, value).to.equal("T0003");
+      if (value.length <= 8) {
+        expect(cancel.status, value).to.equal(200);
+        expect(cancel.body.TravelId, value).to.equal("T0003");
+      } else {
+        expect(cancel.status, value).to.equal(400);
+      }
       expect((await answer(`/TravelSet(${literal("T9" + value)})`)).status, value).to.be.oneOf([400, 404]);
       expect((await answer(`/TravelSet?$search=${phrase(value)}`)).body.value, value).to.deep.equal([]);
       expect([200, 400, 501], value).to.include((await answer(`/TravelSet?$search=${encodeURIComponent(value)}`)).status);

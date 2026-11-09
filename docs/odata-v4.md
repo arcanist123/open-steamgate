@@ -183,7 +183,8 @@ like a write's, and an `Edm.String` parameter takes a JSON string (or
 is 400, a missing one is handed over empty (as on V2), parameter aliases
 (`@p`) and non-primitive parameters are 501. A parameter's facets from the
 MPC (`set_maxlength`, precision, scale) are written on its `<Parameter>` as
-on a property; they are not enforced here.
+on a property; a parameter value longer than its MaxLength is 400 before the
+DPC runs, the same `check_length` as a read's key (docs/key-length.md).
 
 The binding parameter of an entity-bound operation is the entity the URL
 names ([Part 1, 11.5.5](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_InvokinganAction)):
@@ -257,10 +258,13 @@ Control information and instance annotations (`@odata.type`, `Name@...`)
 are ignored. An unknown property (also a V2 `{"d":{...}}` envelope) or a
 value that does not fit is 400 before the DPC is called and the entity is
 unchanged. The key of a PATCH or PUT is the one in the URL; a key property in
-the body cannot move the update to another entity. A missing entity is 404,
-and so is a string key longer than its property's MaxLength: the DPC's
-CHAR field would cut `TravelSet('T0002    X')` down to `T0002` and read,
-change, delete or call a bound action on that entity instead.
+the body cannot move the update to another entity. A missing entity is 404.
+A key, or an operation's parameter value (a function's from the URL, an
+action's from the body), longer than the property's MaxLength is 400 before
+the DPC runs (`zcl_stg_model_info=>check_keys` / `check_length`,
+docs/key-length.md): the DPC's CHAR field would cut
+`TravelSet('T0002    X')` down to `T0002` and read, change, delete or call a
+bound action on that entity instead.
 A relationship binding (`Nav@odata.bind` or `Nav@bind`, scalar or array)
 answers 501; a binding is never acknowledged and dropped. Binary values in
 bodies are 501. A write to a collection other than POST answers 405 with
