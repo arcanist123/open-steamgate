@@ -65,9 +65,12 @@ describe("RAP managed runtime generator (R2)", () => {
     const reg = new core.Registry(new core.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "open-abap", errorNamespace: "."}, rules: {check_syntax: true, unknown_types: true}})));
     for (const f of files) reg.addFile(new core.MemoryFile(f.filename, lowerDerived(f.contents, f.filename, bindings)));
     for (const [name, source] of Object.entries(outputs)) reg.addFile(new core.MemoryFile(name, source));
-    for (const f of [...walk("src/rap"), ...walk("src/luw"), "src/sadl/zif_stg_cds_source.intf.abap"].filter(x => /\.(abap|xml)$/.test(x))) {
+    for (const f of [...walk("src/rap"), ...walk("src/luw"), "src/sadl/zif_stg_cds_source.intf.abap", "src/sadl/zif_stg_sadl_behavior.intf.abap"].filter(x => /\.(abap|xml)$/.test(x))) {
       reg.addFile(new core.MemoryFile(basename(f), readFileSync(f, "utf8")));
     }
+    // open-abap-odata: the /IWBEP/ exceptions ZCL_OSD_RAP_SADL raises (R2c)
+    reg.addDependencies(walk(join(libraryPath(resolve("."), "open-abap-odata"), "src"))
+      .filter(f => /\.(abap|xml)$/.test(f)).map(f => new core.MemoryFile(basename(f), readFileSync(f, "utf8"))));
     reg.addDependencies(walk(join(libraryPath(resolve("."), "open-abap-core"), "src"))
       .filter(f => !/[\\/]tcp[\\/]/.test(f) && /\.(abap|xml)$/.test(f)).map(f => new core.MemoryFile(basename(f), readFileSync(f, "utf8"))));
     reg.parse();
