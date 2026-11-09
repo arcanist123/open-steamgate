@@ -93,6 +93,40 @@ hex). This is how each was resolved:
   among them CLEANUP (#1993), the ASSIGN type check (#2018), GT/LT compared
   per component (#2035) and `TYPE (name)` read case-insensitively (#1998);
   the upstream changelog has the full list.
+- **`trunc( f )` types its result as `f`.** Measured on both parsers with the
+  same class: core 2.120.73 typed `trunc` over a float argument as `i`,
+  2.120.94 types it as `f` (the ABAP keyword documentation gives `trunc` the
+  argument's type for `f`, so the new one is the honest reading). The kernel
+  conformance inventory moved with it, counts conserved one to one: 259
+  `i → i` became `f → i`, 381 `i → int8` became `f → int8`, 288 `i → f`
+  became `f → f`, and `i → f` left the measured folders. The two public
+  folders of `.github/ci/kernel-inventory.json` and the six affected
+  `docs/osg-support.md` rows were regenerated from the measured run
+  (`mono`/`qjs` are not measured in CI and were carried over unchanged).
+- **Changing a LOOP's whole table is a syntax error in classes now** (core's
+  new `LoopTableChange` check, absent in 2.120.73). `zcl_gogen_t_movclr` is
+  the deliberate oracle for exactly that move/clear, so the gogen frontend
+  tolerates this one message (`tools/gogen/frontend-selection.mjs`, beside
+  the dynamic-RAISE tolerance); `src/` stays policed by the lint, which runs
+  `check_syntax` over it.
+
+## The advisory CI jobs
+
+Four advisory jobs built with a transpiler other than the pin and went red
+on the EML demo (`Statement CommitEntities not supported`, then
+`bootstrap: transpile failed`):
+
+- `unit-inventory` and `gogen` (gogen.yml) installed the published npm
+  `@abaplint/transpiler` and never built the pin. Both run
+  `npm run transpiler:pin` after `npm ci` now, the same build gate and links
+  tests.yml uses. For `gogen` this is not only the transpile: the frontend,
+  the cache identity and the `DatabaseSetup` import resolve
+  `@abaplint/transpiler` and its `@abaplint/core` off `node_modules`.
+- `consumer-smoke` bootstrapped the runtime under test the same way; the
+  install step is now `npm ci`, the pin, then `npm run bootstrap`.
+- `kernel-conformance` (tests.yml) already links the pinned build from the
+  `built-tree` artifact; its failure was the stale inventory above, not a
+  wrong transpiler.
 
 ## Open
 
@@ -125,3 +159,15 @@ All of these ran on one machine, one at a time under the shared lock:
   failures, and `test/adt-conformance/run.mjs --target osgo` gave 64 pass,
   0 fail. Before the FOR UPDATE commit, 9 of 845 ABAP Unit methods failed,
   all of them `SELECT SINGLE FOR UPDATE` in `ZCL_L3_FLEET_PROOF`.
+- The advisory-job round: `node tools/gogen/semantics.mjs` passes (508 ok
+  rows; it had failed on `zcl_gogen_t_movclr.clas.abap:65` before the
+  tolerance), `node tools/gogen/unit.mjs --fixture tools/gogen/testdata
+  --jobs 4` runs 147 tests in 47 classes, all SUCCESS, `npx mocha
+  test/kernel-conformance.mjs test/osg-support.mjs` gives 36 passing, and
+  `node tools/osd-kernel-check.mjs --support <the run's support.json>
+  --page docs/osg-support.md --inventory .github/ci/kernel-inventory.json`
+  says the evidence agrees. `npm run bootstrap` on the pin builds 2442
+  objects. The corpus cannot be regenerated on this machine (the C fixtures
+  want clang), so the TestOSD folder was derived from the CI run's measured
+  `support.json` minus the locally staged `int8` folder, whose constructs
+  are byte-identical to the tracked ones.
