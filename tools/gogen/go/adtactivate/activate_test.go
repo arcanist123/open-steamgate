@@ -88,6 +88,20 @@ func TestPublishedActivationWarnsThatARebuildIsNeeded(t *testing.T) {
 	}
 }
 
+// a gateway's sidecar (cmd/osgo -gateway-builds) says what follows instead
+func TestPublishedActivationUnderABuildingGateway(t *testing.T) {
+	Builds = func() (string, string) { return "published; building", "is active; the gateway is building it" }
+	defer func() { Builds = nil }()
+	f := &fake{report: Report{Status: "processed"}, live: false}
+	r := post(f.store(), "method=activate", nil)
+	if s := string(r.Body); !strings.Contains(s, "ZCL_A is active; the gateway is building it") || strings.Contains(s, "rebuilt from this tree") {
+		t.Fatal(s)
+	}
+	if r.Headers[len(r.Headers)-1] != [2]string{"x-osd-build", "published; building"} {
+		t.Fatal(r.Headers)
+	}
+}
+
 func TestSyntaxErrorCancelsActivation(t *testing.T) {
 	f := &fake{report: Report{Status: "processed", Issues: []Issue{{Severity: "E", Line: 3, Column: 5, Message: `"X" is <unknown>`}}}}
 	r := post(f.store(), "method=activate", nil)

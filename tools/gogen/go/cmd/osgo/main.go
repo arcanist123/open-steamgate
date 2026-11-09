@@ -483,7 +483,7 @@ func selectedDB(db, home string, explicit bool, getenv func(string) string) stri
 func main() {
 	portFlag := flag.String("port", "", "HTTP port (OSD_PORT, STG_PORT, else 80nn with INSTANCE or 3095)")
 	addr := flag.String("addr", "", "address to listen on (default OSD_BIND, else loopback: 127.0.0.1 and ::1)")
-	dbFile := flag.String("db", "", "an SQLite file (WAL) instead of the in-memory database; seeded once, when it has no tables, and refused when another build seeded it")
+	dbFile := flag.String("db", "", "an SQLite file (WAL) instead of the in-memory database; seeded once, when it has no tables, and refused when its tables are another build's (go/dbschema)")
 	homeDir := flag.String("home", "", "data directory; defaults -db to <home>/osgo.sqlite and makes a fresh directory a full database reset")
 	compilerStatus := flag.Bool("compiler-status", false, "print compiler sidecar status as JSON")
 	version := flag.Bool("version", false, "print release tag and commit")
@@ -496,6 +496,8 @@ func main() {
 	media := flag.String("media", "", "the SMW0 media directory (w3mi.json and the data files); default media/ beside the binary when it is there")
 	tlsFlags := httpsFlags()
 	sidecarDir := flag.String("sidecar", "", "run as a gateway's work sidecar (cmd/osgw): HTTP on <dir>/http-<pid>.sock, locks from <dir>/enq.sock")
+	candidateFlag := flag.Bool("candidate", false, "with -sidecar: start as a swap candidate, the database read-only and the boot writes deferred to the gateway's POST /osd/promote (candidate.go)")
+	gatewayBuilds := flag.Bool("gateway-builds", false, "with -sidecar: the gateway builds a new generation after an activation; the activation answer says so (candidate.go)")
 	flag.Parse()
 	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
 	if lintErr != nil {
@@ -581,29 +583,21 @@ func main() {
 	if err := abap.SetStore(*root, storeConfig, ""); err != nil {
 		log.Fatalf("store: %v", err)
 	}
+	restorePublished() // what activation published before this process (candidate.go)
 
+	if (*candidateFlag || *gatewayBuilds) && *sidecarDir == "" {
+		log.Fatal("-candidate and -gateway-builds are a gateway's sidecar flags: they need -sidecar")
+	}
+	candidate.Store(*candidateFlag)
+	if *gatewayBuilds {
+		useGatewayBuilds() // candidate.go
+	}
 	startSidecarLocks(*sidecarDir) // a gateway's sidecar: its locks before any step (sidecar.go)
 	compilerClient := compiler.New(compiler.Options{Root: *root, Version: releaseTag})
 	defer compilerClient.Close()
 	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
 
-	if *dbFile == "" {
-		d, err := abap.OpenDB(dbScript)
-		if err != nil {
-			log.Fatalf("database: %v", err)
-		}
-		instance = abap.NewInstance(d)
-		log.Printf("database: in memory (use -home or -db to keep data)")
-		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), in memory, seeded at start")
-	} else {
-		d, seeded, err := abap.OpenDBFile(*dbFile, dbScript)
-		if err != nil {
-			log.Fatalf("database: %v", err)
-		}
-		instance = abap.NewInstance(d)
-		log.Printf("database: %s (WAL)%s", *dbFile, map[bool]string{true: ", new: seeded", false: ", as it was"}[seeded])
-		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), file "+filepath.Base(*dbFile)+", WAL")
-	}
+	openDatabase(*dbFile, *sidecarDir) // database.go
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -613,23 +607,9 @@ func main() {
 		s := instance.NewSession()
 		abap.DialogStep(s, func() { boot(s) })
 	}()
-	// the synthetic demo rows (ZCL_OSD_DEMO_DATA=>BOOT, as the Node hosts run
-	// it through tools/osd-demo-data.mjs): the same class and the same knob,
-	// OSD_DEMO_ROWS; one dialog step of its own, and a dump there is reported
-	// and the server starts without the rows
-	if hasDemoData {
-		func() {
-			started := time.Now()
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("demo data: ZCL_OSD_DEMO_DATA=>BOOT failed, serving without it: %s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
-				}
-			}()
-			var report string
-			s := instance.NewSession()
-			abap.DialogStep(s, func() { report = demoData(s, os.Getenv("OSD_DEMO_ROWS")) })
-			log.Printf("demo data: %s (%d ms)", report, time.Since(started).Milliseconds())
-		}()
+	// the synthetic demo rows: a candidate writes them when it is promoted
+	if !candidate.Load() {
+		runDemoData()
 	}
 
 	webapp := filepath.Join(*root, "webapp")
@@ -674,6 +654,13 @@ func main() {
 	}})
 	// readiness for a supervisor: the generation, ready or draining (serving.go)
 	routes = append(routes, servingRoute(host))
+	if *gatewayBuilds {
+		routes = append(routes, inactiveRoute()) // candidate.go: the gateway's build-time gate
+	}
+	status := statusHost{port: *port, root: *root, dbFile: *dbFile, started: started}
+	if candidate.Load() {
+		routes = append(routes, promoteRoute(*dbFile, status)) // candidate.go
+	}
 	// the tiles the packs declare (test/start.mjs pack-tiles), read when this binary was built
 	routes = append(routes, route{"/app/packs.json", true, func(w http.ResponseWriter, r *http.Request) {
 		profiling.Matched(r, "/app/packs.json")
@@ -705,7 +692,6 @@ func main() {
 		routes = append(routes, route{n.Path, false, refusal(n)})
 	}
 	odata := icfHandler("ZCL_STG_HTTP_HANDLER", odataBase, odataDump)
-	status := statusHost{port: *port, root: *root, dbFile: *dbFile, started: started}
 	routes = append(routes, route{statusODataPath, false, odata})
 	routes = append(routes, route{odataBase + "/", false, odata})
 	// every route under a path test/start.mjs refreshes the status tables
@@ -750,7 +736,9 @@ func main() {
 	}
 	// the status tables have this process in them before anybody asks, with
 	// the listener already open (its state is read off /proc/net/tcp)
-	if rows, err := refreshStatus(status); err != nil {
+	if candidate.Load() {
+		log.Printf("status       deferred: a candidate writes its status rows when it is promoted")
+	} else if rows, err := refreshStatus(status); err != nil {
 		log.Printf("status refresh: %v", err)
 	} else {
 		log.Printf("status       %d rows of this process in the status tables, refreshed before each %s request", rows, statusODataPath)

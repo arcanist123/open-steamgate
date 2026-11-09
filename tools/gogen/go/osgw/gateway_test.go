@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -42,7 +43,16 @@ func fakeSidecar() {
 	fs := flag.NewFlagSet("fake", flag.ExitOnError)
 	dir := fs.String("sidecar", "", "")
 	fs.String("port", "", "")
+	candidate := fs.Bool("candidate", false, "")
+	builds := fs.Bool("gateway-builds", false, "")
 	fs.Parse(os.Args[1:])
+	if *candidate && os.Getenv("FAKE_REFUSE_SCHEMA") == "1" {
+		raw, _ := json.Marshal(Refusal{Why: "-db x was seeded by another build: the tables differ", Schema: true})
+		os.WriteFile(RefusedFile(*dir, os.Getpid()), raw, 0o600)
+		os.Exit(4)
+	}
+	var promoted atomic.Bool
+	promoted.Store(!*candidate)
 	gen := fakeGeneration
 	if v := os.Getenv("FAKE_GENERATION"); v != "" {
 		gen = v
@@ -67,6 +77,56 @@ func fakeSidecar() {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ready": true, "generation": gen, "root": "/tree", "database": ":memory:", "pid": os.Getpid()})
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if os.Getenv("FAKE_SMOKE_FAIL") == "1" {
+			w.WriteHeader(500)
+			return
+		}
+		io.WriteString(w, `{"status":"ready"}`)
+	})
+	mux.HandleFunc("/osd/promote", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || !*candidate {
+			w.WriteHeader(404)
+			return
+		}
+		if os.Getenv("FAKE_PROMOTE_FAIL") == "1" {
+			http.Error(w, "boot writes failed", 500)
+			return
+		}
+		promoted.Store(true)
+		io.WriteString(w, "promoted")
+	})
+	// the build-time gate's door (cmd/osgo /osd/inactive): how many objects
+	// are inactive, read from FAKE_INACTIVE_FILE per request so a test can
+	// change it while the sidecar runs
+	mux.HandleFunc("/osd/inactive", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			w.WriteHeader(404)
+			return
+		}
+		n := 0
+		if f := os.Getenv("FAKE_INACTIVE_FILE"); f != "" {
+			if b, err := os.ReadFile(f); err == nil {
+				n, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			}
+		}
+		writeJSON(w, 200, map[string]any{"inactive": n})
+	})
+	mux.HandleFunc("/promoted", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, promoted.Load()) })
+	// an activation that published: with a builder, the sidecar asks for a build
+	mux.HandleFunc("/activate", func(w http.ResponseWriter, r *http.Request) {
+		if *builds {
+			w.Header().Set("X-OSD-Build", "published; building")
+		} else {
+			w.Header().Set("X-OSD-Build", "published; rebuild osgo to run it")
+		}
+		io.WriteString(w, "activated")
+	})
+	mux.HandleFunc("/unlock", func(w http.ResponseWriter, r *http.Request) {
+		locks.Dequeue(sid, enq.Request{Client: "001", Table: "ZT", Mode: "E", Scope: 1,
+			Fields: []enq.Field{{Value: r.URL.Query().Get("k"), Length: 10}}})
+		io.WriteString(w, "unlocked")
 	})
 	mux.HandleFunc("/lock", func(w http.ResponseWriter, r *http.Request) {
 		res := locks.EnqueueWith(sid, enq.Request{Client: "001", Table: "ZT", Mode: "E", Scope: 1,
@@ -93,6 +153,7 @@ func fakeSidecar() {
 		http.SetCookie(w, &http.Cookie{Name: "SAP_SESSIONID_OSD_001", Value: "", Path: "/", MaxAge: -1})
 		io.WriteString(w, "out")
 	})
+	mux.HandleFunc("/sap/public/bc/icf/logoff", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "bye") })
 	mux.HandleFunc("/body", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		fmt.Fprintf(w, "%s %d %q %q", r.Method, r.ContentLength, r.Header.Get("Expect"), b)
@@ -251,6 +312,37 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 	}
 }
 
+// critic #895 SHOULD 2: a request that has selected a sidecar counts for
+// the drain before it is a step. route() counts it under the same mutex
+// that reads g.current, so the drain of a swap cannot observe zero steps
+// and retire the sidecar under a request that sits between route() and the
+// forward (the Add used to happen later, in ServeHTTP).
+func TestRoutedRequestCountsForTheDrain(t *testing.T) {
+	g, front := start(t, Options{Grace: 30 * time.Second})
+	old := g.Table()[0]
+	r, _ := http.NewRequest("GET", front.URL+"/slow", nil)
+	sc := g.route(r) // the request has selected the old generation
+	if sc == nil || sc.PID != old.PID {
+		t.Fatalf("routed to %+v", sc)
+	}
+	if n := sc.steps.Load(); n != 1 {
+		t.Fatalf("a routed request is not a step before it is forwarded: %d", n)
+	}
+	// the swap's drain waits for it: the old generation is not retired
+	// while the routed step is outstanding
+	go func() { g.Swap(context.Background(), generation(t, "go:fakeB")) }()
+	waitFor(t, "the flip", func() bool {
+		rows := g.Table()
+		return len(rows) > 1 && rows[1].State == "serving"
+	})
+	time.Sleep(250 * time.Millisecond) // the drain polls every 50 ms
+	if row := g.Table()[0]; row.State != "draining" {
+		t.Fatalf("the old generation was retired or kept serving under a routed step: %+v", row)
+	}
+	sc.steps.Add(-1) // the answer is done
+	waitFor(t, "the old generation to retire after the step", func() bool { return g.Table()[0].State == "retired" })
+}
+
 // a crash: the request in flight answers 503, the sidecar's locks go with
 // it (ADR 0010 failure modes), a replacement serves, and a second crash of
 // a replacement within the window is not replaced again
@@ -338,6 +430,16 @@ func TestSessionPinning(t *testing.T) {
 	get(t, front.URL+"/logoff", "Cookie", strings.SplitN(cookie, ";", 2)[0])
 	if p := g.Table()[0].Pinned; p != 0 {
 		t.Fatalf("pinned after logoff %d", p)
+	}
+	// the ICF logoff ends the session even when its answer clears no cookie
+	resp, _ = get(t, front.URL+"/login")
+	cookie = strings.SplitN(resp.Header.Get("Set-Cookie"), ";", 2)[0]
+	if p := g.Table()[0].Pinned; p != 1 {
+		t.Fatalf("pinned %d", p)
+	}
+	get(t, front.URL+"/sap/public/bc/icf/logoff", "Cookie", cookie)
+	if p := g.Table()[0].Pinned; p != 0 {
+		t.Fatalf("pinned after the ICF logoff %d", p)
 	}
 }
 

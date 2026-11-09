@@ -3,7 +3,9 @@
 `bdef-parse.mjs` parses behavior definitions into a versioned JSON model;
 `tokenize.mjs` supplies source spans and reuses abaplint token/position classes.
 `bdef-gen.mjs` generates ordinary ABAP types under `gen/rap/`;
-`lower-derived.mjs` lowers explicit derived declarations in the source loader.
+`lower-derived.mjs` lowers explicit derived declarations and the handler
+declarations of the system's form (`FOR DETERMINE` / `FOR VALIDATE` /
+`FOR MODIFY` / `FOR READ` / `FOR LOCK`, R3) in the source loader.
 `rap-runtime-gen.mjs` (called by `bdef-gen.mjs`) writes the typed adapter of
 each managed BDEF and `ZCL_OSD_RAP_REGISTRY` for the ABAP runtime in
 `src/rap/` ([R2](../../docs/rap-runtime.md)).
