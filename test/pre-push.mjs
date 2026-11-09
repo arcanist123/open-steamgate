@@ -105,8 +105,64 @@ describe("pre-push guards", function () {
   it("allows an ahead branch and preserves the new-ref scan range", () => {
     assert.deepEqual(passes(), [[repo, "--range", ahead, "--not", "--remotes=origin"]]);
   });
-  it("preserves the existing-ref scan range", () => {
-    assert.deepEqual(passes(ref(ahead, "refs/heads/topic", main)), [[repo, "--range", `${main}..${ahead}`]]);
+  it("keeps the existing-ref scan to what origin does not have", () => {
+    assert.deepEqual(passes(ref(ahead, "refs/heads/topic", main)),
+      [[repo, "--range", ahead, "--not", main, "--remotes=origin"]]);
+  });
+  // The #875 shape: a branch that merged origin/main is pushed to a remote
+  // that already has its tip. What is about to be published is only what
+  // origin does not have yet — main's own commits are already public, and an
+  // identifier main later removed, with its allow entries (#896), must not
+  // turn every such push red. The stub scanner here walks the range the way
+  // the real one does — commit by commit, every version of every file the
+  // commits touched — so the verdict comes from the range itself.
+  it("does not rescan origin's own commits after the branch merged main", () => {
+    const flag = "flagged-value-on-old-main";
+    writeFileSync(join(repo, "tools", "osd-leak-scan.mjs"), [
+      'import {appendFileSync} from "node:fs";',
+      'import {execFileSync} from "node:child_process";',
+      'const args = process.argv.slice(2);',
+      'const root = args[0];',
+      'const range = args.slice(args.indexOf("--range") + 1);',
+      'const git = (a) => execFileSync("git", a, {cwd: root, encoding: "utf8", maxBuffer: 1 << 24});',
+      `const flag = ${JSON.stringify(flag)};`,
+      'let commits = 0, hits = 0;',
+      'for (const commit of git(["rev-list", ...range]).split("\\n").filter(Boolean)) {',
+      '  commits++;',
+      '  if (git(["log", "-1", "--format=%B", commit]).includes(flag)) hits++;',
+      '  const names = git(["diff-tree", "-r", "--no-commit-id", "--name-only",',
+      '    "--diff-filter=ACMR", commit]).split("\\n").filter(Boolean);',
+      '  for (const name of names) {',
+      '    try { if (git(["show", `${commit}:${name}`]).includes(flag)) hits++; } catch {}',
+      '  }',
+      '}',
+      'appendFileSync(process.env.SCAN_LOG, JSON.stringify({range, commits, hits}) + "\\n");',
+      'process.exit(hits ? 1 : 0);',
+    ].join("\n"));
+    git("switch", "main");
+    writeFileSync(join(repo, "note.txt"), `${flag}\n`);
+    git("add", "note.txt");
+    git("commit", "-qm", "main adds the flagged value");
+    writeFileSync(join(repo, "note.txt"), "clean\n");
+    git("add", "note.txt");
+    git("commit", "-qm", "main removes the flagged value");
+    git("update-ref", "refs/remotes/origin/main", "HEAD");
+    git("switch", "topic");
+    git("merge", "--no-edit", "-m", "merge main", "main");
+    const merged = git("rev-parse", "HEAD");
+    // The merge push must pass: the scan walks the merge commit alone, not
+    // main's history back to the branch point — and the remote tip stays
+    // excluded even though no local tracking ref holds it.
+    const mergePush = run(ref(merged, "refs/heads/topic", ahead));
+    assert.equal(mergePush.status, 0, mergePush.stdout + mergePush.stderr);
+    assert.deepEqual(scans(), [{range: [merged, "--not", ahead, "--remotes=origin"], commits: 1, hits: 0}]);
+    // A commit that carries the value out is still refused.
+    writeFileSync(join(repo, "note.txt"), `${flag}\n`);
+    git("add", "note.txt");
+    git("commit", "-qm", "topic reintroduces the flagged value");
+    const leakPush = run(ref(git("rev-parse", "HEAD"), "refs/heads/topic", ahead));
+    assert.equal(leakPush.status, 1, leakPush.stdout + leakPush.stderr);
+    assert.equal(scans().at(-1).hits > 0, true);
   });
   it("allows a destination of main even from a differently named local branch", () => {
     assert.equal(passes(ref(behind, "refs/heads/main")).length, 1);

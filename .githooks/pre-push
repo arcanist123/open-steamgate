@@ -74,7 +74,15 @@ while read -r _local_ref local_sha _remote_ref remote_sha && [ -n "$local_sha" ]
       range="$local_sha --not --remotes=origin"
       ;;
     *)
-      range="$remote_sha..$local_sha"
+      # A branch the remote already has asks the same question: what origin
+      # does not have yet. A range from the remote tip answered it only while
+      # the branch never met main — after a merge of origin/main it carries
+      # main's own commits, already public, and once #896 dropped the GUID
+      # fixture's allow entries every branch that merged main scanned red
+      # until somebody pushed --no-verify (#875). The remote tip stays
+      # excluded in its own right because the local tracking refs can be
+      # older than the tip git just reported.
+      range="$local_sha --not $remote_sha --remotes=origin"
       ;;
   esac
 
