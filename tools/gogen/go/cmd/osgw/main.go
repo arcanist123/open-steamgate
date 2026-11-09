@@ -69,6 +69,14 @@ func main() {
 		Final:    func() { g.Stop(context.Background()) },
 		Exit:     func(code int) { g.Kill(); os.Exit(code) },
 	})
+	go func() {
+		// the restart limit: exit non-zero so a supervisor sees it, rather
+		// than answer 503 phase failed forever
+		<-g.Failed()
+		log.Printf("osgw: %s; exiting", g.FailedWhy())
+		g.Kill()
+		os.Exit(1)
+	}()
 	if err := server.Serve(lns[0]); err != http.ErrServerClosed {
 		g.Kill()
 		log.Fatal(err)

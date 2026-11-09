@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -45,12 +46,18 @@ func fakeSidecar() {
 	if v := os.Getenv("FAKE_GENERATION"); v != "" {
 		gen = v
 	}
-	locks, err := enqnet.Dial("unix", LockSocket(*dir), enqnet.Hello{Generation: gen, Name: "fake"})
+	locks, err := enqnet.Dial("unix", LockSocket(*dir), enqnet.Hello{Generation: gen, PID: os.Getpid(), Name: "fake"})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(4)
 	}
-	go func() { <-locks.Done(); os.Exit(3) }()
+	var cut atomic.Bool // /cutlocks: the connection breaks, the process stays
+	go func() {
+		<-locks.Done()
+		if !cut.Load() {
+			os.Exit(3)
+		}
+	}()
 	sid := locks.Open("FAKE")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/osd/serving", func(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +71,13 @@ func fakeSidecar() {
 		res := locks.EnqueueWith(sid, enq.Request{Client: "001", Table: "ZT", Mode: "E", Scope: 1,
 			Fields: []enq.Field{{Value: r.URL.Query().Get("k"), Length: 10}}}, false, nil)
 		fmt.Fprintf(w, "%d %s", res.Subrc, res.Holder)
+	})
+	mux.HandleFunc("/cutlocks", func(w http.ResponseWriter, r *http.Request) {
+		cut.Store(true)
+		// after the answer: the gateway kills this process as soon as it
+		// sees the connection go
+		go func() { time.Sleep(50 * time.Millisecond); locks.Close() }()
+		io.WriteString(w, "cut")
 	})
 	mux.HandleFunc("/crash", func(w http.ResponseWriter, r *http.Request) { os.Exit(2) })
 	mux.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
@@ -273,6 +287,36 @@ func TestCrashRestartAndLocks(t *testing.T) {
 	resp, body = get(t, front.URL+"/osd/serving")
 	if resp.StatusCode != 503 || !strings.Contains(body, `"phase":"failed"`) {
 		t.Fatalf("after giving up: %d %s", resp.StatusCode, body)
+	}
+	select {
+	case <-g.Failed():
+	default:
+		t.Fatal("Failed not closed after giving up")
+	}
+}
+
+// a lock connection that breaks while its sidecar lives on: that process
+// could still commit, so the gateway kills it and waits for its exit before
+// its locks go (enqnet.ServeOptions.BeforeRelease)
+func TestBrokenLockConnectionKillsFirst(t *testing.T) {
+	g, front := start(t, Options{RestartWindow: time.Hour})
+	if _, body := get(t, front.URL+"/lock?k=A"); body != "0 " {
+		t.Fatalf("lock: %q", body)
+	}
+	first := g.Table()[0]
+	if _, body := get(t, front.URL+"/cutlocks"); body != "cut" {
+		t.Fatalf("cutlocks: %q", body)
+	}
+	waitFor(t, "the locks to go", func() bool { return len(g.Locks().Read(enq.Filter{})) == 0 })
+	// the release waited for the exit: by the time the rows are gone the
+	// sidecar is retired, and it was killed (it would have stayed alive)
+	row := g.Table()[0]
+	if row.PID != first.PID || row.State != "retired" || !strings.Contains(row.Why, "killed") {
+		t.Fatalf("the locks went before the sidecar did: %+v", row)
+	}
+	// the replacement serves and takes the lock
+	if resp, body := get(t, front.URL+"/lock?k=A"); resp.StatusCode != 200 || body != "0 " {
+		t.Fatalf("after: %d %q", resp.StatusCode, body)
 	}
 }
 

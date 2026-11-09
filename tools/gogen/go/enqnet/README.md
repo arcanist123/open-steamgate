@@ -18,13 +18,41 @@ goes, every session it opened and did not `End` is `Lost(sid, inline)`: its
 dialog halves and its open LUW's halves go (the same release as `End`);
 halves of an update owner a COMMIT handed to the update task stay until
 `UpdateDone` -- from any connection -- unless `ServeOptions.InlineUpdates`
-says the update ran in the process that died, which aborts it. A client whose
-connection is gone answers as a closed server (`Open` 0, ENQUEUE
-SYSTEM_FAILURE) and closes `Done()`.
+says the update ran in the process that died; then they go too.
+
+Nothing is aborted there: the release is sound because of an ordering in
+osgo, not because the lock server can stop anything. osgo's update task runs
+inline, and an explicit COMMIT WORK (`GeneratedCommitWork`, `abap/luw.go`)
+commits the database **before** its host hook hands the LUW's locks over and
+says `UpdateDone` (`adtlock.Host.Commit`). A process that dies before that
+database commit leaves no rows (its transaction rolls back with it); one that
+dies after it leaves rows that are durable, and its locks go after them,
+never before. `abap`'s `TestGeneratedLUWDatabaseOrder` fails if the order is
+turned round. One older divergence stays: a stateful LUW that spans dialog
+steps commits each step's database work, inline-update writes included, at
+the end of that step, before its COMMIT WORK; a crash between the two keeps
+those rows and releases the locks, where a system would have thrown the
+unrun update away.
+
+A connection can also break while its process lives on, and that process
+could still commit. `ServeOptions.BeforeRelease` runs before anything is
+released: the gateway kills the sidecar the hello's `PID` names and waits for
+its exit there, so locks never go while their process can still write.
+
+The hello carries `ProtocolVersion` both ways; a server refuses another
+version and a client refuses a server that answers with another one or none,
+both at `Dial`, wrapping `ErrProtocol`. A request the server refuses (an
+unknown op, a session another connection opened) answers the caller as a
+closed server -- ENQUEUE SYSTEM_FAILURE, counted in `Client.Refused` -- and
+never panics in the work process. `UpdateDone` alone may name a session of
+another connection (an update task outside the process that committed).
+A client whose connection is gone answers as a closed server (`Open` 0,
+ENQUEUE SYSTEM_FAILURE) and closes `Done()`.
 
 Tests: `enq`'s `TestContractOverSocket` runs every contract case through a client;
 `wire_test.go` here the lost-connection rule both ways, `_WAIT` across the
-socket, a client of a closed server.
+socket, a client of a closed server, the version check at dial, a refusal as
+SYSTEM_FAILURE, `BeforeRelease` before the release.
 
 No import of `osg/gogen/abap`; standard library and `go/enq` only.
 

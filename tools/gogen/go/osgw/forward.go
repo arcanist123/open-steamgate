@@ -105,18 +105,24 @@ func (p *pool) forward(w http.ResponseWriter, r *http.Request, onResponse func(*
 	if _, ok := out.Header["User-Agent"]; !ok {
 		out.Header["User-Agent"] = []string{""} // Request.Write adds none then, as ReverseProxy does
 	}
-	// a request without a body may be sent again on a fresh connection when a
-	// pooled one turns out to be closed by the sidecar meanwhile
-	replayable := r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0
+	// A request without a body may be sent again on a fresh connection when
+	// a pooled one turns out to be closed by the sidecar meanwhile -- but
+	// only when sending it twice cannot do anything twice: the method is
+	// idempotent and safe (GET, HEAD, OPTIONS, TRACE), or the request never
+	// reached the sidecar (its write failed). A POST or DELETE that was
+	// written and got no answer may have run (an ADT _action=LOCK, an OData
+	// function import): it answers 503 and the client decides. The same
+	// rule as net/http's Transport.
+	bodyless := r.Body == nil || r.Body == http.NoBody || r.ContentLength == 0
 	for attempt := 0; ; attempt++ {
 		u, reused, err := p.get(r.Context())
 		if err != nil {
 			return errors.Join(errNoAnswer, err)
 		}
-		resp, err := u.roundTrip(out)
+		resp, written, err := u.roundTrip(out)
 		if err != nil {
 			u.conn.Close()
-			if reused && replayable && attempt == 0 && r.Context().Err() == nil {
+			if reused && bodyless && (!written || safeMethod(r.Method)) && attempt == 0 && r.Context().Err() == nil {
 				continue
 			}
 			return errors.Join(errNoAnswer, err)
@@ -149,23 +155,35 @@ func (p *pool) forward(w http.ResponseWriter, r *http.Request, onResponse func(*
 	}
 }
 
-func (u *upstream) roundTrip(out *http.Request) (*http.Response, error) {
+// safeMethod: sending it twice does nothing twice (RFC 9110 9.2.1)
+func safeMethod(m string) bool {
+	switch m {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	}
+	return false
+}
+
+// roundTrip writes the request and reads its answer; written says whether
+// the request was handed to the connection in full (a failed write never
+// reached the sidecar whole, so it cannot have run)
+func (u *upstream) roundTrip(out *http.Request) (resp *http.Response, written bool, err error) {
 	if err := out.Write(u.bw); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := u.bw.Flush(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for {
 		resp, err := http.ReadResponse(u.br, out)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 		// an interim answer (100, 102, 103) is not the answer
 		if resp.StatusCode >= 100 && resp.StatusCode < 200 && resp.StatusCode != http.StatusSwitchingProtocols {
 			continue
 		}
-		return resp, nil
+		return resp, true, nil
 	}
 }
 

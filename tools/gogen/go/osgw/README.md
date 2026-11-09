@@ -29,7 +29,9 @@ public port.
   (hop-by-hop headers and `Expect` dropped, the `Host` kept, no
   `X-Forwarded-For`, no `User-Agent` added, no transparent gzip, a body of
   unknown length streamed and flushed as it comes, a request without a body
-  sent again once when a pooled connection turns out closed). A WebSocket
+  sent again once when a pooled connection turns out closed -- only for
+  `GET`/`HEAD`/`OPTIONS`/`TRACE`, or when the write itself failed; a `POST`
+  or `DELETE` that was written may have run and answers 503). A WebSocket
   upgrade goes through `httputil.ReverseProxy`, which hands the connection
   over. `httputil.ReverseProxy` for everything was the first version: its
   `http.Transport` passes each answer between a read and a write goroutine,
@@ -47,13 +49,22 @@ public port.
   connection, the client may retry); the lock server, seeing its connection
   close, releases the dialog locks of its sessions and the locks of their
   open LUWs. osgo runs its update task inline (`COMMIT WORK` says
-  `UpdateDone` before it returns), so an update a COMMIT had handed over died
-  with the process and its locks go too; `Options.UpdatesOutside` keeps them
-  until `UpdateDone` for a sidecar whose update task runs elsewhere. The
+  `UpdateDone` before it returns), so the locks of an update a COMMIT had
+  handed over go too. That is sound by ordering, not by an abort:
+  `GeneratedCommitWork` commits the database before the lock `Commit` /
+  `UpdateDone` (`go/enqnet/README.md` has the argument, and the one older
+  divergence: a stateful LUW spanning steps has committed its earlier steps'
+  writes, and a crash keeps them while its locks go).
+  `Options.UpdatesOutside` keeps them until `UpdateDone` for a sidecar whose
+  update task runs elsewhere. A lock connection that breaks while its sidecar
+  still runs does not release anything first: the hello names the sidecar's
+  pid, the gateway kills it, waits for its exit, and only then do its locks
+  go (that process could still commit). The
   gateway starts a replacement of the same binary; requests that arrive
   meanwhile wait for it (`AdmitWait`, 30 s). A replacement that dies within
   `RestartWindow` (1 min) of its start is not replaced again: `/osd/serving`
-  answers 503 `phase: failed` and says why.
+  answers 503 `phase: failed` and says why, `Failed()` closes, and
+  `cmd/osgw` exits 1 so a supervisor sees it.
 - **Readiness.** A sidecar counts as serving once its own `GET /osd/serving`
   says `ready`. The gateway's `/osd/serving` is the supervised-host contract
   of `go/serving` (`tools/osd-host-contract.mjs` holds both to it): `pid` is

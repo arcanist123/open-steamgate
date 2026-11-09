@@ -11,8 +11,10 @@
 //   - The lock table: one enq.Server, served on dir/enq.sock (the E3 socket,
 //     go/enqnet); every sidecar's ENQUEUE_* is a client of it, an owner
 //     is (generation, session, LUW). A sidecar that dies loses its sessions'
-//     dialog locks and its open LUWs' locks; its inline update task dies
-//     with it (enqnet.ServeOptions.InlineUpdates).
+//     dialog locks and its open LUWs' locks, and those of its inline update
+//     task (enqnet.ServeOptions.InlineUpdates), which committed the database
+//     before it handed them over. A lock connection that breaks while the
+//     sidecar runs: the sidecar is killed first, its locks go after its exit.
 //   - Readiness: a sidecar serves once its own GET /osd/serving says ready;
 //     the gateway's /osd/serving says what serves (pid = the sidecar,
 //     launcherPid = the gateway) plus the generation table.
@@ -127,6 +129,7 @@ type Gateway struct {
 	seq      int
 	restarts int
 	failed   string
+	failedCh chan struct{} // closed when failed is set
 	stopping bool
 	pins     map[string]*sidecar
 }
@@ -152,7 +155,8 @@ func Start(ctx context.Context, o Options) (*Gateway, error) {
 	if o.Logf == nil {
 		o.Logf = func(string, ...any) {}
 	}
-	g := &Gateway{o: o, dir: o.Dir, started: time.Now(), ready: make(chan struct{}), pins: map[string]*sidecar{}}
+	g := &Gateway{o: o, dir: o.Dir, started: time.Now(), ready: make(chan struct{}), pins: map[string]*sidecar{},
+		failedCh: make(chan struct{})}
 	if g.dir == "" {
 		// short: a Unix socket path has a limit near 104 bytes
 		d, err := os.MkdirTemp("", "osgw-")
@@ -169,7 +173,8 @@ func Start(ctx context.Context, o Options) (*Gateway, error) {
 		return nil, err
 	}
 	g.lockLn = ln
-	go enqnet.Serve(g.locks, ln, enqnet.ServeOptions{InlineUpdates: !o.UpdatesOutside, Logf: o.Logf})
+	go enqnet.Serve(g.locks, ln, enqnet.ServeOptions{InlineUpdates: !o.UpdatesOutside, Logf: o.Logf,
+		BeforeRelease: g.endProcess})
 	sc, err := g.spawn(false)
 	if err == nil {
 		err = g.waitReady(ctx, sc)
@@ -314,10 +319,7 @@ func (g *Gateway) watch(sc *sidecar) {
 	}
 	g.o.Logf("gateway: sidecar %d (pid %d) ended unplanned after %s: %s", sc.ID, sc.PID, lived.Round(time.Millisecond), why)
 	if sc.replacement && lived < g.o.RestartWindow {
-		g.mu.Lock()
-		g.failed = fmt.Sprintf("the replacement sidecar %d ended %s after its start (%s); not restarting again", sc.ID, lived.Round(time.Second), why)
-		g.mu.Unlock()
-		g.o.Logf("gateway: %s", g.failed)
+		g.fail(fmt.Sprintf("the replacement sidecar %d ended %s after its start (%s); not restarting again", sc.ID, lived.Round(time.Second), why))
 		return
 	}
 	g.mu.Lock()
@@ -328,11 +330,70 @@ func (g *Gateway) watch(sc *sidecar) {
 		err = g.waitReady(context.Background(), next)
 	}
 	if err != nil {
-		g.mu.Lock()
-		g.failed = "the replacement did not start: " + err.Error()
-		g.mu.Unlock()
-		g.o.Logf("gateway: %s", g.failed)
+		g.fail("the replacement did not start: " + err.Error())
 	}
+}
+
+// fail records why the gateway gave up restarting and closes Failed
+func (g *Gateway) fail(why string) {
+	g.mu.Lock()
+	if g.stopping { // a replacement ended by Stop is not a failure
+		g.mu.Unlock()
+		return
+	}
+	if g.failed == "" {
+		g.failed = why
+		close(g.failedCh)
+	}
+	g.mu.Unlock()
+	g.o.Logf("gateway: %s", why)
+}
+
+// Failed is closed once the gateway has given up restarting (its
+// /osd/serving answers 503 phase failed from then on); FailedWhy says why.
+// cmd/osgw exits non-zero there, so a supervisor sees it rather than a
+// port that answers 503 forever.
+func (g *Gateway) Failed() <-chan struct{} { return g.failedCh }
+
+// FailedWhy is why the gateway gave up, "" while it has not.
+func (g *Gateway) FailedWhy() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.failed
+}
+
+// endProcess runs when a lock connection with sessions is gone and before
+// its locks are released (enqnet.ServeOptions.BeforeRelease). The usual case
+// is a sidecar that died: its exit closed the connection. But a connection
+// can also break while its process lives on, and that process may still
+// commit a LUW whose locks the table would otherwise give to somebody else.
+// So the process the hello named is killed first and its exit waited for;
+// only then do its locks go. A pid this gateway did not start (none, or a
+// test's) is not ours to kill: its locks go as before.
+func (g *Gateway) endProcess(h enqnet.Hello) {
+	if h.PID == 0 {
+		return
+	}
+	g.mu.Lock()
+	var sc *sidecar
+	for _, s := range g.table {
+		if s.PID == h.PID {
+			sc = s
+		}
+	}
+	g.mu.Unlock()
+	if sc == nil {
+		g.o.Logf("gateway: lock connection of pid %d gone; not a sidecar of this gateway", h.PID)
+		return
+	}
+	select {
+	case <-sc.exited:
+		return
+	default:
+	}
+	g.o.Logf("gateway: sidecar %d (pid %d) lost its lock connection while running: killed before its locks go", sc.ID, sc.PID)
+	_ = sc.cmd.Process.Kill()
+	<-sc.exited
 }
 
 // route is the sidecar a request goes to: the one its session is pinned to

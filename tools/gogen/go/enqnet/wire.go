@@ -8,7 +8,9 @@
 // each session it opened and did not end is Lost: dialog locks and the
 // uncommitted LUW's locks go, locks a COMMIT handed to an update task stay
 // until UpdateDone unless ServeOptions.InlineUpdates says the update ran in
-// the process that died.
+// the process that died (sound because osgo commits the database before it
+// hands the locks over; README.md). ServeOptions.BeforeRelease runs before
+// any of it, so a process whose connection broke is ended first.
 //
 // One attempt per ENQUEUE crosses the socket: the _WAIT schedule runs in the
 // client (retry), as it runs in the caller in one process, so a waiting
@@ -20,8 +22,10 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"osg/gogen/enq"
@@ -37,10 +41,24 @@ type (
 
 var _ enq.Locks = (*Client)(nil)
 
+// ProtocolVersion is the E3 wire's version. The hello carries it both ways
+// and either side refuses another: a client and a server built from
+// different trees fail at Dial with a clear error rather than at the first
+// operation one of them does not know.
+const ProtocolVersion = 1
+
+// ErrProtocol is what Dial and NewClient wrap when the server speaks
+// another protocol version (or none) or refuses the hello.
+var ErrProtocol = errors.New("enq wire: protocol mismatch")
+
 // Hello names the client to the server: the generation its steps run in
-// (the owner's first part) and a free-form name for the log.
+// (the owner's first part), the process the connection belongs to (PID,
+// 0 = not a process the server should know, a test's pipe) and a
+// free-form name for the log. Version is set by NewClient.
 type Hello struct {
+	Version    int    `json:"version"`
 	Generation string `json:"generation"`
+	PID        int    `json:"pid,omitempty"`
 	Name       string `json:"name,omitempty"`
 }
 
@@ -66,6 +84,8 @@ type wireRes struct {
 	Found bool    `json:"found,omitempty"`
 	Gone  bool    `json:"gone,omitempty"` // the server is closed: SYSTEM_FAILURE
 	Err   string  `json:"err,omitempty"`
+	// Version answers a hello: the server's ProtocolVersion
+	Version int `json:"version,omitempty"`
 }
 
 // ServeOptions decide what a lost connection releases.
@@ -76,7 +96,14 @@ type ServeOptions struct {
 	InlineUpdates bool
 	// Lost, when set, is told each session a lost connection released.
 	Lost func(h Hello, sid int64)
-	Logf func(string, ...any)
+	// BeforeRelease, when set, runs when a connection that opened sessions
+	// is gone and before any of them is released; it returns once the
+	// process the hello named can no longer write (the gateway kills a
+	// sidecar that is still alive and waits for its exit). A connection can
+	// break while its process lives on and may still commit: its locks must
+	// not go before that process does.
+	BeforeRelease func(h Hello)
+	Logf          func(string, ...any)
 }
 
 // Serve accepts connections on ln until it is closed and serves each from srv.
@@ -104,7 +131,11 @@ func ServeConn(srv *enq.Server, conn net.Conn, o ServeOptions) {
 	enc := json.NewEncoder(w)
 	var hello Hello
 	owned := map[int64]bool{}
+	mine := map[int64]bool{} // every session this connection opened, ended or not
 	defer func() {
+		if len(owned) > 0 && o.BeforeRelease != nil {
+			o.BeforeRelease(hello)
+		}
 		for sid := range owned {
 			srv.Lost(sid, o.InlineUpdates)
 			if o.Lost != nil {
@@ -121,15 +152,46 @@ func ServeConn(srv *enq.Server, conn net.Conn, o ServeOptions) {
 			return
 		}
 		a := wireRes{ID: q.ID}
-		switch q.Op {
-		case "hello":
-			if q.Hello != nil {
+		helloed := hello.Version != 0
+		switch {
+		case q.Op == "hello":
+			if helloed {
+				a.Err = "a second hello"
+			} else if q.Hello == nil || q.Hello.Version != ProtocolVersion {
+				v := 0
+				if q.Hello != nil {
+					v = q.Hello.Version
+				}
+				a.Err = fmt.Sprintf("protocol version %d, this server speaks %d", v, ProtocolVersion)
+			} else {
 				hello = *q.Hello
+				a.Version = ProtocolVersion
 			}
+			if a.Err != "" {
+				logf("enq: hello refused: %s", a.Err)
+				_ = enc.Encode(&a)
+				_ = w.Flush()
+				return
+			}
+		case !helloed:
+			a.Err = "hello first"
+			_ = enc.Encode(&a)
+			_ = w.Flush()
+			return
+		case q.SID != 0 && !mine[q.SID] && q.Op != "updateDone":
+			// a session is its connection's; UpdateDone may come from
+			// anywhere (an update task outside the process that committed)
+			a.Err = fmt.Sprintf("session %d is not this connection's", q.SID)
+		}
+		if a.Err != "" || q.Op == "hello" {
+			goto answer
+		}
+		switch q.Op {
 		case "open":
 			a.SID = srv.OpenIn(q.User, hello.Generation)
 			if a.SID != 0 {
 				owned[a.SID] = true
+				mine[a.SID] = true
 			} else {
 				a.Gone = true
 			}
@@ -176,6 +238,7 @@ func ServeConn(srv *enq.Server, conn net.Conn, o ServeOptions) {
 		default:
 			a.Err = "unknown op " + q.Op
 		}
+	answer:
 		if err := enc.Encode(&a); err != nil {
 			return
 		}
@@ -198,6 +261,10 @@ type Client struct {
 	pending map[int64]chan wireRes
 	done    chan struct{}
 	err     error
+	// refused counts answers the server refused (an unknown op, a session
+	// of another connection): each answered the caller as a closed server
+	refused  atomic.Int64
+	lastFail atomic.Value // string: the last refusal
 }
 
 // Dial connects to a lock server and says hello.
@@ -210,15 +277,31 @@ func Dial(network, address string, h Hello) (*Client, error) {
 }
 
 // NewClient speaks the protocol over an open connection (a test's pipe).
+// It sends the hello with this build's ProtocolVersion and refuses a
+// server that answers with another one, or with none (an older server),
+// wrapping ErrProtocol.
 func NewClient(conn net.Conn, h Hello) (*Client, error) {
 	c := &Client{conn: conn, w: bufio.NewWriter(conn), pending: map[int64]chan wireRes{}, done: make(chan struct{})}
 	c.enc = json.NewEncoder(c.w)
 	go c.read()
-	if _, ok := c.call(wireReq{Op: "hello", Hello: &h}); !ok {
+	h.Version = ProtocolVersion
+	a, err := c.roundTrip(wireReq{Op: "hello", Hello: &h})
+	if err == nil && a.Version != ProtocolVersion {
+		err = fmt.Errorf("%w: the server speaks version %d, this client %d", ErrProtocol, a.Version, ProtocolVersion)
+	}
+	if err != nil {
 		c.Close()
-		return nil, c.Err()
+		<-c.done
+		return nil, err
 	}
 	return c, nil
+}
+
+// Refused says how many calls the server refused and the last reason; each
+// such call answered as a closed server does (ENQUEUE SYSTEM_FAILURE).
+func (c *Client) Refused() (int64, string) {
+	s, _ := c.lastFail.Load().(string)
+	return c.refused.Load(), s
 }
 
 // Done is closed when the connection is gone; Err then says why.
@@ -265,13 +348,32 @@ func (c *Client) read() {
 }
 
 // call sends one request and waits for its answer; false when the
-// connection is gone (before or during the call).
+// connection is gone (before or during the call) or the server refused the
+// request. A refusal (an op the server does not know, a session that is
+// not this connection's) is not a lock answer: the caller answers it as a
+// closed server, ENQUEUE with SYSTEM_FAILURE, and the work process goes on
+// rather than dumping on a defect of the other side.
 func (c *Client) call(q wireReq) (wireRes, bool) {
+	a, err := c.roundTrip(q)
+	if err != nil {
+		if errors.Is(err, errRefused) {
+			c.refused.Add(1)
+			c.lastFail.Store(err.Error())
+		}
+		return wireRes{}, false
+	}
+	return a, true
+}
+
+var errRefused = errors.New("enq wire: refused")
+
+func (c *Client) roundTrip(q wireReq) (wireRes, error) {
 	ch := make(chan wireRes, 1)
 	c.mu.Lock()
 	if c.err != nil {
+		err := c.err
 		c.mu.Unlock()
-		return wireRes{}, false
+		return wireRes{}, err
 	}
 	c.next++
 	q.ID = c.next
@@ -288,12 +390,18 @@ func (c *Client) call(q wireReq) (wireRes, bool) {
 	}
 	a, ok := <-ch
 	if !ok {
-		return wireRes{}, false
+		if err := c.Err(); err != nil {
+			return wireRes{}, err
+		}
+		return wireRes{}, errors.New("enq: connection closed")
 	}
 	if a.Err != "" {
-		panic("enq wire: " + a.Err) // a protocol error is a defect, not a lock answer
+		if q.Op == "hello" {
+			return wireRes{}, fmt.Errorf("%w: %s", ErrProtocol, a.Err)
+		}
+		return wireRes{}, fmt.Errorf("%w: %s: %s", errRefused, q.Op, a.Err)
 	}
-	return a, true
+	return a, nil
 }
 
 func (c *Client) Open(user string) int64 {

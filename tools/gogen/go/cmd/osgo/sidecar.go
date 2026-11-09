@@ -25,7 +25,7 @@ func startSidecarLocks(dir string) {
 		return
 	}
 	locks, err := enqnet.Dial("unix", osgw.LockSocket(dir),
-		enqnet.Hello{Generation: buildGeneration, Name: fmt.Sprintf("osgo sidecar pid %d", os.Getpid())})
+		enqnet.Hello{Generation: buildGeneration, PID: os.Getpid(), Name: fmt.Sprintf("osgo sidecar pid %d", os.Getpid())})
 	if err != nil {
 		log.Fatalf("sidecar: the gateway's lock server: %v", err)
 	}

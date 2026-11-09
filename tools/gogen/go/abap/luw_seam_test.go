@@ -7,6 +7,9 @@ import (
 	"osg/gogen/hostclass"
 )
 
+// The database commits before the host's lock hook runs. go/enqnet's
+// release of a dead sidecar's inline-update locks is sound only in this
+// order (GeneratedCommitWork); do not loosen this test.
 func TestGeneratedLUWDatabaseOrder(t *testing.T) {
 	_, s := openTestDB(t, `["CREATE TABLE t (id TEXT)"]`)
 	defer func() { hostclass.LUW.Commit = nil; hostclass.LUW.Rollback = nil }()
