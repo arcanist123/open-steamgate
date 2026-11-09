@@ -8,10 +8,11 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-3d` at `9792b3c879972450aeb99b89747545a51b589522`
-(2.14.3, parser 2.120.73): `local/osd-build-3b` (`f34e9bf4`) plus the Open SQL
-host-variable escape (ANOMALY-2026-11-08-sql-host-variable-inlined). [The pin move report](transpiler-pin-2.md) lists
-the retained and dropped fork commits. The dossier below is the historical snapshot. Every one of those fixes has an entry
+The current transpiler and runtime build is `local/osd-build-4b` at `297b1dc92da8965ab00bb56dc68bca92259e1aea`
+(upstream main `62931245`, 2.14.19 plus the EML lowering #2049, parser 2.120.94): the Open SQL host-variable escape
+(#2050, merged upstream since), the `only` option and registry reuse, the built-in and "four fixes" commits, and
+`SELECT SINGLE FOR UPDATE` run as the SELECT. [The pin move report](transpiler-pin-4.md) lists what was carried and
+what was left out (the type `i` overflow of #1955 and the exact packed arithmetic). The dossier below is the historical snapshot. Every one of those fixes has an entry
 in `ANORMALIES.md` and a branch in that clone, and `npm run parked` prints the
 two side by side and complains where they disagree. This is the dossier for
 sending them: what each is, what proves it, where the fix lives, and what to
@@ -582,8 +583,7 @@ draft PR says so.
 
 Sending: a branch inside `abaplint/transpiler` (the regression workflow
 rule), after the critic reads the draft against the diff; the draft PR text
-is `transpiler-rap-eml-PR.md` in the job folder. Until it is in a release
-and the pin moves, `src/rap_demo/zcl_rap_note_eml` stays in the
-`exclude_filter` of `abap_transpile.json` (the unpatched transpiler stops
-the whole build on `COMMIT ENTITIES`); the facade and the kernel entry
-are proven without EML syntax by `test/unit/zcl_osd_rap_eml_test`.
+is `transpiler-rap-eml-PR.md` in the job folder. Merged as #2049
+(`62931245`); the pin carries it since `local/osd-build-4b`
+([transpiler-pin-4.md](transpiler-pin-4.md)) and
+`src/rap_demo/zcl_rap_note_eml` is no longer excluded from the build.
