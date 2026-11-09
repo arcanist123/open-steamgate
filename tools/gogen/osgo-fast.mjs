@@ -32,7 +32,7 @@
 // which are the same bytes either way. Nothing is written under build/: the
 // Node host never sees a generation it did not build.
 import {createHash} from "node:crypto";
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {join, relative, resolve} from "node:path";
 
 const AMDP = /BY\s+DATABASE\s+(PROCEDURE|FUNCTION)/i;
@@ -52,9 +52,16 @@ export async function fastProof(root, options = {}) {
   const {warmRule} = await import(`${tools}/osd-warm.mjs`);
   const {sourceSnapshotPath} = await import(`${tools}/osd-source-snapshot.mjs`);
   const paths = layout(root);
-  const inputs = inputsOf(root);
   const digests = new Map();
-  const hash = hashOf(root, inputs, {digests});
+  let inputs, hash;
+  // a library that is not at its pin, or has local changes, cannot name a
+  // generation (osd-lib-path.mjs throws): the full build says so in its words
+  try {
+    inputs = inputsOf(root);
+    hash = hashOf(root, inputs, {digests});
+  } catch (e) {
+    return {ok: false, reason: `the tree's generation cannot be named: ${e.message}`};
+  }
   if (existsSync(join(paths.byInput, hash, "manifest.json"))) return {ok: false, hash, reason: `generation ${hash} is built already: nothing to skip`};
   const base = liveHash(root);
   if (base === undefined) return {ok: false, hash, reason: "no live generation to start from"};
@@ -115,11 +122,15 @@ function beforeOf(root, generation, key, digest, snapshotPath) {
  * The store's view of a fast build (store.mjs `edited`): each edited file is
  * active as it is now, from a copy of its bytes under `outDir`, keyed by
  * digest, where a full build's snapshot would have put it.
+ * Every other copy in `outDir` is removed except those the last build's
+ * store names (`previous`, its zz_store.json): that binary may still be
+ * serving them until the new one replaces it.
  * @param {string} root
  * @param {string[]} changed root-relative files (fastProof)
  * @param {string} outDir where the copies go (inside root)
+ * @param {{previous?: string}} [options]
  */
-export function fastStoreEdits(root, changed, outDir) {
+export function fastStoreEdits(root, changed, outDir, options = {}) {
   const edited = new Map();
   mkdirSync(outDir, {recursive: true});
   for (const file of changed) {
@@ -128,6 +139,16 @@ export function fastStoreEdits(root, changed, outDir) {
     const copy = join(outDir, digest);
     if (!existsSync(copy)) writeFileSync(copy, bytes);
     edited.set(file, {digest, path: relative(root, copy).replaceAll("\\", "/")});
+  }
+  const keep = new Set([...edited.values()].map(({path}) => resolve(root, path)));
+  if (options.previous !== undefined && existsSync(options.previous)) {
+    try {
+      for (const path of Object.values(JSON.parse(readFileSync(options.previous, "utf8")).active ?? {})) keep.add(resolve(root, path));
+    } catch { /* an unreadable last store names nothing to keep */ }
+  }
+  for (const name of readdirSync(outDir)) {
+    const copy = join(outDir, name);
+    if (!keep.has(resolve(copy))) rmSync(copy, {force: true});
   }
   return edited;
 }

@@ -152,6 +152,9 @@ try {
     writeFileSync(file, original.replace(LITERAL, `'Key TravelId missing (osgo-cycle ${process.pid}-${i})'`));
     const t0 = performance.now();
     const row = await build(!unlayered && i === 1 ? "first edit" : `edit ${unlayered ? i : i - 1}`);
+    // a run that fell back to the full build would count as a fast one and
+    // inflate the median without a word: the measurement is refused
+    if (fast && row.fast !== "fast") throw new Error(`osgo-cycle: ${row.run} did not take the fast path (${row.fast}); the measurement is refused`);
     row.stop = await stop();
     row.restart = await start(row.generation);
     row["edit to serving"] = ms(t0);

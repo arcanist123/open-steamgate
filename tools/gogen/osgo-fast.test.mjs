@@ -10,7 +10,7 @@ import {createHash} from "node:crypto";
 import {mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
-import {fastProof} from "./osgo-fast.mjs";
+import {fastProof, fastStoreEdits} from "./osgo-fast.mjs";
 
 const realTools = resolve(import.meta.dirname, "..");
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -22,7 +22,7 @@ import {join, relative, resolve, basename} from "node:path";
 const walk = (d) => existsSync(d) ? readdirSync(d, {withFileTypes: true}).flatMap((e) => e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]) : [];
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 export const layout = (root) => ({byInput: join(root, "build", "by-input")});
-export const inputsOf = (root) => ({folders: [join(root, "src")]});
+export const inputsOf = (root) => { if (globalThis.osgoFastLibError) throw new Error(globalThis.osgoFastLibError); return {folders: [join(root, "src")]}; };
 export const liveHash = (root) => { try { return basename(readlinkSync(join(root, "build", "live"))); } catch { return undefined; } };
 export const activeOverlay = (o) => o;
 export const genHash = (root) => sha(walk(join(root, "gen")).sort().map((f) => relative(root, f) + readFileSync(f)).join("\\0")).slice(0, 16);
@@ -162,5 +162,37 @@ test("an edit put back is the live generation again", async () => {
     assert.equal(proof.hash, live);
     assert.equal(sha(before), sha(readFileSync(join(t.root, "src/zcl_a.clas.abap"))));
     assert.ok(readdirSync(join(t.root, "build", "by-input")).length === 1);
+  } finally { rmSync(t.root, {recursive: true, force: true}); }
+});
+
+test("a library that cannot name the generation is a full build, not a throw", async () => {
+  const t = tree();
+  try {
+    await build(t);
+    edit(t, "src/zcl_a.clas.abap", "'one'", "'two'");
+    globalThis.osgoFastLibError = "lib at x has modified or untracked files";
+    const proof = await fastProof(t.root, {tools: t.tools});
+    assert.equal(proof.ok, false);
+    assert.match(proof.reason, /cannot be named: lib at x has modified/);
+  } finally { delete globalThis.osgoFastLibError; rmSync(t.root, {recursive: true, force: true}); }
+});
+
+test("the active copies: this build's and the last build's stay, the rest go", async () => {
+  const t = tree();
+  try {
+    const out = join(t.root, ".out", "osgo-active");
+    mkdirSync(out, {recursive: true});
+    writeFileSync(join(out, "stale"), "x");
+    writeFileSync(join(out, "serving"), "y");
+    const previous = join(t.root, "zz_store.json");
+    writeFileSync(previous, JSON.stringify({active: {"src/zcl_c.clas.abap": ".out/osgo-active/serving", "src/zif_b.intf.abap": "build/by-input/h/source/x"}}));
+    edit(t, "src/zcl_a.clas.abap", "'one'", "'two'");
+    const edited = fastStoreEdits(t.root, ["src/zcl_a.clas.abap"], out, {previous});
+    const mine = sha(readFileSync(join(t.root, "src/zcl_a.clas.abap")));
+    assert.deepEqual(edited.get("src/zcl_a.clas.abap"), {digest: mine, path: `.out/osgo-active/${mine}`});
+    assert.deepEqual(readdirSync(out).sort(), [mine, "serving"].sort());
+    // without a last store only this build's copy is left
+    fastStoreEdits(t.root, ["src/zcl_a.clas.abap"], out);
+    assert.deepEqual(readdirSync(out), [mine]);
   } finally { rmSync(t.root, {recursive: true, force: true}); }
 });

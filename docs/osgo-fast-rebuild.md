@@ -185,7 +185,9 @@ things osgo took from the live generation are made to match a full build:
   file is the generation's snapshot of it, and the live one holds the old
   bytes of the edited files. Those files are active as they are now, from a
   copy under `.out/osgo-active/<digest>` (read digest-checked, like a
-  snapshot);
+  snapshot). Copies that neither this build's store nor the last build's
+  (the binary that may still be serving until the new one replaces it)
+  names are removed, so the folder holds at most two builds' edits;
 - **the cross-reference** (`CROSS`, `WBCROSSGT`, `WBCROSSGTX`, `D010INC`
   seed rows): a parse of the whole tree, ~10-12 s, cached per generation in
   `build/xref`. The fast path takes the live generation's rows and derives
@@ -196,6 +198,32 @@ things osgo took from the live generation are made to match a full build:
   premise does not hold (no cached live rows, an object without rows in a
   table it now has rows in) the tree is parsed as before. Checked against a
   fresh parse on a body, a method and an interface edit: identical rows.
+
+A library the tree cannot name a generation with (not at its pin, or with
+local changes: `osd-lib-path.mjs` refuses it) is not an error of the fast
+path: it answers no, prints `osgo fast: full build (the tree's generation
+cannot be named: ...)`, and the full build then fails with its own words.
+
+**ADT CHECK after a fast build.** A fast build leaves `build/live` where it
+was, so the binary it makes primes its check compiler with the *old* live
+generation (`objstore.SetCompiler(..., liveGeneration(root))`). That name
+does not decide what a check reads: the Node check sidecar
+(`tools/osd-compiler-sidecar.mjs`) checks the object's active snapshot (the
+`.out/osgo-active` copy for an edited file) inside a registry of the tree
+as it is on disk, and the generation is only compared with `build/live`
+to refuse a verdict across a swap -- which matches here, since neither
+moved. Measured at `cd585ebf` (`ZCL_ZSTG_DEMO_DPC_EXT` gains a static
+method `osgo_fast_probe`; `ZCL_OSD_CLASSRUN_DUMPER` calls it; as a control
+in the same build `ZCL_OSD_CLASSRUN_DEMO` calls a method that does not
+exist), one `POST /sap/bc/adt/checkruns` per class, version active:
+
+| build | the dependent that calls the new method | the control |
+| --- | --- | --- |
+| fast (`build/live` unchanged) | processed, no errors | 1 error: `Method "osgo_fast_missing" not found` |
+| full (`osd-build.mjs` + `osgo.mjs`, control left out: see Limits) | processed, no errors | -- |
+
+So a dependent is checked against the edited class as it is now, the same
+verdict as after a full build.
 
 ### Same generation, both ways
 
@@ -232,7 +260,8 @@ overlay each take the full build.
 ### Measured
 
 `osgo-cycle.mjs --fast` runs `osgo.mjs --fast` alone per edit (its prime is
-always the full build). Warm `GOCACHE`, three edits each after the first,
+always the full build), and refuses the measurement when an edit fell back to
+the full build, so a fallback cannot pass for a fast run in the median. Warm `GOCACHE`, three edits each after the first,
 the median (ms), at `7d625b5f`:
 
 | phase | full path (`--runs 3`) | fast path (`--runs 3 --fast`) |
@@ -272,6 +301,14 @@ the fast path the cycle is ~47 s, so it is no longer needed for ADR 0010's
 target.
 
 ## Limits
+
+- **The fast path does not syntax-check the edit.** The full Node build
+  refuses a tree with a syntax error (`osd-build.mjs` exits 1, and
+  `osgo.mjs` then refuses the stale `gen/`); the fast path does not run it,
+  so such an edit still becomes a binary, the object counted in the front
+  end's `objects with syntax errors` line and its methods handled as any
+  method osgo cannot compile. Seen with the control above. ADT CHECK
+  reports the error either way.
 
 - **The first save of a class moves it from `app` to `main`**, which
   recompiles `app` once (36 s here); the edits after it are the fast case. A

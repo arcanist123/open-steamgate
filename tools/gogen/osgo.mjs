@@ -169,8 +169,10 @@ if (echo) {
   }
   // DESTINATION 'STORE' over the files of the tree (go/objstore)
   const {storeConfig} = await import("./store.mjs");
-  // the fast path: the edited files are active as they are now (osgo-fast.mjs)
-  const edited = fastInfo?.ok ? (await import("./osgo-fast.mjs")).fastStoreEdits(home, fastInfo.changed, join(here, ".out", "osgo-active")) : undefined;
+  // the fast path: the edited files are active as they are now (osgo-fast.mjs);
+  // copies neither this build nor the last one (the binary that may still be
+  // serving, its zz_store.json) names are removed
+  const edited = fastInfo?.ok ? (await import("./osgo-fast.mjs")).fastStoreEdits(home, fastInfo.changed, join(here, ".out", "osgo-active"), {previous: join(dir, "zz_store.json")}) : undefined;
   const cfg = await storeConfig(home, {edited});
   store = JSON.stringify(cfg);
   console.log(`store: ${cfg.roots.length} roots, ${cfg.libs.length} libraries (${cfg.libs.reduce((n, l) => n + l.files.length, 0)} files), ${Object.keys(cfg.built).length} files of this generation`);
