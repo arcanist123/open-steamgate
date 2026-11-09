@@ -32,7 +32,7 @@ Format adapted from `larshp/hithub` (MIT).
 
 ### ANOMALY-2026-11-09-select-for-update-refused -- `SELECT SINGLE FOR UPDATE` stops with "not supported" since transpiler 2.14.14
 
-- Status: `workaround` (the pinned fork `oisee/transpiler` `local/osd-build-4b` `297b1dc92da8` runs it as the plain SELECT again)
+- Status: `workaround` (the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff`, commit `1ea248fd`, runs it as the plain SELECT again)
 - Discovery date: `2026-11-09` (moving the pin from `f34e9bf4` to upstream main `62931245`)
 - Affected versions: `@abaplint/transpiler` 2.14.14 (refused at transpile time, #2041) and 2.14.15 onwards (`throw new Error("SELECT SINGLE FOR UPDATE, not supported, transpiler")` in the generated code, #2043); upstream main `62931245`
 - Affected ABAP statement, runtime API or adapter: `SELECT SINGLE FOR UPDATE`, `packages/transpiler/src/statements/select.ts`
@@ -2190,7 +2190,7 @@ for `zosd_status_app`, which has been deployed for a day.
 
 ### ANOMALY-2026-09-23-epoch-ms-overflow — `ZCL_STG_JSON=>EPOCH_MS` overflows `i` on a system, and the transpiler runtime lets it through
 
-- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin (`local/osd-build-4b`, upstream main `62931245`) no longer carries #1955 or the exact packed-arithmetic backports: they conflict with upstream main, and whether to port them again is open (docs/transpiler-pin-4.md).
+- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-23`
 - Affected versions: `@abaplint/transpiler` 2.13.89 (npm) runtime; OSG's own `src/gateway/zcl_stg_json.clas.abap`
 - Affected ABAP statement, runtime API or adapter: an arithmetic expression of `i` operands embedded in a string template, `rv_ms = |{ ( lv_days * 86400 + lv_seconds ) * 1000 }|` in `EPOCH_MS`, which every `Edm.DateTime` of a JSON answer goes through
@@ -3114,7 +3114,7 @@ point approximation and is format-checked before masking in wire tests.
 
 ### ANOMALY-2026-09-25-zip-read-int4 — open-abap-core's `CL_ABAP_ZIP=>LOAD` overflows `i` in `LCL_STREAM=>READ_INT4`, and the transpiler runtime lets it through
 
-- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin (`local/osd-build-4b`, upstream main `62931245`) no longer carries #1955 or the exact packed-arithmetic backports: they conflict with upstream main, and whether to port them again is open (docs/transpiler-pin-4.md).
+- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-25`
 - Affected versions: open-abap-core (`src/abap/cl_abap_zip.clas.locals_imp.abap`, as cloned in `.local/lars/open-abap-core`); `@abaplint/runtime` 2.13.89
 - Affected ABAP statement, runtime API or adapter: `LCL_STREAM=>READ_INT4` (and `READ_INT2`'s pattern): `DO 4 TIMES. ... lv_factor = lv_factor * 256. ENDDO.`, which after the fourth byte computes 256 ** 4 into an `i`; `CL_ABAP_ZIP=>LOAD` calls it for every header
@@ -4210,7 +4210,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-10-08-zip-read-int4 - cl_abap_zip's read_int4 overflows type i, and only the Go runtime notices
 
-- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin (`local/osd-build-4b`, upstream main `62931245`) no longer carries #1955 or the exact packed-arithmetic backports: they conflict with upstream main, and whether to port them again is open (docs/transpiler-pin-4.md).
+- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery: abapiti's case 033, `cl_abap_zip=>load` raising `CX_SY_ARITHMETIC_OVERFLOW` on osgo for an ordinary 50-file ZIP, while OSG-JS loaded it.
 - Affected path: open-abap-core `lcl_stream=>read_int4` (`cl_abap_zip.clas.locals_imp.abap`) before #1282: `rv_int = rv_int + lv_val * lv_factor`, then `lv_factor = lv_factor * 256`, all in `i`; the factor reaches 2^32 after the fourth byte for any input.
 - Expected SAP behaviour (7.58): the same method body dumps `COMPUTE_INT_TIMES_OVERFLOW` for both `01020304` and `01020380` (measured on A4H by abapiti on 2026-10-08 in a throwaway package, removed after). SAP's own `cl_abap_zip` is not affected; this is open-abap-core's implementation.
@@ -4243,7 +4243,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-08-sql-host-variable-inlined -- a host variable in Open SQL is inlined into the SQL text unescaped, so a quote in its value ends the literal (SQL injection through an OData key)
 
-- Status: `fixed upstream: abaplint/transpiler#2050` (merged 2026-11-09 as `8824945a`, not yet in a release); the pin `local/osd-build-4b` carries the same change as one commit on upstream main `62931245` (`d3ae05de`)
+- Status: `fixed upstream: abaplint/transpiler#2050` (merged 2026-11-09 as `8824945a`, not yet in a release); the pin `local/osd-build-4c` is based on upstream main `8824945a`, which contains it
 - Discovery date: `2026-11-08` (post-merge critic of #856/#858, probing the V4 writes with keys that carry a quote)
 - Affected versions: `@abaplint/transpiler` 2.14.3 at the previously pinned `f34e9bf4` (`local/osd-build-3b`), `abaplint/transpiler` main at `37132489` (2.14.19), and every published version: `packages/transpiler/src/expressions/sql_cond.ts` emits `'" + lv.get() + "'` for a host variable (`sqlHost`, `basicConditionNew`, `sourceWithComponents`, the interface-constant and conversion branches of `sqlSource`), `sql_field_and_value.ts` the same for `UPDATE ... SET f = lv`, `update_database.ts` for `UPDATE dbtab FROM wa`, `sql_field.ts` for a host variable in a field list, and the runtime's `expand_dynamic.ts` for a `<fs>-comp` substituted into a dynamic WHERE. `INSERT` and `IN seltab` were already escaped (`insert_database.ts`, `expand_in.ts`).
 - Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE f = lv` / `= @lv` / `LIKE lv` / `IN (lv1, lv2)` / `FOR ALL ENTRIES ... WHERE f = lt-comp`, `UPDATE ... SET ... WHERE`, `UPDATE dbtab FROM wa`, `DELETE FROM ... WHERE`, `MODIFY` (through update) -- any host variable whose value holds a `'`

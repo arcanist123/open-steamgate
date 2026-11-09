@@ -8,11 +8,11 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-4b` at `297b1dc92da8965ab00bb56dc68bca92259e1aea`
-(upstream main `62931245`, 2.14.19 plus the EML lowering #2049, parser 2.120.94): the Open SQL host-variable escape
-(#2050, merged upstream since), the `only` option and registry reuse, the built-in and "four fixes" commits, and
-`SELECT SINGLE FOR UPDATE` run as the SELECT. [The pin move report](transpiler-pin-4.md) lists what was carried and
-what was left out (the type `i` overflow of #1955 and the exact packed arithmetic). The dossier below is the historical snapshot. Every one of those fixes has an entry
+The current transpiler and runtime build is `local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81`
+(upstream main `8824945a`, 2.14.19 plus the EML lowering #2049 and the SQL escape #2050, parser 2.120.94) with
+fourteen fork commits: the `only` option and registry reuse, the built-in and "four fixes" commits, `SELECT SINGLE
+FOR UPDATE` run as the SELECT, and the numeric ones ported onto upstream main (exact packed arithmetic, int8 and
+integer byte conversions, the type `i` overflow of #1955). [The pin move report](transpiler-pin-4.md) lists them. The dossier below is the historical snapshot. Every one of those fixes has an entry
 in `ANORMALIES.md` and a branch in that clone, and `npm run parked` prints the
 two side by side and complains where they disagree. This is the dossier for
 sending them: what each is, what proves it, where the fix lives, and what to
@@ -584,6 +584,6 @@ draft PR says so.
 Sending: a branch inside `abaplint/transpiler` (the regression workflow
 rule), after the critic reads the draft against the diff; the draft PR text
 is `transpiler-rap-eml-PR.md` in the job folder. Merged as #2049
-(`62931245`); the pin carries it since `local/osd-build-4b`
+(`62931245`); the pin carries it since `local/osd-build-4c`
 ([transpiler-pin-4.md](transpiler-pin-4.md)) and
 `src/rap_demo/zcl_rap_note_eml` is no longer excluded from the build.

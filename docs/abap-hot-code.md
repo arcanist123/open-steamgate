@@ -1,6 +1,6 @@
 # How to write hot ABAP for this runtime
 
-Current build pin: `local/osd-build-4b` at `297b1dc92da8965ab00bb56dc68bca92259e1aea` (upstream main `62931245` after 2.14.19, parser 2.120.94; [transpiler-pin-4.md](transpiler-pin-4.md)).
+Current build pin: `local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81` (upstream main `8824945a` after 2.14.19, parser 2.120.94; [transpiler-pin-4.md](transpiler-pin-4.md)).
 The measurements below are historical snapshots; see [the pin move report](transpiler-pin-2.md).
 
 *Measured 2026-09-17 on one 16-core x86-64 workstation under Node 26, against
