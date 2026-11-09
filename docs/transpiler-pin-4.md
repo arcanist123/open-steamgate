@@ -109,6 +109,30 @@ hex). This is how each was resolved:
   tolerates this one message (`tools/gogen/frontend-selection.mjs`, beside
   the dynamic-RAISE tolerance); `src/` stays policed by the lint, which runs
   `check_syntax` over it.
+- **`CrossIncludeMacros` gained a second registry-wide sweep.** Every
+  `Registry.parse()` now also runs `reparseCyclicPrograms()`, which iterates
+  `getObjects()` looking for programs in an INCLUDE cycle it must parse
+  again. The gogen provenance hooks classify such iterations by their stack
+  site, and the new site was not in the pattern, so every recorded compile
+  carried one unclassified global scan whose result was the whole registry;
+  merged into every dependency node, it refused certificates and re-lowered
+  unrelated classes (56 failures across the cache test files). The site is
+  classified `include-macro-context` like `findCandidates`, with a test that
+  a cyclic-include registry records no unknown scan
+  (`tools/gogen/frontend-provenance-hooks.mjs`,
+  `tools/gogen/frontend-provenance.test.mjs`).
+- **`DDIC.lookupDomain` calls `parseDomainType` directly.** The DOMA entry
+  point was split: `parseType(reg)` is a thin wrapper and
+  `parseDomainType(reg, dtel, description)` does the work. Core calls the new
+  name, so the gogen hooks patch both and the DOMA still opens its
+  `ddic-type` artifact frame (`tools/gogen/frontend-provenance-hooks.mjs`).
+- **Scope data containers are shared and frozen while empty.** `ScopeData`
+  starts every container at one frozen `EMPTY_OBJECT`/`EMPTY_ARRAY` and
+  replaces it on first write through its setters, so a raw
+  `getData().vars.NAME = x` write now throws. The digest-projection test
+  adds its probe variable through `setVariable`, which is the same observable
+  mutation through the API both parser versions expose
+  (`tools/gogen/frontend-artifact-digests.test.mjs`).
 
 ## The advisory CI jobs
 
@@ -171,3 +195,11 @@ All of these ran on one machine, one at a time under the shared lock:
   want clang), so the TestOSD folder was derived from the CI run's measured
   `support.json` minus the locally staged `int8` folder, whose constructs
   are byte-identical to the tracked ones.
+- The gogen cache round (job 129202076154, 56 failures in the
+  `node --test --test-concurrency=1` step over the sixteen cache/provenance
+  files): rerun file by file on the pin after the three adaptations above,
+  every file green — 331 tests, 0 failures, including the "CI oracle"
+  mutation sweep (62 attempts, 0 mismatches) and both NEGATIVE fresh-process
+  oracles; `node tools/gogen/lint-engine.test.mjs` with
+  `tools/step3/checkrun-diff.test.mjs` and `npx tsc -p tsconfig.gogen.json`
+  stay clean, and `semantics.mjs`/`unit.mjs` above were rerun and pass.
