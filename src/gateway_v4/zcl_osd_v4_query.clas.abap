@@ -558,6 +558,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     IF ms_request-key_string IS NOT INITIAL AND lines( mo_context->mt_key_tab ) <> lines( lt_names ).
       fail( 'Missing key property' ).
     ENDIF.
+* the same MaxLength check as the V2 path: a longer key is a 400, never a
+* cut value addressing another entity
+    zcl_stg_model_info=>check_keys( is_set = is_set it_key_tab = mo_context->mt_key_tab ).
   ENDMETHOD.
 
   METHOD select_fields.

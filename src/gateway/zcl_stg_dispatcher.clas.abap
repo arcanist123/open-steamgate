@@ -739,6 +739,9 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
       LOOP AT is_request-options INTO ls_option.
         IF to_lower( ls_option-name ) = to_lower( ls_property-name ).
           ls_parameter-value = zcl_stg_url=>unquote( ls_option-value ).
+          zcl_stg_model_info=>check_length( is_property = ls_property
+                                            iv_value    = ls_parameter-value
+                                            iv_what     = |Parameter of { is_action-name }:| ).
         ENDIF.
       ENDLOOP.
       APPEND ls_parameter TO lt_parameter.
@@ -913,6 +916,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ro_context->mt_key_tab = zcl_stg_url=>parse_keys(
       iv_key_string = is_request-key_string
       it_key_names  = zcl_stg_model_info=>key_names( is_set ) ).
+    zcl_stg_model_info=>check_keys( is_set     = is_set
+                                    it_key_tab = ro_context->mt_key_tab ).
   ENDMETHOD.
 
   METHOD read_entity_set.
@@ -1351,6 +1356,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                               iv_entity_set = es_nav-target_set ).
     et_keys   = zcl_stg_url=>parse_keys( iv_key_string = is_request-key_string
                                          it_key_names  = zcl_stg_model_info=>key_names( is_set ) ).
+    zcl_stg_model_info=>check_keys( is_set     = is_set
+                                    it_key_tab = et_keys ).
 
     ls_path-nav_prop              = es_nav-name.
     ls_path-key                   = is_request-key_string.

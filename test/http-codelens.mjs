@@ -6,6 +6,14 @@ import {entitySetMapFor, entitySetsOf} from "../tools/segw-entityset-map.mjs";
 
 const {requestBlocks, resolveRequest} = createRequire(import.meta.url)("../editors/vscode/http-lens.js");
 const require = createRequire(import.meta.url);
+// The demo DPC's METHOD line (1-based), read off the source rather than
+// hardcoded, so an edit above a method does not break a test about lenses.
+const demoDpcLine = (method) => {
+  const lines = readFileSync("src/demo/zcl_zstg_demo_dpc_ext.clas.abap", "utf8").split("\n");
+  const at = lines.findIndex((line) => line.trim().toLowerCase() === `method ${method}.`);
+  if (at < 0) throw new Error(`no METHOD ${method} in the demo DPC`);
+  return at + 1;
+};
 const Module = require("node:module");
 const {Osd} = require("../editors/vscode/lib.js");
 const cls = (name) => `src/demo/${name.toLowerCase()}.clas.abap`;
@@ -31,8 +39,8 @@ describe(".http forward CodeLens", () => {
 
   it("resolves collection and keyed GETs to the owning implementation", () => {
     for (const [url, kind, expectedLine] of [
-      ["{{baseUrl}}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet", "GET_ENTITYSET", 138],
-      ["https://example.invalid/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('1')", "GET_ENTITY", 619],
+      ["{{baseUrl}}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet", "GET_ENTITYSET", demoDpcLine("travelset_get_entityset")],
+      ["https://example.invalid/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('1')", "GET_ENTITY", demoDpcLine("travelset_get_entity")],
     ]) {
       const lens = resolveRequest({line: 2, method: "GET", url}, rows, map, sources);
       expect(lens).to.include({owner: names[0], methodLine: expectedLine, path: cls(names[0])});
@@ -159,11 +167,11 @@ describe(".http forward CodeLens", () => {
       const [lens] = await provider.provideCodeLenses(document);
       expect(found).to.have.length(2);
       expect(lens.command.command).to.equal("osd.openEntitySetMethod");
-      expect(lens.command.arguments.slice(0, 3)).to.deep.equal([names[0], map.sets.find((set) => set.set === "TravelSet" && set.kind === "get_entityset"), 138]);
+      expect(lens.command.arguments.slice(0, 3)).to.deep.equal([names[0], map.sets.find((set) => set.set === "TravelSet" && set.kind === "get_entityset"), demoDpcLine("travelset_get_entityset")]);
       const [owner, set, line, sourceFile] = lens.command.arguments;
       await openEntitySetMethod(owner, set, line, {appendLine() {}}, sourceFile);
       expect(opened).to.deep.equal([path.resolve(cls(names[0]))]);
-      expect(revealed).to.deep.equal([137]);
+      expect(revealed).to.deep.equal([demoDpcLine("travelset_get_entityset") - 1]);
       stateListener(); // start or stop
       configListener({affectsConfiguration: (name) => name === "osd.url"});
       expect(refreshes).to.equal(2);
