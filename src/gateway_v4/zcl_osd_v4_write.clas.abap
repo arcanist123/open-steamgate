@@ -28,6 +28,9 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
 * the navigation payloads as an expand tree, what create_deep_entity takes
     CLASS-METHODS expand_tree IMPORTING it_nested TYPE tihttpnvp
       RETURNING VALUE(ro_tree) TYPE REF TO zcl_stg_expand_node RAISING zcx_stg_error.
+* the expand tree as the context URL of the answer names it
+    CLASS-METHODS expand_context IMPORTING io_tree TYPE REF TO zcl_stg_expand_node
+      RETURNING VALUE(rv_context) TYPE string.
     CLASS-METHODS add_header IMPORTING iv_name TYPE string iv_value TYPE string
       CHANGING ct_headers TYPE tihttpnvp.
 * the entity as the DPC's GET_ENTITY returns it, and the lock on it until the
@@ -43,6 +46,7 @@ CLASS zcl_osd_v4_write DEFINITION PUBLIC CREATE PUBLIC.
       RAISING zcx_stg_error.
     CLASS-METHODS representation IMPORTING is_data TYPE any is_set TYPE zcl_stg_model_info=>ty_entity_set
       io_model TYPE REF TO zcl_osd_v4_model iv_service_url TYPE string
+      iv_expand TYPE string OPTIONAL
       RETURNING VALUE(rv_json) TYPE string.
   PRIVATE SECTION.
     CLASS-METHODS scalar IMPORTING iv_name TYPE string iv_kind TYPE string iv_value TYPE string
@@ -149,28 +153,83 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD expand_tree.
+* The levels below come from the payload's shape, over every element of a
+* collection: one booking with flights and one without still expand flights.
+* The payloads below a name are gathered into one array, so the recursion
+* sees all of them.
     DATA ls_nested TYPE ihttpnvp.
     DATA lo_child TYPE REF TO zcl_stg_expand_node.
     DATA lt_inner TYPE tihttpnvp.
+    DATA ls_inner TYPE ihttpnvp.
+    DATA lt_merged TYPE tihttpnvp.
     DATA lt_elements TYPE string_table.
-    DATA lv_first TYPE string.
+    DATA lt_more TYPE string_table.
+    DATA lv_element TYPE string.
+    DATA lv_more TYPE string.
+    FIELD-SYMBOLS <ls_merged> TYPE ihttpnvp.
     CREATE OBJECT ro_tree.
     LOOP AT it_nested INTO ls_nested.
-* the levels below come from the payload's shape: the first element of a
-* collection, or the object itself
-      lv_first = ls_nested-value.
-      IF lv_first CP '[*'.
-        lt_elements = zcl_stg_json=>parse_array( lv_first ).
-        CLEAR lv_first.
-        READ TABLE lt_elements INDEX 1 INTO lv_first.
+      CLEAR lt_elements.
+      IF ls_nested-value CP '[*'.
+        lt_elements = zcl_stg_json=>parse_array( ls_nested-value ).
+      ELSEIF ls_nested-value IS NOT INITIAL.
+        APPEND ls_nested-value TO lt_elements.
       ENDIF.
-      CLEAR lt_inner.
-      IF lv_first IS NOT INITIAL.
-        zcl_stg_json=>parse_object( EXPORTING iv_json = lv_first IMPORTING et_nested = lt_inner ).
-      ENDIF.
-      lo_child = expand_tree( lt_inner ).
+      CLEAR lt_merged.
+      LOOP AT lt_elements INTO lv_element.
+        CLEAR lt_inner.
+        zcl_stg_json=>parse_object( EXPORTING iv_json = lv_element IMPORTING et_nested = lt_inner ).
+        LOOP AT lt_inner INTO ls_inner.
+          CLEAR lt_more.
+          IF ls_inner-value CP '[*'.
+            lt_more = zcl_stg_json=>parse_array( ls_inner-value ).
+          ELSE.
+            APPEND ls_inner-value TO lt_more.
+          ENDIF.
+          READ TABLE lt_merged ASSIGNING <ls_merged> WITH KEY name = ls_inner-name.
+          IF sy-subrc <> 0.
+            APPEND INITIAL LINE TO lt_merged ASSIGNING <ls_merged>.
+            <ls_merged>-name = ls_inner-name.
+          ENDIF.
+          LOOP AT lt_more INTO lv_more.
+            IF <ls_merged>-value IS INITIAL.
+              <ls_merged>-value = lv_more.
+            ELSE.
+              <ls_merged>-value = <ls_merged>-value && ',' && lv_more.
+            ENDIF.
+          ENDLOOP.
+        ENDLOOP.
+      ENDLOOP.
+      LOOP AT lt_merged ASSIGNING <ls_merged>.
+        <ls_merged>-value = '[' && <ls_merged>-value && ']'.
+      ENDLOOP.
+      lo_child = expand_tree( lt_merged ).
       ro_tree->add_child( iv_name = ls_nested-name io_node = lo_child ).
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD expand_context.
+* the expanded navigation properties as the context URL names them (OData
+* 4.01 Part 1, 10.9): (to_Bookings(),to_Agency(to_Country()))
+    DATA lt_children TYPE /iwbep/if_mgw_odata_expand=>ty_t_node_children.
+    DATA ls_child TYPE /iwbep/if_mgw_odata_expand=>ty_s_node_child.
+    DATA lo_node TYPE REF TO zcl_stg_expand_node.
+    DATA lv_inner TYPE string.
+    DATA lv_sep TYPE string.
+    lt_children = io_tree->/iwbep/if_mgw_odata_expand~get_children( ).
+    IF lt_children IS INITIAL.
+      RETURN.
+    ENDIF.
+    LOOP AT lt_children INTO ls_child.
+      lo_node ?= ls_child-node.
+      lv_inner = expand_context( lo_node ).
+      IF lv_inner IS INITIAL.
+        lv_inner = '()'.
+      ENDIF.
+      rv_context = rv_context && lv_sep && ls_child-tech_nav_prop_name && lv_inner.
+      lv_sep = ','.
+    ENDLOOP.
+    rv_context = '(' && rv_context && ')'.
   ENDMETHOD.
 
   METHOD values.
@@ -542,7 +601,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
   METHOD representation.
     DATA lv_entity TYPE string.
     lv_entity = zcl_osd_v4_json=>entity( is_data = is_data is_set = is_set io_model = io_model ).
-    rv_json = zcl_osd_v4_json=>document( iv_context = |{ iv_service_url }/$metadata#{ is_set-name }/$entity|
+    rv_json = zcl_osd_v4_json=>document( iv_context = |{ iv_service_url }/$metadata#{ is_set-name }{ iv_expand }/$entity|
       iv_entity = lv_entity ).
   ENDMETHOD.
 
@@ -560,6 +619,8 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
     DATA lv_etag TYPE string.
     DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
     DATA lt_nested TYPE tihttpnvp.
+    DATA lo_tree TYPE REF TO zcl_stg_expand_node.
+    DATA lv_expand TYPE string.
     FIELD-SYMBOLS <ls_data> TYPE any.
 
     lo_dpc = zcl_oao_registry=>create_dpc( io_model->ms_service-name ).
@@ -584,9 +645,11 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         IF lt_nested IS NOT INITIAL.
 * deep insert (OData 4.01 Part 1, 11.4.2.2): the parent and the related
 * entities in one LUW through the DPC's create_deep_entity, as on V2
+          lo_tree = expand_tree( lt_nested ).
+          lv_expand = expand_context( lo_tree ).
           lo_dpc->create_deep_entity( EXPORTING iv_entity_name = is_set-entity_type iv_entity_set_name = is_set-name
             iv_source_name = '' io_data_provider = lo_provider it_key_tab = lo_context->mt_key_tab
-            it_navigation_path = lo_context->mt_navigation_path io_expand = expand_tree( lt_nested )
+            it_navigation_path = lo_context->mt_navigation_path io_expand = lo_tree
             io_tech_request_context = lo_context IMPORTING er_deep_entity = lr_entity ).
         ELSE.
           lo_dpc->create_entity( EXPORTING iv_entity_name = is_set-entity_type iv_entity_set_name = is_set-name
@@ -613,7 +676,7 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         ELSE.
           rs_response-status = 201.
           rs_response-body = representation( is_data = <ls_data> is_set = is_set io_model = io_model
-            iv_service_url = iv_service_url ).
+            iv_service_url = iv_service_url iv_expand = lv_expand ).
         ENDIF.
 
       WHEN 'PATCH' OR 'PUT'.

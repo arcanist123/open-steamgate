@@ -298,7 +298,7 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       TRY.
           rs_response = zcl_osd_v4_action=>bound( iv_method = iv_method iv_name = lo_query->mv_action io_query = lo_query
             io_model = lo_model is_set = ls_set io_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name )
-            iv_service_url = lv_service_url iv_body = iv_body ).
+            iv_service_url = lv_service_url iv_body = iv_body it_headers = it_headers ).
         CATCH zcx_stg_error INTO lx_error.
           gv_allow = zcl_osd_v4_action=>gv_allow.
           RAISE EXCEPTION lx_error.

@@ -150,6 +150,9 @@ quote: anything after it is 501, a phrase without its closing quote or with
 a backslash before anything but a quote or a backslash is 400. The term is
 data for the DPC: quotes, backslashes and JSON in it are never read as
 syntax, and a NUL is 400 like everywhere else. Inside `$expand(...)` it applies to the target set the same way.
+`$search` on a single entity is 400. A set the model does not mark
+searchable carries `Capabilities.SearchRestrictions/Searchable=false` in
+`$metadata`, which is what makes sap.fe leave out its search field.
 SADL/CDS sets have no search flag yet.
 
 ## Operations
@@ -170,9 +173,27 @@ method of the function import: `GET` is a `<Function>`, anything else an
 The key of the binding fills the parameters named like the key properties
 and cannot be moved by a parameter in the body or URL. URL parameters are
 V4 literals (`'...'` strings, bare dates and GUIDs, numbers) converted like
-keys; body parameters are V4 JSON values converted like a write's. An
-unknown parameter is 400, a missing one is handed over empty (as on V2),
-parameter aliases (`@p`) and non-primitive parameters are 501. A function
+keys: an `Edm.String` parameter takes a quoted literal only
+(`TravelCount(Status=1)` is 400) and any other type an unquoted one;
+`null` is handed over empty. Body parameters are V4 JSON values converted
+like a write's, and an `Edm.String` parameter takes a JSON string (or
+`null`), not a number or a boolean. An unknown parameter or one given twice
+is 400, a missing one is handed over empty (as on V2), parameter aliases
+(`@p`) and non-primitive parameters are 501. A parameter's facets from the
+MPC (`set_maxlength`, precision, scale) are written on its `<Parameter>` as
+on a property; they are not enforced here.
+
+The binding parameter of an entity-bound operation is the entity the URL
+names ([Part 1, 11.5.5](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_InvokinganAction)):
+it is read through `GET_ENTITY` first and a key nobody has is 404 before
+the DPC's `execute_action` runs. An action then takes the entity lock
+(`EZOSD_V4_LOCK`, 409 when another request holds it) and checks `If-Match`
+against the entity's current ETag (412 on a mismatch), as a PATCH does;
+sap.fe sends the ETag it holds. Unlike a PATCH, an action without
+`If-Match` is not refused with 428, since what it changes is the DPC's.
+An operation bound to an entity type that returns that type says
+`EntitySetPath="_it"`. A bound action called inside a sticky session
+(`SAP-ContextId`) runs against the database, not the session's buffer. A function
 takes `GET` and an action `POST`; the other method is 405 with `Allow`.
 
 The return type is the entity type (`Collection()` of it for a

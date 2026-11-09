@@ -430,7 +430,8 @@ describe("OData V4 read wire", () => {
       expect(array(travels.Annotation).find((a) => a.Term === "Core.OptimisticConcurrency").Collection.PropertyPath)
         .to.deep.equal(["Description", "Status", "Seats"]);
       const bookings = array(demo.EntityContainer.EntitySet).find((s) => s.Name === "BookingSet");
-      expect(bookings.Annotation).to.equal(undefined);
+      // BookingSet carries only its SearchRestrictions (not searchable), no ETag
+      expect(array(bookings.Annotation).map((a) => a.Term)).to.deep.equal(["Capabilities.SearchRestrictions"]);
     });
 
     it("emits @odata.etag and the ETag header on create and reads", async () => {
@@ -976,7 +977,8 @@ describe("OData V4 for Fiori Elements", () => {
       expect(Object.fromEntries(sticky.Record.PropertyValue.map((p) => [p.Property, p.String]))).to.deep.equal({
         NewAction: "ZSTG_DEMO_SRV.OsdStickyNew", EditAction: "ZSTG_DEMO_SRV.OsdStickyEdit",
         SaveAction: "ZSTG_DEMO_SRV.OsdStickySave", DiscardAction: "OsdStickyDiscard"});
-      expect(sets.find((x) => x.Name === "BookingSet").Annotation).to.equal(undefined);
+      expect(array(sets.find((x) => x.Name === "BookingSet").Annotation).map((a) => a.Term))
+        .not.to.include("com.sap.vocabularies.Session.v1.StickySessionSupported");
       // opt-in: NoteSet of the test service is updatable and has an ETag, and
       // its model does not ask for a sticky session
       expect(await (await fetch(literal + "/$metadata")).text()).not.to.contain("OsdSticky");
@@ -1225,13 +1227,15 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
   it("describes the function imports as a bound action and an unbound function with imports", async () => {
     const model = await schema(base);
     const cancel = array(model.Action).find((a) => a.Name === "CancelTravel");
-    expect(cancel).to.include({IsBound: "true"});
+    // it answers its binding's own type, from the binding's set
+    expect(cancel).to.include({IsBound: "true", EntitySetPath: "_it"});
     // the one parameter is the binding: TravelId is Travel's key and is filled from the URL
     expect(array(cancel.Parameter)).to.deep.equal([{Name: "_it", Type: "ZSTG_DEMO_SRV.Travel", Nullable: "false"}]);
     expect(cancel.ReturnType.Type).to.equal("ZSTG_DEMO_SRV.Travel");
     const count = array(model.Function).find((f) => f.Name === "TravelCount");
     expect(count).not.to.have.property("IsBound");
-    expect(array(count.Parameter)).to.deep.equal([{Name: "Status", Type: "Edm.String"}]);
+    // the facets the MPC gives the parameter (set_maxlength( 1 ))
+    expect(array(count.Parameter)).to.deep.equal([{Name: "Status", Type: "Edm.String", MaxLength: "1"}]);
     // classic SEGW has no primitive return kind in the tree
     expect(count.ReturnType.Type).to.equal("Edm.PrimitiveType");
     const imports = array(model.EntityContainer.FunctionImport);
@@ -1276,7 +1280,8 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     expect(res.headers.get("allow")).to.equal("POST");
     expect((await post("/TravelSet/ZSTG_DEMO_SRV.CancelTravel", {TravelId: "T0009"})).status).to.equal(400);
     expect((await post("/BookingSet(TravelId='T0001',BookingId='B001')/ZSTG_DEMO_SRV.CancelTravel", {})).status).to.equal(400);
-    expect((await post("/TravelSet('NONE')/ZSTG_DEMO_SRV.CancelTravel", {})).status).to.equal(400);
+    // the binding parameter is read first: a key nobody has is 404 before the DPC runs
+    expect((await post("/TravelSet('NONE')/ZSTG_DEMO_SRV.CancelTravel", {})).status).to.equal(404);
     // put the seed row back
     res = await send(base + "/TravelSet('T0009')", "PUT", {Description: "Other client, must not leak", Status: "A", Seats: 9});
     expect(res.status).to.equal(204);
@@ -1290,7 +1295,8 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     expect(res.headers.get("location")).to.equal(base + "/TravelSet('T0700')");
     expect(res.headers.get("etag")).to.match(/^W\//);
     const body = await res.json();
-    expect(body["@odata.context"]).to.equal(base + "/$metadata#TravelSet/$entity");
+    // the context URL names what the answer expands (OData 4.01 Part 1, 10.9)
+    expect(body["@odata.context"]).to.equal(base + "/$metadata#TravelSet(to_Bookings())/$entity");
     expect(body).to.include({TravelId: "T0700", Description: "Deep over V4"});
     expect(body.to_Bookings.map((b) => [b.TravelId, b.BookingId, b.Customer, b.FlightDate])).to.deep.equal(
       [["T0700", "B001", "Barbara Liskov", "2026-12-01"], ["T0700", "B002", "Frances Allen", "2026-12-02"]]);
@@ -1436,6 +1442,71 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a\\q"')}`)).status).to.equal(400);
     const spaced = await answer(`/TravelSet?$search=${encodeURIComponent('"Aarhus to"')}&$orderby=TravelId`);
     expect(spaced.body.value.map((t) => t.TravelId)).to.deep.equal(["T0003"]);
+  });
+
+  // OData 4.01 Part 1, 11.5.5: If-Match applies to the binding parameter of a
+  // bound action, which sap.fe sends; the action runs under the entity lock.
+  it("checks If-Match and the entity lock of a bound action's binding parameter", async () => {
+    const path = "/TravelSet('T0002')";
+    const read = await fetch(base + path);
+    const etag = read.headers.get("etag") ?? (await read.json())["@odata.etag"];
+    expect(etag).to.match(/^W\//);
+    const status = (await json(base + path)).Status;
+    const cancel = (headers) => fetch(base + path + "/ZSTG_DEMO_SRV.CancelTravel",
+      {method: "POST", headers: {"content-type": "application/json", ...headers}, body: "{}"});
+    let res = await cancel({"if-match": 'W/"bogus"'});
+    expect(res.status, await res.clone().text()).to.equal(412);
+    expect((await json(base + path)).Status).to.equal(status);
+    // held by another request: 409, row unchanged
+    const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");
+    const input = lockInput("ZSTG_DEMO_SRV", "TravelSet", "TravelId=T0002");
+    expect(enqTake("v4-action-lock", "OTHER", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input).subrc).to.equal(0);
+    try {
+      expect((await cancel({"if-match": etag})).status).to.equal(409);
+    } finally {
+      enqDrop("v4-action-lock", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input);
+    }
+    expect((await json(base + path)).Status).to.equal(status);
+    // the current ETag passes; then the old one is stale
+    res = await cancel({"if-match": etag});
+    expect(res.status, await res.clone().text()).to.equal(200);
+    expect((await res.json()).Status).to.equal("X");
+    if (status !== "X") {
+      expect((await cancel({"if-match": etag})).status).to.equal(412);
+    }
+    // a missing key is 404 whatever If-Match says
+    expect((await fetch(base + "/TravelSet('T0404')/ZSTG_DEMO_SRV.CancelTravel",
+      {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: "{}"})).status).to.equal(404);
+    expect((await send(base + path, "PATCH", {Status: status})).status).to.equal(204);
+  });
+
+  it("reads operation parameters by their type: strings quoted, each name once", async () => {
+    for (const [path, want] of [["/TravelCount(Status=1)", 400], ["/TravelCount(Status=A)", 400],
+      ["/TravelCount(Status='A',Status='X')", 400], ["/TravelCount(Status=null)", 200]]) {
+      const res = await fetch(base + path);
+      expect(res.status, path + " " + await res.clone().text()).to.equal(want);
+    }
+    const action = (text) => fetch(base + "/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel",
+      {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: text});
+    for (const text of ['{"TravelId":5}', '{"TravelId":true}', '{"TravelId":"T0003","TravelId":"T0003"}']) {
+      const res = await action(text);
+      expect(res.status, text + " " + await res.clone().text()).to.equal(400);
+    }
+    expect((await action('{"TravelId":"T0003"}')).status).to.equal(200);
+  });
+
+  it("says which sets have no full-text search, and $search wants a collection", async () => {
+    const res = await fetch(base + "/$metadata");
+    const xml = await res.text();
+    const doc = new XMLParser({ignoreAttributes: false, attributeNamePrefix: ""}).parse(xml);
+    const refs = array(doc["edmx:Edmx"]["edmx:Reference"]).map((r) => r["edmx:Include"]);
+    expect(refs).to.deep.include({Namespace: "Org.OData.Capabilities.V1", Alias: "Capabilities"});
+    const sets = array(doc["edmx:Edmx"]["edmx:DataServices"].Schema.EntityContainer.EntitySet);
+    const restriction = (name) => array(sets.find((x) => x.Name === name).Annotation)
+      .find((a) => a.Term === "Capabilities.SearchRestrictions");
+    expect(restriction("BookingSet").Record.PropertyValue).to.deep.equal({Property: "Searchable", Bool: "false"});
+    expect(restriction("TravelSet")).to.equal(undefined);
+    expect((await fetch(base + "/TravelSet('T0001')?$search=Aarhus")).status).to.equal(400);
   });
 });
 

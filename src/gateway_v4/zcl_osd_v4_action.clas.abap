@@ -34,6 +34,7 @@ CLASS zcl_osd_v4_action DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS bound IMPORTING iv_method TYPE string iv_name TYPE string io_query TYPE REF TO zcl_osd_v4_query
       io_model TYPE REF TO zcl_osd_v4_model is_set TYPE zcl_stg_model_info=>ty_entity_set
       io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime iv_service_url TYPE string iv_body TYPE string
+      it_headers TYPE tihttpnvp OPTIONAL
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
 * <op>(p=v) or POST <op> at the service root
@@ -50,7 +51,7 @@ CLASS zcl_osd_v4_action DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS return_xml IMPORTING is_action TYPE zcl_stg_model_info=>ty_action
       io_model TYPE REF TO zcl_osd_v4_model RETURNING VALUE(rv_xml) TYPE string.
     CLASS-METHODS parameters_xml IMPORTING is_action TYPE zcl_stg_model_info=>ty_action
-      is_set TYPE zcl_stg_model_info=>ty_entity_set iv_skip_keys TYPE abap_bool
+      io_model TYPE REF TO zcl_osd_v4_model is_set TYPE zcl_stg_model_info=>ty_entity_set iv_skip_keys TYPE abap_bool
       RETURNING VALUE(rv_xml) TYPE string.
 * the parameters of a function: p=v,... from the URL
     CLASS-METHODS url_parameters IMPORTING iv_text TYPE string is_action TYPE zcl_stg_model_info=>ty_action
@@ -119,6 +120,7 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
 
   METHOD parameters_xml.
     DATA ls_param TYPE zcl_stg_model_info=>ty_property.
+    DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
     LOOP AT is_action-parameters INTO ls_param.
       IF iv_skip_keys = abap_true.
         READ TABLE is_set-properties WITH KEY name = ls_param-name is_key = abap_true TRANSPORTING NO FIELDS.
@@ -126,8 +128,11 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
           CONTINUE.
         ENDIF.
       ENDIF.
+* the facets the MPC gave the parameter (set_maxlength, set_precision...),
+* written as for a property
+      ls_info = io_model->parameter( iv_action = is_action-name iv_name = ls_param-name ).
       rv_xml = rv_xml && |<Parameter Name="{ zcl_osd_v4_model=>xml( ls_param-name ) }" Type="{
-        zcl_osd_v4_model=>xml( zcl_osd_v4_model=>v4_type( ls_param-edm_type ) ) }"/>|.
+        zcl_osd_v4_model=>xml( zcl_osd_v4_model=>v4_type( ls_param-edm_type ) ) }"{ ls_info-facets }/>|.
     ENDLOOP.
   ENDMETHOD.
 
@@ -139,6 +144,8 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
     DATA lv_type TYPE string.
     DATA lv_bound TYPE string.
     DATA lv_params TYPE string.
+    DATA lv_returns TYPE string.
+    DATA ls_return TYPE zcl_stg_model_info=>ty_entity_set.
     LOOP AT io_model->ms_service-actions INTO ls_action.
       ls_binding = binding( is_action = ls_action io_model = io_model ).
       lv_tag = 'Action'.
@@ -154,11 +161,27 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
           lv_type = |Collection({ lv_type })|.
         ENDIF.
         lv_bound = ' IsBound="true"'.
+* an operation that answers the binding's own type answers it from the
+* binding's set: EntitySetPath tells the client which set that is (the
+* sticky-session actions say the same)
+        CLEAR lv_returns.
+        IF ls_action-return_entity_type IS NOT INITIAL.
+          lv_returns = ls_action-return_entity_type.
+        ELSEIF ls_action-return_entity_set IS NOT INITIAL.
+          READ TABLE io_model->ms_service-entity_sets INTO ls_return WITH KEY name = ls_action-return_entity_set.
+          IF sy-subrc = 0.
+            lv_returns = ls_return-entity_type.
+          ENDIF.
+        ENDIF.
+        IF lv_returns IS NOT INITIAL AND lv_returns = ls_binding-entity_type
+            AND ( ls_action-return_entity_set IS INITIAL OR ls_action-return_entity_set = ls_binding-entity_set ).
+          lv_bound = lv_bound && ' EntitySetPath="_it"'.
+        ENDIF.
         lv_params = |<Parameter Name="_it" Type="{ lv_type }" Nullable="false"/>|.
-        lv_params = lv_params && parameters_xml( is_action = ls_action is_set = ls_set
+        lv_params = lv_params && parameters_xml( is_action = ls_action io_model = io_model is_set = ls_set
           iv_skip_keys = boolc( ls_binding-kind = 'E' ) ).
       ELSE.
-        lv_params = parameters_xml( is_action = ls_action is_set = ls_set iv_skip_keys = abap_false ).
+        lv_params = parameters_xml( is_action = ls_action io_model = io_model is_set = ls_set iv_skip_keys = abap_false ).
       ENDIF.
       rv_xml = rv_xml && |<{ lv_tag } Name="{ zcl_osd_v4_model=>xml( ls_action-name ) }"{ lv_bound }>| &&
         lv_params && return_xml( is_action = ls_action io_model = io_model ) && |</{ lv_tag }>|.
@@ -214,6 +237,9 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
     DATA lv_value TYPE string.
     DATA ls_param TYPE zcl_stg_model_info=>ty_property.
     DATA ls_pair TYPE /iwbep/s_mgw_name_value_pair.
+    DATA lt_seen TYPE string_table.
+    DATA lv_type TYPE string.
+    DATA lv_quoted TYPE abap_bool.
     FIELD-SYMBOLS <ls_pair> TYPE /iwbep/s_mgw_name_value_pair.
     lt_parts = zcl_osd_v4_query=>split( iv_text ).
     LOOP AT lt_parts INTO lv_part.
@@ -230,17 +256,41 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
       IF sy-subrc <> 0.
         zcl_osd_v4_query=>fail( |Unknown parameter { ls_pair-name } of { is_action-name }| ).
       ENDIF.
+      READ TABLE lt_seen WITH KEY table_line = ls_pair-name TRANSPORTING NO FIELDS.
+      IF sy-subrc = 0.
+        zcl_osd_v4_query=>fail( |Parameter { ls_pair-name } is given more than once| ).
+      ENDIF.
+      APPEND ls_pair-name TO lt_seen.
       IF lv_value CP '@*'.
         zcl_osd_v4_query=>fail( iv_text = 'Parameter aliases are not implemented' iv_status = 501 ).
       ENDIF.
-      IF strlen( lv_value ) >= 2 AND lv_value(1) = |'|.
-        IF substring( val = lv_value off = strlen( lv_value ) - 1 ) <> |'|.
+* A string is a quoted literal and nothing else is (OData 4.01 ABNF,
+* primitiveLiteral): TravelCount(Status=1) is not the string '1'
+      lv_type = zcl_osd_v4_model=>v4_type( ls_param-edm_type ).
+      IF lv_value = 'null'.
+        lv_quoted = abap_false.
+      ELSEIF strlen( lv_value ) >= 1 AND lv_value(1) = |'|.
+        lv_quoted = abap_true.
+      ELSE.
+        lv_quoted = abap_false.
+      ENDIF.
+      IF lv_value <> 'null' AND lv_quoted <> boolc( lv_type = 'Edm.String' ).
+        IF lv_type = 'Edm.String'.
+          zcl_osd_v4_query=>fail( |Parameter { ls_pair-name } is an Edm.String: a quoted literal is expected| ).
+        ELSE.
+          zcl_osd_v4_query=>fail( |Parameter { ls_pair-name } is an { lv_type }: an unquoted literal is expected| ).
+        ENDIF.
+      ENDIF.
+      IF lv_quoted = abap_true.
+        IF strlen( lv_value ) < 2 OR substring( val = lv_value off = strlen( lv_value ) - 1 ) <> |'|.
           zcl_osd_v4_query=>fail( |Unterminated string literal in parameter { ls_pair-name }| ).
         ENDIF.
         lv_value = zcl_stg_url=>unquote( lv_value ).
       ENDIF.
-      lv_value = zcl_osd_v4_write=>convert( iv_name = ls_pair-name iv_value = lv_value
-        iv_edm_type = zcl_osd_v4_model=>v4_type( ls_param-edm_type ) ).
+      lv_value = zcl_osd_v4_write=>convert( iv_name = ls_pair-name iv_value = lv_value iv_edm_type = lv_type ).
+      IF lv_quoted = abap_false AND lv_value = 'null'.
+        CLEAR lv_value.
+      ENDIF.
       READ TABLE ct_parameters ASSIGNING <ls_pair> WITH KEY name = ls_pair-name.
       IF sy-subrc = 0.
         <ls_pair>-value = lv_value.
@@ -258,10 +308,24 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
     DATA ls_param TYPE zcl_stg_model_info=>ty_property.
     DATA ls_pair TYPE /iwbep/s_mgw_name_value_pair.
     DATA lv_body TYPE string.
+    DATA lo_json TYPE REF TO zif_ajson.
+    DATA lx_json TYPE REF TO zcx_ajson_error.
+    DATA lt_seen TYPE string_table.
+    DATA lv_kind TYPE string.
     FIELD-SYMBOLS <ls_pair> TYPE /iwbep/s_mgw_name_value_pair.
     lv_body = iv_body.
     IF lv_body IS INITIAL.
       lv_body = '{}'.
+    ENDIF.
+* the token kinds matter (a number is not a string): ajson reads them, the
+* V2 parser keeps each scalar's literal text, as for an entity body
+    TRY.
+        lo_json = zcl_ajson=>parse( lv_body ).
+      CATCH zcx_ajson_error INTO lx_json.
+        zcl_osd_v4_query=>fail( |The request body is not valid JSON: { lx_json->get_text( ) }| ).
+    ENDTRY.
+    IF lo_json->get_node_type( '/' ) <> zif_ajson_types=>node_type-object.
+      zcl_osd_v4_query=>fail( 'The request body must be a JSON object' ).
     ENDIF.
     lt_values = zcl_stg_json=>parse_object( EXPORTING iv_json = lv_body IMPORTING et_nested = lt_nested ).
     READ TABLE lt_nested INDEX 1 INTO ls_value.
@@ -276,10 +340,20 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
       IF sy-subrc <> 0.
         zcl_osd_v4_query=>fail( |Unknown parameter { ls_value-name } of { is_action-name }| ).
       ENDIF.
+      READ TABLE lt_seen WITH KEY table_line = ls_value-name TRANSPORTING NO FIELDS.
+      IF sy-subrc = 0.
+        zcl_osd_v4_query=>fail( |Parameter { ls_value-name } is given more than once| ).
+      ENDIF.
+      APPEND ls_value-name TO lt_seen.
+      lv_kind = lo_json->get_node_type( '/' && ls_value-name ).
+      IF zcl_osd_v4_model=>v4_type( ls_param-edm_type ) = 'Edm.String'
+          AND lv_kind <> zif_ajson_types=>node_type-string AND lv_kind <> zif_ajson_types=>node_type-null.
+        zcl_osd_v4_query=>fail( |Parameter { ls_value-name } is an Edm.String: a JSON string is expected| ).
+      ENDIF.
       ls_pair-name = ls_value-name.
       ls_pair-value = zcl_osd_v4_write=>convert( iv_name = ls_value-name iv_value = ls_value-value
         iv_edm_type = zcl_osd_v4_model=>v4_type( ls_param-edm_type ) ).
-      IF ls_pair-value = 'null'.
+      IF lv_kind = zif_ajson_types=>node_type-null.
         CLEAR ls_pair-value.
       ENDIF.
       READ TABLE ct_parameters ASSIGNING <ls_pair> WITH KEY name = ls_pair-name.
@@ -299,6 +373,8 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
     DATA ls_pair TYPE /iwbep/s_mgw_name_value_pair.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA lv_name TYPE string.
+    DATA lr_current TYPE REF TO data.
+    DATA lv_if_match TYPE string.
     FIELD-SYMBOLS <ls_bound> TYPE /iwbep/s_mgw_name_value_pair.
     lv_name = op_name( iv_name = iv_name io_model = io_model ).
     ls_action = zcl_stg_model_info=>find_action( is_service = io_model->ms_service iv_name = lv_name ).
@@ -341,6 +417,27 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
         <ls_bound>-value = ls_key-value.
       ENDIF.
     ENDLOOP.
+* The binding parameter is the entity the URL names (OData 4.01 Part 1,
+* 11.5.5): it must exist (404), and an action changes it the way a PATCH
+* does -- under the entity lock, after If-Match is checked against its
+* current ETag (412). A request without If-Match is not refused (428) here:
+* an action is not an update of the entity's representation, and the DPC
+* decides what it changes.
+    IF ls_binding-kind = 'E'.
+      IF ls_binding-is_function = abap_false.
+        zcl_osd_v4_write=>lock( iv_service = io_model->ms_service-name is_set = is_set
+          it_key_tab = io_query->mo_context->mt_key_tab ).
+      ENDIF.
+      lr_current = zcl_osd_v4_write=>read( io_dpc = io_dpc io_context = io_query->mo_context is_set = is_set ).
+      IF lr_current IS NOT BOUND.
+        zcl_osd_v4_query=>fail( iv_text = 'Entity not found' iv_status = 404 ).
+      ENDIF.
+      lv_if_match = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'if-match' ).
+      IF ls_binding-is_function = abap_false AND lv_if_match IS NOT INITIAL.
+        zcl_osd_v4_write=>precondition( is_set = is_set io_model = io_model ir_current = lr_current
+          it_headers = it_headers ).
+      ENDIF.
+    ENDIF.
     rs_response = execute( is_action = ls_action it_parameters = lt_parameters io_model = io_model
       io_dpc = io_dpc iv_service_url = iv_service_url ).
   ENDMETHOD.

@@ -375,6 +375,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
         WHEN '$search'.
 * what the DPC's GET_ENTITYSET takes as iv_search_string (V2: search=),
 * for an entity set the model marks searchable (set_has_ftxt_search)
+          IF ms_request-key_string IS NOT INITIAL AND mv_navigation IS INITIAL.
+            fail( '$search applies to a collection, not to a single entity' ).
+          ENDIF.
           IF is_set-searchable = abap_false.
             fail( iv_text = |{ is_set-name } is not searchable: the model does not mark it set_has_ftxt_search (searchable: true)|
               iv_status = 501 ).
