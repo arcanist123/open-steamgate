@@ -307,17 +307,8 @@ func RollbackWork(s *Session) {
 	s.Sy.Subrc = 0
 }
 
-// GeneratedCommitWork is only for an explicit generated COMMIT WORK.
-// YieldSleep and dialog-step completion use the database functions directly.
-//
-// The order is load-bearing: the database commits FIRST, and only then does
-// the hook hand the LUW's locks over (adtlock.Host.Commit: Commit, then
-// UpdateDone at once, the update task being inline). The gateway's lock
-// server releases a dead sidecar's locks on the strength of it (go/enqnet,
-// InlineUpdates): a crash before the commit leaves no rows, a crash after it
-// leaves durable rows whose locks go after them. Turned round, a crash
-// between the two would free the locks of rows not yet written while
-// another session already holds them. TestGeneratedLUWDatabaseOrder guards it.
+// GeneratedCommitWork is an explicit COMMIT WORK: the database commits FIRST, then the lock hook
+// runs; go/enqnet relies on that order (TestGeneratedLUWDatabaseOrder). Steps commit directly.
 func GeneratedCommitWork(s *Session) {
 	CommitWork(s)
 	updated := s.UpdateTask

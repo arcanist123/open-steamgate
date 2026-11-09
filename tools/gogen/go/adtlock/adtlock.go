@@ -271,10 +271,8 @@ func (h *Host) DequeueAll(caller any) error {
 	return nil
 }
 
-// Commit follows Node's explicit COMMIT WORK wrapper. The update ran inline,
-// so its ended owner is done before the statement returns. No session is opened.
-// It runs after the database commit (abap.GeneratedCommitWork); the gateway's
-// release of a crashed sidecar's update locks relies on that order.
+// Commit follows Node's COMMIT WORK wrapper, after the database commit (abap.GeneratedCommitWork; the
+// gateway's lock release relies on it). The update ran inline: its owner is done before this returns.
 func (h *Host) Commit(caller any, updated bool) error {
 	_, sid, _, err := h.current(caller, false)
 	if err != nil || sid == 0 {

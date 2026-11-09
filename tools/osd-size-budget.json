@@ -699,16 +699,16 @@
       "reason": "ADR 0010 slice 1: the supervised-host contract of a one-process host (/osd/serving, X-OSD-Generation, SIGTERM drain under the work process), standard library only, no go/abap import; the Go half of tools/osd-serve.mjs and the facade in front of it. Critic of #874: the wake-up takes the mutex before it broadcasts, the database close is bounded by the grace like the rest of the stop, a test hook into the check-to-wait instant, a no-op lock for a host without a work process. ADR 0010 slice 3: SetGeneration under the mutex, so a gateway (go/osgw) says the generation of the sidecar that serves."
     },
     "go:cmd/osgw": {
-      "lines": 94,
-      "reason": "ADR 0010 slice 3: the gateway command -- flags, ports and binds as osgo selects them, the signal drain over go/serving; the gateway is go/osgw."
+      "lines": 102,
+      "reason": "ADR 0010 slice 3: the gateway command -- flags, ports and binds as osgo selects them, the signal drain over go/serving; the gateway is go/osgw. Review of #888: exits 1 after the restart limit (Gateway.Failed) so a supervisor sees it."
     },
     "go:enqnet": {
-      "lines": 350,
-      "reason": "ADR 0010 slice 3 / ADR 0008 E3: the lock table over a socket -- JSON-lines protocol, server with the lost-connection rule, a concurrent client implementing enq.Locks."
+      "lines": 458,
+      "reason": "ADR 0010 slice 3 / ADR 0008 E3: the lock table over a socket -- JSON-lines protocol, server with the lost-connection rule, a concurrent client implementing enq.Locks. Review of #888: ProtocolVersion in the hello, refused at dial both ways; a refused request answers SYSTEM_FAILURE (no panic), sessions checked against their connection; the hello's pid and BeforeRelease, so a process is ended before its locks go."
     },
     "go:osgw": {
-      "lines": 820,
-      "reason": "ADR 0010 slice 3: the gateway -- lock server on a Unix socket, sidecar spawn/readiness/restart policy, reverse proxy, session pins, generation table, /osd/serving, drain and kill. No go/abap import. forward.go: the hop in the request goroutine over pooled Unix connections (hop-by-hop headers, 1xx, streaming, one replay of a body-less request); ReverseProxy kept for upgrades. Measured: the Transport hand-off was a quarter of the gateway CPU."
+      "lines": 899,
+      "reason": "ADR 0010 slice 3: the gateway -- lock server on a Unix socket, sidecar spawn/readiness/restart policy, reverse proxy, session pins, generation table, /osd/serving, drain and kill. No go/abap import. forward.go: the hop in the request goroutine over pooled Unix connections (hop-by-hop headers, 1xx, streaming, one replay of a body-less request); ReverseProxy kept for upgrades. Measured: the Transport hand-off was a quarter of the gateway CPU. Review of #888: endProcess (a broken lock connection kills its live sidecar before the release), replay only of safe methods or a failed write, Failed/FailedWhy."
     }
   },
   "readmeMissing": [
