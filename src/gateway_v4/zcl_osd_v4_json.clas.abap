@@ -11,7 +11,8 @@ CLASS zcl_osd_v4_json DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS etag IMPORTING is_data TYPE any
       is_set TYPE zcl_stg_model_info=>ty_entity_set io_model TYPE REF TO zcl_osd_v4_model
       RETURNING VALUE(rv_etag) TYPE string.
-* The V4 key predicate of an entity, without the parentheses
+* The V4 key predicate of an entity, without the parentheses; string values
+* only double their quotes, a URI escapes the whole predicate (escape_key)
     CLASS-METHODS key_predicate IMPORTING is_data TYPE any
       is_set TYPE zcl_stg_model_info=>ty_entity_set io_model TYPE REF TO zcl_osd_v4_model
       RETURNING VALUE(rv_key) TYPE string.
@@ -197,7 +198,7 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
       IF ls_info-edm_type = 'Edm.String'.
         lv_text = <lv_value>.
         REPLACE ALL OCCURRENCES OF |'| IN lv_text WITH |''|.
-        lv_text = |'{ cl_http_utility=>escape_url( lv_text ) }'|.
+        lv_text = |'{ lv_text }'|.
       ELSE.
         lv_text = value( iv_value = <lv_value> iv_type = ls_info-edm_type ).
         REPLACE ALL OCCURRENCES OF '"' IN lv_text WITH ''.

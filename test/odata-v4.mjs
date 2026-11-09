@@ -372,6 +372,26 @@ describe("OData V4 read wire", () => {
       expect((await send(base + "/TravelSet('T0101')", "DELETE")).status).to.equal(204);
     });
 
+    // ANOMALY-2026-11-08-escape-url-multibyte: escape_url wrote one % before
+    // all UTF-8 bytes of a character (Жук -> %d096%d183%d0ba), so the Location
+    // could not be decoded and following it was the server's URIError 400
+    // page. The Location percent-encodes per UTF-8 byte, as the V2 one does
+    // (#883), and an ASCII key keeps the bytes it always had.
+    it("the Location of a created entity with a key outside ASCII is a URI that reads back", async () => {
+      for (const key of ["Жук", "\u{1F600}", "a\u{1F600}b", "T 0102", "T0102"]) {
+        const res = await send(base + "/TravelSet", "POST", {TravelId: key, Description: "odd", Status: "A", Seats: 1});
+        expect(res.status, key).to.equal(201);
+        const location = res.headers.get("location");
+        expect(location, key).to.equal(base + "/TravelSet('" + encodeURIComponent(key) + "')");
+        expect(location, key).to.match(/^[\x20-\x7e]*$/);
+        const got = await fetch(location);
+        expect(got.status, key).to.equal(200);
+        expect((await got.json()).TravelId, key).to.equal(key);
+        expect((await send(location, "DELETE")).status, key).to.equal(204);
+        expect((await fetch(location)).status, key).to.equal(404);
+      }
+    });
+
     it("PATCH merges the properties sent, PUT replaces the entity", async () => {
       const patch = await send(base + "/TravelSet('T0100')", "PATCH", {Description: "patched"});
       expect(patch.status).to.equal(204);

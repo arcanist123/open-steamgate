@@ -429,8 +429,13 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
           zcl_osd_v4_query=>fail( iv_text = 'The data provider created nothing' iv_status = 500 ).
         ENDIF.
         ASSIGN lr_entity->* TO <ls_data>.
-        lv_location = |{ iv_service_url }/{ is_set-name }({ zcl_osd_v4_json=>key_predicate(
-          is_data = <ls_data> is_set = is_set io_model = io_model ) })|.
+* the key predicate escaped per UTF-8 byte, as the V2 Location does:
+* escape_url writes one % before all bytes of a character, which no client
+* decodes
+        lv_location = zcl_stg_url=>escape_key( zcl_osd_v4_json=>key_predicate( is_data = <ls_data>
+                                                                                is_set  = is_set
+                                                                                io_model = io_model ) ).
+        lv_location = |{ iv_service_url }/{ is_set-name }({ lv_location })|.
         add_header( EXPORTING iv_name = 'Location' iv_value = lv_location CHANGING ct_headers = rs_response-headers ).
         lv_etag = zcl_osd_v4_json=>etag( is_data = <ls_data> is_set = is_set io_model = io_model ).
         IF lv_etag IS NOT INITIAL.
