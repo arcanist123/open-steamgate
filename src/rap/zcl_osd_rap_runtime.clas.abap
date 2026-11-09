@@ -5,9 +5,13 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
 *
 * It calls the behavior pool directly: determinations, validations and
 * actions through the generated adapter (ZIF_OSD_RAP_BO), the saver's phases
-* through CL_ABAP_BEHAVIOR_SAVER. There is no EML here; a handler gets the
-* instances it works on as a table and changes them in place, and the
-* runtime takes the changes back into the buffer.
+* through CL_ABAP_BEHAVIOR_SAVER. A handler written in the system's form
+* (FOR DETERMINE / FOR VALIDATE / FOR MODIFY, R3) gets its keys and reads
+* and changes the instances with EML, which reaches this runtime while the
+* handler runs (ACTIVE) and acts as IN LOCAL MODE: read-only fields may be
+* set, and the determinations a change triggers run when the handler has
+* returned. A handler written with an ENTITIES table instead changes the
+* rows in place, and the runtime takes the changes back into the buffer.
 *
 * What it does, in the order a request meets it:
 *   field control   read-only fields refused, mandatory fields required
@@ -41,6 +45,14 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
         VALUE(ro_runtime) TYPE REF TO zcl_osd_rap_runtime
       RAISING
         zcx_osd_rap.
+
+* the runtime of a behavior definition whose handler is running, innermost
+* first: where EML inside a handler goes (initial when none is running)
+    CLASS-METHODS active
+      IMPORTING
+        iv_bdef           TYPE csequence
+      RETURNING
+        VALUE(ro_runtime) TYPE REF TO zcl_osd_rap_runtime.
 
 * a runtime over a given adapter
     CLASS-METHODS for_bo
@@ -153,6 +165,10 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
     DATA mo_saver TYPE REF TO cl_abap_behavior_saver.
     DATA mt_trace TYPE string_table.
     DATA mt_done TYPE string_table.
+* handlers of this runtime running now: the modifications they make are
+* local (IN LOCAL MODE) and inside the request that called them
+    DATA mv_depth TYPE i.
+    CLASS-DATA gt_active TYPE STANDARD TABLE OF REF TO zcl_osd_rap_runtime WITH DEFAULT KEY.
 
     METHODS entity_of
       IMPORTING
@@ -392,6 +408,23 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
       RAISE EXCEPTION TYPE zcx_osd_rap EXPORTING iv_reason = |unknown behavior definition { iv_bdef }|.
     ENDIF.
     ro_runtime = for_bo( li_bo ).
+  ENDMETHOD.
+
+  METHOD active.
+    DATA lv_bdef  TYPE string.
+    DATA lv_index TYPE i.
+    DATA lo_rap   TYPE REF TO zcl_osd_rap_runtime.
+
+    lv_bdef = to_upper( iv_bdef ).
+    lv_index = lines( gt_active ).
+    WHILE lv_index > 0.
+      READ TABLE gt_active INDEX lv_index INTO lo_rap.
+      IF to_upper( lo_rap->ms_model-bdef ) = lv_bdef.
+        ro_runtime = lo_rap.
+        RETURN.
+      ENDIF.
+      lv_index = lv_index - 1.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD for_bo.
@@ -673,7 +706,8 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
       ENDIF.
       lv_on = control_on( is_row = is_input iv_field = ls_field-name ).
 
-      IF lv_on = abap_true
+* a handler's own change (IN LOCAL MODE) may set a read-only field
+      IF lv_on = abap_true AND mv_depth = 0
           AND ( ls_field-readonly = 'X'
           OR ( ls_field-readonly = 'U' AND iv_operation = co_operation-update ) ).
         fail( EXPORTING is_entity = is_entity is_input = is_input
@@ -916,7 +950,11 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
         RAISE EXCEPTION TYPE zcx_osd_rap EXPORTING iv_reason = |unknown operation { iv_operation }|.
     ENDCASE.
 
-    start_request( ).
+* inside a handler the request is the caller's: its determinations run
+* when the handler has returned
+    IF mv_depth = 0.
+      start_request( ).
+    ENDIF.
     LOOP AT it_rows ASSIGNING <ls_input>.
       CASE iv_operation.
         WHEN co_operation-create.
@@ -931,7 +969,9 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
       ENDCASE.
     ENDLOOP.
 
-    determine( EXPORTING iv_on = 'M' CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
+    IF mv_depth = 0.
+      determine( EXPORTING iv_on = 'M' CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD read.
@@ -989,7 +1029,9 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
       RAISE EXCEPTION TYPE zcx_osd_rap EXPORTING iv_reason = |{ ls_entity-alias } has no action { iv_action }|.
     ENDIF.
 
-    start_request( ).
+    IF mv_depth = 0.
+      start_request( ).
+    ENDIF.
     lr_rows = mo_bo->new_rows( ls_entity-name ).
     ASSIGN lr_rows->* TO <lt_rows>.
     CREATE DATA lr_keys LIKE it_keys.
@@ -1018,7 +1060,9 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     invoke( EXPORTING is_entity = ls_entity is_callable = ls_callable
                       ir_rows = lr_rows ir_keys = lr_keys ir_result = lr_result
             CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
-    determine( EXPORTING iv_on = 'M' CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
+    IF mv_depth = 0.
+      determine( EXPORTING iv_on = 'M' CHANGING cs_failed = cs_failed cs_reported = cs_reported ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD triggered.
@@ -1132,6 +1176,8 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     DATA lr_reported TYPE REF TO data.
     DATA lo_handler  TYPE REF TO object.
     DATA lv_kind     TYPE string.
+    DATA lx_error    TYPE REF TO cx_root.
+    DATA lv_top      TYPE i.
 
     CASE is_callable-kind.
       WHEN 'D'.
@@ -1146,11 +1192,25 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     lo_handler = handler_of( is_entity ).
     GET REFERENCE OF cs_failed INTO lr_failed.
     GET REFERENCE OF cs_reported INTO lr_reported.
-    mo_bo->call( io_handler = lo_handler iv_entity = is_entity-name iv_name = is_callable-name
-                 ir_rows = ir_rows ir_keys = ir_keys ir_result = ir_result
-                 ir_failed = lr_failed ir_reported = lr_reported ).
-* a validation only judges; what it may have changed is not taken back
-    IF is_callable-kind <> 'V'.
+* while the handler runs, EML in it reaches this runtime (ACTIVE)
+    APPEND me TO gt_active.
+    mv_depth = mv_depth + 1.
+    TRY.
+        mo_bo->call( io_handler = lo_handler iv_entity = is_entity-name iv_name = is_callable-name
+                     ir_rows = ir_rows ir_keys = ir_keys ir_result = ir_result
+                     ir_failed = lr_failed ir_reported = lr_reported ).
+      CATCH cx_root INTO lx_error.
+        mv_depth = mv_depth - 1.
+        lv_top = lines( gt_active ).
+        DELETE gt_active INDEX lv_top.
+        RAISE EXCEPTION lx_error.
+    ENDTRY.
+    mv_depth = mv_depth - 1.
+    lv_top = lines( gt_active ).
+    DELETE gt_active INDEX lv_top.
+* a validation only judges; what it may have changed is not taken back. A
+* handler without an ENTITIES table changed the buffer itself, through EML
+    IF is_callable-kind <> 'V' AND is_callable-entities = abap_true.
       take_back( is_entity = is_entity ir_rows = ir_rows ).
     ENDIF.
   ENDMETHOD.

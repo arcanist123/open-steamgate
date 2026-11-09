@@ -3,7 +3,7 @@ CLASS lcl_narrow DEFINITION FINAL.
 * adapter, its model narrowed. The table still has the column.
   PUBLIC SECTION.
     INTERFACES zif_osd_rap_bo.
-    METHODS constructor RAISING cx_static_check.
+    METHODS constructor IMPORTING iv_bdef TYPE csequence RAISING cx_static_check.
   PRIVATE SECTION.
     DATA mi_bo TYPE REF TO zif_osd_rap_bo.
 ENDCLASS.
@@ -13,7 +13,7 @@ CLASS lcl_narrow IMPLEMENTATION.
   METHOD constructor.
     DATA li_registry TYPE REF TO zif_osd_rap_registry.
     CREATE OBJECT li_registry TYPE ('ZCL_OSD_RAP_REGISTRY').
-    mi_bo = li_registry->get( 'ZI_RAP_NOTE' ).
+    mi_bo = li_registry->get( iv_bdef ).
   ENDMETHOD.
 
   METHOD zif_osd_rap_bo~model.
@@ -48,11 +48,16 @@ CLASS lcl_narrow IMPLEMENTATION.
 
 ENDCLASS.
 
-CLASS ltcl_managed DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINAL.
-* The note demo (src/rap_demo/) through the managed runtime, handler-direct:
-* the buffer, field control, numbering, determinations on modify and on
-* save, the validation, the action and the order of the save sequence.
-  PRIVATE SECTION.
+CLASS ltcl_scenario DEFINITION FOR TESTING FINAL.
+* The note demo (src/rap_demo/) through the managed runtime: the buffer,
+* field control, numbering, determinations on modify and on save, the
+* validation, the action and the order of the save sequence. The same
+* scenario runs over two behavior definitions of the same table: ZI_RAP_NOTE,
+* whose handler takes explicit signatures and the instances as a table, and
+* ZI_RAP_NOTE_SF, whose handler is declared in the system's form and works
+* through the buffer (R3). The tables below are typed by the first; the
+* runtime addresses rows by component name, and the two are alike.
+  PUBLIC SECTION.
     TYPES tt_create TYPE TABLE FOR CREATE zi_rap_note.
     TYPES tt_update TYPE TABLE FOR UPDATE zi_rap_note.
     TYPES tt_delete TYPE TABLE FOR DELETE zi_rap_note.
@@ -64,24 +69,26 @@ CLASS ltcl_managed DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FI
     TYPES ty_failed TYPE RESPONSE FOR FAILED EARLY zi_rap_note.
     TYPES ty_reported TYPE RESPONSE FOR REPORTED EARLY zi_rap_note.
 
+    DATA mv_bdef TYPE string.
     DATA mo_rap TYPE REF TO zcl_osd_rap_runtime.
     DATA ms_mapped TYPE ty_mapped.
     DATA ms_failed TYPE ty_failed.
     DATA ms_reported TYPE ty_reported.
 
-    METHODS setup RAISING cx_static_check.
-    METHODS teardown.
-    METHODS create_update_delete FOR TESTING RAISING cx_static_check.
-    METHODS determination_on_modify FOR TESTING RAISING cx_static_check.
-    METHODS determination_on_save FOR TESTING RAISING cx_static_check.
-    METHODS validation_writes_nothing FOR TESTING RAISING cx_static_check.
-    METHODS action_result FOR TESTING RAISING cx_static_check.
-    METHODS save_order FOR TESTING RAISING cx_static_check.
-    METHODS field_control FOR TESTING RAISING cx_static_check.
-    METHODS cid_ref_in_one_transaction FOR TESTING RAISING cx_static_check.
-    METHODS save_resets_the_buffer FOR TESTING RAISING cx_static_check.
-    METHODS duplicate_cid FOR TESTING RAISING cx_static_check.
-    METHODS unexposed_column_kept FOR TESTING RAISING cx_static_check.
+    METHODS constructor IMPORTING iv_bdef TYPE csequence.
+    METHODS prepare RAISING cx_static_check.
+    METHODS finish.
+    METHODS create_update_delete RAISING cx_static_check.
+    METHODS determination_on_modify RAISING cx_static_check.
+    METHODS determination_on_save RAISING cx_static_check.
+    METHODS validation_writes_nothing RAISING cx_static_check.
+    METHODS action_result RAISING cx_static_check.
+    METHODS save_order RAISING cx_static_check.
+    METHODS field_control RAISING cx_static_check.
+    METHODS cid_ref_in_one_transaction RAISING cx_static_check.
+    METHODS save_resets_the_buffer RAISING cx_static_check.
+    METHODS duplicate_cid RAISING cx_static_check.
+    METHODS unexposed_column_kept RAISING cx_static_check.
     METHODS update_text
       IMPORTING io_rap  TYPE REF TO zcl_osd_rap_runtime
                 iv_id   TYPE zrap_note-note_id
@@ -98,19 +105,39 @@ CLASS ltcl_managed DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FI
       RAISING   cx_static_check.
     METHODS db_count
       RETURNING VALUE(rv_count) TYPE i.
+* the pool's saver phases (each pool keeps its own)
+    METHODS phases
+      RETURNING VALUE(rt_phases) TYPE string_table.
+    METHODS clear_phases.
 ENDCLASS.
 
-CLASS ltcl_managed IMPLEMENTATION.
+CLASS ltcl_scenario IMPLEMENTATION.
 
-  METHOD setup.
-    DELETE FROM zrap_note WHERE status <> '#'.
-    COMMIT WORK.
-    CLEAR zbp_rap_note=>phases.
-    CLEAR: ms_mapped, ms_failed, ms_reported.
-    mo_rap = zcl_osd_rap_runtime=>for_bdef( 'ZI_RAP_NOTE' ).
+  METHOD constructor.
+    mv_bdef = iv_bdef.
   ENDMETHOD.
 
-  METHOD teardown.
+  METHOD phases.
+    IF mv_bdef = 'ZI_RAP_NOTE'.
+      rt_phases = zbp_rap_note=>phases.
+    ELSE.
+      rt_phases = zbp_rap_note_sf=>phases.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD clear_phases.
+    CLEAR: zbp_rap_note=>phases, zbp_rap_note_sf=>phases.
+  ENDMETHOD.
+
+  METHOD prepare.
+    DELETE FROM zrap_note WHERE status <> '#'.
+    COMMIT WORK.
+    clear_phases( ).
+    CLEAR: ms_mapped, ms_failed, ms_reported.
+    mo_rap = zcl_osd_rap_runtime=>for_bdef( mv_bdef ).
+  ENDMETHOD.
+
+  METHOD finish.
     DELETE FROM zrap_note WHERE status <> '#'.
     COMMIT WORK.
   ENDMETHOD.
@@ -161,7 +188,8 @@ CLASS ltcl_managed IMPLEMENTATION.
     ls_update-notetext = 'Changed note'.
     ls_update-%control-notetext = if_abap_behv=>mk-on.
     APPEND ls_update TO lt_update.
-    mo_rap->modify( EXPORTING iv_entity = 'ZI_RAP_NOTE' iv_operation = 'U' it_rows = lt_update
+* the entity by its CDS name, which is the root's and so the definition's
+    mo_rap->modify( EXPORTING iv_entity = mv_bdef iv_operation = 'U' it_rows = lt_update
                     CHANGING cs_mapped = ms_mapped cs_failed = ms_failed cs_reported = ms_reported ).
     cl_abap_unit_assert=>assert_initial( ms_failed-note ).
     cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_true ).
@@ -285,16 +313,16 @@ CLASS ltcl_managed IMPLEMENTATION.
     APPEND 'FINALIZE' TO lt_exp.
     APPEND 'CHECK_BEFORE_SAVE' TO lt_exp.
     APPEND 'CLEANUP' TO lt_exp.
-    cl_abap_unit_assert=>assert_equals( act = zbp_rap_note=>phases exp = lt_exp msg = 'the pool saver is called in order' ).
+    cl_abap_unit_assert=>assert_equals( act = phases( ) exp = lt_exp msg = 'the pool saver is called in order' ).
 
-    CLEAR zbp_rap_note=>phases.
+    clear_phases( ).
     create( iv_cid = 'C2' iv_text = 'no' ).
     cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_false ).
     CLEAR lt_exp.
     APPEND 'FINALIZE' TO lt_exp.
     APPEND 'CHECK_BEFORE_SAVE' TO lt_exp.
     APPEND 'CLEANUP_FINALIZE' TO lt_exp.
-    cl_abap_unit_assert=>assert_equals( act = zbp_rap_note=>phases exp = lt_exp msg = 'a failed check ends in cleanup_finalize' ).
+    cl_abap_unit_assert=>assert_equals( act = phases( ) exp = lt_exp msg = 'a failed check ends in cleanup_finalize' ).
   ENDMETHOD.
 
   METHOD field_control.
@@ -417,7 +445,7 @@ CLASS ltcl_managed IMPLEMENTATION.
     UPDATE zrap_note SET status = 'Z' WHERE note_id = lv_id.
     COMMIT WORK.
 
-    CREATE OBJECT lo_narrow.
+    CREATE OBJECT lo_narrow EXPORTING iv_bdef = mv_bdef.
     lo_rap = zcl_osd_rap_runtime=>for_bo( lo_narrow ).
     update_text( io_rap = lo_rap iv_id = lv_id iv_text = 'Narrow' ).
     cl_abap_unit_assert=>assert_initial( ms_failed-note ).
@@ -427,6 +455,158 @@ CLASS ltcl_managed IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = lv_saved exp = abap_true ).
     cl_abap_unit_assert=>assert_equals( act = ls_db-note_text exp = 'Narrow' ).
     cl_abap_unit_assert=>assert_equals( act = ls_db-status exp = 'Z' ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltcl_explicit DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINAL.
+* ZBP_RAP_NOTE: explicit derived signatures, the instances as a table
+  PRIVATE SECTION.
+    DATA mo_scenario TYPE REF TO ltcl_scenario.
+    METHODS setup RAISING cx_static_check.
+    METHODS teardown.
+    METHODS create_update_delete FOR TESTING RAISING cx_static_check.
+    METHODS determination_on_modify FOR TESTING RAISING cx_static_check.
+    METHODS determination_on_save FOR TESTING RAISING cx_static_check.
+    METHODS validation_writes_nothing FOR TESTING RAISING cx_static_check.
+    METHODS action_result FOR TESTING RAISING cx_static_check.
+    METHODS save_order FOR TESTING RAISING cx_static_check.
+    METHODS field_control FOR TESTING RAISING cx_static_check.
+    METHODS cid_ref_in_one_transaction FOR TESTING RAISING cx_static_check.
+    METHODS save_resets_the_buffer FOR TESTING RAISING cx_static_check.
+    METHODS duplicate_cid FOR TESTING RAISING cx_static_check.
+    METHODS unexposed_column_kept FOR TESTING RAISING cx_static_check.
+ENDCLASS.
+
+CLASS ltcl_explicit IMPLEMENTATION.
+
+  METHOD setup.
+    CREATE OBJECT mo_scenario EXPORTING iv_bdef = 'ZI_RAP_NOTE'.
+    mo_scenario->prepare( ).
+  ENDMETHOD.
+
+  METHOD teardown.
+    mo_scenario->finish( ).
+  ENDMETHOD.
+
+  METHOD create_update_delete.
+    mo_scenario->create_update_delete( ).
+  ENDMETHOD.
+
+  METHOD determination_on_modify.
+    mo_scenario->determination_on_modify( ).
+  ENDMETHOD.
+
+  METHOD determination_on_save.
+    mo_scenario->determination_on_save( ).
+  ENDMETHOD.
+
+  METHOD validation_writes_nothing.
+    mo_scenario->validation_writes_nothing( ).
+  ENDMETHOD.
+
+  METHOD action_result.
+    mo_scenario->action_result( ).
+  ENDMETHOD.
+
+  METHOD save_order.
+    mo_scenario->save_order( ).
+  ENDMETHOD.
+
+  METHOD field_control.
+    mo_scenario->field_control( ).
+  ENDMETHOD.
+
+  METHOD cid_ref_in_one_transaction.
+    mo_scenario->cid_ref_in_one_transaction( ).
+  ENDMETHOD.
+
+  METHOD save_resets_the_buffer.
+    mo_scenario->save_resets_the_buffer( ).
+  ENDMETHOD.
+
+  METHOD duplicate_cid.
+    mo_scenario->duplicate_cid( ).
+  ENDMETHOD.
+
+  METHOD unexposed_column_kept.
+    mo_scenario->unexposed_column_kept( ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltcl_system_form DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINAL.
+* ZBP_RAP_NOTE_SF: the handler declared as on a system (R3)
+  PRIVATE SECTION.
+    DATA mo_scenario TYPE REF TO ltcl_scenario.
+    METHODS setup RAISING cx_static_check.
+    METHODS teardown.
+    METHODS create_update_delete FOR TESTING RAISING cx_static_check.
+    METHODS determination_on_modify FOR TESTING RAISING cx_static_check.
+    METHODS determination_on_save FOR TESTING RAISING cx_static_check.
+    METHODS validation_writes_nothing FOR TESTING RAISING cx_static_check.
+    METHODS action_result FOR TESTING RAISING cx_static_check.
+    METHODS save_order FOR TESTING RAISING cx_static_check.
+    METHODS field_control FOR TESTING RAISING cx_static_check.
+    METHODS cid_ref_in_one_transaction FOR TESTING RAISING cx_static_check.
+    METHODS save_resets_the_buffer FOR TESTING RAISING cx_static_check.
+    METHODS duplicate_cid FOR TESTING RAISING cx_static_check.
+    METHODS unexposed_column_kept FOR TESTING RAISING cx_static_check.
+ENDCLASS.
+
+CLASS ltcl_system_form IMPLEMENTATION.
+
+  METHOD setup.
+    CREATE OBJECT mo_scenario EXPORTING iv_bdef = 'ZI_RAP_NOTE_SF'.
+    mo_scenario->prepare( ).
+  ENDMETHOD.
+
+  METHOD teardown.
+    mo_scenario->finish( ).
+  ENDMETHOD.
+
+  METHOD create_update_delete.
+    mo_scenario->create_update_delete( ).
+  ENDMETHOD.
+
+  METHOD determination_on_modify.
+    mo_scenario->determination_on_modify( ).
+  ENDMETHOD.
+
+  METHOD determination_on_save.
+    mo_scenario->determination_on_save( ).
+  ENDMETHOD.
+
+  METHOD validation_writes_nothing.
+    mo_scenario->validation_writes_nothing( ).
+  ENDMETHOD.
+
+  METHOD action_result.
+    mo_scenario->action_result( ).
+  ENDMETHOD.
+
+  METHOD save_order.
+    mo_scenario->save_order( ).
+  ENDMETHOD.
+
+  METHOD field_control.
+    mo_scenario->field_control( ).
+  ENDMETHOD.
+
+  METHOD cid_ref_in_one_transaction.
+    mo_scenario->cid_ref_in_one_transaction( ).
+  ENDMETHOD.
+
+  METHOD save_resets_the_buffer.
+    mo_scenario->save_resets_the_buffer( ).
+  ENDMETHOD.
+
+  METHOD duplicate_cid.
+    mo_scenario->duplicate_cid( ).
+  ENDMETHOD.
+
+  METHOD unexposed_column_kept.
+    mo_scenario->unexposed_column_kept( ).
   ENDMETHOD.
 
 ENDCLASS.
