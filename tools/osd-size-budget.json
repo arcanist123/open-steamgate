@@ -707,8 +707,8 @@
       "reason": "ADR 0010 slice 3 / ADR 0008 E3: the lock table over a socket -- JSON-lines protocol, server with the lost-connection rule, a concurrent client implementing enq.Locks. Review of #888: ProtocolVersion in the hello, refused at dial both ways; a refused request answers SYSTEM_FAILURE (no panic), sessions checked against their connection; the hello's pid and BeforeRelease, so a process is ended before its locks go."
     },
     "go:osgw": {
-      "lines": 899,
-      "reason": "ADR 0010 slice 3: the gateway -- lock server on a Unix socket, sidecar spawn/readiness/restart policy, reverse proxy, session pins, generation table, /osd/serving, drain and kill. No go/abap import. forward.go: the hop in the request goroutine over pooled Unix connections (hop-by-hop headers, 1xx, streaming, one replay of a body-less request); ReverseProxy kept for upgrades. Measured: the Transport hand-off was a quarter of the gateway CPU. Review of #888: endProcess (a broken lock connection kills its live sidecar before the release), replay only of safe methods or a failed write, Failed/FailedWhy."
+      "lines": 916,
+      "reason": "ADR 0010 slice 3: the gateway -- lock server on a Unix socket, sidecar spawn/readiness/restart policy, reverse proxy, session pins, generation table, /osd/serving, drain and kill. No go/abap import. forward.go: the hop in the request goroutine over pooled Unix connections (hop-by-hop headers, 1xx, streaming, one replay of a body-less request); ReverseProxy kept for upgrades. Measured: the Transport hand-off was a quarter of the gateway CPU. Review of #888: endProcess (a broken lock connection kills its live sidecar before the release), replay only of safe methods or a failed write, Failed/FailedWhy; a socket directory others can enter is refused (privateDir), since the Unix sockets bind no interface."
     }
   },
   "readmeMissing": [

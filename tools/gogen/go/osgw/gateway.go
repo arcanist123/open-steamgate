@@ -41,6 +41,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,6 +56,20 @@ import (
 // -sidecar mode listens there and the gateway dials it.
 func SidecarSocket(dir string, pid int) string {
 	return filepath.Join(dir, fmt.Sprintf("http-%d.sock", pid))
+}
+
+// privateDir refuses a socket directory others can enter: the HTTP and lock
+// sockets bind no interface, so the directory's mode is their only fence
+// (MkdirTemp makes 0700). Windows has no such mode bits to read.
+func privateDir(dir string) error {
+	st, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("gateway: socket directory %s is %v; it must be 0700", dir, st.Mode().Perm())
+	}
+	return nil
 }
 
 // LockSocket is the gateway's lock server inside dir.
@@ -164,6 +179,8 @@ func Start(ctx context.Context, o Options) (*Gateway, error) {
 			return nil, err
 		}
 		g.dir, g.ownDir = d, true
+	} else if err := privateDir(g.dir); err != nil {
+		return nil, err
 	}
 	g.locks = enq.New("osgw")
 	_ = os.Remove(LockSocket(g.dir))

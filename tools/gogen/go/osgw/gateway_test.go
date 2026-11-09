@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -436,5 +437,19 @@ func TestForwardShapes(t *testing.T) {
 	fmt.Fprintf(conn, "ping\n")
 	if line, _ := br.ReadString('\n'); line != "echo ping\n" {
 		t.Fatalf("over the upgraded connection: %q", line)
+	}
+}
+
+// the sockets bind no interface: their directory's mode is the fence
+func TestSocketDirMustBePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no mode bits")
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Start(context.Background(), Options{Binary: "/nonexistent", Dir: dir}); err == nil || !strings.Contains(err.Error(), "0700") {
+		t.Fatalf("an open socket directory was taken: %v", err)
 	}
 }
