@@ -748,6 +748,17 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     CREATE OBJECT lo_context.
     lo_context->mv_entity_set  = is_action-return_entity_set.
     lo_context->mv_entity_type = is_action-return_entity_type.
+    lo_context->mv_function_import = is_action-name.
+    lo_context->mt_parameter       = lt_parameter.
+* an action for an entity type names no set of its own (SEGW leaves it
+* empty); a provider that is only given the context finds it by the type
+    IF lo_context->mv_entity_set IS INITIAL AND is_action-return_entity_type IS NOT INITIAL.
+      LOOP AT is_service-entity_sets INTO ls_set WHERE entity_type = is_action-return_entity_type.
+        lo_context->mv_entity_set = ls_set-name.
+        EXIT.
+      ENDLOOP.
+      CLEAR ls_set.
+    ENDIF.
 
     lo_dpc->execute_action(
       EXPORTING

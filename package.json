@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dsl:build": "node tools/dsl-build.mjs --check",
-    "lint": "node tools/cds2ddic.mjs && node tools/stg-compile.mjs --all && node tools/rap/bdef-gen.mjs && abaplint",
+    "lint": "node tools/cds2ddic.mjs && node tools/rap/bdef-gen.mjs && node tools/stg-compile.mjs --all && abaplint",
     "bootstrap": "node tools/osd-bootstrap.mjs",
     "test:bootstrap-scratch": "node test/scratch/bootstrap.mjs",
     "pretranspile": "node tools/osd-node-check.mjs",

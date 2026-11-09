@@ -90,6 +90,18 @@ INTERFACE zif_osd_rap_bo PUBLIC.
     RETURNING
       VALUE(rr_result) TYPE REF TO data.
 
+* an empty derived table of the entity, for a caller that only knows the
+* model (the OData bridge of this package): IV_KIND is CREATE, UPDATE,
+* DELETE, ACTION IMPORT or ACTION RESULT, the last two of action IV_ACTION.
+* Unbound when the BDEF does not declare it.
+  METHODS new_table
+    IMPORTING
+      iv_entity       TYPE csequence
+      iv_kind         TYPE csequence
+      iv_action       TYPE csequence OPTIONAL
+    RETURNING
+      VALUE(rr_table) TYPE REF TO data.
+
 * an empty response structure: MAPPED, FAILED or REPORTED (EARLY)
   METHODS new_response
     IMPORTING
