@@ -174,4 +174,3 @@ func TestQueueClose(t *testing.T) {
 		t.Fatal("the dropped build ran")
 	}
 }
-
