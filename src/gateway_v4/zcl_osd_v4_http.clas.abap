@@ -26,6 +26,10 @@ CLASS zcl_osd_v4_http DEFINITION PUBLIC CREATE PUBLIC.
       it_nav_select TYPE zcl_osd_v4_query=>ty_nav_selects OPTIONAL
       RETURNING VALUE(rt_nav) TYPE zcl_stg_json=>ty_nav_jsons
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
+* a DPC whose operations SADL serves: the SEGW-generated shape
+* (IF_SADL_GW_DPC_UTIL) or the SADL data provider itself
+    CLASS-METHODS sadl_served IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
+      RETURNING VALUE(rv_sadl) TYPE abap_bool.
 ENDCLASS.
 
 CLASS zcl_osd_v4_http IMPLEMENTATION.
@@ -284,20 +288,27 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       IF lv_op CP |{ lo_model->ms_service-namespace }.*|.
         lv_op = substring( val = lv_op off = strlen( lo_model->ms_service-namespace ) + 1 ).
       ENDIF.
-      IF lv_op = zcl_osd_v4_sticky=>gc_edit OR lv_op = zcl_osd_v4_sticky=>gc_save OR lv_op = zcl_osd_v4_sticky=>gc_new.
+      lo_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name ).
+* A DPC that hands its operations to SADL (SEGW's reference data source,
+* the RAP services) keeps the sticky facade's answer for every action:
+* SADL's EXECUTE_ACTION is the V2 function-import path and is not driven
+* from here, so a BDEF action stays a named 501 (docs/rap-runtime.md).
+* Only a code-based DPC is given ZCL_OSD_V4_ACTION.
+      IF lv_op = zcl_osd_v4_sticky=>gc_edit OR lv_op = zcl_osd_v4_sticky=>gc_save OR lv_op = zcl_osd_v4_sticky=>gc_new
+          OR sadl_served( lo_dpc ) = abap_true.
         IF iv_method <> 'POST'.
           gv_allow = 'POST'.
           zcl_osd_v4_query=>fail( iv_text = 'An action takes POST' iv_status = 405 ).
         ENDIF.
         rs_response = zcl_osd_v4_sticky=>action( iv_action = lo_query->mv_action io_query = lo_query io_model = lo_model
-          is_set = ls_set io_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name ) iv_service_url = lv_service_url
+          is_set = ls_set io_dpc = lo_dpc iv_service_url = lv_service_url
           iv_body = iv_body it_headers = it_headers ).
         RETURN.
       ENDIF.
 * a bound operation of the model (ZCL_OSD_V4_ACTION): Set(key)/<ns>.<op> or Set/<ns>.<op>
       TRY.
           rs_response = zcl_osd_v4_action=>bound( iv_method = iv_method iv_name = lo_query->mv_action io_query = lo_query
-            io_model = lo_model is_set = ls_set io_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name )
+            io_model = lo_model is_set = ls_set io_dpc = lo_dpc
             iv_service_url = lv_service_url iv_body = iv_body it_headers = it_headers ).
         CATCH zcx_stg_error INTO lx_error.
           gv_allow = zcl_osd_v4_action=>gv_allow.
@@ -490,6 +501,22 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lv_sep = ','.
     ENDLOOP.
     rv_json = '{"@odata.context":' && zcl_osd_v4_json=>quote( iv_base ) && ',"value":[' && lv_rows && ']}'.
+  ENDMETHOD.
+
+  METHOD sadl_served.
+    DATA li_util TYPE REF TO if_sadl_gw_dpc_util.
+    DATA li_sadl TYPE REF TO if_sadl_gw_dpc.
+    TRY.
+        li_util ?= io_dpc.
+        rv_sadl = abap_true.
+        RETURN.
+      CATCH cx_sy_move_cast_error.
+    ENDTRY.
+    TRY.
+        li_sadl ?= io_dpc.
+        rv_sadl = abap_true.
+      CATCH cx_sy_move_cast_error.
+    ENDTRY.
   ENDMETHOD.
 
   METHOD expand.

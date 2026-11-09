@@ -210,6 +210,11 @@ deep components inlined), a table as a collection (`$metadata#TravelSet`,
 `{"@odata.context":".../$metadata#Edm.Int32","value":3}` typed by its ABAP
 kind, and no data as 204. A collection of primitive or complex values is 501.
 The sticky-session actions keep their names and are served as before.
+A bound operation of a DPC that SADL serves (one implementing
+`IF_SADL_GW_DPC_UTIL`, as SEGW generates for a reference data source and
+the RAP services, or `IF_SADL_GW_DPC` itself) is not run here: SADL's
+`EXECUTE_ACTION` is the V2 function-import path, so such an action stays the
+named 501 of the sticky facade (`docs/rap-runtime.md`; `test/rap-serve.mjs`).
 
 ## Writes
 
