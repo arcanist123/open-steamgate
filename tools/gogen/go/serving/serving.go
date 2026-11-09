@@ -83,7 +83,19 @@ func New(o Options) *Host {
 }
 
 // Generation is what X-OSD-Generation carries.
-func (h *Host) Generation() string { return h.o.Generation }
+func (h *Host) Generation() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.o.Generation
+}
+
+// SetGeneration changes what the host says it serves: a gateway in front of
+// a sidecar (go/osgw) says the generation of the sidecar that serves.
+func (h *Host) SetGeneration(g string) {
+	h.mu.Lock()
+	h.o.Generation = g
+	h.mu.Unlock()
+}
 
 // InFlight is the number of admitted requests not yet answered.
 func (h *Host) InFlight() int {
@@ -138,7 +150,7 @@ func isUpgrade(r *http.Request) bool {
 // is counted until its handler returns.
 func (h *Host) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-OSD-Generation", h.o.Generation)
+		w.Header().Set("X-OSD-Generation", h.Generation())
 		counted := !isUpgrade(r)
 		if !h.admit(counted) {
 			h.refuse(w)
@@ -167,7 +179,7 @@ func (h *Host) Serving(notFound http.Handler) http.HandlerFunc {
 			"ready":       true,
 			"pid":         h.pid,
 			"since":       h.o.Started.UnixMilli(), // the Node child's Date.now() at start
-			"generation":  h.o.Generation,
+			"generation":  h.Generation(),
 			"hot":         map[string]any{"swaps": 0, "unverified": false},
 			"root":        h.o.Root,
 			"database":    h.o.Database,
@@ -187,12 +199,13 @@ func (h *Host) Serving(notFound http.Handler) http.HandlerFunc {
 func (h *Host) refuse(w http.ResponseWriter) {
 	h.mu.Lock()
 	seconds := int(time.Since(h.since).Round(time.Second) / time.Second)
+	generation := h.o.Generation
 	h.mu.Unlock()
 	writeJSON(w, 503, map[string]any{
 		"error": map[string]any{"code": "STG/NOT_SERVING",
 			"message": map[string]string{"lang": "en", "value": fmt.Sprintf("the system is draining (%d s): stopping", seconds)}},
 		"ready": false, "draining": true, "phase": "draining", "seconds": seconds,
-		"generation": h.o.Generation, "pid": h.pid,
+		"generation": generation, "pid": h.pid,
 	}, false)
 }
 
