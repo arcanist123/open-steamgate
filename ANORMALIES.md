@@ -41,9 +41,9 @@ Format adapted from `larshp/hithub` (MIT).
 - Expected SAP behaviour: each UTF-8 byte is its own escape, `%D0%96%D1%83%D0%BA2` (unmeasured; measure on A4H, case of the hex digits included)
 - Actual open-abap behaviour: `'%' && to_lower( cl_abap_codepage=>convert_to( lv_char ) )` per character, so a two-byte character becomes `%d096`, which a client decodes as byte D0 followed by the text `96`
 - Impact on open-steamgate: the V4 `Location` and `OData-EntityId` of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) cannot be decoded at all: byte D0 followed by the text `96` is not UTF-8, so a strict client (`decodeURIComponent`) throws and a lenient one gets U+FFFD, never the key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
-- Smallest safe workaround: build the V4 Location with `zcl_stg_url=>escape_key` over the whole key predicate, as V2 does (`zcl_osd_v4_write`, branch fix/v4-location-utf8); the ETag header still calls `escape_url`, an opaque token the client echoes back, so its encoding never has to be decoded
+- Smallest safe workaround: `zcl_osd_v4_json=>key_predicate` escapes each `Edm.String` key value itself (`escape_key_value`): an ASCII byte keeps exactly what `escape_url` wrote, a character outside ASCII becomes its UTF-8 bytes as `%XX` (branch fix/v4-location-utf8), so an ASCII key's Location is byte for byte the old one; the ETag header still calls `escape_url`, an opaque token the client echoes back, so its encoding never has to be decoded
 - Upstream issue: needs an issue — draft in hand
-- Regression-test location: V4 in `test/odata-v4.mjs` ("the Location of a created entity with a key outside ASCII is a URI that reads back"); V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
+- Regression-test location: V4 in `test/odata-v4.mjs` ("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII"); V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
 - Upstream version containing a fix: `unknown`
 
 ### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type
