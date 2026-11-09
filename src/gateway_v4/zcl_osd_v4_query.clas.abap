@@ -537,8 +537,6 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA lt_names TYPE string_table.
-    DATA lv_max TYPE string.
-    DATA lv_length TYPE i.
 
     IF mv_empty_parens = abap_true.
       fail( 'Empty key predicate' ).
@@ -576,15 +574,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
             fail( 'String keys must be quoted' ).
           ENDIF.
           ls_key-value = zcl_stg_url=>unquote( lv_value ).
-* a key longer than its MaxLength names no entity (404): the DPC's CHAR field
-* would cut it, and TravelSet('T0002    X') would read, change or delete T0002
-          FIND REGEX 'MaxLength="([0-9]+)"' IN ls_info-facets SUBMATCHES lv_max.
-          IF sy-subrc = 0.
-            lv_length = lv_max.
-            IF strlen( ls_key-value ) > lv_length.
-              fail( iv_text = |No entity: key property { ls_key-name } is longer than MaxLength { lv_length }| iv_status = 404 ).
-            ENDIF.
-          ENDIF.
+* a key longer than its MaxLength is refused by check_keys below, the same
+* check as the V2 path: the DPC's CHAR field would cut it, and
+* TravelSet('T0002    X') would read, change or delete T0002
         WHEN 'Edm.Date' OR 'Edm.DateTimeOffset'.
           IF ls_info-edm_type = 'Edm.Date' AND strlen( lv_value ) <> 10.
             fail( 'Expected a V4 Date literal' ).
@@ -615,6 +607,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     IF ms_request-key_string IS NOT INITIAL AND lines( mo_context->mt_key_tab ) <> lines( lt_names ).
       fail( 'Missing key property' ).
     ENDIF.
+* the same MaxLength check as the V2 path: a longer key is a 400, never a
+* cut value addressing another entity
+    zcl_stg_model_info=>check_keys( is_set = is_set it_key_tab = mo_context->mt_key_tab ).
   ENDMETHOD.
 
   METHOD select_fields.
