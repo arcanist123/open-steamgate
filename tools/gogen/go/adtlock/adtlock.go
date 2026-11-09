@@ -28,7 +28,7 @@ type step struct {
 // Host maps calling dialog steps to lock-server sessions and installs the
 // hostclass seams over one server/kernel pair.
 type Host struct {
-	server *enq.Server
+	server enq.Locks
 	kernel *adtenq.Kernel
 
 	// User names the lock owner of a holder session (the host's sy-uname).
@@ -40,7 +40,7 @@ type Host struct {
 	order *list.List
 }
 
-func New(server *enq.Server, kernel *adtenq.Kernel) *Host {
+func New(server enq.Locks, kernel *adtenq.Kernel) *Host {
 	return &Host{server: server, kernel: kernel, steps: make(map[any]*step),
 		ended: make(map[string]*list.Element), order: list.New()}
 }

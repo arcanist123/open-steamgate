@@ -495,6 +495,7 @@ func main() {
 	root := flag.String("root", osgRoot, "the checkout whose webapp/ is served")
 	media := flag.String("media", "", "the SMW0 media directory (w3mi.json and the data files); default media/ beside the binary when it is there")
 	tlsFlags := httpsFlags()
+	sidecarDir := flag.String("sidecar", "", "run as a gateway's work sidecar (cmd/osgw): HTTP on <dir>/http-<pid>.sock, locks from <dir>/enq.sock")
 	flag.Parse()
 	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
 	if lintErr != nil {
@@ -581,6 +582,7 @@ func main() {
 		log.Fatalf("store: %v", err)
 	}
 
+	startSidecarLocks(*sidecarDir) // a gateway's sidecar: its locks before any step (sidecar.go)
 	compilerClient := compiler.New(compiler.Options{Root: *root, Version: releaseTag})
 	defer compilerClient.Close()
 	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
@@ -738,15 +740,12 @@ func main() {
 		log.Printf("not served   %s: %s (an upgrade answers 501)", n.Path, n.Why)
 	}
 	server := &http.Server{Addr: net.JoinHostPort(binds[0], strconv.Itoa(*port)), Handler: mux, ReadHeaderTimeout: 30 * time.Second}
-	lns, err := osdbind.ListenAll(binds, *port)
-	if err != nil {
-		log.Fatal(err)
-	}
+	lns := listeners(*sidecarDir, binds, *port) // sidecar.go
 	for _, extra := range lns[1:] {
 		go func(ln net.Listener) { log.Printf("listener %s: %v", ln.Addr(), server.Serve(ln)) }(extra)
 	}
 	ln := lns[0]
-	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit {
+	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit && *sidecarDir == "" {
 		log.Print(hint)
 	}
 	// the status tables have this process in them before anybody asks, with

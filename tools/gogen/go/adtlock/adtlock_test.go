@@ -150,7 +150,7 @@ func TestRetryUsesInjectedSleep(t *testing.T) {
 	defer closeServer()
 
 	other := host.server.Open("OTHER")
-	if result := host.server.Enqueue(other, request("RETRY"), false); result.Subrc != 0 {
+	if result := host.server.EnqueueWith(other, request("RETRY"), false, nil); result.Subrc != 0 {
 		t.Fatalf("other enqueue: %+v", result)
 	}
 	step := new(struct{ int })
@@ -178,7 +178,7 @@ func TestEndedContextDuringSleepReturnsError(t *testing.T) {
 		t.Fatalf("bind: %v %v", ok, err)
 	}
 	other := host.server.Open("OTHER")
-	host.server.Enqueue(other, request("ENDED"), false)
+	host.server.EnqueueWith(other, request("ENDED"), false, nil)
 	_, err := host.EnqueueWithSleep(step, request("ENDED"), true, func(time.Duration) {
 		host.end(id)
 	})
@@ -194,7 +194,7 @@ func TestNonErrorPanicFromSleepIsRethrown(t *testing.T) {
 
 	other := host.server.Open("OTHER")
 	defer host.server.End(other)
-	host.server.Enqueue(other, request("SLEEP-DUMP"), false)
+	host.server.EnqueueWith(other, request("SLEEP-DUMP"), false, nil)
 	step := new(struct{ int })
 	host.Begin(step)
 	defer host.Finish(step, true)
