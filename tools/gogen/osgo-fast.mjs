@@ -226,3 +226,23 @@ export async function fastXrefRows(root, proof, options = {}) {
   }
   return out;
 }
+
+/**
+ * The syntax check the fast path owes: the full Node build refuses a tree
+ * whose edit does not compile (osd-build.mjs: `FAILED: check_syntax, ...`),
+ * and the fast path must not turn such a tree into a binary. The front end
+ * osgo runs anyway has checked every object (`program.diagnostics`, the
+ * abaplint syntax pass, file and line in each message); an error in an
+ * object the proof names as edited is the refusal. Errors in objects nobody
+ * edited are the live generation's (the front end is tolerant of them, the
+ * Node build accepted them) and are not this edit's.
+ * @param {string[]} changed root-relative files (fastProof)
+ * @param {{object: string, message: string}[]} diagnostics
+ * @returns {string | undefined} the refusal, naming object, file and line
+ */
+export function fastSyntaxRefusal(changed, diagnostics) {
+  const edited = new Set(changed.map((f) => /([^/]+)\.(clas|intf)(\.[a-z_]+)?\.abap$/i.exec(f)?.[1].replace(/#/g, "/").toUpperCase()).filter(Boolean));
+  const mine = diagnostics.filter((d) => edited.has(String(d.object).toUpperCase()));
+  if (mine.length === 0) return undefined;
+  return `syntax errors in the edited objects: ${mine.map((d) => `${d.object.toUpperCase()}: ${d.message}`).join("; ")}`;
+}

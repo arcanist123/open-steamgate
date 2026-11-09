@@ -199,6 +199,25 @@ things osgo took from the live generation are made to match a full build:
   table it now has rows in) the tree is parsed as before. Checked against a
   fresh parse on a body, a method and an interface edit: identical rows.
 
+**An edit that does not compile is never built by the fast path.** The
+full Node build refuses it (`osd-build: FAILED: check_syntax, ...`, exit 1);
+the fast path skips that build, so it owes the check. The front end osgo
+runs anyway has already put every object through abaplint's syntax pass
+(`program.diagnostics`); after it, `fastSyntaxRefusal` (osgo-fast.mjs)
+looks for an error in an object the proof names as edited. If there is
+one, the fast path gives up and the full path runs: `osgo fast: full build
+(syntax errors in the edited objects: <OBJECT>: <file>:<line>: <message>)`,
+then `osd-build.mjs`, whose refusal is the build's, with its message and
+exit code, before anything is emitted. If the Node build accepts the tree
+(the front end can be stricter than the transpiler), it is built the full
+way. Errors in objects nobody edited are the live generation's (the Node
+build accepted them, the tolerant front end leaves them out as before) and
+do not refuse. Measured at the head that added it: the check reads what the
+front end already computed, **0 ms** on a clean edit (`fast syntax check`
+in `.out/osgo-phases.json`); a body edit calling a method that does not
+exist ended `osgo.mjs --fast` with exit 1 after ~22 s of front end plus the
+Node build's refusal, `.out/osgo` untouched (same mtime).
+
 A library the tree cannot name a generation with (not at its pin, or with
 local changes: `osd-lib-path.mjs` refuses it) is not an error of the fast
 path: it answers no, prints `osgo fast: full build (the tree's generation
@@ -220,10 +239,11 @@ exist), one `POST /sap/bc/adt/checkruns` per class, version active:
 | build | the dependent that calls the new method | the control |
 | --- | --- | --- |
 | fast (`build/live` unchanged) | processed, no errors | 1 error: `Method "osgo_fast_missing" not found` |
-| full (`osd-build.mjs` + `osgo.mjs`, control left out: see Limits) | processed, no errors | -- |
+| full (`osd-build.mjs` + `osgo.mjs`, control left out: the Node build refuses it) | processed, no errors | -- |
 
 So a dependent is checked against the edited class as it is now, the same
-verdict as after a full build.
+verdict as after a full build. (The fast row was measured before the syntax
+check above existed; with it, the control's edit is refused at build time.)
 
 ### Same generation, both ways
 
@@ -255,7 +275,8 @@ path either way. The values are of this tree at
 `osgo-fast.test.mjs` covers the decision over a small tree: the three edit
 kinds are fast, and an `INTERFACES` line, an AMDP body, DDIC, object XML, a
 YAML, a new or removed class, the config, a stale `gen/` and an inactive
-overlay each take the full build.
+overlay each take the full build, and so does a syntax error in an edited
+object (`fastSyntaxRefusal`).
 
 ### Measured
 
@@ -302,13 +323,6 @@ target.
 
 ## Limits
 
-- **The fast path does not syntax-check the edit.** The full Node build
-  refuses a tree with a syntax error (`osd-build.mjs` exits 1, and
-  `osgo.mjs` then refuses the stale `gen/`); the fast path does not run it,
-  so such an edit still becomes a binary, the object counted in the front
-  end's `objects with syntax errors` line and its methods handled as any
-  method osgo cannot compile. Seen with the control above. ADT CHECK
-  reports the error either way.
 
 - **The first save of a class moves it from `app` to `main`**, which
   recompiles `app` once (36 s here); the edits after it are the fast case. A

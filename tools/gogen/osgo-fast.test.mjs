@@ -10,7 +10,7 @@ import {createHash} from "node:crypto";
 import {mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
-import {fastProof, fastStoreEdits} from "./osgo-fast.mjs";
+import {fastProof, fastStoreEdits, fastSyntaxRefusal} from "./osgo-fast.mjs";
 
 const realTools = resolve(import.meta.dirname, "..");
 const sha = (b) => createHash("sha256").update(b).digest("hex");
@@ -195,4 +195,20 @@ test("the active copies: this build's and the last build's stay, the rest go", a
     fastStoreEdits(t.root, ["src/zcl_a.clas.abap"], out);
     assert.deepEqual(readdirSync(out), [mine]);
   } finally { rmSync(t.root, {recursive: true, force: true}); }
+});
+
+test("a syntax error in an edited object refuses the fast build and names object, file and line", () => {
+  const diagnostics = [
+    {object: "ZCL_A", message: "/src/zcl_a.clas.abap:7: Method \"nope\" not found, methodCallChain"},
+    {object: "ZCL_UNTOUCHED", message: "/lib/zcl_untouched.clas.abap:3: the live generation's own"},
+  ];
+  const refusal = fastSyntaxRefusal(["src/zcl_a.clas.abap"], diagnostics);
+  assert.match(refusal, /ZCL_A: \/src\/zcl_a\.clas\.abap:7: Method "nope" not found/);
+  assert.doesNotMatch(refusal, /ZCL_UNTOUCHED/);
+  // an error in a local include belongs to its class; a namespace is found by its # name
+  assert.ok(fastSyntaxRefusal(["src/zcl_a.clas.locals_imp.abap"], diagnostics));
+  assert.ok(fastSyntaxRefusal(["src/#ns#cl_b.clas.abap"], [{object: "/NS/CL_B", message: "x:1: y"}]));
+  // errors only in objects nobody edited are not this edit's
+  assert.equal(fastSyntaxRefusal(["src/zif_b.intf.abap"], diagnostics), undefined);
+  assert.equal(fastSyntaxRefusal(["src/zcl_a.clas.abap"], []), undefined);
 });

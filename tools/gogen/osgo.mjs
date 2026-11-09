@@ -45,6 +45,14 @@ const layersDir = join(here, "go", "generated", "osgo");
 const fast = !echo && (process.argv.includes("--fast") || process.env.OSGO_FAST === "1");
 // what the fast path decided (osgo-fast.mjs), for .out/osgo-phases.json
 let fastInfo;
+// the full Node build, run by --fast when it cannot skip it; its failure is
+// this build's, with its exit code (osd-build.mjs has said why)
+function nodeBuild() {
+  try {
+    execFileSync(process.execPath, [join(home, "tools", "osd-build.mjs")], {cwd: home, stdio: ["ignore", "inherit", "inherit"]});
+  } catch (e) { console.error(`osgo: the Node build failed (exit ${e.status})`); process.exit(e.status || 1); }
+  phase("transpile");
+}
 // the phases of this run, in ms (printed at the end, .out/osgo-phases.json)
 const phases = {};
 let phaseMark = performance.now();
@@ -94,25 +102,42 @@ if (echo) {
       console.log(`osgo fast: generation ${proof.hash} is live ${proof.base} with ${proof.changed.length} edited source file(s) (${proof.changed.join(", ")}); no Node build`);
     } else {
       console.log(`osgo fast: full build (${proof.reason})`);
-      try {
-        execFileSync(process.execPath, [join(home, "tools", "osd-build.mjs")], {cwd: home, stdio: ["ignore", "inherit", "inherit"]});
-      } catch (e) { console.error(`osgo: the Node build failed (exit ${e.status})`); process.exit(1); }
-      phase("transpile");
+      nodeBuild();
     }
   }
   const {compileOsg, osgDatabase, staleGen} = await import("./osg-build.mjs");
   // a stale gen/ is refused (--stale-gen builds it anyway, with the warning)
-  const stale = fastInfo?.ok ? undefined : await staleGen();
-  if (stale && !process.argv.includes("--stale-gen")) {
-    console.error(`osgo: refused: ${stale} (or pass --stale-gen)`);
-    process.exit(2);
-  }
-  if (stale) console.warn(`osgo: WARNING ${stale}`);
+  const staleCheck = async () => {
+    const stale = await staleGen();
+    if (stale && !process.argv.includes("--stale-gen")) {
+      console.error(`osgo: refused: ${stale} (or pass --stale-gen)`);
+      process.exit(2);
+    }
+    if (stale) console.warn(`osgo: WARNING ${stale}`);
+  };
+  if (!fastInfo?.ok) await staleCheck();
   phase("stale check");
-  const built = compileOsg({extraFolders, includeTests: new Set(owners)});
+  let built = compileOsg({extraFolders, includeTests: new Set(owners)});
+  phase("front end");
+  // the fast path skipped the Node build's syntax check: an edited object
+  // the front end found errors in is not built here. The full path runs
+  // instead, so the refusal is osd-build.mjs's own (message, exit code), and
+  // a tree it accepts is built as the full path builds it
+  if (fastInfo?.ok) {
+    const {fastSyntaxRefusal} = await import("./osgo-fast.mjs");
+    const refusal = fastSyntaxRefusal(fastInfo.changed, built.program.diagnostics ?? []);
+    phase("fast syntax check");
+    if (refusal !== undefined) {
+      console.log(`osgo fast: full build (${refusal})`);
+      fastInfo = {ok: false, hash: fastInfo.hash, base: fastInfo.base, reason: refusal};
+      nodeBuild();
+      await staleCheck();
+      built = compileOsg({extraFolders, includeTests: new Set(owners)});
+      phase("front end");
+    }
+  }
   program = built.program;
   console.log(built.summary);
-  phase("front end");
   unit = unitClasses(program, owners);
   console.log(`ABAP Unit: ${unit.classes.length} test classes of ${owners.length} owners (${owners.join(", ") || "none"})${unit.missing.length ? `; left out: ${unit.missing.join("; ")}` : ""}`);
   // the fast path: the live generation's cross-reference with the edited
