@@ -1,0 +1,166 @@
+// R2c: a service definition becomes a service (docs/rap-runtime.md, "Serving").
+//
+//   define service ZUI_RAP_NOTE {
+//     expose ZI_RAP_NOTE as Note;
+//   }
+//
+// The transpiler refuses SRVD objects (ANORMALIES srvd-not-allowed), so a
+// service definition is excluded from the transpile like a BDEF and read
+// here instead, with the BDEF tokenizer rather than a pattern. What it
+// writes is the model of a stg-compile service (`<srvd>.stg.yaml` in
+// gen/rap/), which `stg-compile --all` compiles like any other: one entity
+// per exposed CDS entity, bound to the view through SADL, so reads take the
+// CDS path a published view takes; a behavior definition over the entity
+// makes the set writable and its instance actions function imports, and the
+// SADL data provider hands those writes to the managed RAP runtime.
+//
+// There is no service binding here: the service is named after the
+// definition, version 0001, and is served over V2 and V4 alike.
+import {createHash} from "node:crypto";
+import {tokenize} from "./tokenize.mjs";
+
+const upper = s => String(s).toUpperCase();
+
+/** the grammar a minimal SRVD uses: annotations, then one define service */
+export function parseSrvd(source, file = "srvd") {
+  const t = tokenize(source);
+  let i = 0;
+  const at = () => t[i]?.lower;
+  const take = (expected) => {
+    const token = t[i];
+    if (!token) throw new Error(`${file}: unexpected end, expected ${expected ?? "more"}`);
+    if (expected !== undefined && token.lower !== expected) throw new Error(`${file}:${token.line}: expected ${expected}, found ${token.value}`);
+    i++;
+    return token.value;
+  };
+  // header annotations (@EndUserText.label: '...', @Metadata...) are skipped
+  // up to `define`; a label is kept for the description
+  let label = "";
+  while (i < t.length && at() !== "define") {
+    if (at() === "@") {
+      const start = i;
+      i++;
+      const path = [];
+      while (i < t.length && at() !== ":" && at() !== "@" && at() !== "define") path.push(t[i++].value);
+      if (at() === ":") {
+        i++;
+        const value = t[i++]?.value ?? "";
+        if (path.join("").toLowerCase() === "endusertext.label" && /^'/.test(value)) label = value.slice(1, -1).replaceAll("''", "'");
+      }
+      if (i === start) i++;
+    } else {
+      throw new Error(`${file}:${t[i].line}: expected an annotation or define, found ${t[i].value}`);
+    }
+  }
+  take("define");
+  take("service");
+  const name = take();
+  take("{");
+  const exposed = [];
+  while (at() !== "}") {
+    if (at() === undefined) throw new Error(`${file}: service ${name} is not closed`);
+    if (at() === "@") throw new Error(`${file}:${t[i].line}: element annotations in a service definition are not read yet`);
+    take("expose");
+    const entity = take();
+    let alias = entity;
+    if (at() === "as") {
+      take("as");
+      alias = take();
+    }
+    take(";");
+    exposed.push({entity: upper(entity), alias});
+  }
+  take("}");
+  if (i < t.length) throw new Error(`${file}:${t[i].line}: text after the service definition`);
+  if (!exposed.length) throw new Error(`${file}: service ${name} exposes nothing`);
+  return {name: upper(name), label, exposed};
+}
+
+// the OData type of a CDS element of a given ABAP type. A RAW16 UUID is a
+// 32-character hex string: the V2 wire has no Edm.Guid conversion yet
+function edm(type, where) {
+  const t = String(type).toLowerCase().trim();
+  let m;
+  if ((m = /^c length (\d+)$/.exec(t)) || (m = /^n length (\d+)$/.exec(t))) return `String(${Number(m[1])})`;
+  if ((m = /^x length (\d+)$/.exec(t))) return `String(${Number(m[1]) * 2})`;
+  if (t === "string") return "String";
+  if (t === "d") return "date";
+  if (t === "t") return "Time";
+  if (t === "i" || t === "int4") return "Int32";
+  if (t === "int8") return "Int64";
+  if ((m = /^p length (\d+) decimals (\d+)$/.exec(t))) return `"Decimal(${Number(m[1]) * 2 - 1},${Number(m[2])})"`;
+  throw new Error(`${where}: no OData type for ABAP type ${type}`);
+}
+
+const yamlString = s => JSON.stringify(String(s));
+
+/**
+ * The stg-compile model of a service definition.
+ * entityOf(name) -> {view, fields, behavior} where view is the parsed CDS
+ * entity (original element names and labels), fields the resolved elements
+ * ({name, type, key}) and behavior, for an entity of a managed BDEF, the
+ * operations, field control and actions the runtime knows.
+ */
+export function serviceYaml(srvd, entityOf, file = "srvd") {
+  const service = srvd.name;
+  if (service.length > 26) throw new Error(`${file}: service ${service} is longer than 26 characters`);
+  // ZCL_<short>_MPC_EXT fits 30 characters for a short name of 18; a longer
+  // name keeps 12 characters and adds 6 of its own hash, so two services
+  // that share a prefix never name the same classes
+  const short = service.length <= 18 ? service : service.slice(0, 12) + upper(createHash("sha256").update(service).digest("hex").slice(0, 6));
+  const lines = [];
+  lines.push(`# generated by tools/rap/srvd-gen.mjs from ${service} (service definition) - do not edit`);
+  lines.push(`project: ${service}`);
+  lines.push(`service: ${service}`);
+  lines.push(`model: ${service}`);
+  lines.push(`description: ${yamlString((srvd.label || service).slice(0, 60))}`);
+  lines.push(`namespace: ${service}`);
+  lines.push(`classes: {mpc: ZCL_${short}_MPC, mpc_ext: ZCL_${short}_MPC_EXT, dpc: ZCL_${short}_DPC, dpc_ext: ZCL_${short}_DPC_EXT}`);
+  lines.push("entities:");
+  const functions = [];
+  const functionNames = new Set();
+  const aliases = new Set();
+  for (const x of srvd.exposed) {
+    if (aliases.has(upper(x.alias))) throw new Error(`${file}: ${x.alias} is exposed twice`);
+    aliases.add(upper(x.alias));
+    const {view, fields, behavior} = entityOf(x.entity);
+    const type = `${x.alias}Type`;
+    const b = behavior ?? {create: false, update: false, delete: false, control: new Map(), actions: []};
+    const ops = ["R", "Q"];
+    if (b.create) ops.unshift("C");
+    if (b.update) ops.push("U");
+    if (b.delete) ops.push("D");
+    // `element` is the name as the CDS source spells it (cds2ddic's parse):
+    // the properties keep it, a published view keeps the upper-case name
+    const nameOf = new Map(view.fields.map(f => [upper(f.name), f]));
+    const prop = f => nameOf.get(upper(f.name))?.element ?? nameOf.get(upper(f.name))?.name ?? f.name;
+    lines.push(`  ${type}:`);
+    lines.push(`    set: ${x.alias}`);
+    lines.push(`    source: {cds: ${x.entity}, struct: "ZCL_STG_CDS_${upper(view.sqlView)}=>TY_ROW"}`);
+    lines.push(`    keys: [${fields.filter(f => f.key).map(prop).join(", ")}]`);
+    lines.push(`    creatable: ${b.create}`);
+    lines.push(`    updatable: ${b.update}`);
+    lines.push(`    deletable: ${b.delete}`);
+    lines.push(`    operations: [${ops.join(", ")}]`);
+    lines.push("    properties:");
+    for (const f of fields) {
+      const c = b.control.get(upper(f.name)) ?? {};
+      const writable = b.create || b.update;
+      const flags = !writable || c.readonly === "X" || c.numbering ? ", readonly: true"
+        : f.key ? ", updatable: false"
+        : c.readonly === "U" ? ", updatable: false" : "";
+      // every property is labelled (the CDS label, else its name), which is
+      // what a Fiori client shows as the column and field title
+      const label = nameOf.get(upper(f.name))?.label;
+      lines.push(`      ${prop(f)}: {type: ${edm(f.type, `${x.entity}.${f.name}`)}, field: ${upper(f.name)}${flags}, label: ${yamlString(String(label && upper(label) !== upper(f.name) ? label : prop(f)).slice(0, 60))}}`);
+    }
+    for (const a of b.actions) {
+      if (functionNames.has(upper(a))) throw new Error(`${file}: two exposed entities have an action ${a}; a V2 function import needs one name`);
+      functionNames.add(upper(a));
+      functions.push(`  ${a}:`, "    method: POST", `    returns: {entity: ${type}, set: ${x.alias}, multiplicity: "1"}`, `    for: ${type}`,
+        `    parameters: {${fields.filter(f => f.key).map(f => `${prop(f)}: ${edm(f.type, `${x.entity}.${f.name}`)}`).join(", ")}}`);
+    }
+  }
+  if (functions.length) lines.push("functions:", ...functions);
+  return lines.join("\n") + "\n";
+}
