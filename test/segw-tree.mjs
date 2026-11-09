@@ -252,6 +252,10 @@ describe("tools/segw-tree push / pull through ZSTG_SEGW_SRV", function () {
       // gap survived: the byte comparison was comparing two implementations
       // over trees that could not express the thing they both ignored.
       ["zstg_label", readFileSync("test/fixtures/segw/zstg_label.iwpr.xml", "utf8"), "test/fixtures/segw"],
+      // An action and no labelled property: the action's text element still
+      // needs GC_INCL_NAME declared, in both generators
+      ["zstg_incl (compiled)", compile("project: ZSTG_INCL\nservice: ZSTG_INCL_SRV\nentities:\n  Thing:\n    keys: [Id]\n    properties:\n      Id: String(4)\n"
+        + "functions:\n  Touch:\n    method: POST\n    returns: {entity: Thing}\n    parameters: {Id: String(4)}\n", {file: "zstg_incl.stg.yaml"}).iwpr, "test/fixtures/segw"],
       ["zstg_demo (compiled)", compile(readFileSync("src/demo/zstg_demo.stg.yaml", "utf8"), {file: "zstg_demo.stg.yaml", functionModules: loadFunctionGroups(["src/demo"])}).iwpr, "src/demo"],
       // this service itself: 55 SADL sets, the SADL definition built in pieces
       ["zstg_segw (compiled)", compile(readFileSync("src/segw/zstg_segw.stg.yaml", "utf8"), {file: "zstg_segw.stg.yaml"}).iwpr, "src/segw"],
