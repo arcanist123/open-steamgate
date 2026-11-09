@@ -20,7 +20,10 @@
 //     launcherPid = the gateway) plus the generation table.
 //   - Session pinning: a response that sets a stateful session cookie
 //     (SAP_SESSIONID_*, sap-contextid) pins that session to the sidecar that
-//     set it; with one sidecar it is bookkeeping, slice 4's swap routes by it.
+//     set it; the generation swap (swap.go) routes by it.
+//   - The swap (slice 4, swap.go): a build after a publishing activation,
+//     the result started read-only as a candidate, smoked, promoted, the old
+//     generation drained and retired.
 //   - Spawn, drain, kill: a crashed sidecar's requests in flight answer 503,
 //     the gateway starts a replacement of the same binary; a replacement that
 //     dies within RestartWindow is not replaced again. Stop sends the
@@ -49,6 +52,7 @@ import (
 
 	"osg/gogen/enq"
 	"osg/gogen/enqnet"
+	"osg/gogen/genbuild"
 	"osg/gogen/serving"
 )
 
@@ -79,6 +83,7 @@ func LockSocket(dir string) string { return filepath.Join(dir, "enq.sock") }
 type Options struct {
 	Binary string   // the sidecar executable (an osgo binary)
 	Args   []string // its arguments; "-sidecar <dir>" is appended
+	Env    []string // added to the gateway's environment for every sidecar
 	Dir    string   // where the sockets live; "" = a fresh directory, removed at Stop
 
 	Grace         time.Duration // the drain (serving.DefaultGrace)
@@ -92,6 +97,15 @@ type Options struct {
 	LauncherIdentity string
 	Stdout, Stderr   io.Writer
 	Logf             func(string, ...any)
+
+	// The generation swap (slice 4, swap.go). Builder nil: no builds, an
+	// activation's answer is the sidecar's. With a builder the sidecars get
+	// -gateway-builds, and an activation that published asks for a build.
+	Builder  genbuild.Builder
+	Root     string        // the tree the builder builds (genbuild.Request.Root)
+	GenDir   string        // where each generation's executable is stashed; "" = run Binary itself
+	Smoke    []string      // GET paths a candidate must answer 2xx before promotion (default /health)
+	Debounce time.Duration // the build queue's quiet period (500 ms)
 }
 
 // Sidecar is one row of the generation table.
@@ -117,6 +131,8 @@ type sidecar struct {
 	exited      chan struct{}
 	steps       atomic.Int64
 	info        info
+	binary      string // the executable this sidecar runs (and a replacement restarts)
+	candidate   bool   // started read-only for a swap, not yet promoted
 }
 
 // info is what the sidecar's own /osd/serving says about it
@@ -147,6 +163,11 @@ type Gateway struct {
 	failedCh chan struct{} // closed when failed is set
 	stopping bool
 	pins     map[string]*sidecar
+
+	binary string // the executable a sidecar of the serving generation runs
+	queue  *genbuild.Queue
+	swapMu sync.Mutex // one swap at a time
+	build  BuildState
 }
 
 // Errors of Start.
@@ -192,9 +213,25 @@ func Start(ctx context.Context, o Options) (*Gateway, error) {
 	g.lockLn = ln
 	go enqnet.Serve(g.locks, ln, enqnet.ServeOptions{InlineUpdates: !o.UpdatesOutside, Logf: o.Logf,
 		BeforeRelease: g.endProcess})
-	sc, err := g.spawn(false)
+	g.binary = o.Binary
+	if o.GenDir != "" {
+		// the first generation is stashed too: a later build overwriting the
+		// builder's output must not change what a replacement starts
+		if g.binary, _, err = genbuild.Stash(o.Binary, o.GenDir); err != nil {
+			g.cleanup()
+			return nil, err
+		}
+	}
+	if o.Builder != nil {
+		g.o.Args = append(append([]string{}, o.Args...), "-gateway-builds")
+		g.queue = genbuild.NewQueue(gatedBuilder{g: g, Builder: o.Builder}, o.Debounce, g.built)
+	}
+	sc, err := g.spawn(g.binary, false, false)
 	if err == nil {
 		err = g.waitReady(ctx, sc)
+	}
+	if err == nil && !g.serve(sc) {
+		err = fmt.Errorf("%w: pid %d exited before it served (%s)", ErrNotReady, sc.PID, sc.Why)
 	}
 	if err != nil {
 		g.Stop(context.Background())
@@ -214,18 +251,24 @@ func (g *Gateway) Locks() *enq.Server { return g.locks }
 // Dir is where the sockets live.
 func (g *Gateway) Dir() string { return g.dir }
 
-func (g *Gateway) spawn(replacement bool) (*sidecar, error) {
+func (g *Gateway) spawn(binary string, replacement, candidate bool) (*sidecar, error) {
 	args := append(append([]string{}, g.o.Args...), "-sidecar", g.dir)
-	cmd := exec.Command(g.o.Binary, args...)
+	if candidate {
+		args = append(args, "-candidate")
+	}
+	cmd := exec.Command(binary, args...)
+	if len(g.o.Env) > 0 {
+		cmd.Env = append(os.Environ(), g.o.Env...)
+	}
 	cmd.Stdout, cmd.Stderr = g.o.Stdout, g.o.Stderr
 	ownGroup(cmd)
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("gateway: start %s: %w", g.o.Binary, err)
+		return nil, fmt.Errorf("gateway: start %s: %w", binary, err)
 	}
 	g.mu.Lock()
 	g.seq++
 	sc := &sidecar{Sidecar: Sidecar{ID: g.seq, PID: cmd.Process.Pid, State: "starting", Started: time.Now()},
-		replacement: replacement, cmd: cmd, exited: make(chan struct{})}
+		replacement: replacement, cmd: cmd, exited: make(chan struct{}), binary: binary, candidate: candidate}
 	g.table = append(g.table, sc)
 	g.mu.Unlock()
 	sock := SidecarSocket(g.dir, sc.PID)
@@ -248,7 +291,7 @@ func (g *Gateway) spawn(replacement bool) (*sidecar, error) {
 			r.Header["X-Forwarded-For"] = nil
 		},
 		Transport:      sc.transport,
-		ModifyResponse: func(resp *http.Response) error { g.pinFrom(sc, resp); return nil },
+		ModifyResponse: func(resp *http.Response) error { g.pinFrom(sc, resp); g.buildFrom(resp); return nil },
 		ErrorHandler:   func(w http.ResponseWriter, r *http.Request, err error) { g.lostRequest(sc, w, r, err) },
 	}
 	g.o.Logf("gateway: sidecar %d started, pid %d", sc.ID, sc.PID)
@@ -256,7 +299,9 @@ func (g *Gateway) spawn(replacement bool) (*sidecar, error) {
 	return sc, nil
 }
 
-// waitReady polls the sidecar's /osd/serving until it says ready.
+// waitReady polls the sidecar's /osd/serving until it says ready; serve
+// then makes it the one new requests go to (a candidate waits for its
+// promotion instead, swap.go).
 func (g *Gateway) waitReady(ctx context.Context, sc *sidecar) error {
 	ctx, cancel := context.WithTimeout(ctx, g.o.StartTimeout)
 	defer cancel()
@@ -266,16 +311,10 @@ func (g *Gateway) waitReady(ctx context.Context, sc *sidecar) error {
 			g.mu.Lock()
 			sc.info = in
 			sc.Generation = in.Generation
-			if sc.State == "starting" {
-				sc.State = "serving"
-				g.current = sc
-				close(g.ready)
+			if sc.State == "starting" && sc.candidate {
+				sc.State = "candidate"
 			}
 			g.mu.Unlock()
-			if g.host != nil {
-				g.host.SetGeneration(in.Generation)
-			}
-			g.o.Logf("gateway: sidecar %d (pid %d) serves %s", sc.ID, sc.PID, in.Generation)
 			return nil
 		}
 		select {
@@ -287,6 +326,45 @@ func (g *Gateway) waitReady(ctx context.Context, sc *sidecar) error {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// flipLocked makes a live sidecar the serving one; false when it died
+// first (its watch retired it between its readiness and here). g.mu held.
+func (g *Gateway) flipLocked(sc *sidecar) bool {
+	if sc.State != "starting" && sc.State != "candidate" {
+		return false
+	}
+	sc.State = "serving"
+	sc.candidate = false
+	g.current = sc
+	select {
+	case <-g.ready:
+	default:
+		close(g.ready)
+	}
+	return true
+}
+
+// served is what follows a flip: the host's generation and the log line
+func (g *Gateway) served(sc *sidecar) {
+	if g.host != nil {
+		g.host.SetGeneration(sc.Generation)
+	}
+	g.o.Logf("gateway: sidecar %d (pid %d) serves %s", sc.ID, sc.PID, sc.Generation)
+}
+
+// serve makes a ready sidecar the serving one; false when it died first:
+// nothing serves then, and the caller (Start, a replacement) fails loudly
+// rather than leaving a gateway that answers 503 for ever with no failure
+// signal
+func (g *Gateway) serve(sc *sidecar) bool {
+	g.mu.Lock()
+	ok := g.flipLocked(sc)
+	g.mu.Unlock()
+	if ok {
+		g.served(sc)
+	}
+	return ok
 }
 
 func ask(ctx context.Context, client *http.Client) (info, bool) {
@@ -313,7 +391,7 @@ func (g *Gateway) watch(sc *sidecar) {
 	}
 	g.mu.Lock()
 	served := sc.State == "serving" || sc.State == "draining"
-	planned := sc.State == "draining"
+	planned := sc.State == "draining" || g.current != sc
 	sc.State, sc.Ended, sc.Why = "retired", time.Now(), why
 	if g.current == sc {
 		g.current = nil
@@ -342,9 +420,12 @@ func (g *Gateway) watch(sc *sidecar) {
 	g.mu.Lock()
 	g.restarts++
 	g.mu.Unlock()
-	next, err := g.spawn(true)
+	next, err := g.spawn(sc.binary, true, false)
 	if err == nil {
 		err = g.waitReady(context.Background(), next)
+	}
+	if err == nil && !g.serve(next) {
+		err = fmt.Errorf("%w: pid %d exited before it served (%s)", ErrNotReady, next.PID, next.Why)
 	}
 	if err != nil {
 		g.fail("the replacement did not start: " + err.Error())
@@ -415,18 +496,30 @@ func (g *Gateway) endProcess(h enqnet.Hello) {
 
 // route is the sidecar a request goes to: the one its session is pinned to
 // while that one lives, else the serving one, waited for while it starts.
+// The step is counted here, under the same mutex that reads g.current and
+// the pins, so a request that has selected a sidecar is a step before it is
+// forwarded: the drain of a swap cannot observe zero and retire the sidecar
+// under a request that sits between its routing and its forward (the
+// counting used to happen later, in ServeHTTP, a few instructions wide and
+// wide enough). The caller removes the step when its answer is done.
 func (g *Gateway) route(r *http.Request) *sidecar {
 	g.mu.Lock()
 	for _, k := range sessionKeys(r) {
 		if sc := g.pins[k]; sc != nil && sc.State != "retired" {
+			sc.steps.Add(1)
 			g.mu.Unlock()
 			return sc
 		}
 	}
 	sc, ready, failed := g.current, g.ready, g.failed
-	g.mu.Unlock()
-	if sc != nil || failed != "" {
+	if sc != nil {
+		sc.steps.Add(1)
+		g.mu.Unlock()
 		return sc
+	}
+	g.mu.Unlock()
+	if failed != "" {
+		return nil
 	}
 	t := time.NewTimer(g.o.AdmitWait)
 	defer t.Stop()
@@ -437,7 +530,10 @@ func (g *Gateway) route(r *http.Request) *sidecar {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.current
+	if sc = g.current; sc != nil {
+		sc.steps.Add(1)
+	}
+	return sc
 }
 
 // the cookies a stateful session carries (ADT: SAP_SESSIONID_<sid>_<client>
@@ -494,6 +590,24 @@ func (g *Gateway) pinFrom(sc *sidecar, resp *http.Response) {
 	}
 }
 
+// logoffPath is the ICF logoff: a session that called it successfully has
+// ended, whether or not the answer clears its cookie (osgo's does not; the
+// ADT client drops the cookie itself), so its pin goes and a drain need not
+// wait out the grace for it.
+const logoffPath = "/sap/public/bc/icf/logoff"
+
+func (g *Gateway) logoff(r *http.Request, resp *http.Response) {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 || !strings.EqualFold(strings.TrimSuffix(r.URL.Path, "/"), logoffPath) {
+		return
+	}
+	keys := sessionKeys(r)
+	g.mu.Lock()
+	for _, k := range keys {
+		delete(g.pins, k)
+	}
+	g.mu.Unlock()
+}
+
 // ServeHTTP answers /osd/serving itself and proxies everything else; wrap
 // it in Host().Wrap for the generation header and the drain (Handler).
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -501,20 +615,24 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.serving(w, r)
 		return
 	}
+	if r.URL.Path == promotePath {
+		// the gateway's own door into a candidate, never a client's
+		http.NotFound(w, r)
+		return
+	}
 	sc := g.route(r)
 	if sc == nil {
 		g.notServing(w)
 		return
 	}
-	sc.steps.Add(1)
-	defer sc.steps.Add(-1)
+	defer sc.steps.Add(-1) // counted inside route, under its mutex
 	// the sidecar's own header is the one that counts: it says which code ran
 	w.Header().Del("X-OSD-Generation")
 	if isUpgrade(r) {
 		sc.proxy.ServeHTTP(w, r)
 		return
 	}
-	if err := sc.pool.forward(w, r, func(resp *http.Response) { g.pinFrom(sc, resp) }); err != nil {
+	if err := sc.pool.forward(w, r, func(resp *http.Response) { g.pinFrom(sc, resp); g.logoff(r, resp); g.buildFrom(resp) }); err != nil {
 		g.lostRequest(sc, w, r, err)
 	}
 }
@@ -575,7 +693,7 @@ func (g *Gateway) Table() []Sidecar {
 func (g *Gateway) serving(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	sc := g.current
-	restarts, failed := g.restarts, g.failed
+	restarts, failed, build := g.restarts, g.failed, g.build
 	g.mu.Unlock()
 	if sc == nil {
 		g.notServing(w)
@@ -583,12 +701,18 @@ func (g *Gateway) serving(w http.ResponseWriter, r *http.Request) {
 	}
 	gw := map[string]any{"pid": os.Getpid(), "sidecars": g.Table(), "restarts": restarts,
 		"locks": len(g.locks.Read(enq.Filter{})), "dir": g.dir}
+	if g.queue != nil {
+		gw["build"] = build
+	}
+	if h := build.Header(); h != "" {
+		w.Header().Set("X-OSD-Build", h)
+	}
 	if failed != "" {
 		gw["failed"] = failed
 	}
 	body := map[string]any{
 		"ready": true, "pid": sc.PID, "since": g.started.UnixMilli(), "generation": sc.Generation,
-		"hot":  map[string]any{"swaps": 0, "unverified": false},
+		"hot":  map[string]any{"swaps": build.Swaps, "unverified": false},
 		"root": sc.info.Root, "database": sc.info.Database, "launcherPid": os.Getpid(),
 		"gateway": gw,
 	}
@@ -636,6 +760,9 @@ func (g *Gateway) terminate(sc *sidecar, grace time.Duration) {
 // The lock server stays up until the sidecars are gone: a sidecar whose
 // lock connection drops leaves at once, which is not a drain.
 func (g *Gateway) Stop(ctx context.Context) {
+	if g.queue != nil {
+		g.queue.Close()
+	}
 	g.mu.Lock()
 	g.stopping = true
 	var live []*sidecar

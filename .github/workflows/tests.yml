@@ -427,7 +427,7 @@ jobs:
   osgo-host:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -569,6 +569,37 @@ jobs:
           wait "$pid"; rc=$?
           trap - EXIT
           [ "$rc" -eq 0 ] || { echo "::error::osgw exited $rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          if pgrep -f -- "[-]sidecar " >/dev/null; then echo "::error::a sidecar outlived its gateway"; exit 1; fi
+      # ADR 0010 slice 4: the generation swap. The gateway builds a new
+      # generation after an activation (osgo.mjs --fast, the full build when
+      # the fast path declines), starts it read-only beside the serving one on
+      # the same -home file, smokes and promotes it, and drains the old one.
+      # tools/osgw-swap-live.mjs: ABAP Unit 409 right after the activation and
+      # the new code running after the swap (X1 as on Node), a lock held by a
+      # session pinned to the old generation refusing the new one until
+      # released, the old one retiring, a second swap reverting the edit, and
+      # a candidate refusing a file whose schema stamp is another build's.
+      - name: The generation swap (osgw -build)
+        run: |
+          set -uo pipefail
+          port=$(node --input-type=module -e '
+            import net from "node:net";
+            const server = net.createServer();
+            server.listen(0, "127.0.0.1", () => {
+              const {port} = server.address();
+              server.close(() => console.log(port));
+            });
+          ')
+          home=$(mktemp -d)
+          tools/gogen/.out/osgw -binary tools/gogen/.out/osgo -build "node tools/gogen/osgo.mjs --fast" -port "$port" -- -adt -root "$PWD" -home "$home" > "$RUNNER_TEMP/osgw-swap.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 120); do curl -fsS "http://127.0.0.1:$port/osd/serving" 2>/dev/null | grep -q '"ready":true' && break; sleep 0.5; done
+          node tools/osgw-swap-live.mjs --base "http://127.0.0.1:$port" --wait-ms 600000 --db "$home/osgo.sqlite" || { tail -80 "$RUNNER_TEMP/osgw-swap.log"; exit 1; }
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$port" --drain "$pid" || exit 1
+          wait "$pid"; rc=$?
+          trap - EXIT
+          [ "$rc" -eq 0 ] || { echo "::error::osgw exited $rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgw-swap.log"; exit 1; }
           if pgrep -f -- "[-]sidecar " >/dev/null; then echo "::error::a sidecar outlived its gateway"; exit 1; fi
 
   # An independent parallel gate; no additional work in the suite shards.

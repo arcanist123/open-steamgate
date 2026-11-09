@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-09-space-eq-string-substring -- `x+off(1) = space` is false for a blank: a String substring never equals the Character constant
+
+- Status: `open`
+- Discovery date: `2026-11-09` (dell, keylen2, `zcl_stg_model_info=>check_length` measuring a value without its trailing blanks, PR #889)
+- Affected versions: the pinned runtime (oisee/transpiler `9792b3c8`), `compare/eq.ts`
+- Affected ABAP statement, runtime API or adapter: `=` / `<>` between `space` and a substring of a `string`
+- Minimal ABAP reproducer: `DATA lv TYPE string VALUE 'A '. IF lv+1(1) = space.` -- false here
+- Exact command used to run it: `TravelCount?Status='A '` answered 400 `STG/VALUE_TOO_LONG`, the measured length 2 and not 1, so the blank-strip loop broke on its first character
+- Expected SAP behaviour: true (unmeasured; the substring is c length 1 and blank, `space` is c length 1 and blank, and a c comparison of equal lengths is a character comparison)
+- Actual open-abap behaviour: `String#getOffset` returns a `String`, `space` is a `Character`, and the mixed branch of `eq` compares `right.getTrimEnd() === left.get()`: the constant's only blank is trimmed to the empty string and cannot equal any character
+- Impact on open-steamgate: any blank test written `x+off(1) = space` over a string silently takes the non-blank branch. `zcl_stg_json=>skip_blanks` compares with a backtick literal instead (found independently, before this entry); `zcl_stg_batch` compares `lv_first = space` on a `c LENGTH 1` field, which takes the Character fast path and is correct
+- Smallest safe workaround: compare with the string literal `` ` ` `` (backticks), which is a `String` and hits the fast path: `x+off(1) <> ` ``
+- Upstream issue: needs an issue in abaplint/transpiler (the mixed `eq` branch trims the `Character` side before comparing it with a one-character `String`; either compare untrimmed, or make `space` a `String`)
+- Regression-test location: `test/mocha.mjs` ("trailing blanks never make a key or a parameter too long ...")
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-08-escape-url-multibyte -- `cl_http_utility=>escape_url` writes one `%` before all UTF-8 bytes of a character
 
 - Status: `open`
@@ -40,10 +56,26 @@ Format adapted from `larshp/hithub` (MIT).
 - Exact command used to run it: `POST /sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet` with `TravelId` `Жук2`; the Location header read `TravelSet('%d096%d183%d0ba2')`
 - Expected SAP behaviour: each UTF-8 byte is its own escape, `%D0%96%D1%83%D0%BA2` (unmeasured; measure on A4H, case of the hex digits included)
 - Actual open-abap behaviour: `'%' && to_lower( cl_abap_codepage=>convert_to( lv_char ) )` per character, so a two-byte character becomes `%d096`, which a client decodes as byte D0 followed by the text `96`
-- Impact on open-steamgate: the V4 `@odata.id` and Location of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) cannot be decoded at all: byte D0 followed by the text `96` is not UTF-8, so a strict client (`decodeURIComponent`) throws and a lenient one gets U+FFFD, never the key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
-- Smallest safe workaround: none for V4 yet; V2 does not call it
-- Upstream issue: needs a PR in open-abap-core (fork route, #1218 precedent) after a measurement on A4H
-- Regression-test location: none for V4 yet; V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
+- Impact on open-steamgate: the V4 `Location` and `OData-EntityId` of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) cannot be decoded at all: byte D0 followed by the text `96` is not UTF-8, so a strict client (`decodeURIComponent`) throws and a lenient one gets U+FFFD, never the key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
+- Smallest safe workaround: `zcl_osd_v4_json=>key_predicate` escapes each `Edm.String` key value itself (`escape_key_value`): an ASCII byte keeps exactly what `escape_url` wrote, a character outside ASCII becomes its UTF-8 bytes as `%XX` (branch fix/v4-location-utf8), so an ASCII key's Location is byte for byte the old one; the ETag header still calls `escape_url`, an opaque token the client echoes back, so its encoding never has to be decoded
+- Upstream issue: needs an issue — draft in hand
+- Regression-test location: V4 in `test/odata-v4.mjs` ("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII"); V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-09-rap-implicit-handler-params -- A RAP handler method declared in the system's form has no parameters
+
+- Status: `workaround`
+- Discovery date: `2026-11-09` (dell, RAP R3, probing the parser before writing the lowering)
+- Affected versions: `@abaplint/core` 2.120.73 (pinned), syntax versions `open-abap` and `v757`
+- Affected ABAP statement, runtime API or adapter: `METHODS m FOR DETERMINE ON MODIFY IMPORTING keys FOR ent~det.`, and likewise `FOR VALIDATE ON SAVE`, `FOR MODIFY ... FOR ACTION ent~act RESULT result`, `FOR READ ... RESULT result`, `FOR LOCK`, `FOR INSTANCE FEATURES`, `FOR GLOBAL AUTHORIZATION`, `FOR NUMBERING`
+- Minimal ABAP reproducer: the declarations of `src/rap_demo/zbp_rap_note_sf.clas.locals_imp.abap` without the lowering; a class pool `FOR BEHAVIOR OF` a BDEF and a local class inheriting `cl_abap_behavior_handler`
+- Exact command used to run it: an abaplint `Registry` over the two class files, `getInfo().listClassDefinitions()` per method (probe not tracked)
+- Expected SAP behaviour: the declaration has the parameters its form implies -- `keys` / `entities` typed with the BDEF's derived type, `result`, and the implicit `failed`, `reported`, `mapped` -- and the body uses them (public ABAP keyword documentation, RAP handler methods)
+- Actual open-abap behaviour: the statement parses without an issue, but the method has no parameters at all; a body that reads `keys` or appends to `reported-ent` would not compile, and the transpiler emits a method without them
+- Impact on open-steamgate: a behavior pool as written on a system could not be built; until R3 the demo pool was written in explicit derived signatures with an OSG-only `entities` table
+- Smallest safe workaround: `tools/rap/lower-derived.mjs` rewrites the declaration in the source loader into explicit `IMPORTING ... CHANGING ...` parameters over the BDEF's generated types (pool-scoped bindings from `bdef-gen.mjs`), keeping the rows; `docs/rap-derived-types.md`, "Handler declarations (R3)"
+- Upstream issue: needs an issue in `abaplint/abaplint` (implicit RAP handler parameters typed from the behavior definition); none filed, our fork rule for abaplint applies (`npm run parked`)
+- Regression-test location: `test/rap-derived-types.mjs` ("lowers the handler declarations of the system's form"), `test/unit/zcl_osd_rap_test` (`ltcl_system_form`)
 - Upstream version containing a fix: `unknown`
 
 ### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type

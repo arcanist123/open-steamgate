@@ -1,5 +1,6 @@
 import {expect} from "chai";
 import {readFileSync} from "node:fs";
+import {snapshotTree, restoreTree} from "./helpers/tree-snapshot.mjs";
 import {startServer} from "./start.mjs";
 import {givenText, fill} from "../tools/osd-destination.mjs";
 
@@ -18,6 +19,7 @@ const PORT = process.env.STG_PORT ?? 3030;
 const BASE = `http://localhost:${PORT}/sap/bc/osd/edit/`;
 const OBJECT = "ZCL_OSD_ST05";
 const FILE = "src/webgui/zcl_osd_st05.clas.abap";
+const INACTIVE = "build/inactive";
 
 // HTML entities back to text, numeric ones included: the escaper on the
 // screen writes `&#39;` for an apostrophe, and ABAP source is full of them.
@@ -39,10 +41,19 @@ const post = (body) => fetch(BASE, {
 describe("the editor", function () {
   this.timeout(180000);
   let server;
+  let inactiveBefore;
   before(() => {
+    inactiveBefore = snapshotTree(INACTIVE);
     server = startServer(true);
   });
-  after(() => server?.close());
+  // A Save marks the object inactive and keeps its active copy under
+  // build/inactive/. Left there, the next host that builds a generation
+  // builds it over that overlay, and a later file's isolation check fails
+  // for a state this file made. Put the folder back as this file found it.
+  after(async () => {
+    await server?.close();
+    restoreTree(INACTIVE, inactiveBefore);
+  });
 
   it("lists the objects of the tree, with the file each one lives in", async () => {
     const page = await (await fetch(`${BASE}?q=OSD_ST05`)).text();
