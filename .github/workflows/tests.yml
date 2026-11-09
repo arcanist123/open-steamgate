@@ -540,6 +540,36 @@ jobs:
         run: |
           go vet -tags gitprobe,profilingroutes -unreachable=false -bools=false ./cmd/osgo
           go test -vet=off -count=1 ./cmd/osgo
+      # ADR 0010 slice 3: the same osgo behind the gateway (go/osgw, cmd/osgw).
+      # ADT conformance through the proxy is held to the direct run's
+      # expectations, the gateway answers the supervised-host contract, a
+      # sidecar killed -9 with an ADT lock held answers 503 for what was in
+      # flight, is replaced, and leaves no lock behind (tools/osgw-live.mjs),
+      # and SIGTERM drains both processes to exit 0.
+      - name: osgo behind the gateway (osgw)
+        run: |
+          set -uo pipefail
+          (cd tools/gogen/go && go build -o ../.out/osgw ./cmd/osgw) || exit 1
+          port=$(node --input-type=module -e '
+            import net from "node:net";
+            const server = net.createServer();
+            server.listen(0, "127.0.0.1", () => {
+              const {port} = server.address();
+              server.close(() => console.log(port));
+            });
+          ')
+          tools/gogen/.out/osgw -binary tools/gogen/.out/osgo -port "$port" -- -adt -root "$PWD" > "$RUNNER_TEMP/osgw.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 120); do curl -fsS "http://127.0.0.1:$port/osd/serving" 2>/dev/null | grep -q '"ready":true' && break; sleep 0.5; done
+          node test/adt-conformance/run.mjs --target osgo --base "http://127.0.0.1:$port" --expected test/adt-conformance/expected/osgo.json --write-package '$STG_ADT_WRITES' || { tail -20 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$port" || exit 1
+          node tools/osgw-live.mjs --base "http://127.0.0.1:$port" || { tail -20 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$port" --drain "$pid" || exit 1
+          wait "$pid"; rc=$?
+          trap - EXIT
+          [ "$rc" -eq 0 ] || { echo "::error::osgw exited $rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          if pgrep -f -- "[-]sidecar " >/dev/null; then echo "::error::a sidecar outlived its gateway"; exit 1; fi
 
   # An independent parallel gate; no additional work in the suite shards.
   kernel-conformance:
