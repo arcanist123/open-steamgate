@@ -106,6 +106,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The frontend, the cache identity and the DatabaseSetup import all
+      # resolve @abaplint/transpiler (and its @abaplint/core) off node_modules,
+      # so measure the transpiler this tree is pinned to, not the published
+      # one: npm run transpiler:pin builds and links it through the same gate
+      # tests.yml uses.
+      - name: Build and link the pinned transpiler
+        run: npm run transpiler:pin
       - name: Types
         run: npx tsc -p tsconfig.gogen.json
       - uses: actions/setup-go@v5
@@ -189,6 +196,11 @@ jobs:
         run: go mod download
       - name: Load the tracked source pins
         run: node tools/osd-lock.mjs github-env >> "$GITHUB_ENV"
+      # The Node oracle inputs must be transpiled by the pinned transpiler,
+      # the same build and link tests.yml uses; the published npm one refuses
+      # the EML demo classes src/ now carries.
+      - name: Build and link the pinned transpiler
+        run: npm run transpiler:pin
       - name: Fetch source packs and libraries
         run: |
           node tools/osd-libs.mjs
