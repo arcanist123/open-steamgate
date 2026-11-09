@@ -153,12 +153,10 @@ ENDCLASS.
 CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD escape.
-    rv_string = iv_string.
-    REPLACE ALL OCCURRENCES OF '\' IN rv_string WITH '\\'.
-    REPLACE ALL OCCURRENCES OF '"' IN rv_string WITH '\"'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>cr_lf IN rv_string WITH '\r\n'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>newline IN rv_string WITH '\n'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>horizontal_tab IN rv_string WITH '\t'.
+* every character JSON does not allow raw in a string: the quote, the
+* backslash and all of U+0000..U+001F (a lone CR, a backspace, a form feed
+* and the rest as much as CR LF and TAB), as zcl_osd_v4_json=>quote does
+    rv_string = zcl_stg_json_text=>escape_string( iv_string ).
   ENDMETHOD.
 
   METHOD error.
@@ -276,8 +274,19 @@ CLASS zcl_stg_json IMPLEMENTATION.
             IF lv_hex CN '0123456789abcdefABCDEF'.
               EXIT.
             ENDIF.
+* the hex digits of \u may be lower case (JSON.stringify writes \u001f);
+* a conversion to x stops at the first lower-case letter, so upper first
+            lv_hex = to_upper( lv_hex ).
             lv_x = lv_hex.
             lv_high = lv_x.
+* a NUL cannot reach the database: the SQL text ends at it
+            IF lv_high = 0.
+              RAISE EXCEPTION TYPE zcx_stg_error
+                EXPORTING
+                  status  = 400
+                  code    = 'STG/BAD_JSON'
+                  message = 'A NUL character (\u0000) in a string is not accepted'.
+            ENDIF.
             IF lv_high >= 55296 AND lv_high <= 56319.
               cv_off = cv_off + 4.
               IF cv_off + 6 > lv_len OR iv_json+cv_off(2) <> '\u'.
@@ -288,6 +297,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
               IF lv_hex CN '0123456789abcdefABCDEF'.
                 EXIT.
               ENDIF.
+              lv_hex = to_upper( lv_hex ).
               lv_low_x = lv_hex.
               lv_low = lv_low_x.
               IF lv_low < 56320 OR lv_low > 57343.
@@ -743,6 +753,11 @@ CLASS zcl_stg_json IMPLEMENTATION.
                                                                  iv_edm_type = ls_property-edm_type ) }|.
     ENDLOOP.
 
+* the key values are part of the URI: a quote or a backslash in one
+* (SEGW's DS_ATT_PATH, IT_RANGE\HIGH, or any key a POST made) must be
+* escaped like any other string, before the deferred links are built of it
+    lv_uri = escape( lv_uri ).
+
 * navigation properties: expanded content when the caller supplies it, a
 * nested component of a deep structure (what a DPC returns from
 * create_deep_entity / get_expanded_*) when the data carries one, the v2
@@ -765,9 +780,6 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
-* the key values are part of the URI: a backslash in one (SEGW's
-* DS_ATT_PATH, IT_RANGE\HIGH) must be escaped like any other string
-    lv_uri = escape( lv_uri ).
 * a media entity: where its content is read and written (v2 clients, Fiori
 * Elements among them, follow media_src to show the picture)
     IF is_set-is_media = abap_true.
