@@ -89,6 +89,19 @@ hex). This is how each was resolved:
   says it needs an issue.
 - **EML lowering.** The `_eml_demo` exclusion is gone, and so is the matching
   filter in `test/rap-derived-types.mjs`.
+- **The upstream runtime changes from 2.14.3 to 2.14.19 come with the jump**,
+  among them CLEANUP (#1993), the ASSIGN type check (#2018), GT/LT compared
+  per component (#2035) and `TYPE (name)` read case-insensitively (#1998);
+  the upstream changelog has the full list.
+
+## Open
+
+- Probe on A4H, unmeasured: a `p`-to-`p` MOVE that overflows. The SAP
+  conversion rules say `CX_SY_CONVERSION_OVERFLOW`; the fork's test asserts
+  `CX_SY_ARITHMETIC_OVERFLOW`, which is what 4c raises.
+- Probe on A4H, unmeasured: the value left in the target after a caught
+  `p = p + 7` with `p TYPE p LENGTH 1`. 4c leaves 10 in it; the conversion
+  branch restores the old value.
 
 ## How it was checked
 
