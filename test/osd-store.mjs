@@ -739,3 +739,29 @@ describe('ObjectStore transitive activation checks', function () {
     expect(fallback.active).to.equal(true);
   });
 });
+
+// A parse of the whole tree is half a gigabyte. A process that opened many
+// roots kept every parse it ever made and a CI shard ran out of heap at 4 GB.
+describe('ObjectStore keeps the parse of the recent roots only', function () {
+  const roots = [];
+  const tiny = () => {
+    const root = mkdtempSync(join(tmpdir(), 'parsed-roots-'));
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'abap_transpile.json'), JSON.stringify({input_folder: 'src', libs: []}));
+    writeFileSync(join(root, 'abaplint.jsonc'), JSON.stringify({syntax: {version: 'v702'}}));
+    writeFileSync(join(root, 'src/zkeep.prog.abap'), 'REPORT zkeep.\n');
+    activeFixture(root);
+    roots.push(root);
+    return root;
+  };
+  after(() => {for (const root of roots) rmSync(root, {recursive: true, force: true});});
+  it('shares the parse of a recent root and drops the oldest of three', () => {
+    const [a, b, c] = [tiny(), tiny(), tiny()].map(root => new ObjectStore({root, libs: []}));
+    const first = a.registry();
+    expect(a.registry(), 'shared while recent').to.equal(first);
+    b.registry();
+    const third = c.registry();
+    expect(c.registry()).to.equal(third);
+    expect(a.registry(), 'the oldest root parses again').to.not.equal(first);
+  });
+});

@@ -11,8 +11,22 @@ import {TYPES} from "./osd-store-types.mjs";
 import {OBJECT_NAME_PATTERN} from "./osd-object-name.mjs";
 
 // The parse is shared per root. Known source mutations queue only their files;
-// configuration/root changes invalidate the whole registry.
+// configuration/root changes invalidate the whole registry. A parse of the
+// whole tree is about half a gigabyte of heap and a process serves one root,
+// so only the most recently used roots keep theirs: a process that opens many
+// (a test run, one temporary root per file) otherwise keeps every parse it
+// ever made, and ran out of heap at 4 GB (CI suites shard 2, 2026-11-08).
 const PARSED = new Map();
+const PARSED_ROOTS = 2;
+function keepParsed(root, registry) {
+  PARSED.delete(root);
+  PARSED.set(root, registry);
+  for (const old of PARSED.keys()) {
+    if (PARSED.size <= PARSED_ROOTS) break;
+    PARSED.delete(old);
+    PENDING.delete(old);
+  }
+}
 const INPUTS = new WeakMap();
 export const registryInputs = registry => INPUTS.get(registry);
 const PENDING = new Map();
@@ -168,6 +182,7 @@ export function buildRegistry(store, configPath = "abaplint.jsonc") {
       }));
       PENDING.delete(store.root);
     }
+    keepParsed(store.root, shared);
     store.parsed = shared;
     return shared;
   }
@@ -192,7 +207,7 @@ export function buildRegistry(store, configPath = "abaplint.jsonc") {
   registry.parse();
   referenceIndex(registry);
   store.parsed = registry;
-  PARSED.set(store.root, registry);
+  keepParsed(store.root, registry);
   return registry;
 }
 

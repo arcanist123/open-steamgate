@@ -169,6 +169,7 @@
     "\\.samc\\.decl\\.json$",
     "\\.ddls\\.",
     "\\.bdef\\.",
+    "\\.srvd\\.",
     "/gen/rap/bindings\\.json$",
     "\\.stg\\.yaml$",
     "\\.l2\\.yaml$",
