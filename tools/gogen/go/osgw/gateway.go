@@ -224,7 +224,7 @@ func Start(ctx context.Context, o Options) (*Gateway, error) {
 	}
 	if o.Builder != nil {
 		g.o.Args = append(append([]string{}, o.Args...), "-gateway-builds")
-		g.queue = genbuild.NewQueue(o.Builder, o.Debounce, g.built)
+		g.queue = genbuild.NewQueue(gatedBuilder{g: g, Builder: o.Builder}, o.Debounce, g.built)
 	}
 	sc, err := g.spawn(g.binary, false, false)
 	if err == nil {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -95,6 +96,22 @@ func fakeSidecar() {
 		}
 		promoted.Store(true)
 		io.WriteString(w, "promoted")
+	})
+	// the build-time gate's door (cmd/osgo /osd/inactive): how many objects
+	// are inactive, read from FAKE_INACTIVE_FILE per request so a test can
+	// change it while the sidecar runs
+	mux.HandleFunc("/osd/inactive", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			w.WriteHeader(404)
+			return
+		}
+		n := 0
+		if f := os.Getenv("FAKE_INACTIVE_FILE"); f != "" {
+			if b, err := os.ReadFile(f); err == nil {
+				n, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			}
+		}
+		writeJSON(w, 200, map[string]any{"inactive": n})
 	})
 	mux.HandleFunc("/promoted", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, promoted.Load()) })
 	// an activation that published: with a builder, the sidecar asks for a build

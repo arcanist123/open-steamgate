@@ -29,6 +29,72 @@ import (
 // (cmd/osgo -candidate); a client's request to it is refused at the gateway.
 const promotePath = "/osd/promote"
 
+// inactivePath is the door the gateway asks a generation how many objects
+// are inactive in its store (cmd/osgo -gateway-builds), for the build-time
+// gate below.
+const inactivePath = "/osd/inactive"
+
+// gatedBuilder is the builder the queue runs (critic #895 SHOULD 4): a
+// build is refused while any generation that still takes requests has an
+// inactive object. The activation answer's own gate (cmd/osgo
+// -gateway-builds) is a sample from before the debounce, and a save that is
+// not activated can land between it and the build; the gateway asks here,
+// right before the builder reads the tree, so the tree that is built is the
+// tree that was gated. A refused build fails loudly (its why names the
+// count, /osd/serving and the next activation say so), and the next
+// activation that leaves nothing inactive builds.
+type gatedBuilder struct {
+	g *Gateway
+	genbuild.Builder
+}
+
+func (b gatedBuilder) Build(ctx context.Context, r genbuild.Request) (genbuild.Result, error) {
+	if n, err := b.g.inactiveObjects(ctx); err != nil {
+		return genbuild.Result{}, err
+	} else if n > 0 {
+		return genbuild.Result{}, fmt.Errorf("%d inactive object(s) would enter the build", n)
+	}
+	return b.Builder.Build(ctx, r)
+}
+
+// inactiveObjects asks every live generation -- the serving one, and any
+// still draining, which a pinned session can still write in -- how many
+// objects are inactive in its store, and answers the sum. A generation
+// that cannot be asked fails the ask: a build must not run on an
+// unverified gate.
+func (g *Gateway) inactiveObjects(ctx context.Context) (int, error) {
+	g.mu.Lock()
+	var live []*sidecar
+	for _, sc := range g.table {
+		if sc.State == "serving" || sc.State == "draining" {
+			live = append(live, sc)
+		}
+	}
+	g.mu.Unlock()
+	total := 0
+	for _, sc := range live {
+		client := &http.Client{Transport: sc.transport, Timeout: 5 * time.Second}
+		req, err := http.NewRequestWithContext(ctx, "GET", "http://sidecar"+inactivePath, nil)
+		if err != nil {
+			return 0, err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("generation %s: %w", sc.Generation, err)
+		}
+		var body struct {
+			Inactive int `json:"inactive"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&body)
+		resp.Body.Close()
+		if err != nil {
+			return 0, fmt.Errorf("generation %s: %w", sc.Generation, err)
+		}
+		total += body.Inactive
+	}
+	return total, nil
+}
+
 // RefusedFile is where a candidate that refuses to serve says why before it
 // exits (cmd/osgo -candidate: a schema that differs from the file's).
 func RefusedFile(dir string, pid int) string {

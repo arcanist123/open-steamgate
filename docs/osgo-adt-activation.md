@@ -82,7 +82,14 @@ next answer carries the new `X-OSD-Generation`, and the unit run's 409 is gone
 because the serving binary was built from the published source. While any
 object of the tree is inactive nothing is built (`published; not building: n
 inactive object(s) would enter the build`): the build reads the tree, and an
-inactive object's working source would go live unactivated.
+inactive object's working source would go live unactivated. The gate is
+sampled twice: once when the activation answer is composed (the header
+above), and again by the gateway right before the builder runs -- it asks
+every generation that still takes requests (`GET /osd/inactive`), because a
+save that is not activated can land in the debounce window between the
+answer and the build; such a build fails with the count as its reason, and
+the next activation that leaves nothing inactive builds. A save made while
+a build runs is the remaining window.
 
 A batch is all or nothing (`objstore.ActivateAll`): every object is resolved
 and every file read and snapshotted before any active version changes, so a

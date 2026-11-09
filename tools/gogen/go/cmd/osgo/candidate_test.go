@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -48,5 +49,25 @@ func TestGatewayBuildsHeader(t *testing.T) {
 	header, note := adtactivate.Builds()
 	if header != "published; building" || !strings.Contains(note, "the gateway is building") {
 		t.Fatalf("%q %q", header, note)
+	}
+}
+
+// -gateway-builds: the gateway's build-time gate door, GET /osd/inactive
+// (gatedBuilder, go/osgw), answers how many objects are inactive here;
+// another method is not its
+func TestGatewayBuildsInactiveDoor(t *testing.T) {
+	rt := inactiveRoute()
+	if rt.prefix != "/osd/inactive" || !rt.exact {
+		t.Fatalf("%+v", rt)
+	}
+	w := httptest.NewRecorder()
+	rt.h(w, httptest.NewRequest("GET", "/osd/inactive", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"inactive":0`) {
+		t.Fatalf("GET: %d %s", w.Code, w.Body)
+	}
+	w = httptest.NewRecorder()
+	rt.h(w, httptest.NewRequest("POST", "/osd/inactive", nil))
+	if w.Code != 404 {
+		t.Fatalf("POST answered %d", w.Code)
 	}
 }

@@ -654,6 +654,9 @@ func main() {
 	}})
 	// readiness for a supervisor: the generation, ready or draining (serving.go)
 	routes = append(routes, servingRoute(host))
+	if *gatewayBuilds {
+		routes = append(routes, inactiveRoute()) // candidate.go: the gateway's build-time gate
+	}
 	status := statusHost{port: *port, root: *root, dbFile: *dbFile, started: started}
 	if candidate.Load() {
 		routes = append(routes, promoteRoute(*dbFile, status)) // candidate.go

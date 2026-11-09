@@ -110,7 +110,8 @@ func promote(dbFile string) error {
 // tree is inactive: the build reads the tree, and an inactive object's
 // working source would go live without being activated. Then the answer
 // says so and nothing is built; the next activation that leaves nothing
-// inactive asks.
+// inactive asks. The answer's gate is a sample from the moment it is
+// composed; the gateway asks again at build start (inactiveRoute below).
 func useGatewayBuilds() {
 	adtactivate.Builds = func() (string, string) {
 		if n := len(objstore.Inactive()); n > 0 {
@@ -120,6 +121,30 @@ func useGatewayBuilds() {
 		return "published; building",
 			"is active in the object store; the gateway is building a new generation from this tree, and this code runs once it serves"
 	}
+}
+
+// inactiveRoute is GET /osd/inactive, the gateway's build-time gate
+// (gatedBuilder, go/osgw swap.go): how many objects of the tree are
+// inactive in this generation's store. The gateway asks every generation
+// that still takes requests right before a build reads the tree, because a
+// save that is not activated can land between the activation answer and
+// the build.
+func inactiveRoute() route {
+	return route{"/osd/inactive", true, func(w http.ResponseWriter, r *http.Request) {
+		profiling.Matched(r, "/osd/inactive")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			notFound(w, r)
+			return
+		}
+		n := len(objstore.Inactive())
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(200)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		fmt.Fprintf(w, "{\"inactive\":%d}\n", n)
+	}}
 }
 
 // restorePublished brings back what activation published before this

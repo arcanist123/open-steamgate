@@ -288,3 +288,39 @@ func TestActivationBuildsAndSwaps(t *testing.T) {
 		t.Fatalf("no builder: %v", resp.Header)
 	}
 }
+
+// critic #895 SHOULD 4: the inactive-objects gate is checked when the build
+// reads the tree, not only when the activation answer is composed. A save
+// that is not activated can land in the debounce window between the answer
+// and the build; the gateway asks every generation that still takes
+// requests right before the builder runs, and the build is refused while
+// any of them has an inactive object, or the draft would go live
+// unactivated -- and be believed live, its digest the working file's.
+func TestBuildRefusedWhileAnObjectIsInactive(t *testing.T) {
+	flagFile := filepath.Join(t.TempDir(), "inactive")
+	if err := os.WriteFile(flagFile, []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g, front := start(t, Options{Builder: fakeBuilder{binary: generation(t, "go:fakeB")},
+		Root: t.TempDir(), Debounce: 10 * time.Millisecond, Env: []string{"FAKE_INACTIVE_FILE=" + flagFile}})
+	resp, _ := get(t, front.URL+"/activate") // the answer's own gate saw nothing inactive
+	if h := resp.Header.Get("X-OSD-Build"); h != "published; building b1" {
+		t.Fatalf("activation: %q", h)
+	}
+	waitFor(t, "the build to be refused at its start", func() bool {
+		b := g.BuildStatus()
+		return b.State == "failed" && strings.Contains(b.Why, "1 inactive object")
+	})
+	if resp, _ := get(t, front.URL+"/echo"); resp.Header.Get("X-OSD-Generation") != fakeGeneration {
+		t.Fatalf("served by %v after a refused build", resp.Header)
+	}
+	// nothing inactive any more: the next activation builds and swaps
+	if err := os.WriteFile(flagFile, []byte("0"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	get(t, front.URL+"/activate")
+	waitFor(t, "the swap", func() bool { return g.BuildStatus().State == "live" })
+	if resp, _ := get(t, front.URL+"/echo"); resp.Header.Get("X-OSD-Generation") != "go:fakeB" {
+		t.Fatalf("after the build: %v", resp.Header)
+	}
+}
