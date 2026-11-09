@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-09-space-eq-string-substring -- `x+off(1) = space` is false for a blank: a String substring never equals the Character constant
+
+- Status: `open`
+- Discovery date: `2026-11-09` (dell, keylen2, `zcl_stg_model_info=>check_length` measuring a value without its trailing blanks, PR #889)
+- Affected versions: the pinned runtime (oisee/transpiler `9792b3c8`), `compare/eq.ts`
+- Affected ABAP statement, runtime API or adapter: `=` / `<>` between `space` and a substring of a `string`
+- Minimal ABAP reproducer: `DATA lv TYPE string VALUE 'A '. IF lv+1(1) = space.` -- false here
+- Exact command used to run it: `TravelCount?Status='A '` answered 400 `STG/VALUE_TOO_LONG`, the measured length 2 and not 1, so the blank-strip loop broke on its first character
+- Expected SAP behaviour: true (unmeasured; the substring is c length 1 and blank, `space` is c length 1 and blank, and a c comparison of equal lengths is a character comparison)
+- Actual open-abap behaviour: `String#getOffset` returns a `String`, `space` is a `Character`, and the mixed branch of `eq` compares `right.getTrimEnd() === left.get()`: the constant's only blank is trimmed to the empty string and cannot equal any character
+- Impact on open-steamgate: any blank test written `x+off(1) = space` over a string silently takes the non-blank branch. `zcl_stg_json=>skip_blanks` compares with a backtick literal instead (found independently, before this entry); `zcl_stg_batch` compares `lv_first = space` on a `c LENGTH 1` field, which takes the Character fast path and is correct
+- Smallest safe workaround: compare with the string literal `` ` ` `` (backticks), which is a `String` and hits the fast path: `x+off(1) <> ` ``
+- Upstream issue: needs an issue in abaplint/transpiler (the mixed `eq` branch trims the `Character` side before comparing it with a one-character `String`; either compare untrimmed, or make `space` a `String`)
+- Regression-test location: `test/mocha.mjs` ("trailing blanks never make a key or a parameter too long ...")
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-08-escape-url-multibyte -- `cl_http_utility=>escape_url` writes one `%` before all UTF-8 bytes of a character
 
 - Status: `open`

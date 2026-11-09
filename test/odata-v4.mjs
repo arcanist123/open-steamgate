@@ -294,8 +294,12 @@ describe("OData V4 read wire", () => {
   });
 
   // the MaxLength check of zcl_stg_model_info=>check_keys, shared with V2: a
-  // key the DPC's CHAR(8) field would cut is a 400, never another entity
-  it("refuses a key longer than its MaxLength with 400 and changes nothing; a long $filter literal matches nothing", async () => {
+  // key the DPC's CHAR(8) field would cut is a 400, never another entity.
+  // The $filter half is the demo DPC's behaviour, not the gateway's: its
+  // ranges are strings (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:37-42), so
+  // the literal stays whole and matches no row; a DDIC-typed CHAR range on a
+  // system would cut it to T0001 (docs/key-length.md).
+  it("refuses a key longer than its MaxLength with 400 and changes nothing; a long $filter literal matches nothing in the demo DPC", async () => {
     const before = await json(base + "/TravelSet('T0002')");
     const url = base + "/TravelSet(" + encodeURIComponent("'T0002    X'") + ")";
     const read = await fetch(url);
@@ -307,8 +311,21 @@ describe("OData V4 read wire", () => {
     expect((await send(url, "DELETE")).status).to.equal(400);
     expect((await fetch(url + "/to_Bookings")).status).to.equal(400);
     expect(await json(base + "/TravelSet('T0002')")).to.deep.equal(before);
+    // the demo DPC's string ranges keep the literal whole, so no row matches
     const filtered = await json(base + "/TravelSet" + query({$filter: "TravelId eq 'T0001    X'"}));
     expect(filtered.value).to.deep.equal([]);
+  });
+
+  // trailing blanks never make a key too long: the check measures at the
+  // last non-blank character, the way a CHAR field holds the value, so a key
+  // of MaxLength characters plus blanks addresses the entity and only a
+  // non-blank beyond the MaxLength is a 400 (shared check, same as V2)
+  it("accepts a key of MaxLength characters plus trailing blanks; a non-blank beyond is still a 400", async () => {
+    // T0001 + 4 blanks: 9 characters, 5 significant, MaxLength 8
+    const padded = await fetch(base + "/TravelSet(" + encodeURIComponent("'T0001    '") + ")");
+    expect(padded.status).to.equal(200);
+    expect((await padded.json()).TravelId).to.equal("T0001");
+    expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'T0001   X'") + ")")).status).to.equal(400);
   });
 
   it("serves SADL/CDS and YAML-compiled services through the same registration", async () => {

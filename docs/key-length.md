@@ -15,13 +15,17 @@ and `TravelCount?Status='A'''` (the value `A'`, `Status` is CHAR 1) counted the
 | key predicate, V2 (GET, MERGE, PUT, DELETE, `$value`, navigation source, POST through navigation, `$batch` parts) | `zcl_stg_model_info=>check_keys` after `zcl_stg_url=>parse_keys` in `zcl_stg_dispatcher` | 400 `STG/VALUE_TOO_LONG` |
 | key predicate, V4 | the same `check_keys`, at the end of `zcl_osd_v4_query->read_keys` | 400 `STG/VALUE_TOO_LONG` |
 | function import parameter, V2 | `zcl_stg_model_info=>check_length` in `zcl_stg_dispatcher=>function_import` | 400 `STG/VALUE_TOO_LONG` |
-| `$filter` literal, V2 and V4 | none: compared as written | no row matches |
+| `$filter` literal, V2 and V4 | none | the DPC's code: the demo's string ranges match no row, a CHAR range would cut it |
 
 The MaxLength is the one the MPC set (`set_maxlength`) on an `Edm.String`
 property or parameter; it is kept in `zcl_stg_model_info=>ty_property-max_length`
 (0 = none, nothing is checked). The length counted is the value after
-unquoting, so `'O''B'` is three characters, and a trailing blank counts: a
-value of exactly MaxLength characters passes (`'T0002   '`), one more does not.
+unquoting, so `'O''B'` is three characters, and trailing blanks do not count:
+the value is measured the way a CHAR field holds it, at its last non-blank
+character, so `'T0002   '` (exactly MaxLength 8) and `'T0002    '` (one blank
+beyond) are both accepted and both address T0002 — the DPC's CHAR 8 field
+drops or pads trailing blanks, so they can never reach another entity. A
+non-blank character beyond the MaxLength (`'T0002    X'`) is still a 400.
 
 ## Why 400 for keys and parameters, and nothing for `$filter`
 
@@ -54,5 +58,6 @@ system; this is a read, never a write to another row.
   `ev_no_matching_values_found` for a value that does not fit the target range.
 
 Tests: `test/mocha.mjs` ("a key or a parameter longer than its MaxLength is a
-400 ...") and `test/odata-v4.mjs` ("refuses a key longer than its MaxLength
-...").
+400 ...", "trailing blanks never make a key or a parameter too long ...") and
+`test/odata-v4.mjs` ("refuses a key longer than its MaxLength ...", "accepts
+a key of MaxLength characters plus trailing blanks ...").

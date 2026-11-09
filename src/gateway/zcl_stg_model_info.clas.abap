@@ -123,8 +123,11 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
 * of its property is a 400, the way the Gateway's URI parser checks a
 * literal against the facets of its property. Without the check the value
 * reaches a CHAR field of the DPC cut to the DDIC length, and
-* TravelSet('T0002    X') reads, changes or deletes T0002. A $filter literal
-* is not checked: it is compared as written (docs/key-length.md).
+* TravelSet('T0002    X') reads, changes or deletes T0002. The trailing
+* blanks of the value do not count: the length is CHAR semantics, so
+* 'T0001    ' is 5 against a MaxLength 8 and is T0001 in the DPC. A $filter
+* literal is not checked at all: what a comparison does with it is the
+* DPC's code, not the gateway's (docs/key-length.md).
     CLASS-METHODS check_length
       IMPORTING
         is_property TYPE ty_property
@@ -370,7 +373,29 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD check_length.
-    IF is_property-max_length <= 0 OR strlen( iv_value ) <= is_property-max_length.
+* the length of the value is the position of its last non-blank character,
+* the way a CHAR field holds a value: the DPC's field drops trailing blanks
+* (or pads with them), so they can never address another entity, and a
+* system's parser measures the same way. Only a non-blank character beyond
+* the MaxLength is refused. SHIFT RIGHT DELETING TRAILING is no way to find
+* that position: it moves a trailing blank to the front (zcl_stg_json,
+* trim_blanks, measured there).
+    DATA lv_len  TYPE i.
+    DATA lv_last TYPE i.
+
+    lv_len = strlen( iv_value ).
+    WHILE lv_len > 0.
+      lv_last = lv_len - 1.
+* the blank is the backtick literal, not space: a substring of a string is a
+* string here, and a string never equals the Character constant space
+* (ANOMALY-2026-11-09-space-eq-string-substring)
+      IF iv_value+lv_last(1) <> ` `.
+        EXIT.
+      ENDIF.
+      lv_len = lv_len - 1.
+    ENDWHILE.
+
+    IF is_property-max_length <= 0 OR lv_len <= is_property-max_length.
       RETURN.
     ENDIF.
     RAISE EXCEPTION TYPE zcx_stg_error

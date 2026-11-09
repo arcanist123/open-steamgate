@@ -212,9 +212,11 @@ describe("wire", () => {
   // property is a 400, as the Gateway's URI parser answers it. Before, the
   // DPC's CHAR(8) field cut it: TravelSet('T0002    X') read, merged, put
   // and deleted T0002, and TravelCount(Status='A''') counted the 'A' rows.
-  // A $filter literal is compared as written: longer than the column, it
-  // matches no row (docs/key-length.md).
-  it("a key or a parameter longer than its MaxLength is a 400; a long $filter literal matches nothing", async () => {
+  // The $filter half below is the demo DPC's behaviour, not the gateway's:
+  // its ranges are strings (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:37-42),
+  // so the literal stays whole and matches no row; a DDIC-typed CHAR range
+  // on a system would cut it to T0001 (docs/key-length.md).
+  it("a key or a parameter longer than its MaxLength is a 400; a long $filter literal matches nothing in the demo DPC", async () => {
     const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
     const long = encodeURIComponent("'T0002    X'");
     const before = (await (await fetch(`${BASE}/TravelSet('T0002')?$format=json`)).json()).d;
@@ -237,6 +239,7 @@ describe("wire", () => {
     // exactly MaxLength is still a key
     expect((await fetch(`${BASE}/TravelSet('T0002%20%20%20')?$format=json`)).status).to.equal(200);
 
+    // the demo DPC's string ranges keep the literal whole, so no row matches
     const filtered = await (await fetch(`${BASE}/TravelSet?$format=json&$filter=` + encodeURIComponent("TravelId eq 'T0001    X'"))).json();
     expect(filtered.d.results).to.deep.equal([]);
     const v4 = await (await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet?$filter=` + encodeURIComponent("TravelId eq 'T0001    X'"))).json();
@@ -249,6 +252,29 @@ describe("wire", () => {
     res = await fetch(`${BASE}/CancelTravel?TravelId=${long}`, {method: "POST", headers: {"x-csrf-token": "open-steamgate"}});
     expect(res.status).to.equal(400);
     expect((await (await fetch(`${BASE}/TravelSet('T0002')?$format=json`)).json()).d.Status).to.equal(before.Status);
+  });
+
+  // The MaxLength check measures the value the way a CHAR field holds it:
+  // at its last non-blank character. Trailing blanks can never address
+  // another entity (the DPC's field drops or pads them), so a key of
+  // MaxLength characters plus blanks is accepted, and only a non-blank
+  // character beyond the MaxLength is a 400.
+  it("trailing blanks never make a key or a parameter too long; a non-blank beyond the MaxLength does", async () => {
+    // T0001 + 4 blanks: 9 characters, 5 significant, MaxLength 8
+    const padded = encodeURIComponent("'T0001    '");
+    const v2 = await fetch(`${BASE}/TravelSet(${padded})?$format=json`);
+    expect(v2.status).to.equal(200);
+    expect((await v2.json()).d.TravelId).to.equal("T0001");
+    const v4 = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet(${padded})`);
+    expect(v4.status).to.equal(200);
+    expect((await v4.json()).TravelId).to.equal("T0001");
+    const beyond = encodeURIComponent("'T0001   X'");
+    expect((await fetch(`${BASE}/TravelSet(${beyond})?$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet(${beyond})`)).status).to.equal(400);
+    // Status has MaxLength 1: 'A ' (a trailing blank) counts the A rows
+    const withBlank = await fetch(`${BASE}/TravelCount?Status=${encodeURIComponent("'A '")}`);
+    expect(withBlank.status).to.equal(200);
+    expect((await withBlank.json()).d.TravelCount).to.equal((await (await fetch(`${BASE}/TravelCount?Status='A'`)).json()).d.TravelCount);
   });
 
   // ANOMALY-2026-11-08-sql-host-variable-inlined: the transpiler inlined a
