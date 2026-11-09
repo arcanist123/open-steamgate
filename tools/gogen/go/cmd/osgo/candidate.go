@@ -35,7 +35,8 @@ import (
 // through union views and flushed at promotion. Deferring them is the same
 // outcome on the shared file with no view layer: nothing of the candidate's
 // reaches the file before promotion, and a promotion that fails leaves it
-// as the serving generation left it.
+// as the serving generation left it (the normalising UPDATEs of the
+// promotion's open are one transaction, dbstore.go).
 var candidate atomic.Bool
 
 // refuseCandidate tells the gateway why this candidate will not serve, and

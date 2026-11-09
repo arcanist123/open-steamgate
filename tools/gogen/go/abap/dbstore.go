@@ -53,12 +53,25 @@ func prepareStore(d *sql.DB) error {
 	}
 	rows.Close()
 	updates = append(updates, rawUpdates(existing)...)
+	if len(updates) == 0 {
+		return nil
+	}
+	// one transaction: an open that fails partway (a promotion whose
+	// normalisation a lock the serving generation holds, or a trigger,
+	// refuses) leaves nothing behind -- the file stays as the generation
+	// that serves left it, not half-normalised by an open that never
+	// finished. Every UPDATE is idempotent, so the next open redoes them.
+	tx, err := d.Begin()
+	if err != nil {
+		return err
+	}
 	for _, u := range updates {
-		if _, err := d.Exec(u); err != nil {
+		if _, err := tx.Exec(u); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("%w: %s", err, u)
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // rawUpdates: a RAW(n) column holds upper-case hex of exactly 2n digits

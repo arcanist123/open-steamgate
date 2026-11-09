@@ -174,3 +174,44 @@ func TestOpenDBCandidateLeavesThePopulatedFile(t *testing.T) {
 		t.Fatal("a candidate created a file")
 	}
 }
+
+// ADR 0010 slice 4, critic #895 SHOULD 1: the normalising UPDATEs of one
+// open are one transaction. The case is a promotion that fails partway (the
+// candidate's OpenDBFile of the file the serving generation serves): table
+// b's BEFORE UPDATE trigger refuses its rtrim, standing in for the write
+// lock the serving generation can hold past the candidate's busy_timeout
+// while a pinned session's step runs. Table a's rtrim, already sent, must
+// not stay in the file: a promotion that fails leaves it as the serving
+// generation left it.
+func TestOpenDBFileNormalisationIsOneTransaction(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "osgo.sqlite")
+	script := []byte(`["CREATE TABLE a ('v' NCHAR(8) COLLATE RTRIM)",
+		"CREATE TABLE b ('v' NCHAR(8) COLLATE RTRIM)",
+		"CREATE TRIGGER refuse_b BEFORE UPDATE ON b BEGIN SELECT RAISE(ABORT, 'b refuses the normalisation'); END"]`)
+	serving, _, err := OpenDBFile(f, script)
+	if err != nil {
+		t.Fatal(err) // the trigger fires per row; the empty tables normalise
+	}
+	defer serving.Close()
+	if _, err := serving.SQL().Exec("INSERT INTO a VALUES ('keep   '); INSERT INTO b VALUES ('keep   ')"); err != nil {
+		t.Fatal(err)
+	}
+	row := func() string {
+		var v string
+		if err := serving.SQL().QueryRow("SELECT v FROM a").Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	before := row()
+	promoted, _, err := OpenDBFile(f, script) // the candidate's promotion
+	if promoted != nil {
+		promoted.Close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "b refuses") {
+		t.Fatalf("the failing promotion: %v", err)
+	}
+	if after := row(); after != before {
+		t.Fatalf("a normalisation that failed partway stayed in the file: %q -> %q", before, after)
+	}
+}
