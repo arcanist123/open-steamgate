@@ -65,19 +65,19 @@ func main() {
 				failed = true
 			}
 		}()
-		s := &abap.Session{Statics: abap.ProcessStatics}
+		s := &abap.Session{}
 		cli := commandLine(os.Args[1:])
 		sapGUI, launchSAPGUI, listen := sapGUIOption(cli.Host)
-		dbOption(cli.Host)
+		s.DB = dbOption(cli.Host)
 		input, headless := commandInput(cli)
 		datasetOptions(cli.Host, input)
 		report := newReport(s)
 		if sapGUI {
 			var screen ZCL_GG_HOST__TY_RESULT
-			abap.DialogStep(func() { screen = hostRun(s, report, input, "", "X") })
+			abap.DialogStep(s, func() { screen = hostRun(s, report, input, "", "X") })
 			if err := serveSAPGUI(listen, launchSAPGUI, screen, func(values []ZIF_GG_SELECTION_SCREEN_TYPES__TY_VALUE) ZCL_GG_HOST__TY_RESULT {
 				var out ZCL_GG_HOST__TY_RESULT
-				abap.DialogStep(func() { out = hostRun(s, report, values, "", "") })
+				abap.DialogStep(s, func() { out = hostRun(s, report, values, "", "") })
 				return out
 			}); err != nil {
 				panic(err)
@@ -86,10 +86,10 @@ func main() {
 			return
 		}
 		if headless {
-			abap.DialogStep(func() { result = hostRun(s, report, input, "X", "") })
+			abap.DialogStep(s, func() { result = hostRun(s, report, input, "X", "") })
 		} else {
 			var screen ZCL_GG_HOST__TY_RESULT
-			abap.DialogStep(func() { screen = hostRun(s, report, nil, "", "X") })
+			abap.DialogStep(s, func() { screen = hostRun(s, report, nil, "", "X") })
 			if termgui.Available() {
 				var err error
 				input, err = graphicalInput(s, report, screen)
@@ -103,7 +103,7 @@ func main() {
 			} else {
 				input = terminalInput(screen)
 			}
-			abap.DialogStep(func() { result = hostRun(s, report, input, "", "") })
+			abap.DialogStep(s, func() { result = hostRun(s, report, input, "", "") })
 		}
 	})()
 	if dialogSandbox != nil {
@@ -278,7 +278,7 @@ func graphicalForm(s *abap.Session, report ZIF_GG_REPORT_V1, screen ZCL_GG_HOST_
 		}
 		defer func() { abap.FrontendPick = nil }()
 		var result ZCL_GG_HOST__TY_RESULT
-		abap.DialogStep(func() { result = hostRunRequest(s, report, selectionValuesFromFields(fields, screen), "", "X", target) })
+		abap.DialogStep(s, func() { result = hostRunRequest(s, report, selectionValuesFromFields(fields, screen), "", "X", target) })
 		if pickErr != nil {
 			return "", pickErr
 		}
@@ -590,8 +590,9 @@ func terminalInput(screen ZCL_GG_HOST__TY_RESULT) []ZIF_GG_SELECTION_SCREEN_TYPE
 // keeps its rows in, created with the report's tables when it is missing
 // (abap.OpenDBFile, which refuses a file another build laid out). A report
 // with no tables has no database and refuses the flag; one with tables and
-// no -db has no database either, and its first statement says so.
-func dbOption(host []reportargs.Arg) {
+// no -db has no database either, and its first statement says so. The
+// database opened is the report session's (and closeDB's).
+func dbOption(host []reportargs.Arg) *abap.Database {
 	path := ""
 	for _, flag := range host {
 		if flag.Name == "db" {
@@ -599,7 +600,7 @@ func dbOption(host []reportargs.Arg) {
 		}
 	}
 	if path == "" {
-		return
+		return nil
 	}
 	if len(appTables) == 0 {
 		panic(fmt.Errorf("-db: %s has no tables of its own", appProgram))
@@ -609,20 +610,23 @@ func dbOption(host []reportargs.Arg) {
 	if strings.ContainsAny(path, "?#%") {
 		panic(fmt.Errorf("-db %s: a file name with ?, # or %% is not accepted", path))
 	}
-	if _, err := abap.OpenDBFile(path, appSchema); err != nil {
+	d, _, err := abap.OpenDBFile(path, appSchema)
+	if err != nil {
 		panic(fmt.Errorf("-db %s: %w", path, err))
 	}
-	dbOpen = true
+	appDB = d
+	return d
 }
 
-var dbOpen bool
+var appDB *abap.Database
 
 // closeDB checkpoints the -db file: the last connection closing folds the
 // WAL back into it, so the file alone holds every row
 func closeDB() {
-	if dbOpen {
-		dbOpen = false
-		if err := abap.DB().Close(); err != nil {
+	if appDB != nil {
+		d := appDB
+		appDB = nil
+		if err := d.Close(); err != nil {
 			fmt.Fprintln(os.Stderr, "osabap: closing the -db file:", err)
 		}
 	}

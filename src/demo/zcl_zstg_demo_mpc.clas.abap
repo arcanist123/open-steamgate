@@ -367,6 +367,7 @@ CLASS zcl_zstg_demo_mpc IMPLEMENTATION.
       EXPORTING
         iv_key      = 'label'
         iv_value    = 'Description' ).
+    lo_property->set_as_etag( ).
 
     lo_property = lo_entity_type->create_property( iv_property_name  = 'Status'
                                                    iv_abap_fieldname = 'STATUS' ).
@@ -381,6 +382,7 @@ CLASS zcl_zstg_demo_mpc IMPLEMENTATION.
       EXPORTING
         iv_key      = 'label'
         iv_value    = 'Status' ).
+    lo_property->set_as_etag( ).
 
     lo_property = lo_entity_type->create_property( iv_property_name  = 'Seats'
                                                    iv_abap_fieldname = 'SEATS' ).
@@ -394,6 +396,7 @@ CLASS zcl_zstg_demo_mpc IMPLEMENTATION.
       EXPORTING
         iv_key      = 'label'
         iv_value    = 'Seats' ).
+    lo_property->set_as_etag( ).
 
 * the status text, read-only, filled by the DPC from the value-help table
     lo_property = lo_entity_type->create_property( iv_property_name  = 'StatusText'

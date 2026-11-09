@@ -18,6 +18,12 @@ export function servingFront(runtime, {launcherPid = process.pid, launcherIdenti
     try {
       const answer = await fetchAnswer(`${runtime.url}${req.originalUrl}`, {signal: AbortSignal.timeout(5000)});
       const body = await answer.json();
+      // the child puts its generation on every answer (tools/osd-serve.mjs);
+      // the one door this front re-serialises keeps it, so a client reads the
+      // same header from the facade and from the osgo binary
+      // (tools/osd-host-contract.mjs)
+      const generation = answer.headers?.get?.("x-osd-generation");
+      if (generation) res.set("X-OSD-Generation", generation);
       res.status(answer.status).json(enrich(body));
     } catch {
       return proxy(req, res, next);

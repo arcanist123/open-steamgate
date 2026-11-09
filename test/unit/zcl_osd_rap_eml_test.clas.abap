@@ -1,0 +1,10 @@
+CLASS zcl_osd_rap_eml_test DEFINITION PUBLIC FINAL CREATE PUBLIC FOR TESTING
+  DURATION SHORT RISK LEVEL DANGEROUS.
+* The EML facade (src/rap/zcl_osd_rap_eml, docs/rap-eml.md) over the note demo.
+  PUBLIC SECTION.
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+CLASS zcl_osd_rap_eml_test IMPLEMENTATION.
+ENDCLASS.

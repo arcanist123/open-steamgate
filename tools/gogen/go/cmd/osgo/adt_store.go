@@ -11,7 +11,9 @@ import (
 var adtSystems adtsystem.Bindings
 
 // The data preview's SQL runs on the calling step's own transaction.
-var adtPreview = adtpreview.Provider{DB: func() adtpreview.Querier { return abap.StepQuerier().(adtpreview.Querier) }}
+func adtPreview(s *abap.Session) adtpreview.Provider {
+	return adtpreview.Provider{DB: func() adtpreview.Querier { return s.StepQuerier().(adtpreview.Querier) }}
+}
 
 // The SYSTEM facts of an ADT request are answered for the calling step
 // through go/abap's StoreHook (ZOSD_STORE offers every call to it first);
@@ -28,6 +30,6 @@ func init() {
 		if provider == nil {
 			return abap.StoreAnswer{}, false
 		}
-		return objstore.CallWithSystem(in, adtPreview.Behind(provider)), true
+		return objstore.CallWithSystem(in, adtPreview(s).Behind(provider)), true
 	}
 }

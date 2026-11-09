@@ -9,8 +9,9 @@
 // the handler class: ZCL_STG_HTTP_HANDLER below /sap/opu/odata/sap/, and the
 // class of each SICF node of the tree that this program compiled. Each such
 // request is one dialog step (abap.DialogStep: committed when it returns,
-// rolled back when it dumps), and the steps run one at a time, because class
-// statics are per process here as they are in one Node process. The static
+// rolled back when it dumps) in a Session of the one instance, and the
+// steps run one at a time, because the instance's sessions share one statics
+// store here as they do in one Node process. The static
 // files are the tree's webapp/ and each pack's, at the URLs Node serves them.
 //
 // The generated half (zz_*.go, zz_db.json) says which program this is:
@@ -85,11 +86,19 @@ func lookupDefault(name string, lookup func(string) (string, bool), fallback str
 	return fallback
 }
 
-// one work process: class statics are per process (see the package comment).
-// It is abap.WorkProcess, the lock the APC channels' steps take as well
+// one work process: the instance's sessions share one statics store and
+// its database has one connection (see the package comment). It is
+// abap.WorkProcess, the lock the APC channels' steps take as well
 // (go/abap/apc.go), so an ICF request and a push-channel message never run
 // ABAP at the same time (ultra/packs).
 var workProcess = &abap.WorkProcess
+
+// instance owns what every session of this process runs on: the database
+// main opened and the statics the sessions share (ADR 0010 slice 2); every
+// dialog step runs in a Session minted from it. Until main opens the
+// database it is an instance without one, as the package's own tests run it
+// (a statement there is refused by name, a step opens no LUW).
+var instance = abap.NewInstance(nil)
 
 // a push channel (*.sapc.xml) this program serves: its path and handler class
 type apcChannel struct {
@@ -124,8 +133,9 @@ func channelRoutes() func(w http.ResponseWriter, r *http.Request) bool {
 		// that rewrites Host a same-origin rule would refuse every page
 		// (ultra/packs review); Handler names the class in a start dump's 503
 		ch := &apc.Channel{Name: c.Name, Handler: c.Handler, AnyOrigin: true,
-			New:  func(s *abap.Session, r *http.Request) apc.Host { return newAPCHost(s, c.Handler, r) },
-			Step: runAPCStep}
+			New:        func(s *abap.Session, r *http.Request) apc.Host { return newAPCHost(s, c.Handler, r) },
+			Step:       runAPCStep,
+			NewSession: func() *abap.Session { return instance.NewSession() }}
 		byPath[c.Path] = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// the receipt the Node host writes into its 101 (tools/osd-apc.mjs)
 			w.Header().Set("X-OSD-Channel", c.Name)
@@ -235,7 +245,8 @@ func step(x *abap.ICFExchange, base string, profileRoute func(string)) (dump any
 				dump, frames = r, abapStack(r)
 			}
 		}()
-		s := &abap.Session{Statics: abap.ProcessStatics, ProfileRoute: profileRoute}
+		s := instance.NewSession()
+		s.ProfileRoute = profileRoute
 		dialog := func() {
 			abap.DialogStepIn(s, func() {
 				runShim(s, x, base)
@@ -273,7 +284,7 @@ func runDialogStep(s *abap.Session, dialog func(), adt bool) {
 
 func runAPCStep(s *abap.Session, name string, work func()) error {
 	adtHost.Begin(s)
-	err := abap.APCStep(name, work, s)
+	err := abap.APCStep(s, name, work)
 	adtHost.Finish(s, err != nil)
 	return err
 }
@@ -484,6 +495,7 @@ func main() {
 	root := flag.String("root", osgRoot, "the checkout whose webapp/ is served")
 	media := flag.String("media", "", "the SMW0 media directory (w3mi.json and the data files); default media/ beside the binary when it is there")
 	tlsFlags := httpsFlags()
+	sidecarDir := flag.String("sidecar", "", "run as a gateway's work sidecar (cmd/osgw): HTTP on <dir>/http-<pid>.sock, locks from <dir>/enq.sock")
 	flag.Parse()
 	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
 	if lintErr != nil {
@@ -535,6 +547,7 @@ func main() {
 		}
 	}
 	started := time.Now()
+	host := newServingHost(*root, *dbFile, started)
 	profileConfig := profiling.Selected(*pprofFlag, *pprofAddr, os.Getenv)
 	profileServer, profileListener, err := profileConfig.Start()
 	if err != nil {
@@ -569,21 +582,25 @@ func main() {
 		log.Fatalf("store: %v", err)
 	}
 
+	startSidecarLocks(*sidecarDir) // a gateway's sidecar: its locks before any step (sidecar.go)
 	compilerClient := compiler.New(compiler.Options{Root: *root, Version: releaseTag})
 	defer compilerClient.Close()
 	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
 
 	if *dbFile == "" {
-		if err := abap.OpenDB(dbScript); err != nil {
-			log.Fatalf("database: %v", err)
-		}
-		log.Printf("database: in memory (use -home or -db to keep data)")
-		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), in memory, seeded at start")
-	} else {
-		seeded, err := abap.OpenDBFile(*dbFile, dbScript)
+		d, err := abap.OpenDB(dbScript)
 		if err != nil {
 			log.Fatalf("database: %v", err)
 		}
+		instance = abap.NewInstance(d)
+		log.Printf("database: in memory (use -home or -db to keep data)")
+		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), in memory, seeded at start")
+	} else {
+		d, seeded, err := abap.OpenDBFile(*dbFile, dbScript)
+		if err != nil {
+			log.Fatalf("database: %v", err)
+		}
+		instance = abap.NewInstance(d)
 		log.Printf("database: %s (WAL)%s", *dbFile, map[bool]string{true: ", new: seeded", false: ", as it was"}[seeded])
 		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), file "+filepath.Base(*dbFile)+", WAL")
 	}
@@ -593,7 +610,8 @@ func main() {
 				log.Fatalf("boot: %s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
 			}
 		}()
-		abap.DialogStep(func() { boot(&abap.Session{Statics: abap.ProcessStatics}) })
+		s := instance.NewSession()
+		abap.DialogStep(s, func() { boot(s) })
 	}()
 	// the synthetic demo rows (ZCL_OSD_DEMO_DATA=>BOOT, as the Node hosts run
 	// it through tools/osd-demo-data.mjs): the same class and the same knob,
@@ -608,7 +626,8 @@ func main() {
 				}
 			}()
 			var report string
-			abap.DialogStep(func() { report = demoData(&abap.Session{Statics: abap.ProcessStatics}, os.Getenv("OSD_DEMO_ROWS")) })
+			s := instance.NewSession()
+			abap.DialogStep(s, func() { report = demoData(s, os.Getenv("OSD_DEMO_ROWS")) })
 			log.Printf("demo data: %s (%d ms)", report, time.Since(started).Milliseconds())
 		}()
 	}
@@ -617,6 +636,8 @@ func main() {
 	var routes []route
 	if adtEnabled(*adtFlag, os.Getenv) {
 		abap.ADTPreview = true
+		// the compiler-backed ADT routes fail late and quietly without it
+		log.Print(compiler.Describe(compiler.Locate()))
 		routes = append(routes, route{"/sap/bc/adt", false, icfHandler("ZCL_OSD_ADT_HANDLER", "/sap/bc/adt", adtDump)},
 			// the ADT logoff is the ABAP front's too, as on Node (tools/adt-facade.mjs)
 			route{"/sap/public/bc/icf/logoff", true, icfHandler("ZCL_OSD_ADT_HANDLER", "/sap/public/bc/icf/logoff", adtDump)})
@@ -651,6 +672,8 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		fmt.Fprintf(w, "{\"status\":\"ready\",\"version\":%q,\"commit\":%q}\n", releaseTag, releaseCommit)
 	}})
+	// readiness for a supervisor: the generation, ready or draining (serving.go)
+	routes = append(routes, servingRoute(host))
 	// the tiles the packs declare (test/start.mjs pack-tiles), read when this binary was built
 	routes = append(routes, route{"/app/packs.json", true, func(w http.ResponseWriter, r *http.Request) {
 		profiling.Matched(r, "/app/packs.json")
@@ -700,7 +723,8 @@ func main() {
 	sort.SliceStable(routes, func(i, j int) bool { return len(routes[i].prefix) > len(routes[j].prefix) })
 
 	upgrade := channelRoutes()
-	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
+	// every answer carries X-OSD-Generation; a drain refuses newcomers here
+	mux := host.Wrap(profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade)))
 
 	rfcPort, diagPort := protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
 	for _, svc := range icfServices {
@@ -716,15 +740,12 @@ func main() {
 		log.Printf("not served   %s: %s (an upgrade answers 501)", n.Path, n.Why)
 	}
 	server := &http.Server{Addr: net.JoinHostPort(binds[0], strconv.Itoa(*port)), Handler: mux, ReadHeaderTimeout: 30 * time.Second}
-	lns, err := osdbind.ListenAll(binds, *port)
-	if err != nil {
-		log.Fatal(err)
-	}
+	lns := listeners(*sidecarDir, binds, *port) // sidecar.go
 	for _, extra := range lns[1:] {
 		go func(ln net.Listener) { log.Printf("listener %s: %v", ln.Addr(), server.Serve(ln)) }(extra)
 	}
 	ln := lns[0]
-	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit {
+	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit && *sidecarDir == "" {
 		log.Print(hint)
 	}
 	// the status tables have this process in them before anybody asks, with
@@ -738,7 +759,7 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Print(hostports.EndpointBanner(*port, tlsConfig, rfcPort, diagPort, osdbind.Describe(lns)))
-	log.Fatal(server.Serve(ln))
+	serveUntilSignal(host, server, ln)
 }
 
 func routeMatcher(routes []route, notFound http.HandlerFunc, upgrade func(http.ResponseWriter, *http.Request) bool) http.Handler {

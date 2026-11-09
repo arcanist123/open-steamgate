@@ -599,14 +599,32 @@ export async function stageSystemSeed(seedRoot, env = process.env, {prebuild = f
  * without installing the pinned transpiler fork. */
 export function finalizeSystemSeed(seedRoot, selectedPacks, {
   prebuild = false, version = packagedVersion(ROOT), transpilerRef, env = process.env,
+  commit = seedCommit(env),
 } = {}) {
   writeVersionMarker(seedRoot, version);
+  // A seeded home is not a checkout, so `core/http/build` cannot ask git
+  // there and answered `"commit":"unknown"` (release check 2026-11-08).
+  // tools/adt-facade.mjs reads release.json in the home first, as it does
+  // beside a make-release directory. Written before the seed id, so two
+  // builds of different commits never share an extracted home.
+  if (commit) writeFileSync(join(seedRoot, "release.json"), `${JSON.stringify({commit}, undefined, 2)}\n`);
   writeFileSync(join(seedRoot, ".osd-transpiler-ref"), `${transpilerRef}\n`);
   materializeSeedLinks(seedRoot);
   excludeStagedPackSources(seedRoot, selectedPacks);
   const generation = prebuild ? prebuildGeneration(seedRoot, env) : undefined;
   const seedId = writeSeedId(seedRoot);
   return {seedId, generation};
+}
+
+/** The commit a seed is built from: the workflow's GITHUB_SHA, else the
+ *  checkout's HEAD, else nothing (the facade then falls back to git). */
+export function seedCommit(env = process.env) {
+  if (env.GITHUB_SHA) return env.GITHUB_SHA;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim();
+  } catch {
+    return undefined;
+  }
 }
 
 // These npm distributions omit their repository licences.

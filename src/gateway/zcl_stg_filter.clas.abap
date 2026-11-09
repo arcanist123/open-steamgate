@@ -289,6 +289,12 @@ CLASS zcl_stg_filter IMPLEMENTATION.
             message = |Unexpected character '{ lv_char }' at { lv_off } in $filter|.
       ENDIF.
 
+      IF ls_token-kind = 'STRING' OR ls_token-kind = 'TYPED'.
+        zcl_stg_url=>refuse_nul( iv_value = ls_token-value
+                                 iv_code  = 'STG/BAD_FILTER'
+                                 iv_where = 'a $filter literal' ).
+      ENDIF.
+
       APPEND ls_token TO rt_tokens.
     ENDWHILE.
   ENDMETHOD.

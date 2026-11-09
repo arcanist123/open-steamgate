@@ -171,9 +171,12 @@ still build and upload to a draft without waiting for tagged tests.
 
 `npm run binary` defaults to checkout mode: it builds from a fresh checkout
 after `npm ci`, without `.local/lars` or an embedded system seed. Run that
-binary from an open-steamgate checkout. `--seed` (or `OSD_BINARY_SEED=1`)
-requires the bootstrapped libraries and packs and embeds the seed. Run
-`osd doctor` to see which mode a binary contains.
+binary from a bootstrapped open-steamgate checkout (`npm run bootstrap`):
+the gui converter is loaded from the checkout's `.local/lars/open-abap-gui`
+at run time, with its `@abaplint/core` answered by the binary's own copy.
+`--seed` (or `OSD_BINARY_SEED=1`) requires the bootstrapped libraries and
+packs and embeds the seed. Run `osd doctor` to see which mode a binary
+contains and whether the converter loads.
 
 **Every binary is checked by its content before it is uploaded**
 (`scripts/release-verify.mjs`, 2026-09-30): the header must name the target
@@ -189,7 +192,7 @@ version inside `extension/package.json`, the Docker image by
 preview by `release-verify.mjs pages` in `pages.yml`: its `build.json` must
 name the commit and its `sw.js` must carry the stamp `build.json` names.
 
-The measured seeded Linux x64 binary is 316.4 MB (decimal, 2026-09-30; it was 109.5 MB on 2026-09-16). All four requested Bun targets cross-compiled on Linux x64 with Bun 1.4.2
+The measured seeded Linux x64 binary is 116.0 MB (decimal, 2026-11-08, main `af7a91f0`; 316.4 MB was written here on 2026-09-30, and it was 109.5 MB on 2026-09-16). All four requested Bun targets cross-compiled on Linux x64 with Bun 1.4.2
 in the local release check. No target failed to build. Only Linux x64 was
 built on its native host; cross-compilation does not prove that Linux arm64,
 macOS arm64, or Windows x64 starts successfully. macOS x64 and Windows arm64

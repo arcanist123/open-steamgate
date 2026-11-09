@@ -4,7 +4,10 @@
 // of a remote and a clone of one branch, printed as JSON for
 // tools/gogen/httpc-git.mjs to compare with the same ABAP on Node. Built only
 // with -tags gitprobe, against the zz_generated.go of a full osgo.mjs build
-// (the --echo build has no ZCL_OSD_GIT).
+// (the --echo build has no ZCL_OSD_GIT). The classes live in the layered
+// packages (osgo-layers.mjs: core, app; main only while edited), reached
+// the way zz_*.go reaches them, with their fields exported (emit-go.mjs
+// goIdent); an --unlayered build does not compile this probe.
 //
 //	OSGO_GIT_URL=http://127.0.0.1:4100/repo.git go test -tags gitprobe ./cmd/osgo -run TestGitProbe -v
 package main
@@ -18,7 +21,12 @@ import (
 	"testing"
 
 	"osg/gogen/abap"
+	. "osg/gogen/generated/osgo/app"
+	. "osg/gogen/generated/osgo/core"
 )
+
+var _ = GogenCoreLayer{}
+var _ = GogenAppLayer{}
 
 type probeFile struct {
 	Path, Filename, SHA1 string
@@ -52,9 +60,12 @@ func TestGitProbe(t *testing.T) {
 	if url == "" {
 		t.Skip("OSGO_GIT_URL is not set")
 	}
-	if err := abap.OpenDB(dbScript); err != nil {
+	d, err := abap.OpenDB(dbScript)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer d.Close()
+	s := &abap.Session{DB: d}
 	var refs, clone probeOut
 	func() {
 		defer func() {
@@ -62,8 +73,8 @@ func TestGitProbe(t *testing.T) {
 				refs.Dump = dumpOf(r)
 			}
 		}()
-		for _, r := range ZCL_OSD_GIT_REFS(&abap.Session{}, url) {
-			refs.Refs = append(refs.Refs, [2]string{r.sha1, r.name})
+		for _, r := range ZCL_OSD_GIT_REFS(s, url) {
+			refs.Refs = append(refs.Refs, [2]string{r.Sha1, r.Name})
 		}
 	}()
 	func() {
@@ -72,11 +83,11 @@ func TestGitProbe(t *testing.T) {
 				clone.Dump = dumpOf(r)
 			}
 		}()
-		c := ZCL_OSD_GIT_CLONE(&abap.Session{}, url, "")
-		clone.Commit, clone.Branch = c.commit, c.branch
-		for _, f := range c.files {
-			sum := sha1.Sum([]byte(f.data))
-			clone.Files = append(clone.Files, probeFile{f.path, f.filename, hex.EncodeToString(sum[:]), len(f.data)})
+		c := ZCL_OSD_GIT_CLONE(s, url, "")
+		clone.Commit, clone.Branch = c.Commit, c.Branch
+		for _, f := range c.Files {
+			sum := sha1.Sum([]byte(f.Data))
+			clone.Files = append(clone.Files, probeFile{f.Path, f.Filename, hex.EncodeToString(sum[:]), len(f.Data)})
 		}
 	}()
 	out, _ := json.Marshal(map[string]probeOut{"refs": refs, "clone": clone})

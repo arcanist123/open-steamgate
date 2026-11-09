@@ -4,7 +4,8 @@ R2 of [the RAP plan](oracle-rap.md): a managed behavior definition runs. Its
 behavior pool's determinations, validations and action are called, its
 instances live in a transactional buffer until the save sequence writes them
 into the persistent table, and the LUW ends in `COMMIT WORK` or
-`ROLLBACK WORK`. Serving it over OData (R2c) is the next step and not here.
+`ROLLBACK WORK`. It is served over OData V2 and V4 (reads and writes; actions over V2) from a
+service definition: see [Serving (R2c)](#serving-r2c).
 
 ```
 node tools/rap/bdef-gen.mjs                  # types, adapter, registry -> gen/rap/
@@ -16,9 +17,10 @@ node tools/osd-unit.mjs CLAS ZCL_OSD_RAP_TEST   # after npm run transpile
 
 EML (`MODIFY ENTITIES`, `READ ENTITIES`, `COMMIT ENTITIES`) is **not** in R2
 and R2 needs no transpiler change. The runtime calls the pool's handler and
-saver methods directly. EML comes later through a transpiler PR that rewrites
-the statements onto this runtime (R3); a managed slice does not need it,
-because only the runtime modifies instances.
+saver methods directly. EML comes through a transpiler patch that lowers
+the statements onto `KERNEL_RAP_EML` over this runtime, R2a,
+[rap-eml.md](rap-eml.md); a managed slice does not need it, because only
+the runtime modifies instances.
 
 The price is the handler's contract while there is no EML: a determination or
 action cannot `READ ENTITIES` / `MODIFY ENTITIES IN LOCAL MODE`, so it gets the
@@ -141,9 +143,134 @@ an `if_abap_behv_message`).
 Clean-room: the base classes and constants are reimplemented from the public
 documentation; `open-abap-rap` (no licence) was read only as a signature spec.
 
+## Serving (R2c)
+
+```
+src/rap_demo/zui_rap_note.srvd.srvdsrv     define service ZUI_RAP_NOTE { expose ZI_RAP_NOTE as Note; }
+GET    /sap/opu/odata/sap/ZUI_RAP_NOTE/Note                 V2 list, through the CDS view
+POST   /sap/opu/odata/sap/ZUI_RAP_NOTE/Note                 {"NoteText":"..."} -> 201, NoteId drawn, Status 'N'
+PATCH  /sap/opu/odata/sap/ZUI_RAP_NOTE/Note('<32 hex>')     MERGE and PUT too -> 204
+DELETE /sap/opu/odata/sap/ZUI_RAP_NOTE/Note('<32 hex>')     -> 204
+POST   /sap/opu/odata/sap/ZUI_RAP_NOTE/Approve?NoteId='<32 hex>'   the action -> 200, the note
+GET    /sap/opu/odata4/sap/ZUI_RAP_NOTE/Note                V4 reads of the same instances
+POST   /sap/opu/odata4/sap/ZUI_RAP_NOTE/Note                V4 create -> 201, same behavior (PATCH, DELETE too)
+npx mocha test/rap-serve.mjs                 # after npm run transpile
+```
+
+### Decision: the SRVD itself, read by a generator
+
+The transpiler refuses SRVD objects (ANORMALIES `srvd-not-allowed`), which
+is the same position a BDEF is in. So a service definition is treated the
+same way: `\.srvd\.` joins the transpile `exclude_filter`, and
+`tools/rap/srvd-gen.mjs` (run by `bdef-gen.mjs`) reads it with the BDEF
+tokenizer and writes `gen/rap/<srvd>.stg.yaml`, a model `stg-compile --all`
+compiles like every other service (`gen/rap` is one of its roots, beside
+`gen/cds`). The other option, a YAML `rap:` source written by hand, was not
+needed: the object a RAP developer writes is the one read, and the YAML stays
+an internal format.
+
+What is read: header annotations (only `@EndUserText.label` is kept, as the
+description), `define service <name> { expose <CDS entity> [as <alias>]; ... }`.
+Element annotations, `provider contracts`, `with`, extensions and anything
+else are refused with the line. There is no service binding (SRVB): the
+service is named after the definition, version 0001, and is served on both
+endpoints the gateway has, V2 at `/sap/opu/odata/sap/<srvd>/` and V4 at
+`/sap/opu/odata4/sap/<srvd>/`.
+
+### The model
+
+Per exposed entity: entity type `<alias>Type`, set `<alias>`, properties
+named as the CDS source spells the elements (`NoteId`), bound to the view
+through SADL (`source: {cds: ...}`). An entity of a managed BDEF gets the
+set flags of its `create` / `update` / `delete`, `readonly` fields as
+read-only properties (`readonly : update` as not updatable), and each
+instance action a V2 function import named after the action: `POST`, its
+parameters the keys, its result the entity, `sap:action-for` the entity type.
+An exposed entity without a behavior is a read-only set. Every property is
+labelled (the CDS label, else its name), the title a Fiori client shows.
+The classes are `ZCL_<service>_MPC/_DPC(_EXT)` for a name of up to 18
+characters; a longer one (at most 26) keeps 12 and adds 6 hex characters of
+its hash, so two services sharing a prefix get classes of their own.
+
+segw-gen (and its ABAP twin `ZCL_STG_SEGW_GEN`) declared the text element
+container `GC_INCL_NAME` only when a property had a label, while a function
+import and its parameters always name it: a model with an action and no
+labelled property did not compile. Both now declare it for any of the three.
+
+A RAW16 UUID key is served as a 32-character hex `Edm.String`
+(`Note('333C0064...')`): the V2 wire has no `Edm.Guid` conversion (hyphenated
+JSON, `guid'...'` keys) yet, and V4 follows V2's model.
+
+### The path of a request
+
+Reads are untouched: `ZCL_STG_SADL_DPC` reads the view. Writes and actions
+ask first whether the entity has a behavior: `zif_stg_sadl_behavior`
+(`src/sadl/`), implemented by `ZCL_OSD_RAP_SADL` (`src/rap/`), which the SADL
+provider creates by name so `src/sadl/` does not depend on `src/rap/`. If it
+does, the provider hands over the view's row and the names of the fields the
+body gave (`zcl_stg_entry_provider->fields( )`), and `ZCL_OSD_RAP_SADL` runs
+one RAP transaction:
+
+1. the derived table (`TABLE FOR CREATE/UPDATE/DELETE`, `ACTION IMPORT`) from
+   the adapter's `new_table( )`, filled by component name, `%control` set for
+   every field the request gave;
+2. `modify( )` or `execute( )`; a FAILED row ends here with `rollback( )`;
+3. `commit( )`, the save sequence; a validation that fails ends here, and the
+   runtime has already rolled the LUW back;
+4. the row is read back through the view and answered.
+
+A refusal in 2 or 3 is `/IWBEP/CX_MGW_BUSI_EXCEPTION` with the REPORTED
+message texts joined by `; ` (a failure without a message is named by its
+cause), which the gateway answers with 400 -- and nothing is written. A
+`ZCX_OSD_RAP` (a model error, a refused database write) is a technical
+exception, 500.
+
+Two rules a client meets:
+
+- **Read-only fields.** Sent with a value on create, or with a value other
+  than the current one on update, the field is flagged and the runtime
+  refuses it (`Field STATUS is read-only`, 400). Sent empty on create or
+  unchanged on update it is no write and is dropped, so a client that sends
+  the whole entity (PUT, or a create carrying the empty managed key) is not
+  refused for it.
+- **PUT replaces, PATCH and MERGE merge.** On PUT an editable field the body
+  does not give is written initial (flagged in `%control`, so the mandatory
+  check and the validations see it: a PUT without `NoteText` is 400 and the
+  row stays), and a read-only field keeps its value; on PATCH and MERGE only
+  the given fields change. `zcl_stg_entry_provider->merges( )` tells the two
+  apart, and `zif_stg_sadl_behavior~update` takes `iv_replace`.
+- **Keys** come from the URL on update and delete, from the function
+  import's parameters for an action, and are drawn by managed numbering on
+  create; the created key is taken from MAPPED.
+
+A function import whose return set is not named (SEGW leaves it empty for an
+action for an entity type) now gets the first set of its return type in the
+request context, with the function's name and parameters
+(`zcl_stg_request_context-mv_function_import`, `mt_parameter`): SADL's
+`execute_action` is given only the context.
+
+### V4
+
+V4 reads (`$metadata`, the set, by key, `$filter`, `$count`) work as for any
+service of the registry ([odata-v4.md](odata-v4.md)), and so do V4 writes
+since the V4 write slice (#858): POST, PATCH and DELETE reach the same
+provider and so the same behavior (numbering, determination, validation),
+which needed no change for it (`test/rap-serve.mjs`, "reads and creates the
+same instances over V4"). Bound actions (`POST .../Note('...')/ZUI_RAP_NOTE.Approve`)
+are a path the V4 facade parses, but it runs only the draft actions of sticky
+editing, so a BDEF action answers 501 naming the action; over V2 they work.
+
+### Not in R2c
+
+Service bindings, `Edm.Guid` for UUID keys, ETags and `If-Match`, V2
+`$batch` changesets as one RAP transaction (each operation is its own),
+deep insert through compositions, action parameters, static and factory
+actions, messages as `sap-message` headers (only the error body), V4 bound
+actions, a Fiori Elements app over the service.
+
 ## Not in R2
 
-EML; serving over OData (R2c); draft; unmanaged save, `with additional save`,
+EML; draft; unmanaged save, `with additional save`,
 `with unmanaged save`; early/late numbering through the pool and
 `adjust_numbers`; associations and compositions (R1 refuses them); static,
 factory and internal actions, action parameters and results other than

@@ -214,7 +214,7 @@ func checksum(f *ZIF_O4D_EFFECT__TY_FRAME) uint32 {
 
 func main() {
 	obj := &${sc.cls}{}
-	s := &abap.Session{Statics: abap.ProcessStatics}
+	s := &abap.Session{}
 	${sc.init ?? ""}
 	var last ZIF_O4D_EFFECT__TY_FRAME
 	// renderFrame(t, gt, pos16): the context fields the scene reads, all

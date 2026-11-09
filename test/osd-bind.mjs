@@ -19,7 +19,7 @@ import {bindAddresses, bindHost, listenBound, relisten} from "../tools/osd-bind.
 import {forwardPorts} from "../tools/osd-tcp-forward.mjs";
 import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import {execFileSync} from "node:child_process";
-import {credentials, generate} from "../tools/osd-tls.mjs";
+import {credentials, generate, noTlsHint} from "../tools/osd-tls.mjs";
 import {closeProtocols, listenProtocols} from "../tools/protocols/server.mjs";
 import {runtimeRootFixture} from "./helpers/runtime-root.mjs";
 
@@ -103,6 +103,18 @@ function stop(one) {
     setTimeout(() => one.child.kill("SIGKILL"), 5000).unref();
   });
 }
+
+describe("the no-TLS start hint", () => {
+  it("names npm in a checkout and what the binary offers in a binary home", () => {
+    expect(noTlsHint({}, "/srv/checkout")).to.include("npm run osd:tls");
+    const binary = noTlsHint({OSD_BINARY_HOME: "/srv/osd-home"}, "/srv/osd-home");
+    expect(binary).to.not.include("npm");
+    expect(binary).to.include("./osd protocols");
+    expect(binary).to.include("Docker image");
+    // a binary started inside a checkout serves the checkout: npm is there
+    expect(noTlsHint({OSD_BINARY_HOME: "/srv/osd-home"}, "/srv/checkout")).to.include("npm run osd:tls");
+  });
+});
 
 describe("bind address (OSD_BIND)", function () {
   this.timeout(60000);
@@ -433,12 +445,19 @@ describe("bind address (OSD_BIND)", function () {
       return out;
     }
 
+    // a Unix-domain socket binds no interface: a Go listen whose network is
+    // the literal "unix" (net.Listen("unix", p), lc.Listen(ctx, "unix", p),
+    // net.ListenUnix("unix", a)) is not a listener this rule is about. Only
+    // the literal counts: a network in a variable could be "tcp".
+    const UNIX_GO = /(?:\bnet\s*\.\s*Listen(?:Unix)?|\.\s*Listen)\s*\((?:\s*ctx\s*,)?\s*"unix"\s*,/;
+
     /** listeners in Go that do not go through osdbind, without a marker */
     function scanGo(text, file = "<text>") {
       const lines = text.split("\n");
       const out = [];
       lines.forEach((code, i) => {
         if (/^\s*\/\//.test(code)) return;
+        if (UNIX_GO.test(code) && !/\b(ListenAndServe|ListenTCP|ListenUDP|ListenPacket)\b/.test(code)) return;
         if (/\b(ListenAndServe(TLS)?|ListenTCP|ListenUDP|ListenPacket|ListenUnix|ListenMulticastUDP)\s*\(|\bnet\s*\.\s*Listen\s*\(|\.\s*Listen\s*\(/.test(code)
           && !allowedAt(lines, i + 1)) out.push(`${file}:${i + 1} ${code.trim()}`);
       });
@@ -462,6 +481,13 @@ describe("bind address (OSD_BIND)", function () {
       expect(scanGo("ln, _ := net.ListenTCP(\"tcp\", a)")).to.have.length(1);
       expect(scanGo("log.Fatal(srv.ListenAndServeTLS(c, k))")).to.have.length(1);
       expect(scanGo("lns, _ := osdbind.ListenAll(binds, port)")).to.have.length(0);
+      // a Unix-domain socket binds no interface; TCP beside it is still caught
+      expect(scanGo("ln, err := net.Listen(\"unix\", sock)")).to.have.length(0);
+      expect(scanGo("ln, err := lc.Listen(ctx, \"unix\", sock)")).to.have.length(0);
+      expect(scanGo("ln, err := net.ListenUnix(\"unix\", a)")).to.have.length(0);
+      expect(scanGo("ln, err := net.Listen(network, sock)")).to.have.length(1);
+      expect(scanGo("ln, err := net.Listen(\"tcp\", \":8080\")")).to.have.length(1);
+      expect(scanGo("ln, err := net.Listen(\"unixgram\", sock)")).to.have.length(1);
       expect(scanGo("\t// osd-bind-allow: the address is the flag, default loopback\n\tln, _ := net.Listen(\"tcp\", a)")).to.have.length(0);
     });
 

@@ -86,7 +86,8 @@ The [OSD Docker image workflow](docker-ci.md) runs on Docker-related PRs,
 `vscode-v*` release tags and manual dispatch. PRs and default dispatches do
 not log in or push. A publication uploads each architecture by untagged digest,
 pulls and smoke-tests that exact image, then releases its digest artifact only
-after the suite passes. The image config ID must match the tested local image.
+after the suite passes. The tested local image must be the pushed one (config
+digest or, on a containerd image store, manifest digest; see `docker-ci.md`).
 The manifest job assembles those digests and checks for both platforms.
 SPDX SBOMs, provenance records and acceptance logs are kept as artifacts. The
 action summary prints the published manifest digest. The GHCR package must be

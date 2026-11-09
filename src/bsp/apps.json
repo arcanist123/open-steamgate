@@ -14,6 +14,11 @@
     "text": "SEGW: the Service Builder as an app",
     "service": "ZSTG_SEGW_SRV"
   },
+  "ZOSD_TRAVEL4": {
+    "folder": "webapp/travel4",
+    "text": "Travels: the demo list report and object page over OData V4",
+    "service": "ZSTG_DEMO_SRV"
+  },
   "ZOSD_ANALYTICS": {
     "folder": "webapp/analytics",
     "text": "Flight analytics: the analytical list page",

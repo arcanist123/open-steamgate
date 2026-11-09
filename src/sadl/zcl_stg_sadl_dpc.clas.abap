@@ -89,6 +89,38 @@ CLASS zcl_stg_sadl_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_
       RAISING
         /iwbep/cx_mgw_busi_exception.
 
+* the behavior that writes the entity instead of this class (a managed RAP
+* BDEF, zif_stg_sadl_behavior), or nothing
+    METHODS behavior_of
+      IMPORTING
+        is_entity          TYPE zcl_stg_cds_registry=>ty_entity
+      RETURNING
+        VALUE(ri_behavior) TYPE REF TO zif_stg_sadl_behavior.
+
+* the fields the request body gave, upper case
+    METHODS payload_fields
+      IMPORTING
+        io_data_provider TYPE REF TO /iwbep/if_mgw_entry_provider
+        is_entity        TYPE zcl_stg_cds_registry=>ty_entity
+      RETURNING
+        VALUE(rt_fields) TYPE string_table.
+
+* PUT replaces the entity, PATCH and MERGE lay values over it
+    METHODS replaces
+      IMPORTING
+        io_data_provider  TYPE REF TO /iwbep/if_mgw_entry_provider
+      RETURNING
+        VALUE(rv_replace) TYPE abap_bool.
+
+* the row as the view reads it, found by the keys in CS_ROW
+    METHODS read_row
+      IMPORTING
+        is_entity TYPE zcl_stg_cds_registry=>ty_entity
+      CHANGING
+        cs_row    TYPE any
+      RAISING
+        /iwbep/cx_mgw_tech_exception.
+
     METHODS sql_literal
       IMPORTING
         iv_value          TYPE string
@@ -557,6 +589,7 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     DATA lo_source TYPE REF TO zif_stg_cds_source.
     DATA lr_line   TYPE REF TO data.
     DATA lv_subrc  TYPE sy-subrc.
+    DATA li_behavior TYPE REF TO zif_stg_sadl_behavior.
     FIELD-SYMBOLS <ls_row>   TYPE any.
     FIELD-SYMBOLS <lv_mandt> TYPE any.
 
@@ -568,6 +601,18 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     ASSIGN COMPONENT 'MANDT' OF STRUCTURE <ls_row> TO <lv_mandt>.
     IF sy-subrc = 0.
       <lv_mandt> = sy-mandt.
+    ENDIF.
+* an entity with a behavior is created by it, keys and all
+    li_behavior = behavior_of( ls_entity ).
+    IF li_behavior IS BOUND.
+      li_behavior->create( EXPORTING iv_entity = ls_entity-name
+                                     it_fields = payload_fields( io_data_provider = io_data_provider
+                                                                 is_entity        = ls_entity )
+                           CHANGING  cs_row    = <ls_row> ).
+      read_row( EXPORTING is_entity = ls_entity
+                CHANGING  cs_row    = <ls_row> ).
+      es_data = <ls_row>.
+      RETURN.
     ENDIF.
     check_keys( EXPORTING is_entity = ls_entity
                           is_row    = <ls_row> ).
@@ -590,6 +635,9 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     DATA lo_read   TYPE REF TO /iwbep/if_mgw_req_entity.
     DATA lr_keys   TYPE REF TO data.
     DATA ls_field  TYPE zcl_stg_cds_registry=>ty_field.
+    DATA li_behavior TYPE REF TO zif_stg_sadl_behavior.
+    DATA lr_current  TYPE REF TO data.
+    FIELD-SYMBOLS <ls_current> TYPE any.
     FIELD-SYMBOLS <ls_row>   TYPE any.
     FIELD-SYMBOLS <ls_keys>  TYPE any.
     FIELD-SYMBOLS <lv_key>   TYPE any.
@@ -608,6 +656,9 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
           textid  = /iwbep/cx_mgw_busi_exception=>business_error
           message = |{ io_tech_request_context->get_entity_set_name( ) }: no entity with these keys|.
     ENDIF.
+    lr_current = lo_source->create_line( ).
+    ASSIGN lr_current->* TO <ls_current>.
+    <ls_current> = <ls_row>.
     io_data_provider->read_entry_data( IMPORTING es_data = <ls_row> ).
 * the keys come from the URL, a payload cannot move the row (the context
 * clears what it fills, so the keys are read apart and copied over)
@@ -628,6 +679,19 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     IF sy-subrc = 0.
       <lv_value> = sy-mandt.
     ENDIF.
+    li_behavior = behavior_of( ls_entity ).
+    IF li_behavior IS BOUND.
+      li_behavior->update( iv_entity  = ls_entity-name
+                           is_row     = <ls_row>
+                           is_current = <ls_current>
+                           it_fields  = payload_fields( io_data_provider = io_data_provider
+                                                        is_entity        = ls_entity )
+                           iv_replace = replaces( io_data_provider ) ).
+      read_row( EXPORTING is_entity = ls_entity
+                CHANGING  cs_row    = <ls_row> ).
+      es_data = <ls_row>.
+      RETURN.
+    ENDIF.
     lv_subrc = lo_source->update( <ls_row> ).
     IF lv_subrc <> 0.
       RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
@@ -639,6 +703,7 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD if_sadl_gw_dpc~delete_entity.
+    DATA li_behavior TYPE REF TO zif_stg_sadl_behavior.
     DATA ls_entity TYPE zcl_stg_cds_registry=>ty_entity.
     DATA lo_source TYPE REF TO zif_stg_cds_source.
     DATA lr_line   TYPE REF TO data.
@@ -654,6 +719,12 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     ASSIGN COMPONENT 'MANDT' OF STRUCTURE <ls_row> TO <lv_mandt>.
     IF sy-subrc = 0.
       <lv_mandt> = sy-mandt.
+    ENDIF.
+    li_behavior = behavior_of( ls_entity ).
+    IF li_behavior IS BOUND.
+      li_behavior->delete( iv_entity = ls_entity-name
+                           is_row    = <ls_row> ).
+      RETURN.
     ENDIF.
     lv_subrc = lo_source->delete( <ls_row> ).
     IF lv_subrc <> 0.
@@ -680,10 +751,129 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD if_sadl_gw_dpc~execute_action.
-    RAISE EXCEPTION TYPE /iwbep/cx_mgw_not_impl_exc
-      EXPORTING
-        textid = /iwbep/cx_mgw_not_impl_exc=>method_not_implemented
-        method = 'SADL EXECUTE_ACTION'.
+* an action of the entity's behavior, exposed as a function import whose
+* parameters are the keys and whose result is the entity (RAP over V2)
+    DATA lo_context  TYPE REF TO zcl_stg_request_context.
+    DATA ls_entity   TYPE zcl_stg_cds_registry=>ty_entity.
+    DATA lo_source   TYPE REF TO zif_stg_cds_source.
+    DATA li_behavior TYPE REF TO zif_stg_sadl_behavior.
+    DATA lt_actions  TYPE string_table.
+    DATA ls_param    TYPE /iwbep/s_mgw_name_value_pair.
+    DATA lv_action   TYPE string.
+    FIELD-SYMBOLS <ls_row>   TYPE any.
+    FIELD-SYMBOLS <lv_value> TYPE any.
+
+    lo_context ?= io_tech_request_context.
+    lv_action = to_upper( lo_context->mv_function_import ).
+    IF lo_context->mv_entity_set IS NOT INITIAL AND lv_action IS NOT INITIAL.
+      ls_entity = entity_of( lo_context->mv_entity_set ).
+      li_behavior = behavior_of( ls_entity ).
+    ENDIF.
+    IF li_behavior IS BOUND.
+      lt_actions = li_behavior->actions( ls_entity-name ).
+      READ TABLE lt_actions TRANSPORTING NO FIELDS WITH KEY table_line = lv_action.
+      IF sy-subrc <> 0.
+        CLEAR li_behavior.
+      ENDIF.
+    ENDIF.
+    IF li_behavior IS NOT BOUND.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_not_impl_exc
+        EXPORTING
+          textid = /iwbep/cx_mgw_not_impl_exc=>method_not_implemented
+          method = 'SADL EXECUTE_ACTION'.
+    ENDIF.
+
+    lo_source = source_of( ls_entity ).
+    er_data = lo_source->create_line( ).
+    ASSIGN er_data->* TO <ls_row>.
+* the parameters name the key properties, spelled like the view's fields
+    LOOP AT lo_context->mt_parameter INTO ls_param.
+      ASSIGN COMPONENT to_upper( ls_param-name ) OF STRUCTURE <ls_row> TO <lv_value>.
+      IF sy-subrc = 0.
+        <lv_value> = ls_param-value.
+      ENDIF.
+    ENDLOOP.
+    li_behavior->execute( iv_entity = ls_entity-name
+                          iv_action = lv_action
+                          is_row    = <ls_row> ).
+    read_row( EXPORTING is_entity = ls_entity
+              CHANGING  cs_row    = <ls_row> ).
+  ENDMETHOD.
+
+  METHOD behavior_of.
+    DATA lv_class TYPE string.
+
+* by name: the RAP runtime is a package of its own
+    lv_class = 'ZCL_OSD_RAP_SADL'.
+    TRY.
+        CREATE OBJECT ri_behavior TYPE (lv_class).
+      CATCH cx_sy_create_object_error.
+        RETURN.
+    ENDTRY.
+    IF ri_behavior->handles( is_entity-name ) = abap_false.
+      CLEAR ri_behavior.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD payload_fields.
+    DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
+    DATA ls_field    TYPE zcl_stg_cds_registry=>ty_field.
+
+    TRY.
+        lo_provider ?= io_data_provider.
+        rt_fields = lo_provider->fields( ).
+      CATCH cx_sy_move_cast_error.
+* another provider: every field counts as given
+        LOOP AT is_entity-fields INTO ls_field.
+          APPEND to_upper( ls_field-name ) TO rt_fields.
+        ENDLOOP.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD replaces.
+    DATA lo_provider TYPE REF TO zcl_stg_entry_provider.
+
+* another provider: every field counts as given (payload_fields), which
+* replaces the entity whichever this flag says
+    TRY.
+        lo_provider ?= io_data_provider.
+        IF lo_provider->merges( ) = abap_false.
+          rv_replace = abap_true.
+        ENDIF.
+      CATCH cx_sy_move_cast_error.
+        rv_replace = abap_true.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD read_row.
+    DATA lo_source  TYPE REF TO zif_stg_cds_source.
+    DATA ls_field   TYPE zcl_stg_cds_registry=>ty_field.
+    DATA lt_key     TYPE /iwbep/t_mgw_name_value_pair.
+    DATA ls_key     TYPE /iwbep/s_mgw_name_value_pair.
+    DATA lt_orderby TYPE string_table.
+    DATA lr_data    TYPE REF TO data.
+    FIELD-SYMBOLS <lv_value> TYPE any.
+    FIELD-SYMBOLS <lt_data>  TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_found> TYPE any.
+
+    LOOP AT is_entity-fields INTO ls_field WHERE is_key = abap_true.
+      ASSIGN COMPONENT ls_field-name OF STRUCTURE cs_row TO <lv_value>.
+      IF sy-subrc = 0.
+        ls_key-name  = ls_field-name.
+        ls_key-value = <lv_value>.
+        APPEND ls_key TO lt_key.
+      ENDIF.
+    ENDLOOP.
+    lo_source = source_of( is_entity ).
+    lr_data = lo_source->read( iv_where   = key_where( lt_key )
+                               it_orderby = lt_orderby ).
+    ASSIGN lr_data->* TO <lt_data>.
+    calculate_virtual( EXPORTING is_entity = is_entity
+                       CHANGING  ct_data   = <lt_data> ).
+    READ TABLE <lt_data> INDEX 1 ASSIGNING <ls_found>.
+    IF sy-subrc = 0.
+      cs_row = <ls_found>.
+    ENDIF.
   ENDMETHOD.
 
   METHOD if_sadl_gw_dpc~get_is_conditional_implemented.

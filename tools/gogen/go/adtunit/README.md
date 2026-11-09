@@ -16,7 +16,7 @@ The host supplies:
   by `tools/gogen/osgo-adt-unit.mjs`. Each has its methods and lines, and
   closures for class setup and teardown and for a new instance.
 - `Executor`: `Begin` isolates one test class (osgo: a fresh `abap.Session`
-  on a copy of the seed database, `abap.IsolateDB`). `Catch` turns a panic
+  that owns a copy of the seed database, `Session.OpenUnitDB`). `Catch` turns a panic
   into an `Alert`: failedAssertion, exception or shortDump, with ABAP stack
   frames.
 - `Live`: whether the class is still the source the binary was built from.

@@ -14,7 +14,11 @@ OUTLINE outside it. A concurrent WRITE, SetStore or SetCompiler rejects the
 answer as STALE_RESULT; saved target bytes are rechecked after the call too.
 `storecompiler.Adapter` supplies snapshots to the lifecycle-owning client.
 CHECKRUN uses Node's shared report builder, including AMDP portability warnings,
-and ignores optional includes for saved-source syntax checks. Standalone CHECK
+and ignores optional includes for saved-source syntax checks. READ of a FUGR
+with an IV_INCLUDE reads the group's part of that program name,
+`<group>.fugr.<part>.abap` beside the XML (the main program SAPL<group>, the
+TOP and other includes, each module), as `osd-store.mjs read` does; an absent
+part is NOT_FOUND. Standalone CHECK
 and PARSE refusals remain unchanged. IV_SOURCE still requires a saved draft on
 the default Go snapshot path; `tools/gogen/storecmp.mjs` ratchets that contract-v1 gap.
 The opt-in ABAP lint provider accepts CHECKRUN SOURCE, including an absent object

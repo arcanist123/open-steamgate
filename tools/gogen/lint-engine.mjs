@@ -51,7 +51,9 @@ export async function lintBuildSpec(root) {
 }
 
 // Typed calls stay in package main beside the generated ABAP classes.
-export function lintEngineGo(spec) {
+// field: how the emitter spells a field of a generated structure (exported
+// in a layered build, osgo-layers.mjs)
+export function lintEngineGo(spec, field = (name) => name) {
   if (!spec) return "package main\n// ABAP lint not requested in this build.\n";
   return `package main
 import (
@@ -69,7 +71,7 @@ func newLintEngine() storelint.Engine {
   Prime: func(files []objstore.LintFile, config string) {
    input := make([]ZCL_OSD_LINT_ENGINE__TY_FILE, 0, len(files))
    deps := []ZCL_OSD_LINT_ENGINE__TY_FILE{}
-   for _, f := range files { input = append(input, ZCL_OSD_LINT_ENGINE__TY_FILE{filename: f.Filename, raw: f.Raw}) }
+   for _, f := range files { input = append(input, ZCL_OSD_LINT_ENGINE__TY_FILE{${field("filename")}: f.Filename, ${field("raw")}: f.Raw}) }
    ZCL_OSD_LINT_ENGINE_PRIME(s, &input, &deps, config)
   },
   Update: func(target string, raw *string) {
@@ -80,13 +82,13 @@ func newLintEngine() storelint.Engine {
   Check: func(target string) []storelint.Issue {
    issues := ZCL_OSD_LINT_ENGINE_CHECK(s, target)
    out := make([]storelint.Issue, 0, len(issues))
-   for _, i := range issues { out = append(out, storelint.Issue{Filename: i.filename, Key: i.key, Message: i.message, Row: i.start_row, Column: i.start_col}) }
+   for _, i := range issues { out = append(out, storelint.Issue{Filename: i.${field("filename")}, Key: i.${field("key")}, Message: i.${field("message")}, Row: i.${field("start_row")}, Column: i.${field("start_col")}}) }
    return out
   },
   Stats: func() storelint.Stats {
    r := ZCL_OSD_LINT_ENGINE_STATS(s)
-   return storelint.Stats{Updates: r.updates, Noops: r.noops, IndexedObjects: r.indexed_objects,
-    ReaderVisits: r.reader_visits, DirtiedObjects: r.dirtied_objects, ParseRuns: r.parse_runs, ParseObjects: r.parse_objects}
+   return storelint.Stats{Updates: r.${field("updates")}, Noops: r.${field("noops")}, IndexedObjects: r.${field("indexed_objects")},
+    ReaderVisits: r.${field("reader_visits")}, DirtiedObjects: r.${field("dirtied_objects")}, ParseRuns: r.${field("parse_runs")}, ParseObjects: r.${field("parse_objects")}}
   },
  }
 }

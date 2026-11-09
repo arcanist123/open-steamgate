@@ -27,5 +27,5 @@
   ],
   "set": "src/l2demo/fleet2.l3.yaml",
   "template": "tools/stg-compile.mjs",
-  "templates": {"tools/stg-compile.mjs": "sha256:e0b363c09218a17d9fd9166e059ef896d1a92a3bfb32e2576218fb743a26270e"}
+  "templates": {"tools/stg-compile.mjs": "sha256:0a3bb2f15d721287c8cefed7a70be11a9db5ca2c7c9bb1037b177f0aff557ab6"}
 }

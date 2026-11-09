@@ -110,7 +110,7 @@ export function compileOsg({extraFolders = [], includeTests = new Set()} = {}) {
  * Rows of a table this program has no definition for (a pack's) are left out,
  * and said so in the summary.
  */
-export async function osgDatabase(program) {
+export async function osgDatabase(program, options = {}) {
   const {DatabaseSetup} = await import(`${home}/node_modules/@abaplint/transpiler/build/src/db/index.js`);
   assertTableFieldsTyped(program.reg);
   const setup = new DatabaseSetup(program.reg).run();
@@ -126,8 +126,20 @@ export async function osgDatabase(program) {
     skipped.set(t, (skipped.get(t) ?? 0) + 1);
     return false;
   });
-  const summary = `database: ${created.size} tables and views, ${kept.length} inserts${skipped.size ? `; left out, no table in this program: ${[...skipped].map(([t, n]) => `${t} (${n})`).join(", ")}` : ""}`;
-  return {statements: [...setup.schemas.sqlite, ...kept], summary};
+  // the cross-reference the Node hosts seed at start (tools/osd-xref-seed.mjs,
+  // CROSS / WBCROSSGT / WBCROSSGTX / D010INC derived from the tree), here
+  // once at build time, so where-used and the main programs of an include
+  // answer on osgo as they do on Node; only the tables this program defines
+  const {rows: xrefRows, insertStatements: xrefInserts, counts: xrefCounts} = await import(`${home}/tools/osd-xref-seed.mjs`);
+  // options.xref: rows the caller has already (the osgo fast path's, osgo-fast.mjs)
+  const xref = options.xref ?? await xrefRows(home);
+  const xrefStatements = xrefInserts(xref).filter((x) => {
+    const t = /^(?:INSERT\s+INTO|DELETE\s+FROM)\s+['"]?([\w\/]+)/i.exec(x)?.[1]?.toLowerCase();
+    return t !== undefined && created.has(t);
+  });
+  const xrefSummary = Object.entries(xrefCounts(xref)).map(([t, n]) => `${t} ${n}`).join(", ");
+  const summary = `database: ${created.size} tables and views, ${kept.length} inserts${skipped.size ? `; left out, no table in this program: ${[...skipped].map(([t, n]) => `${t} (${n})`).join(", ")}` : ""}; cross-reference: ${xrefSummary}`;
+  return {statements: [...setup.schemas.sqlite, ...kept, ...xrefStatements], summary};
 }
 
 /*

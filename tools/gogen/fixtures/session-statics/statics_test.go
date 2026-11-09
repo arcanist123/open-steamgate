@@ -110,11 +110,12 @@ func (h *counterHost) Drain(s *abap.Session) []string {
 	return []string{text}
 }
 func TestHostStaticsAcrossRequests(t *testing.T) {
+	instance := abap.NewInstance(nil)
 	abap.WorkProcess.Lock()
-	ZCL_RACE_COUNTER_RESET(&abap.Session{Statics: abap.ProcessStatics})
+	ZCL_RACE_COUNTER_RESET(instance.NewSession())
 	abap.WorkProcess.Unlock()
 	closed := make(chan chan struct{}, 2)
-	channel := &apc.Channel{Name: "counter", New: func(s *abap.Session, r *http.Request) apc.Host {
+	channel := &apc.Channel{Name: "counter", NewSession: instance.NewSession, New: func(s *abap.Session, r *http.Request) apc.Host {
 		h := &counterHost{count: ZCL_RACE_COUNTER_INCREMENT(s), closed: make(chan struct{})}
 		closed <- h.closed
 		return h

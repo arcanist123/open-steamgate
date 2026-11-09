@@ -57,6 +57,15 @@ jobs:
         profile: [core, showcase]
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-latest' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 90
+    # A throwaway registry on the runner, so the read-only matrix runs the same
+    # push-by-digest, pull and verify-pushed.sh sequence as `publish` without
+    # GHCR: a dry run proves the publish legs' identity check on each runner
+    # image before a release depends on it.
+    services:
+      registry:
+        image: registry:2.8.3
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@v4
       - name: Validate documentation and Compose
@@ -64,12 +73,18 @@ jobs:
           ACCEPT_SAP_LICENSE: 'YES' # compose config only; CI does not start HXE
         run: |
           node scripts/sync-spin.mjs --check
-          node --test docker/image/free-instance.test.mjs docker/image/terminal-svg.test.mjs docker/image/packs.test.mjs docker/image/readiness.test.mjs
+          node --test docker/image/free-instance.test.mjs docker/image/terminal-svg.test.mjs docker/image/packs.test.mjs docker/image/readiness.test.mjs docker/image/verify-pushed.test.mjs
           for db in sqlite duckdb hana postgres; do
             docker compose -f "docker/compose.$db.yml" config --quiet
           done
       # Native runners only. No QEMU or binfmt registration is needed.
       - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."localhost:5000"]
+              http = true
+              insecure = true
       - name: Build the profile for its native platform
         env:
           PROFILE: ${{ matrix.profile }}
@@ -80,6 +95,16 @@ jobs:
           docker buildx build --platform "$PLATFORM" --provenance=false --load --tag osd:ci \
             --build-arg OSD_IMAGE_REVISION="$GITHUB_SHA" --build-arg OSD_IMAGE_PACKS="$packs" \
             -f docker/image/Dockerfile .
+          # The publish identity check, against the local registry (cached build).
+          registry=localhost:5000/osd
+          docker buildx build --platform "$PLATFORM" --provenance=false \
+            --build-arg OSD_IMAGE_REVISION="$GITHUB_SHA" --build-arg OSD_IMAGE_PACKS="$packs" \
+            --output "type=image,name=$registry,push=true,push-by-digest=true,name-canonical=true,registry.insecure=true" \
+            --metadata-file image-metadata.json -f docker/image/Dockerfile .
+          digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' image-metadata.json)"
+          docker pull "$registry@$digest"
+          docker tag "$registry@$digest" osd:pushed
+          bash docker/image/verify-pushed.sh "$registry" "$digest" osd:pushed "$PLATFORM" "$GITHUB_SHA"
           test "$(docker image inspect --format '{{.Architecture}}' osd:ci)" = "${PLATFORM#linux/}"
           node_arch="${PLATFORM#linux/}"
           if [[ "$node_arch" == amd64 ]]; then node_arch=x64; fi
@@ -107,7 +132,33 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: image-acceptance/
-      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+      # The action downloads syft from GitHub releases on every run, and a
+      # release-asset 504 ("failed to install syft", 2026-11-08 and the
+      # vscode-v0.7.2354 tag) failed a publish leg after its image had passed
+      # every check. Two more attempts after a pause; the SBOM stays required.
+      - id: sbom1
+        continue-on-error: true
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: osd:ci
+          output-file: osd.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - if: steps.sbom1.outcome == 'failure'
+        run: sleep 60
+      - id: sbom2
+        if: steps.sbom1.outcome == 'failure'
+        continue-on-error: true
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: osd:ci
+          output-file: osd.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - if: steps.sbom2.outcome == 'failure'
+        run: sleep 180
+      - if: steps.sbom2.outcome == 'failure'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
           image: osd:ci
           output-file: osd.spdx.json
@@ -143,7 +194,7 @@ jobs:
           ACCEPT_SAP_LICENSE: 'YES' # compose config only; CI does not start HXE
         run: |
           node scripts/sync-spin.mjs --check
-          node --test docker/image/free-instance.test.mjs docker/image/terminal-svg.test.mjs docker/image/packs.test.mjs docker/image/readiness.test.mjs
+          node --test docker/image/free-instance.test.mjs docker/image/terminal-svg.test.mjs docker/image/packs.test.mjs docker/image/readiness.test.mjs docker/image/verify-pushed.test.mjs
           for db in sqlite duckdb hana postgres; do
             docker compose -f "docker/compose.$db.yml" config --quiet
           done
@@ -199,7 +250,33 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
           path: image-acceptance/
-      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+      # The action downloads syft from GitHub releases on every run, and a
+      # release-asset 504 ("failed to install syft", 2026-11-08 and the
+      # vscode-v0.7.2354 tag) failed a publish leg after its image had passed
+      # every check. Two more attempts after a pause; the SBOM stays required.
+      - id: sbom1
+        continue-on-error: true
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: osd:ci
+          output-file: osd.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - if: steps.sbom1.outcome == 'failure'
+        run: sleep 60
+      - id: sbom2
+        if: steps.sbom1.outcome == 'failure'
+        continue-on-error: true
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          image: osd:ci
+          output-file: osd.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - if: steps.sbom2.outcome == 'failure'
+        run: sleep 180
+      - if: steps.sbom2.outcome == 'failure'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610
         with:
           image: osd:ci
           output-file: osd.spdx.json
@@ -221,12 +298,10 @@ jobs:
         run: |
           registry="ghcr.io/${GITHUB_REPOSITORY,,}"
           digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' image-metadata.json)"
-          tested_id="$(docker image inspect --format '{{.Id}}' osd:ci)"
-          pushed_id="$(docker buildx imagetools inspect "$registry@$digest" --raw | jq -er '.config.digest')"
-          test "$tested_id" = "$pushed_id"
-          docker buildx imagetools inspect "$registry@$digest" --format '{{json .Image}}' > pushed-image.json
-          test "$(jq -r '.os + "/" + .architecture' pushed-image.json)" = "$PLATFORM"
-          test "$(jq -r '.config.Labels["org.opencontainers.image.revision"]' pushed-image.json)" = "$GITHUB_SHA"
+          # Image store aware: Docker 29's containerd store (ubuntu-26.04)
+          # reports the manifest digest as the image ID, the classic store
+          # the config digest. See the script's header.
+          bash docker/image/verify-pushed.sh "$registry" "$digest" osd:ci "$PLATFORM" "$GITHUB_SHA"
           mkdir -p digests
           touch "digests/${digest#sha256:}"
       - uses: actions/upload-artifact@v4

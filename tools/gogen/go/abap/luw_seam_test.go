@@ -7,14 +7,19 @@ import (
 	"osg/gogen/hostclass"
 )
 
+// The database commits before the host's lock hook runs (GeneratedCommitWork),
+// and the order is load-bearing: the hook hands the LUW's locks over
+// (adtlock.Host.Commit: Commit, then UpdateDone at once, the update being
+// inline), and the gateway's lock server releases a dead sidecar's locks on
+// the strength of it (go/enqnet, InlineUpdates). A crash before the commit
+// leaves no rows; a crash after it leaves durable rows whose locks go after
+// them. Turned round, a crash between the two would free the locks of rows
+// not yet written. Do not loosen this test.
 func TestGeneratedLUWDatabaseOrder(t *testing.T) {
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db.Close(); db = nil; tx = nil; hostclass.LUW.Commit = nil; hostclass.LUW.Rollback = nil }()
-	s := &Session{}
+	_, s := openTestDB(t, `["CREATE TABLE t (id TEXT)"]`)
+	defer func() { hostclass.LUW.Commit = nil; hostclass.LUW.Rollback = nil }()
 	rows := func() int {
-		r, err := conn().Query("SELECT COUNT(*) FROM t")
+		r, err := s.conn().Query("SELECT COUNT(*) FROM t")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -26,12 +31,12 @@ func TestGeneratedLUWDatabaseOrder(t *testing.T) {
 		}
 		return n
 	}
-	DialogStep(func() {
-		conn().Exec("INSERT INTO t VALUES ('A')")
-		old := tx
+	DialogStep(s, func() {
+		s.conn().Exec("INSERT INTO t VALUES ('A')")
+		old := s.tx
 		s.UpdateTask = true
 		hostclass.LUW.Commit = func(step any, u bool) error {
-			if step != any(s) || !u || s.UpdateTask || tx == old {
+			if step != any(s) || !u || s.UpdateTask || s.tx == old {
 				t.Fatal("commit hook preceded database commit/reset")
 			}
 			RollbackWork(s)
@@ -41,11 +46,11 @@ func TestGeneratedLUWDatabaseOrder(t *testing.T) {
 			return nil
 		}
 		GeneratedCommitWork(s)
-		conn().Exec("INSERT INTO t VALUES ('B')")
-		old = tx
+		s.conn().Exec("INSERT INTO t VALUES ('B')")
+		old = s.tx
 		s.UpdateTask = true
 		hostclass.LUW.Rollback = func(step any) error {
-			if step != any(s) || s.UpdateTask || tx == old || rows() != 1 {
+			if step != any(s) || s.UpdateTask || s.tx == old || rows() != 1 {
 				t.Fatal("rollback hook preceded database rollback/reset")
 			}
 			return nil

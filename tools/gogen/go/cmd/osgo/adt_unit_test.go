@@ -49,7 +49,7 @@ func TestBeginIsolatesAndEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	// the unit LUW holds the one connection: write through the step's transaction
-	if _, err := abap.StepQuerier().(interface {
+	if _, err := step.(*abap.Session).StepQuerier().(interface {
 		Exec(string, ...any) (sql.Result, error)
 	}).Exec(`INSERT INTO t VALUES ('x')`); err != nil {
 		t.Fatal(err)

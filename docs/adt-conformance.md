@@ -18,7 +18,17 @@ through the tables collection, repository type structure, virtual folder
 facets and contents), P1-P5 (SQL console with a row limit, its refusal of a
 write, its syntax check, table preview metadata and F8 rows) and A1 (the
 inactive-objects feed). They pass on JS and on osgo, where the preview runs
-through `go/adtpreview` and the feed through `go/adtread`. The CDS preview
+through `go/adtpreview` and the feed through `go/adtread`.
+
+`cases/families.mjs` holds the families ABAP-FS missed on both hosts
+(docs/adt-abap-port/family-specs/functions-messages-xref.md): F1-F7 (a
+function group's document, main program, a module's document and source, an
+include's source, a 404 for a module the group lacks, the group's children in
+the tree), M1-M2 (a message class's document and its text form), I1 (the
+main program of an include, out of D010INC), N1-N3 (the program and include
+preflights), U1-U2 (where-used over WBCROSSGT, and a 404) and G1-G2 (core
+discovery with one collection per workspace, discovery grouped). They are
+ABAP on both hosts; osgo seeds the cross-reference tables at build. The CDS preview
 (`/datapreview/cds`) is not a case: on osgo it answers 501, because its
 metadata needs `PARSE` of a DDLS, and osgo's store parses OUTLINE only.
 
@@ -113,6 +123,16 @@ go/adtenq, the logoff mount, and PARSE OUTLINE through the compiler sidecar
 when CI provides `osd`): 17 pass, 6 known-gap with the observed first cause
 in `expected/osgo.json`, 0 fail. Without a sidecar the five outline cases
 fail: they expect passes, so a 501 refusal fails the ratchet.
+
+**Running the osgo kit locally: run the binary where it was built.** osgo finds
+the compiler sidecar through `OSGO_SIDECAR`, else `osd` beside its own
+executable (`tools/gogen/.out/osd`, written by `tools/abapfs-osgo.sh`). A copy of
+`tools/gogen/.out/osgo` taken elsewhere (to compare two builds, say) has no
+sidecar, and exactly the eight compiler-backed cases fail: X1, C9b, O1-O5 and
+W5. `-home` plays no part: measured 2026-11-09 at `bd8566cc`, in place 64/64
+with and without `-home`, the copy 56/8 with and without it, and the copy with
+`OSGO_SIDECAR=$PWD/tools/gogen/.out/osd` 64/64. With `-adt` the start-up log
+names the sidecar it found or says it is absent.
 
 `expected/osgo.json` maps every ID to `pass`, `known-gap: reason` or `n/a: reason`.
 Unknown IDs, missing entries and invalid values are errors. JS cannot supply a
