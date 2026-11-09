@@ -32,7 +32,7 @@
 // which are the same bytes either way. Nothing is written under build/: the
 // Node host never sees a generation it did not build.
 import {createHash} from "node:crypto";
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join, relative, resolve} from "node:path";
 
 const AMDP = /BY\s+DATABASE\s+(PROCEDURE|FUNCTION)/i;
@@ -109,4 +109,99 @@ function beforeOf(root, generation, key, digest, snapshotPath) {
     if (sha(bytes) === digest) return bytes.toString("utf8");
   }
   return undefined;
+}
+
+/**
+ * The store's view of a fast build (store.mjs `edited`): each edited file is
+ * active as it is now, from a copy of its bytes under `outDir`, keyed by
+ * digest, where a full build's snapshot would have put it.
+ * @param {string} root
+ * @param {string[]} changed root-relative files (fastProof)
+ * @param {string} outDir where the copies go (inside root)
+ */
+export function fastStoreEdits(root, changed, outDir) {
+  const edited = new Map();
+  mkdirSync(outDir, {recursive: true});
+  for (const file of changed) {
+    const bytes = readFileSync(join(root, file));
+    const digest = sha(bytes);
+    const copy = join(outDir, digest);
+    if (!existsSync(copy)) writeFileSync(copy, bytes);
+    edited.set(file, {digest, path: relative(root, copy).replaceAll("\\", "/")});
+  }
+  return edited;
+}
+
+/**
+ * The cross-reference rows of a fast build without parsing the tree: the
+ * live generation's rows (build/xref, keyed as osd-xref-seed.mjs keys them)
+ * with the rows of each edited object derived again from its own files.
+ * Every row names its object (INCLUDE, or MASTER for D010INC), the rows of
+ * one object are contiguous in each table, and what an object's rows say
+ * depends on its own statements and on the set of object names, which the
+ * fast case does not change -- so the block is replaced where it was.
+ * undefined when the live rows are not cached or an edited object had no
+ * row in a table it now has rows in (its place is not known): the caller
+ * parses the tree as before.
+ * @param {string} root
+ * @param {{base: string, changed: string[]}} proof
+ * @param {{tools?: string}} [options]
+ */
+export async function fastXrefRows(root, proof, options = {}) {
+  const tools = options.tools ?? join(root, "tools");
+  const {cacheKey, wellFormed, TABLES} = await import(`${tools}/osd-xref-seed.mjs`);
+  const key = await cacheKey(root, {hash: proof.base});
+  if (key === undefined) return undefined;
+  let rows;
+  try { rows = JSON.parse(readFileSync(join(root, "build", "xref", `${key}.json`), "utf8")); } catch { return undefined; }
+  if (!wellFormed(rows)) return undefined;
+  const {ObjectStore, INCLUDES} = await import(`${tools}/osd-store.mjs`);
+  const {configuredRegistry} = await import(`${tools}/osd-store-registry.mjs`);
+  const {CrossReference} = await import(`${tools}/osd-xref.mjs`);
+  const abaplint = await import(`${root}/node_modules/@abaplint/core/build/src/index.js`);
+  const store = new ObjectStore({root});
+  const objects = new Map();
+  for (const file of proof.changed) {
+    const m = /([^/]+)\.(clas|intf)(\.[a-z_]+)?\.abap$/i.exec(file);
+    if (!m) return undefined;
+    const type = m[2].toUpperCase() === "CLAS" ? "CLAS" : "INTF";
+    const name = m[1].replace(/#/g, "/").toUpperCase();
+    objects.set(`${type} ${name}`, {type, name});
+  }
+  const registry = configuredRegistry(store).registry;
+  for (const {type, name} of objects.values()) {
+    const entry = store.find(type, name);
+    if (entry === undefined) return undefined;
+    const files = type === "CLAS" ? [entry.file, ...Object.values(INCLUDES).filter(Boolean).map((s) => entry.file.replace(/\.clas\.abap$/, s))] : [entry.file];
+    for (const file of new Set([...files, entry.file.replace(/\.abap$/, ".xml")])) {
+      if (existsSync(join(root, file))) registry.addFile(new abaplint.MemoryFile("/" + file, readFileSync(join(root, file), "utf8")));
+    }
+  }
+  registry.parse();
+  const xref = new CrossReference(undefined, registry);
+  // the names of the whole tree, as a full build sees them
+  const TYPE_OBJECTS = new Set(["CLAS", "INTF", "TABL", "DTEL", "DOMA", "TTYP", "VIEW", "DDLS"]);
+  xref.byName = new Map(store.list().filter((o) => TYPE_OBJECTS.has(o.type)).map((o) => [o.name, o.type]));
+  const fresh = xref.build([...objects.values()]).tables();
+  const fresher = {CROSS: fresh.cross, WBCROSSGT: fresh.wbcrossgt, WBCROSSGTX: fresh.wbcrossgtx, D010INC: fresh.d010inc};
+  const out = {};
+  for (const table of TABLES) {
+    const owner = (row) => (table === "D010INC" ? row.MASTER : row.INCLUDE);
+    let list = rows[table];
+    for (const {name} of objects.values()) {
+      const at = list.findIndex((row) => owner(row) === name);
+      const mine = fresher[table].filter((row) => owner(row) === name);
+      if (at < 0) {
+        if (mine.length > 0) return undefined;
+        continue;
+      }
+      const end = at + list.slice(at).findIndex((row) => owner(row) !== name);
+      const stop = end < at ? list.length : end;
+      // contiguous, or the premise does not hold
+      if (list.slice(stop).some((row) => owner(row) === name)) return undefined;
+      list = [...list.slice(0, at), ...mine, ...list.slice(stop)];
+    }
+    out[table] = list;
+  }
+  return out;
 }

@@ -115,7 +115,15 @@ if (echo) {
   phase("front end");
   unit = unitClasses(program, owners);
   console.log(`ABAP Unit: ${unit.classes.length} test classes of ${owners.length} owners (${owners.join(", ") || "none"})${unit.missing.length ? `; left out: ${unit.missing.join("; ")}` : ""}`);
-  const db = await osgDatabase(program);
+  // the fast path: the live generation's cross-reference with the edited
+  // objects' rows derived again, instead of a parse of the tree
+  let xref;
+  if (fastInfo?.ok) {
+    const {fastXrefRows} = await import("./osgo-fast.mjs");
+    xref = await fastXrefRows(home, fastInfo);
+    console.log(`osgo fast: cross-reference ${xref ? "from the live generation's rows" : "parsed (no live rows to start from)"}`);
+  }
+  const db = await osgDatabase(program, {xref});
   statements = db.statements;
   console.log(db.summary);
   // SMW0: the W3MI objects of the layers (the BSP apps' pages among them)
@@ -161,7 +169,9 @@ if (echo) {
   }
   // DESTINATION 'STORE' over the files of the tree (go/objstore)
   const {storeConfig} = await import("./store.mjs");
-  const cfg = await storeConfig(home);
+  // the fast path: the edited files are active as they are now (osgo-fast.mjs)
+  const edited = fastInfo?.ok ? (await import("./osgo-fast.mjs")).fastStoreEdits(home, fastInfo.changed, join(here, ".out", "osgo-active")) : undefined;
+  const cfg = await storeConfig(home, {edited});
   store = JSON.stringify(cfg);
   console.log(`store: ${cfg.roots.length} roots, ${cfg.libs.length} libraries (${cfg.libs.reduce((n, l) => n + l.files.length, 0)} files), ${Object.keys(cfg.built).length} files of this generation`);
   const {tilesOf, webappsOf} = await import(`${home}/tools/osd-packs.mjs`);
