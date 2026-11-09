@@ -1,6 +1,7 @@
 package osgw
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"flag"
@@ -76,6 +77,28 @@ func fakeSidecar() {
 	mux.HandleFunc("/logoff", func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "SAP_SESSIONID_OSD_001", Value: "", Path: "/", MaxAge: -1})
 		io.WriteString(w, "out")
+	})
+	mux.HandleFunc("/body", func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		fmt.Fprintf(w, "%s %d %q %q", r.Method, r.ContentLength, r.Header.Get("Expect"), b)
+	})
+	mux.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
+		for i := 0; i < 3; i++ {
+			fmt.Fprintf(w, "part%d;", i)
+			w.(http.Flusher).Flush()
+		}
+	})
+	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, rw, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+		rw.Flush()
+		line, _ := rw.ReadString('\n')
+		rw.WriteString("echo " + line)
+		rw.Flush()
 	})
 	mux.HandleFunc("/echo", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"host": r.Host, "xff": r.Header.Values("X-Forwarded-For"),
@@ -310,5 +333,64 @@ func TestStartFailure(t *testing.T) {
 	_, err := Start(context.Background(), Options{Binary: exe, Args: []string{"-unknown"}, StartTimeout: 10 * time.Second})
 	if err == nil || !strings.Contains(err.Error(), "exited during its start") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// bodies, HEAD, Expect, a streamed answer and a WebSocket upgrade cross the
+// hop as they came (forward.go; the upgrade through ReverseProxy)
+func TestForwardShapes(t *testing.T) {
+	_, front := start(t, Options{})
+	post, _ := http.NewRequest("POST", front.URL+"/body", strings.NewReader("abc"))
+	post.Header.Set("Expect", "100-continue")
+	resp, err := http.DefaultClient.Do(post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != `POST 3 "" "abc"` {
+		t.Fatalf("POST: %s", b)
+	}
+	chunked, _ := http.NewRequest("PUT", front.URL+"/body", io.MultiReader(strings.NewReader("x"), strings.NewReader("yz")))
+	resp, err = http.DefaultClient.Do(chunked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(b) != `PUT -1 "" "xyz"` {
+		t.Fatalf("chunked PUT: %s", b)
+	}
+	head, _ := http.NewRequest("HEAD", front.URL+"/body", nil)
+	resp, err = http.DefaultClient.Do(head)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("HEAD: %v %v", resp, err)
+	}
+	resp.Body.Close()
+	if _, body := get(t, front.URL+"/stream"); body != "part0;part1;part2;" {
+		t.Fatalf("stream: %q", body)
+	}
+	// many requests over few connections: the pool reuses its connections
+	for i := 0; i < 50; i++ {
+		if resp, _ := get(t, front.URL+"/echo"); resp.StatusCode != 200 {
+			t.Fatal(resp.Status)
+		}
+	}
+	conn, err := net.Dial("tcp", strings.TrimPrefix(front.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprintf(conn, "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+	br := bufio.NewReader(conn)
+	status, _ := br.ReadString('\n')
+	if !strings.Contains(status, "101") {
+		t.Fatalf("upgrade: %q", status)
+	}
+	for line, _ := br.ReadString('\n'); line != "\r\n" && line != ""; line, _ = br.ReadString('\n') {
+	}
+	fmt.Fprintf(conn, "ping\n")
+	if line, _ := br.ReadString('\n'); line != "echo ping\n" {
+		t.Fatalf("over the upgraded connection: %q", line)
 	}
 }

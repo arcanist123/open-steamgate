@@ -4,9 +4,10 @@
 // started with -sidecar <dir> -- that it proxies every request to.
 //
 //   - Sockets: the gateway listens; the sidecar answers on a Unix socket in
-//     the gateway's directory (SidecarSocket). HTTP and WebSocket upgrades
-//     are proxied unchanged (no X-Forwarded-For, the Host kept, no
-//     transparent gzip), so an answer through the gateway is the sidecar's.
+//     the gateway's directory (SidecarSocket). A request crosses unchanged
+//     (forward.go; a WebSocket upgrade through httputil.ReverseProxy): no
+//     X-Forwarded-For, the Host kept, no transparent gzip, so an answer
+//     through the gateway is the sidecar's.
 //   - The lock table: one enq.Server, served on dir/enq.sock (the E3 socket,
 //     go/enqnet); every sidecar's ENQUEUE_* is a client of it, an owner
 //     is (generation, session, LUW). A sidecar that dies loses its sessions'
@@ -94,7 +95,8 @@ type sidecar struct {
 	replacement bool
 	cmd         *exec.Cmd
 	transport   *http.Transport
-	proxy       *httputil.ReverseProxy
+	proxy       *httputil.ReverseProxy // upgrades (and the readiness poll's transport)
+	pool        *pool                  // every other request (forward.go)
 	exited      chan struct{}
 	steps       atomic.Int64
 	info        info
@@ -205,6 +207,7 @@ func (g *Gateway) spawn(replacement bool) (*sidecar, error) {
 	g.table = append(g.table, sc)
 	g.mu.Unlock()
 	sock := SidecarSocket(g.dir, sc.PID)
+	sc.pool = &pool{sock: sock}
 	sc.transport = &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var d net.Dialer
@@ -304,6 +307,7 @@ func (g *Gateway) watch(sc *sidecar) {
 	g.mu.Unlock()
 	close(sc.exited)
 	sc.transport.CloseIdleConnections()
+	sc.pool.close()
 	_ = os.Remove(SidecarSocket(g.dir, sc.PID))
 	if stopping || planned || !served {
 		return
@@ -366,6 +370,9 @@ func isSessionCookie(name string) bool {
 
 func sessionKeys(r *http.Request) []string {
 	var keys []string
+	if len(r.Header["Cookie"]) == 0 {
+		return nil
+	}
 	for _, c := range r.Cookies() {
 		if isSessionCookie(c.Name) && c.Value != "" {
 			keys = append(keys, c.Name+"="+c.Value)
@@ -374,8 +381,23 @@ func sessionKeys(r *http.Request) []string {
 	return keys
 }
 
+// isUpgrade: a WebSocket handshake (RFC 6455 4.2.1)
+func isUpgrade(r *http.Request) bool {
+	for _, v := range r.Header.Values("Upgrade") {
+		for _, t := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(t), "websocket") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // pinFrom records the session a response opens (or forgets one it ends)
 func (g *Gateway) pinFrom(sc *sidecar, resp *http.Response) {
+	if len(resp.Header["Set-Cookie"]) == 0 {
+		return
+	}
 	for _, c := range resp.Cookies() {
 		if !isSessionCookie(c.Name) {
 			continue
@@ -410,7 +432,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer sc.steps.Add(-1)
 	// the sidecar's own header is the one that counts: it says which code ran
 	w.Header().Del("X-OSD-Generation")
-	sc.proxy.ServeHTTP(w, r)
+	if isUpgrade(r) {
+		sc.proxy.ServeHTTP(w, r)
+		return
+	}
+	if err := sc.pool.forward(w, r, func(resp *http.Response) { g.pinFrom(sc, resp) }); err != nil {
+		g.lostRequest(sc, w, r, err)
+	}
 }
 
 // Handler is the gateway's front door: the generation on every answer,

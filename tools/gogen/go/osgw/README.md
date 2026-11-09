@@ -24,11 +24,18 @@ public port.
 - **Sockets.** The gateway listens; the sidecar answers HTTP on
   `SidecarSocket(dir, pid)` (`<dir>/http-<pid>.sock`, one per process, so two
   sidecars of slice 4's swap never share one). Every request but `GET`/`HEAD
-  /osd/serving` is proxied with `httputil.ReverseProxy` over that socket:
-  WebSocket upgrades included, the `Host` kept, no `X-Forwarded-For` added,
-  no transparent gzip (`DisableCompression`), so the sidecar sees the request
-  as the client sent it and the client gets the sidecar's answer, its
-  `X-OSD-Generation` included.
+  /osd/serving` crosses to it: written by `forward.go` onto a pooled
+  connection and its answer copied back in the request's own goroutine
+  (hop-by-hop headers and `Expect` dropped, the `Host` kept, no
+  `X-Forwarded-For`, no `User-Agent` added, no transparent gzip, a body of
+  unknown length streamed and flushed as it comes, a request without a body
+  sent again once when a pooled connection turns out closed). A WebSocket
+  upgrade goes through `httputil.ReverseProxy`, which hands the connection
+  over. `httputil.ReverseProxy` for everything was the first version: its
+  `http.Transport` passes each answer between a read and a write goroutine,
+  and on the OData bench that hand-off (futex, scheduler) was a quarter of
+  the gateway's CPU. The sidecar sees the request as the client sent it, and
+  the client gets the sidecar's answer, its `X-OSD-Generation` included.
 - **The lock table.** One `enq.Server`, served on `LockSocket(dir)`
   (`<dir>/enq.sock`) by the E3 protocol of `go/enqnet`. osgo's
   `-sidecar` mode puts its ADT kernel, its step glue and the generated
