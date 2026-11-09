@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"osg/gogen/dbschema"
 )
 
 // a -db file is seeded once and marked; the same build takes it back as it
@@ -102,7 +104,7 @@ func TestOpenDBFileAdoptsLegacyMark(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fp, ok, err := stampOf(d.SQL()); !ok || err != nil || fp == "" {
+	if fp, ok, err := dbschema.StampOf(d.SQL()); !ok || err != nil || fp == "" {
 		t.Fatalf("adopted without a stamp: %q %v %v", fp, ok, err)
 	}
 	d.Close()

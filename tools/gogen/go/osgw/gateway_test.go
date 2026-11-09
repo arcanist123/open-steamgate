@@ -42,7 +42,16 @@ func fakeSidecar() {
 	fs := flag.NewFlagSet("fake", flag.ExitOnError)
 	dir := fs.String("sidecar", "", "")
 	fs.String("port", "", "")
+	candidate := fs.Bool("candidate", false, "")
+	builds := fs.Bool("gateway-builds", false, "")
 	fs.Parse(os.Args[1:])
+	if *candidate && os.Getenv("FAKE_REFUSE_SCHEMA") == "1" {
+		raw, _ := json.Marshal(Refusal{Why: "-db x was seeded by another build: the tables differ", Schema: true})
+		os.WriteFile(RefusedFile(*dir, os.Getpid()), raw, 0o600)
+		os.Exit(4)
+	}
+	var promoted atomic.Bool
+	promoted.Store(!*candidate)
 	gen := fakeGeneration
 	if v := os.Getenv("FAKE_GENERATION"); v != "" {
 		gen = v
@@ -67,6 +76,40 @@ func fakeSidecar() {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ready": true, "generation": gen, "root": "/tree", "database": ":memory:", "pid": os.Getpid()})
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if os.Getenv("FAKE_SMOKE_FAIL") == "1" {
+			w.WriteHeader(500)
+			return
+		}
+		io.WriteString(w, `{"status":"ready"}`)
+	})
+	mux.HandleFunc("/osd/promote", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || !*candidate {
+			w.WriteHeader(404)
+			return
+		}
+		if os.Getenv("FAKE_PROMOTE_FAIL") == "1" {
+			http.Error(w, "boot writes failed", 500)
+			return
+		}
+		promoted.Store(true)
+		io.WriteString(w, "promoted")
+	})
+	mux.HandleFunc("/promoted", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, promoted.Load()) })
+	// an activation that published: with a builder, the sidecar asks for a build
+	mux.HandleFunc("/activate", func(w http.ResponseWriter, r *http.Request) {
+		if *builds {
+			w.Header().Set("X-OSD-Build", "published; building")
+		} else {
+			w.Header().Set("X-OSD-Build", "published; rebuild osgo to run it")
+		}
+		io.WriteString(w, "activated")
+	})
+	mux.HandleFunc("/unlock", func(w http.ResponseWriter, r *http.Request) {
+		locks.Dequeue(sid, enq.Request{Client: "001", Table: "ZT", Mode: "E", Scope: 1,
+			Fields: []enq.Field{{Value: r.URL.Query().Get("k"), Length: 10}}})
+		io.WriteString(w, "unlocked")
 	})
 	mux.HandleFunc("/lock", func(w http.ResponseWriter, r *http.Request) {
 		res := locks.EnqueueWith(sid, enq.Request{Client: "001", Table: "ZT", Mode: "E", Scope: 1,
