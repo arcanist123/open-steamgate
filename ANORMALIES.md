@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-09-modify-in-loop-by-key -- `MODIFY itab FROM wa` inside a LOOP over itab no longer changes the row
+
+- Status: `workaround` (the L3 set template builds the dry report's rows into a new table instead of MODIFY in the loop; `recipes/l3-set/template.tpl`, `src/l2demo/zcl_l3_fleet2.clas.abap`)
+- Discovery date: `2026-11-09` (the first completed `tests` run of the 4c pin, job `suites (5)` of run 42629576810; reproduced locally on the pin)
+- Affected versions: `@abaplint/runtime` 2.14.14 onwards (upstream #2041, the same release as the FOR UPDATE refusal above); the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff` carries it
+- Affected ABAP statement, runtime API or adapter: `MODIFY itab FROM wa` without INDEX inside `LOOP AT itab`, `packages/runtime/src/statements/modify_internal.ts` with `packages/runtime/src/statements/read_table.ts` and `packages/runtime/src/primary_key.ts`
+- Minimal ABAP reproducer: a `STANDARD TABLE OF ty_rule WITH DEFAULT KEY` whose `status TYPE c LENGTH 16` is a character component (so it is part of the default key), then `LOOP AT lt INTO ls WHERE status = 'DONE'. ls-status = 'DRY'. MODIFY lt FROM ls. ENDLOOP.`
+- Exact command used to run it: `flock /tmp/osg-nov-heavy.lock npx mocha test/dsl-l3-resilience.mjs` -- "a dry run writes nothing and finalises nothing..." fails with `rules ["DONE","DONE",...]`
+- Expected SAP behaviour: inside a LOOP the work area overwrites the current row; no key search happens at all, so changing a key component of the work area still lands in the row the loop is on.
+- Actual open-abap behaviour: `modifyInternal` looks the row up by the table's primary key values taken from the work area (`readTable` with `from`), and since 2.14.14 it modifies that row in place or does nothing when the lookup misses. A `WITH DEFAULT KEY` table serialises as `keyFields: []`, which `primaryKeyValues` expands to every character-like component, `status` included; the loop has already written `DRY` there, so the lookup finds nothing and the statement is a silent no-op (`sy-subrc` 4). Up to 2.14.13 the same lookup missed too, but the old code then inserted the work area unconditionally, which for this loop shape produced the table the SAP rule expects.
+- Impact on open-steamgate: the L3 fleet's dry run reported every rule `DONE` instead of `DRY` (`test/dsl-l3-resilience.mjs`); a real dry run still wrote nothing, so the wrong statuses were the whole of it.
+- Smallest safe workaround: build the rows into a fresh table in the loop (`APPEND`) and assign it once, which both runtimes and a real system run the same way; no other in-tree shape MODIFYs an internal table from a loop while changing a key component (the rest are database-table MODIFYs, `MODIFY TABLE`, or carry INDEX).
+- Upstream issue: needs an issue in `abaplint/transpiler` (after the critic pass): the statement should modify the current row when it sits inside a LOOP over the table -- the loop index the runtime already tracks -- and only fall back to the key search outside a loop; the append-on-miss behaviour of 2.14.13 was itself not the SAP rule for sorted and hashed keys.
+- Regression-test location: `test/dsl-l3-resilience.mjs` ("a dry run writes nothing and finalises nothing, and its report holds what a real run writes; every row says DRY")
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-09-select-for-update-refused -- `SELECT SINGLE FOR UPDATE` stops with "not supported" since transpiler 2.14.14
 
 - Status: `workaround` (the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff`, commit `1ea248fd`, runs it as the plain SELECT again)

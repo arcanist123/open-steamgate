@@ -87,6 +87,17 @@ hex). This is how each was resolved:
 - **`SELECT SINGLE FOR UPDATE` is refused** (2.14.14 at transpile time, 2.14.15
   at run time). Handled by fork commit `1ea248fd` and an anomaly entry that
   says it needs an issue.
+- **`MODIFY itab FROM wa` inside a LOOP over the table no longer changes the
+  row.** The same upstream release (#2041) turned the statement into a
+  primary-key lookup that modifies in place or does nothing on a miss; a
+  `WITH DEFAULT KEY` table serialises as `keyFields: []`, which the runtime
+  expands to every character-like component, so once the loop has written
+  `DRY` into `status` the lookup cannot find the row any more. Up to 2.14.13
+  the missed lookup still inserted the work area, which landed on the SAP
+  answer for the one shape in tree that does this (the L3 dry report).
+  `ANOMALY-2026-11-09-modify-in-loop-by-key`; the L3 set template rebuilds the
+  rows into a fresh table instead (`recipes/l3-set/template.tpl`,
+  `src/l2demo/zcl_l3_fleet2.clas.abap`).
 - **EML lowering.** The `_eml_demo` exclusion is gone, and so is the matching
   filter in `test/rap-derived-types.mjs`.
 - **The upstream runtime changes from 2.14.3 to 2.14.19 come with the jump**,
@@ -147,7 +158,11 @@ on the EML demo (`Statement CommitEntities not supported`, then
   the cache identity and the `DatabaseSetup` import resolve
   `@abaplint/transpiler` and its `@abaplint/core` off `node_modules`.
 - `consumer-smoke` bootstrapped the runtime under test the same way; the
-  install step is now `npm ci`, the pin, then `npm run bootstrap`.
+  install step is now `npm ci`, the pin, then `npm run bootstrap`. Splitting
+  it into three bounded steps (10 + 15 + 10) pushed the sum of the step
+  bounds past the job budget, which the suites' budget test reads off the
+  workflow: the job timeout is 95 now and the test sums every step bound
+  instead of the first two (`test/consumer-smoke.mjs`).
 - `kernel-conformance` (tests.yml) already links the pinned build from the
   `built-tree` artifact; its failure was the stale inventory above, not a
   wrong transpiler.
