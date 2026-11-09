@@ -11,10 +11,19 @@ CLASS zcl_osd_v4_json DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS etag IMPORTING is_data TYPE any
       is_set TYPE zcl_stg_model_info=>ty_entity_set io_model TYPE REF TO zcl_osd_v4_model
       RETURNING VALUE(rv_etag) TYPE string.
-* The V4 key predicate of an entity, without the parentheses
+* The V4 key predicate of an entity, without the parentheses; a string value
+* is made fit for a URI by escape_key_value, the predicate's own characters
+* (the quotes, the = and , of a compound key) stay raw
     CLASS-METHODS key_predicate IMPORTING is_data TYPE any
       is_set TYPE zcl_stg_model_info=>ty_entity_set io_model TYPE REF TO zcl_osd_v4_model
       RETURNING VALUE(rv_key) TYPE string.
+* A string key value escaped for a URI: an ASCII byte keeps what
+* cl_http_utility=>escape_url wrote for it (kept set and lowercase hex), so
+* an ASCII key has the Location it always had; a character outside ASCII
+* becomes its UTF-8 bytes as %XX, because escape_url writes one % before all
+* bytes of a character, which no client decodes
+    CLASS-METHODS escape_key_value IMPORTING iv_value TYPE string
+      RETURNING VALUE(rv_value) TYPE string.
 * {"@odata.context":...} followed by the members of an entity object
     CLASS-METHODS document IMPORTING iv_context TYPE string iv_entity TYPE string
       RETURNING VALUE(rv_json) TYPE string.
@@ -197,7 +206,7 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
       IF ls_info-edm_type = 'Edm.String'.
         lv_text = <lv_value>.
         REPLACE ALL OCCURRENCES OF |'| IN lv_text WITH |''|.
-        lv_text = |'{ cl_http_utility=>escape_url( lv_text ) }'|.
+        lv_text = |'{ escape_key_value( lv_text ) }'|.
       ELSE.
         lv_text = value( iv_value = <lv_value> iv_type = ls_info-edm_type ).
         REPLACE ALL OCCURRENCES OF '"' IN lv_text WITH ''.
@@ -208,6 +217,48 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
       rv_key = rv_key && lv_sep && lv_text.
       lv_sep = ','.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD escape_key_value.
+    DATA lv_index TYPE i.
+    DATA lv_len   TYPE i.
+    DATA lv_size  TYPE i.
+    DATA lv_byte  TYPE i.
+    DATA lv_char  TYPE string.
+    DATA lv_unit  TYPE x LENGTH 2.
+    DATA lv_x     TYPE xstring.
+    DATA lv_hex   TYPE string.
+
+    lv_len = strlen( iv_value ).
+    WHILE lv_index < lv_len.
+      lv_size = 1.
+      lv_char = iv_value+lv_index(1).
+      IF lv_char CA 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-_()'.
+* the characters escape_url keeps
+        rv_value = rv_value && lv_char.
+      ELSE.
+        lv_unit = cl_abap_conv_out_ce=>uccp( lv_char ).
+        IF lv_unit < '0080'.
+* an ASCII byte: the escape escape_url writes, % and lowercase hex
+          rv_value = rv_value && '%' && to_lower( cl_abap_codepage=>convert_to( lv_char ) ).
+        ELSE.
+* a character outside the BMP is two UTF-16 units, a high and a low
+* surrogate: it is encoded as one code point, not as two halves
+          IF lv_unit >= 'D800' AND lv_unit <= 'DBFF' AND lv_index + 1 < lv_len.
+            lv_size = 2.
+            lv_char = iv_value+lv_index(2).
+          ENDIF.
+          lv_x = cl_abap_codepage=>convert_to( lv_char ).
+          lv_hex = lv_x.
+          lv_byte = 0.
+          WHILE lv_byte < strlen( lv_hex ).
+            rv_value = rv_value && '%' && lv_hex+lv_byte(2).
+            lv_byte = lv_byte + 2.
+          ENDWHILE.
+        ENDIF.
+      ENDIF.
+      lv_index = lv_index + lv_size.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD document.
