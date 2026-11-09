@@ -446,6 +446,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     DATA lr_entity TYPE REF TO data.
     DATA lr_row TYPE REF TO data.
     DATA lt_values TYPE zcl_osd_v4_provider=>ty_values.
+    DATA lt_nested TYPE tihttpnvp.
     DATA lt_keys TYPE /iwbep/t_mgw_name_value_pair.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA ls_entry TYPE ty_entry.
@@ -509,7 +510,11 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
         IF lv_body IS INITIAL.
           lv_body = '{}'.
         ENDIF.
-        lt_values = zcl_osd_v4_write=>values( iv_body = lv_body is_set = is_set io_model = io_model it_headers = it_headers ).
+        lt_values = zcl_osd_v4_write=>values( EXPORTING iv_body = lv_body is_set = is_set io_model = io_model it_headers = it_headers
+          IMPORTING et_nested = lt_nested ).
+        IF lt_nested IS NOT INITIAL.
+          zcl_osd_v4_query=>fail( iv_text = |{ gc_new } takes the key properties, not related entities| iv_status = 501 ).
+        ENDIF.
         lr_row = template( io_dpc = io_dpc io_query = io_query is_set = is_set ).
         ASSIGN lr_row->* TO <ls_row>.
         CREATE OBJECT lo_provider EXPORTING it_values = lt_values is_set = is_set.
@@ -598,6 +603,7 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
 
   METHOD patch.
     DATA lt_values TYPE zcl_osd_v4_provider=>ty_values.
+    DATA lt_nested TYPE tihttpnvp.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
     DATA lr_copy TYPE REF TO data.
     DATA lo_provider TYPE REF TO zcl_osd_v4_provider.
@@ -608,7 +614,12 @@ CLASS zcl_osd_v4_sticky IMPLEMENTATION.
     FIELD-SYMBOLS <lv_from> TYPE any.
     FIELD-SYMBOLS <lv_to> TYPE any.
 
-    lt_values = zcl_osd_v4_write=>values( iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers ).
+    lt_values = zcl_osd_v4_write=>values( EXPORTING iv_body = iv_body is_set = is_set io_model = io_model it_headers = it_headers
+      IMPORTING et_nested = lt_nested ).
+    IF lt_nested IS NOT INITIAL.
+      zcl_osd_v4_query=>fail( iv_text = 'A deep update of a session copy (related entities in a PATCH or PUT) is not implemented'
+        iv_status = 501 ).
+    ENDIF.
 * the session's copy carries the ETag it was started with (see Save)
     lv_etag = held( ir_buffer ).
     precondition( iv_held = lv_etag it_headers = it_headers ).

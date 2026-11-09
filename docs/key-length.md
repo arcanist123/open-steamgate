@@ -14,6 +14,7 @@ and `TravelCount?Status='A'''` (the value `A'`, `Status` is CHAR 1) counted the
 |---|---|---|
 | key predicate, V2 (GET, MERGE, PUT, DELETE, `$value`, navigation source, POST through navigation, `$batch` parts) | `zcl_stg_model_info=>check_keys` after `zcl_stg_url=>parse_keys` in `zcl_stg_dispatcher` | 400 `STG/VALUE_TOO_LONG` |
 | key predicate, V4 | the same `check_keys`, at the end of `zcl_osd_v4_query->read_keys` | 400 `STG/VALUE_TOO_LONG` |
+| key of a bound V4 operation, V4 function parameter (URL), V4 action parameter (body) | `check_keys` / `check_length` reached through `read_keys` and `zcl_osd_v4_action` (`url_parameters`, `body_parameters`) | 400 `STG/VALUE_TOO_LONG` |
 | function import parameter, V2 | `zcl_stg_model_info=>check_length` in `zcl_stg_dispatcher=>function_import` | 400 `STG/VALUE_TOO_LONG` |
 | `$filter` literal, V2 and V4 | none | the DPC's code: the demo's string ranges match no row, a CHAR range would cut it |
 
@@ -47,11 +48,11 @@ system; this is a read, never a write to another row.
 
 ## Not covered yet
 
-- V4 operations (functions and actions) are not on `main` yet; their
-  parameter binding should call `zcl_stg_model_info=>check_length` the same
-  way (PR #875, `zcl_osd_v4_action`). #875 also refuses an over-long V4 key
-  inside `read_keys` with 404; with this check in place that line is
-  redundant, and 400 is the answer to keep.
+- V4 operations were merged onto this check (#875 onto #889): the key of a
+  bound operation goes through `check_keys` in `read_keys` and every parameter
+  value through `check_length` in `zcl_osd_v4_action`, both 400. The separate
+  404 #875 had added inside `read_keys` for an over-long key was redundant
+  beside `check_keys` and is gone.
 - A property value in a V2 write body longer than MaxLength still goes to the
   entry provider as it is (V4 bodies are checked in `zcl_osd_v4_write`).
 - `/IWBEP/IF_MGW_REQ_FILTER~CONVERT_SELECT_OPTION` does not yet report

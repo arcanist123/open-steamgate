@@ -16,9 +16,10 @@ registry used by the server and preview.
 ## Served now
 
 Reads (GET, HEAD), reads through a navigation property, entity writes,
-ETags, JSON and multipart `$batch`, the MPC's vocabulary annotations and
-sticky-session editing, which is what a Fiori Elements V4 app needs (see the
-last sections). Responses carry
+deep insert, ETags, JSON and multipart `$batch`, the MPC's vocabulary
+annotations, sticky-session editing, which is what a Fiori Elements V4 app
+needs (see the last sections), the model's function imports as bound and
+unbound operations, options inside `$expand(...)` and `$search`. Responses carry
 `OData-Version: 4.0`. JSON uses
 `application/json;odata.metadata=minimal` with full `@odata.context` and
 `@odata.count` names for compatibility with 4.0 clients.
@@ -37,6 +38,11 @@ last sections). Responses carry
 | `TravelSet/$count?$filter=Status eq 'A'` | plain-text count of matching rows |
 | `TravelSet?$expand=to_Bookings` | navigation inlined as an array |
 | `BookingSet(...)?$expand=to_Travel` | navigation inlined as an object or `null` |
+| `TravelSet?$expand=to_Bookings($select=BookingId;$filter=...;$orderby=...;$top=1;$skip=1;$count=true)` | the options of the expanded collection; `to_Bookings@odata.count` before the array |
+| `BookingSet(...)?$expand=to_Travel($select=Description;$expand=to_Bookings)` | several levels, each with its own options |
+| `TravelSet?$select=TravelId,to_Bookings/Customer&$expand=to_Bookings` | a `$select` path through the expanded navigation |
+| `TravelSet?$search=Copenhagen`, `$search="to Aarhus"` | the DPC's `iv_search_string` of a searchable entity set |
+| `TravelCount(Status='A')`, `TravelSet('T0001')/ZSTG_DEMO_SRV.CancelTravel` | the model's function imports as a function import and a bound action (see Operations) |
 | `TravelSet('T0001')/to_Bookings?$count=true&$top=10` | the navigation target read through the DPC with the source key, query options on the target |
 | `BookingSet(...)/to_Travel` | a single-valued navigation; 204 when it leads nowhere |
 | `TravelSet('T0001')/to_Bookings/$count` | plain-text count of the related rows |
@@ -70,7 +76,9 @@ Numeric text backing an EDM number is normalized without a numeric cast, so
 leading zeros are removed without rounding Decimal or Int64 digits.
 Collections and navigation arrays have no `d`/`results` wrappers, and rows
 have no `__metadata` or deferred navigation links. `$select` applies to the
-outer entity; expanded entities contain their structural properties.
+outer entity; an expanded navigation contains the structural properties its
+own `$select` (inside the parentheses) or a `$select=nav/prop` path on the
+parent names, all of them otherwise.
 
 Keys and filters accept V4 literals such as `Day=2026-11-07`,
 `Guid=<32 hex digits, hyphenated 8-4-4-4-12>`, and
@@ -108,6 +116,108 @@ keys and bodies return 400; unknown services, sets and missing entities return
 unsupported operations/options return 501. The V4 handler catches provider exceptions using the existing error
 conventions (business failures 400, missing implementation 501, technical
 failures 500).
+
+## Expand options and $search
+
+`$expand=nav(option;option;...)` ([OData 4.01 Part 1, 11.2.5.2](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_SystemQueryOptionexpand))
+is read as a query of the target entity set with those options, so it has
+the same validation, the same `$filter` converter (and its 501s), the same
+`$orderby` through the DPC and the same facade paging as a request to that
+set: `$select`, `$filter`, `$orderby`, `$top`, `$skip`, `$count` (answered as
+`nav@odata.count`, counted before `$top`/`$skip`), `$search` and a nested
+`$expand`, to any depth. The target is read as before, through the DPC's
+`GET_ENTITYSET` / `GET_ENTITY` with the navigation path and the source
+key; the options travel in the request context. A single-valued navigation
+takes `$select` and `$expand` only (400 otherwise). `$select=nav/prop` on
+the parent selects `prop` in that expansion when the expansion has no
+`$select` of its own; `$select=nav` alone is accepted and changes nothing
+(minimal metadata carries no navigation links). The context URL names an
+expanded navigation with its selected properties,
+`$metadata#TravelSet(TravelId,to_Bookings(BookingId))`. `$expand=*`,
+`nav/nav` paths (type casts in 4.01) and `$levels` are 501; an unknown
+option inside the parentheses is 501 as on the collection.
+
+`$search=term` or `$search="a phrase"` ([Part 1, 11.2.5.6](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_SystemQueryOptionsearch))
+is handed to the DPC's `GET_ENTITYSET` as `iv_search_string`, which is what
+the V2 `search=` option does and what a SEGW DPC implements itself (the
+demo's Travel matches the id or the description, its value help the status
+text): **which properties are searched is the DPC's**, as on a Gateway. The
+model decides whether a set takes it: `set_has_ftxt_search` on the entity
+set (`sap:searchable`, `searchable: true` in a `stg.yaml` entity) and
+otherwise 501, which names the flag. The search expression grammar is not
+implemented: `AND`, `OR`, `NOT`, several terms or phrases answer 501; the
+DPC receives one term or one phrase (its quotes removed, `\"` and `\\`
+undone in one left-to-right pass). A phrase ends at its first unescaped
+quote: anything after it is 501, a phrase without its closing quote or with
+a backslash before anything but a quote or a backslash is 400. The term is
+data for the DPC: quotes, backslashes and JSON in it are never read as
+syntax, and a NUL is 400 like everywhere else. Inside `$expand(...)` it applies to the target set the same way.
+`$search` on a single entity is 400. A set the model does not mark
+searchable carries `Capabilities.SearchRestrictions/Searchable=false` in
+`$metadata`, which is what makes sap.fe leave out its search field.
+SADL/CDS sets have no search flag yet.
+
+## Operations
+
+The model's function imports are V4 operations ([Part 1, 11.5](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_Operations))
+in `$metadata` and on the wire, executed through the DPC's `execute_action`
+with the parameter table the V2 path builds. The kind follows the HTTP
+method of the function import: `GET` is a `<Function>`, anything else an
+`<Action>`. The binding follows SEGW's "Action for" (`set_action_for`;
+`for:` in a `stg.yaml` function):
+
+| Model | CSDL | Invocation |
+| --- | --- | --- |
+| action for `Travel`, parameters cover Travel's key | `<Action Name="CancelTravel" IsBound="true">` with the binding parameter `_it` of type `Travel` and the other parameters; the key parameters are not listed | `POST TravelSet('T0001')/ZSTG_DEMO_SRV.CancelTravel` with a JSON object of the other parameters (or `{}`); a function: `GET Set(key)/<ns>.<Fn>(p=v)` |
+| action for `Travel`, a key property missing from the parameters | bound to `Collection(Travel)`, every parameter listed | `POST TravelSet/<ns>.<Op>`, `GET TravelSet/<ns>.<Fn>(p=v)` |
+| no action for | unbound `<Function>` + `<FunctionImport>` or `<Action>` + `<ActionImport>` in the container (`EntitySet` when the model names the return set) | `GET TravelCount(Status='A')`, `GET TravelCount()`, `POST <ActionImport>` with the parameters in the body |
+
+The key of the binding fills the parameters named like the key properties
+and cannot be moved by a parameter in the body or URL. URL parameters are
+V4 literals (`'...'` strings, bare dates and GUIDs, numbers) converted like
+keys: an `Edm.String` parameter takes a quoted literal only
+(`TravelCount(Status=1)` is 400) and any other type an unquoted one;
+`null` is handed over empty. Body parameters are V4 JSON values converted
+like a write's, and an `Edm.String` parameter takes a JSON string (or
+`null`), not a number or a boolean. An unknown parameter or one given twice
+is 400, a missing one is handed over empty (as on V2), parameter aliases
+(`@p`) and non-primitive parameters are 501. A parameter's facets from the
+MPC (`set_maxlength`, precision, scale) are written on its `<Parameter>` as
+on a property; a parameter value longer than its MaxLength is 400 before the
+DPC runs, the same `check_length` as a read's key (docs/key-length.md).
+
+The binding parameter of an entity-bound operation is the entity the URL
+names ([Part 1, 11.5.5](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_InvokinganAction)):
+it is read through `GET_ENTITY` first and a key nobody has is 404 before
+the DPC's `execute_action` runs. An action then takes the entity lock
+(`EZOSD_V4_LOCK`, 409 when another request holds it) and checks `If-Match`
+against the entity's current ETag (412 on a mismatch), as a PATCH does;
+sap.fe sends the ETag it holds. Without `If-Match` an action on an entity
+type with an ETag is 428, the same rule as PATCH/PUT/DELETE (`If-Match: *`
+opts out of the comparison); an entity type without an ETag needs none.
+A bound function only checks that the entity exists.
+An operation bound to an entity type that returns that type says
+`EntitySetPath="_it"`. A bound action called inside a sticky session
+(`SAP-ContextId`) runs against the database, not the session's buffer. A function
+takes `GET` and an action `POST`; the other method is 405 with `Allow`.
+
+The return type is the entity type (`Collection()` of it for a
+multiplicity other than 1) or the complex type the model names, and
+`Edm.PrimitiveType` when it names none, because classic SEGW's tree has no
+primitive return kind (the demo's `TravelCount` is `GET` with no
+`ReturnType` on a system too). The answer follows what the DPC returned: an
+entity as a single read (`$metadata#TravelSet/$entity`, `@odata.etag`,
+deep components inlined), a table as a collection (`$metadata#TravelSet`,
+`value`), a complex value with the complex type's properties
+(`$metadata#<ns>.<CT>`), a primitive as
+`{"@odata.context":".../$metadata#Edm.Int32","value":3}` typed by its ABAP
+kind, and no data as 204. A collection of primitive or complex values is 501.
+The sticky-session actions keep their names and are served as before.
+A bound operation of a DPC that SADL serves (one implementing
+`IF_SADL_GW_DPC_UTIL`, as SEGW generates for a reference data source and
+the RAP services, or `IF_SADL_GW_DPC` itself) is not run here: SADL's
+`EXECUTE_ACTION` is the V2 function-import path, so such an action stays the
+named 501 of the sticky facade (`docs/rap-runtime.md`; `test/rap-serve.mjs`).
 
 ## Writes
 
@@ -149,10 +259,30 @@ are ignored. An unknown property (also a V2 `{"d":{...}}` envelope) or a
 value that does not fit is 400 before the DPC is called and the entity is
 unchanged. The key of a PATCH or PUT is the one in the URL; a key property in
 the body cannot move the update to another entity. A missing entity is 404.
-A navigation property with a payload (deep insert) and any relationship
-binding (`Nav@odata.bind` or `Nav@bind`, scalar or array) answer 501; a
-binding is never acknowledged and dropped. Binary values in bodies are 501. A write to a collection other than POST answers 405 with
+A key, or an operation's parameter value (a function's from the URL, an
+action's from the body), longer than the property's MaxLength is 400 before
+the DPC runs (`zcl_stg_model_info=>check_keys` / `check_length`,
+docs/key-length.md): the DPC's CHAR field would cut
+`TravelSet('T0002    X')` down to `T0002` and read, change, delete or call a
+bound action on that entity instead.
+A relationship binding (`Nav@odata.bind` or `Nav@bind`, scalar or array)
+answers 501; a binding is never acknowledged and dropped. Binary values in
+bodies are 501. A write to a collection other than POST answers 405 with
 `Allow: GET, POST`; POST to an entity, `Allow: GET, PATCH, PUT, DELETE`.
+
+A `POST` whose body carries related entities under navigation properties is
+a deep insert ([Part 1, 11.4.2.2](https://docs.oasis-open.org/odata/odata/v4.01/os/part1-protocol/odata-v4.01-os-part1-protocol.html#sec_CreateRelatedEntitiesWhenCreatinganE)):
+it goes to the DPC's `create_deep_entity` with the expand tree of the
+payload, as on V2, so the parent and its children are one LUW (a child the
+DPC refuses takes the parent with it). A to-many navigation takes an array
+and a to-one an object (400 otherwise), each nested entity is checked and
+converted like the entity itself (unknown property 400, V4 dates and GUIDs
+converted, any depth), and the answer is 201 with the deep entity the DPC
+returned: a component named like a navigation property is inlined as an
+array or an object (`to_Bookings:[...]`, OData 4.01 "expanded children in
+the body"), the `Location` and `ETag` are the parent's. A deep update
+(related entities in a `PATCH` or `PUT`, or in a sticky session's copy) is
+501.
 
 As on the V2 path, one modifying request is one LUW: a `COMMIT WORK`
 fences it off from what ran before, a 4xx/5xx rolls it back, a success
@@ -339,21 +469,23 @@ what the facade had to learn for it:
 
 Not covered for Fiori Elements: draft (`Common.DraftRoot`), creating or
 editing bookings below a travel (writes through a navigation property are
-501), side effects, `$search` (the basic search field answers 501), and
-value helps beyond what the V2 annotations already describe. The `Photo`
+501), side effects, and value helps beyond what the V2 annotations already
+describe. The list report's basic search field sends `$search="..."`,
+which the facade now hands to the DPC (the demo's Travel is searchable). The `Photo`
 column's URL is written by the DPC relative to a page one level below the
 origin (`../sap/opu/odata/...`): inside the launchpad (`/app/flp.html`) it
 resolves, from the standalone `/app/travel4/index.html` it does not.
 
 ## Not served in this slice
 
-- Deep insert, `@odata.bind`, writes through navigation properties,
-  bound/unbound actions and functions other than the sticky-session ones.
+- `@odata.bind`, writes through navigation properties, deep update.
 - `If-None-Match`, conditional GET, SADL ETags, draft.
 - Binary property values in request bodies (501).
-- Nested `$expand`, slash expand paths, and options inside `$expand(...)`.
-  These explicitly return 501. Multiple single-level navigation names work.
-- `$apply`, `$search`, lambda expressions or a general expression evaluator.
+- `$expand=*`, `nav/nav` expand paths, `$levels`; parameter aliases,
+  non-primitive operation parameters, collections of primitive or complex
+  operation results; the `$search` expression grammar (one term or phrase
+  only); SADL sets are not searchable.
+- `$apply`, lambda expressions or a general expression evaluator.
 - Navigation paths longer than one segment, structural-property URLs and
   media streams.
 - Complex types, inheritance and containment.
@@ -363,9 +495,9 @@ resolves, from the standalone `/app/travel4/index.html` it does not.
 
 ## Next slices
 
-Complex types, then nested expand options and count pushdown, then
-actions/functions, deep insert and writes through navigation properties
-(Create on the object page's bookings table), then draft.
+Complex types as property values, count pushdown, writes through
+navigation properties (Create on the object page's bookings table), then
+draft.
 
 ## Verification and references
 
@@ -379,8 +511,12 @@ other commits, `dependsOn` and `$<id>`), plus the domain checks of body
 values, the entity lock (taken from the test through
 `tools/osd-enq-host.mjs`) and the continuation default, and what Fiori
 Elements V4 needs (annotations, HEAD, `sap-*` options, navigation reads,
-multipart batches, the sticky session). The browser side is
-`test/e2e/travel4.spec.mjs`. Run it against a
+multipart batches, the sticky session), and the operations, deep insert,
+expand options and `$search` (the demo's `CancelTravel` and `TravelCount`, a
+travel with two bookings in one POST and its rollback, options and levels
+inside `$expand`, `$select` paths, search terms and phrases, and the 501s of
+what is not served). The browser side is `test/e2e/travel4.spec.mjs`. Run it
+against a
 fresh transpile together with the targeted V2 wire tests in `test/mocha.mjs`.
 
 The public wire contracts are

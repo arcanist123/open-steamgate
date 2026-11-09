@@ -27,6 +27,13 @@ CLASS zcl_osd_v4_json DEFINITION PUBLIC CREATE PUBLIC.
 * {"@odata.context":...} followed by the members of an entity object
     CLASS-METHODS document IMPORTING iv_context TYPE string iv_entity TYPE string
       RETURNING VALUE(rv_json) TYPE string.
+* the V4 EDM type of a value by its ABAP kind, for an operation result the
+* model does not type (classic SEGW has no primitive return kind)
+    CLASS-METHODS type_of IMPORTING iv_value TYPE any RETURNING VALUE(rv_type) TYPE string.
+  PRIVATE SECTION.
+* the deep component of is_data named like is_nav, as an array or an object
+    CLASS-METHODS nested IMPORTING is_data TYPE any is_nav TYPE zcl_stg_model_info=>ty_nav
+      io_model TYPE REF TO zcl_osd_v4_model RETURNING VALUE(rv_json) TYPE string.
 ENDCLASS.
 
 CLASS zcl_osd_v4_json IMPLEMENTATION.
@@ -126,6 +133,8 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
     DATA lv_fields TYPE string.
     DATA lv_sep TYPE string.
     DATA lv_etag TYPE string.
+    DATA ls_deep TYPE zcl_stg_model_info=>ty_nav.
+    DATA lv_nested TYPE string.
     FIELD-SYMBOLS <lv_value> TYPE any.
     lv_etag = etag( is_data = is_data is_set = is_set io_model = io_model ).
     IF lv_etag IS NOT INITIAL.
@@ -152,7 +161,50 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
       lv_fields = lv_fields && lv_sep && quote( ls_nav-name ) && ':' && ls_nav-json.
       lv_sep = ','.
     ENDLOOP.
+* a component named like a navigation property is the deep structure a
+* DPC answers from create_deep_entity / get_expanded_*: inlined unless the
+* caller expanded that navigation itself
+    LOOP AT is_set-navs INTO ls_deep.
+      READ TABLE it_nav WITH KEY name = ls_deep-name TRANSPORTING NO FIELDS.
+      IF sy-subrc = 0.
+        CONTINUE.
+      ENDIF.
+      lv_nested = nested( is_data = is_data is_nav = ls_deep io_model = io_model ).
+      IF lv_nested IS NOT INITIAL.
+        lv_fields = lv_fields && lv_sep && quote( ls_deep-name ) && ':' && lv_nested.
+        lv_sep = ','.
+      ENDIF.
+    ENDLOOP.
     rv_json = '{' && lv_fields && '}'.
+  ENDMETHOD.
+
+  METHOD nested.
+    DATA ls_target TYPE zcl_stg_model_info=>ty_entity_set.
+    DATA lv_kind TYPE c LENGTH 1.
+    DATA lv_sep TYPE string.
+    FIELD-SYMBOLS <lv_comp> TYPE any.
+    FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
+    FIELD-SYMBOLS <ls_row> TYPE any.
+    ASSIGN COMPONENT is_nav-name OF STRUCTURE is_data TO <lv_comp>.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+    READ TABLE io_model->ms_service-entity_sets INTO ls_target WITH KEY name = is_nav-target_set.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+    DESCRIBE FIELD <lv_comp> TYPE lv_kind.
+    IF lv_kind = 'h'.
+      ASSIGN <lv_comp> TO <lt_rows>.
+      rv_json = '['.
+      LOOP AT <lt_rows> ASSIGNING <ls_row>.
+        rv_json = rv_json && lv_sep && entity( is_data = <ls_row> is_set = ls_target io_model = io_model ).
+        lv_sep = ','.
+      ENDLOOP.
+      rv_json = rv_json && ']'.
+    ELSEIF ( lv_kind = 'u' OR lv_kind = 'v' ) AND <lv_comp> IS NOT INITIAL.
+      rv_json = entity( is_data = <lv_comp> is_set = ls_target io_model = io_model ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD etag.
@@ -217,6 +269,29 @@ CLASS zcl_osd_v4_json IMPLEMENTATION.
       rv_key = rv_key && lv_sep && lv_text.
       lv_sep = ','.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD type_of.
+    DATA lv_kind TYPE c LENGTH 1.
+    DESCRIBE FIELD iv_value TYPE lv_kind.
+    CASE lv_kind.
+      WHEN 'I' OR 's' OR 'b'.
+        rv_type = 'Edm.Int32'.
+      WHEN '8'.
+        rv_type = 'Edm.Int64'.
+      WHEN 'P'.
+        rv_type = 'Edm.Decimal'.
+      WHEN 'F'.
+        rv_type = 'Edm.Double'.
+      WHEN 'D'.
+        rv_type = 'Edm.Date'.
+      WHEN 'T'.
+        rv_type = 'Edm.TimeOfDay'.
+      WHEN 'X' OR 'y'.
+        rv_type = 'Edm.Binary'.
+      WHEN OTHERS.
+        rv_type = 'Edm.String'.
+    ENDCASE.
   ENDMETHOD.
 
   METHOD escape_key_value.
