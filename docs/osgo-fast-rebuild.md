@@ -133,6 +133,8 @@ largest first:
    publishes the snapshot and runs the generators without the transpile would
    bring the cycle to about 52 s, inside ADR 0010's 60 s. Not done here: it
    changes what "the generation of the inputs" means for the Node host too.
+   (Done since for osgo alone, without the generators: "The fast path"
+   below.)
 2. **The front end, 22 s.** `compileOsg` parses and lowers all 1071 classes
    on every build. The disk cache the runners have (`OSD_GOGEN_CACHE`) was
    tried and is slower on this tree (34 s on a hit, 66 s filling it), so it is
@@ -143,6 +145,131 @@ largest first:
    would save the second but make the generation depend on what is edited.
 4. Restart, ~3 s, and link, ~2.4 s: the swap of ADR 0010 slice 4 hides the
    first; the second is the floor of a 90 MB static binary.
+
+## The fast path: no Node build for a class body (2026-11-09)
+
+*Decision (Alice 2026-11-09): an osgo-only fast rebuild is fine; the Node
+host's build stays as it is until the fast path is proven to name the same
+generation as a full build.* Measured on the same shared 4-core host as
+above, under the heavy-job lock, load ~1.6.
+
+`node tools/gogen/osgo.mjs --fast` (or `OSGO_FAST=1`) asks
+`tools/gogen/osgo-fast.mjs` first whether a full Node build of the tree
+would leave `gen/` as it is. Only then does it skip the build; otherwise it
+runs `node tools/osd-build.mjs` itself and goes on as before. The answer is
+yes only when all of these hold:
+
+1. there is a live generation, and `gen/` on disk is the `gen/` it was made
+   with (its manifest's `gen`, `genHash`);
+2. no inactive objects are kept out of the build (no overlay: the full
+   build would compile another view than the tree);
+3. every source file whose digest differs from the live generation's record
+   (`source-inputs.json`) is a file that record has, and **with those files
+   counted at the live digests the tree hashes to the live generation
+   exactly** (`hashOf` with `substitute`, the proof the warm prime makes).
+   So nothing else moved: no config, library, generator, YAML, DDIC, page,
+   added or removed file;
+4. each changed file passes the warm rule (`osd-warm.mjs warmRule`), the
+   rule that already lets the Node warm build skip every generator: the
+   content of an existing class or interface, no AMDP body before or after,
+   the same `INTERFACES` lines, no RAP handler or saver, no RAP derived
+   types, no `SUBMIT`, no program declaration. Object XML is not such a file.
+
+Because no generator reads what such an edit changes, the fast path runs no
+generator at all (not "only the generators osgo consumes": there are none
+to run for it); `gen/` is checked, not rewritten. Nothing is written under
+`build/`, so the Node host never sees a generation it did not build. Two
+things osgo took from the live generation are made to match a full build:
+
+- **the store** (`zz_store.json`, DESTINATION 'STORE'): its active copy of a
+  file is the generation's snapshot of it, and the live one holds the old
+  bytes of the edited files. Those files are active as they are now, from a
+  copy under `.out/osgo-active/<digest>` (read digest-checked, like a
+  snapshot);
+- **the cross-reference** (`CROSS`, `WBCROSSGT`, `WBCROSSGTX`, `D010INC`
+  seed rows): a parse of the whole tree, ~10-12 s, cached per generation in
+  `build/xref`. The fast path takes the live generation's rows and derives
+  the rows of the edited objects again from their own files
+  (`fastXrefRows`, ~0.3 s): every row names its object, one object's rows are
+  contiguous in each table, and they depend only on its statements and on
+  the set of object names, which the fast case cannot change. Where the
+  premise does not hold (no cached live rows, an object without rows in a
+  table it now has rows in) the tree is parsed as before. Checked against a
+  fresh parse on a body, a method and an interface edit: identical rows.
+
+### Same generation, both ways
+
+Each edit was built the fast way (`osgo.mjs --fast`), then the full way
+(`osd-build.mjs`, then `osgo.mjs`), from a live generation set up as CI sets
+it up (`sh tools/abapfs-osgo.sh --setup-only`, the conformance fixture
+staged), and the two compared:
+
+| edit | Node generation, fast proof / full build | osgo generation, both | generated files | ADT conformance on osgo, fast / full |
+| --- | --- | --- | --- | --- |
+| a method body (a literal in `ZCL_ZSTG_DEMO_DPC_EXT`) | `a0b30c27e800abf9` / `a0b30c27e800abf9` | `go:96af888f9e538008` | same | 56 pass, 8 fail / the same 64 verdicts |
+| a new method (defined and implemented) | `c33c17e8a1595653` / `c33c17e8a1595653` | `go:111895459c5cf751` | same | the same |
+| an interface (a constant in `ZIF_OSD_ADT_ROUTE`, read by 56 objects) | `1c0a3a30aa81f5b6` / `1c0a3a30aa81f5b6` | `go:5103fd9a83afbcb5` | same | the same |
+
+"Generated files" are the eleven files osgo writes besides the binary; ten
+of them, every generated Go file of `main`, `app` and `core`, `zz_tables.json`
+and `zz_db.json` (the seed, cross-reference included), are byte for byte the
+full build's. `zz_store.json`
+is the same by content: the same roots, libraries, exclusions and all 1 676
+built digests, and behind every active path the bytes with that digest; the
+paths differ, because a full build's name its own generation's snapshot
+(`build/by-input/<hash>/source/...`) and the fast build's name the live one
+and `.out/osgo-active`. That file is embedded, so the two binaries differ
+in those bytes only. The eight conformance failures are the same cases in
+both builds (X1, C9b, O1-O5, W5, the runner's expected file against this
+local setup; not investigated here), so they say nothing about the fast
+path either way. The values are of this tree at
+`7d625b5f`; another tree gives others, the same both ways.
+`osgo-fast.test.mjs` covers the decision over a small tree: the three edit
+kinds are fast, and an `INTERFACES` line, an AMDP body, DDIC, object XML, a
+YAML, a new or removed class, the config, a stale `gen/` and an inactive
+overlay each take the full build.
+
+### Measured
+
+`osgo-cycle.mjs --fast` runs `osgo.mjs --fast` alone per edit (its prime is
+always the full build). Warm `GOCACHE`, three edits each after the first,
+the median (ms), at `7d625b5f`:
+
+| phase | full path (`--runs 3`) | fast path (`--runs 3 --fast`) |
+| --- | ---: | ---: |
+| transpile (`osd-build.mjs`) | 39 182 | -- |
+| `osgo.mjs`, all of it | 51 920 | 41 559 |
+| -- fast proof | -- | 847 |
+| -- stale check | 894 | 331 |
+| -- front end | 22 370 | 22 370 |
+| -- database, media, ICF, store | 12 215 | 1 303 |
+| -- emit / generation hash emit | 6 227 / 3 662 | 6 543 / 3 978 |
+| -- gofmt | 421 | 197 |
+| -- `go build` (compile `main` / link) | 4 094 (1 001 / 2 379) | 4 095 (1 010 / 2 414) |
+| stop + start to `/osd/serving` ready | 130 + 5 651 | 116 + 5 133 |
+| **edit to serving** | **97 339** | **46 912** |
+
+Runs (edit to serving, ms): full 97 339, 96 036, 97 477; fast 47 883,
+46 912, 45 861. The full path is slower here than the 82 s above because
+the cross-reference is now parsed inside `osgo.mjs` (12 s) on the main this
+branch is based on; the fast path does not parse it. The **ADR 0010 target,
+edit to a served new generation under 60 s, is met** by the fast path for
+the edits it accepts; every other edit pays the full path.
+
+### The front end, measured and left
+
+The 22 s front end is now the largest phase. Measured once on this tree
+(`compileOsg` over 2 898 files, 1 079 classes): the abaplint parse of the
+inputs alone is 8.6 s of the 20.7 s, the rest is the syntax pass and the
+lowering. Reusing it for unchanged objects needs the parsed registry to
+outlive the build process: abaplint's objects are not serialisable, and the
+on-disk object cache the runners have (`OSD_GOGEN_CACHE`) is slower here
+(above). What `docs/warm-compile.md` does on the Node side is a resident
+compiler process holding the registry, and for osgo that is a daemon of its
+own (prime, file updates, invalidation of the dependent closure, its own
+proof against a cold run): not a small change, so it is not done here. With
+the fast path the cycle is ~47 s, so it is no longer needed for ADR 0010's
+target.
 
 ## Limits
 
