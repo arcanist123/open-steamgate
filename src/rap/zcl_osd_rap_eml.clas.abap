@@ -27,7 +27,8 @@ CLASS zcl_osd_rap_eml DEFINITION PUBLIC FINAL CREATE PRIVATE.
 * use it, so the two cannot collide
     CONSTANTS co_auto_cid TYPE string VALUE '%AUTO-'.
 
-* the session's runtime of a behavior definition (created on first use)
+* the session's runtime of a behavior definition (created on first use);
+* inside a handler, the runtime that called it (ZCL_OSD_RAP_RUNTIME=>ACTIVE)
     CLASS-METHODS runtime
       IMPORTING
         iv_bdef           TYPE csequence
@@ -204,6 +205,11 @@ CLASS zcl_osd_rap_eml IMPLEMENTATION.
     DATA lv_bdef    TYPE string.
 
     lv_bdef = to_upper( iv_bdef ).
+* EML inside a handler goes to the transaction that called the handler
+    ro_runtime = zcl_osd_rap_runtime=>active( lv_bdef ).
+    IF ro_runtime IS BOUND.
+      RETURN.
+    ENDIF.
     READ TABLE gt_sessions INTO ls_session WITH KEY bdef = lv_bdef.
     IF sy-subrc <> 0.
       ls_session-bdef = lv_bdef.

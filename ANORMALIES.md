@@ -62,6 +62,22 @@ Format adapted from `larshp/hithub` (MIT).
 - Regression-test location: V4 in `test/odata-v4.mjs` ("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII"); V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
 - Upstream version containing a fix: `unknown`
 
+### ANOMALY-2026-11-09-rap-implicit-handler-params -- A RAP handler method declared in the system's form has no parameters
+
+- Status: `workaround`
+- Discovery date: `2026-11-09` (dell, RAP R3, probing the parser before writing the lowering)
+- Affected versions: `@abaplint/core` 2.120.73 (pinned), syntax versions `open-abap` and `v757`
+- Affected ABAP statement, runtime API or adapter: `METHODS m FOR DETERMINE ON MODIFY IMPORTING keys FOR ent~det.`, and likewise `FOR VALIDATE ON SAVE`, `FOR MODIFY ... FOR ACTION ent~act RESULT result`, `FOR READ ... RESULT result`, `FOR LOCK`, `FOR INSTANCE FEATURES`, `FOR GLOBAL AUTHORIZATION`, `FOR NUMBERING`
+- Minimal ABAP reproducer: the declarations of `src/rap_demo/zbp_rap_note_sf.clas.locals_imp.abap` without the lowering; a class pool `FOR BEHAVIOR OF` a BDEF and a local class inheriting `cl_abap_behavior_handler`
+- Exact command used to run it: an abaplint `Registry` over the two class files, `getInfo().listClassDefinitions()` per method (probe not tracked)
+- Expected SAP behaviour: the declaration has the parameters its form implies -- `keys` / `entities` typed with the BDEF's derived type, `result`, and the implicit `failed`, `reported`, `mapped` -- and the body uses them (public ABAP keyword documentation, RAP handler methods)
+- Actual open-abap behaviour: the statement parses without an issue, but the method has no parameters at all; a body that reads `keys` or appends to `reported-ent` would not compile, and the transpiler emits a method without them
+- Impact on open-steamgate: a behavior pool as written on a system could not be built; until R3 the demo pool was written in explicit derived signatures with an OSG-only `entities` table
+- Smallest safe workaround: `tools/rap/lower-derived.mjs` rewrites the declaration in the source loader into explicit `IMPORTING ... CHANGING ...` parameters over the BDEF's generated types (pool-scoped bindings from `bdef-gen.mjs`), keeping the rows; `docs/rap-derived-types.md`, "Handler declarations (R3)"
+- Upstream issue: needs an issue in `abaplint/abaplint` (implicit RAP handler parameters typed from the behavior definition); none filed, our fork rule for abaplint applies (`npm run parked`)
+- Regression-test location: `test/rap-derived-types.mjs` ("lowers the handler declarations of the system's form"), `test/unit/zcl_osd_rap_test` (`ltcl_system_form`)
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type
 
 - Status: `open`
