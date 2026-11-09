@@ -300,9 +300,16 @@ describe("DSL L3 run cockpit", function () {
         for (const Param of ["simulate.dump", "simulate.hang", "simulate.profile"]) expect((await action("ResetSetting", {Param, Note: "back to the manifest"})).Answer).equal("OK");
       }
     });
+    // Work is String(4) in the model (the variants are real and sim), so the
+    // unknown variant fits and reaches the runner; a longer one never does.
     it("returns the runner refusal text for an unknown work variant", async () => {
-      expect((await action("StartRun", {CheckDate: "20261001", Mode: "S", Work: "bogus"})).Answer)
+      expect((await action("StartRun", {CheckDate: "20261001", Mode: "S", Work: "nope"})).Answer)
         .include("REFUSED:").and.include("no such variant for the port");
+    });
+    it("refuses a work variant longer than its MaxLength before the runner sees it", async () => {
+      const r = await fetch(`${BASE}/StartRun?CheckDate='20261001'&Mode='S'&Work='bogus'`, {method: "POST"});
+      expect(r.status).equal(400);
+      expect(await r.text()).include("VALUE_TOO_LONG").and.include("MaxLength 4");
     });
     async function simulatedDump() {
       await action("SetSetting", {Param: "simulate.time_scale", Value: "0", Note: "instant dump fixture"});
@@ -332,7 +339,7 @@ describe("DSL L3 run cockpit", function () {
       abap.Classes.ZCL_ZL3C_FLEET2_DPC_EXT = mutant;
       try {
         for (const oracle of [async () => {
-          expect((await action("StartRun", {CheckDate: "20261001", Mode: "S", Work: "bogus"})).Answer).include("no such variant for the port");
+          expect((await action("StartRun", {CheckDate: "20261001", Mode: "S", Work: "nope"})).Answer).include("no such variant for the port");
         }, simulatedDump]) {
           let failed = false;
           try {await oracle();} catch {failed = true;}

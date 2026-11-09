@@ -38,6 +38,14 @@ const {objectOf, adtObjectOf, uriOf, fileOf, Osd, outcomes, abapFrame, parseChec
 const {overviewStatusSection, systemOverviewHtml} = createRequire(import.meta.url)("../editors/vscode/system-overview.js");
 import {implementsClassrun as facadeImplementsClassrun} from "../tools/osd-classrun.mjs";
 import {namesOf as guiConvertNamesOf} from "../tools/osd-gui-convert.mjs";
+// The demo DPC's METHOD line (1-based), read off the source rather than
+// hardcoded, so an edit above a method does not break a test about lenses.
+const demoDpcLine = (method) => {
+  const lines = readFileSync("src/demo/zcl_zstg_demo_dpc_ext.clas.abap", "utf8").split("\n");
+  const at = lines.findIndex((line) => line.trim().toLowerCase() === `method ${method}.`);
+  if (at < 0) throw new Error(`no METHOD ${method} in the demo DPC`);
+  return at + 1;
+};
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -4184,19 +4192,19 @@ describe("editors/vscode: service card source navigation", () => {
     const card = serviceCardModel({name: "ZSTG_DEMO_SRV", handler: "ZCL_ZSTG_DEMO_DPC_EXT", mpc: "ZCL_ZSTG_DEMO_MPC_EXT"},
       [{set: "TravelSet"}, {set: "PhotoSet"}, {set: "StatusVHSet"}], files);
     const op = (set, name) => card.entitySets.find((s) => s.set === set).operations.find((one) => one.name === name);
-    for (const [set, name, line] of [["TravelSet", "GET_ENTITYSET", 138], ["TravelSet", "CREATE_DEEP_ENTITY", 392],
-      ["PhotoSet", "GET_STREAM", 679]]) {
+    for (const [set, name, line] of [["TravelSet", "GET_ENTITYSET", demoDpcLine("travelset_get_entityset")], ["TravelSet", "CREATE_DEEP_ENTITY", demoDpcLine("/iwbep/if_mgw_appl_srv_runtime~create_deep_entity")],
+      ["PhotoSet", "GET_STREAM", demoDpcLine("/iwbep/if_mgw_appl_srv_runtime~get_stream")]]) {
       expect(op(set, name).link).to.include({path: "src/demo/zcl_zstg_demo_dpc_ext.clas.abap", line});
     }
     expect(op("TravelSet", "GET_EXPANDED_ENTITY")).to.include({inherited: true, link: undefined});
     expect(op("BookingSet", "CREATE_DEEP_ENTITY")).to.include({inherited: true, link: undefined});
-    expect(card.functionImports.find((one) => one.name === "CancelTravel").link).to.include({line: 525});
+    expect(card.functionImports.find((one) => one.name === "CancelTravel").link).to.include({line: demoDpcLine("/iwbep/if_mgw_appl_srv_runtime~execute_action")});
     expect(card.entitySets.find((s) => s.set === "StatusVHSet").sources[0].path).to.equal("src/ddic/zstg_status_sh.shlp.xml");
     expect(card.model.map((one) => one.label)).to.include.members(["MPC DEFINE", "MPC_EXT DEFINE", "MPC_ANN DEFINE", ".stg.yaml", "IWPR"]);
     const html = serviceDetailsHtml({row: {kind: "ODATA", name: "ZSTG_DEMO_SRV"}, card}, "nonce");
-    expect(html).to.contain('data-line="392"').and.to.contain("inherited (generic)").and.to.contain("Function imports");
-    expect(html).to.contain("GET_STREAM interface operation redefined (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:679)");
-    expect(html).to.contain("EXECUTE_ACTION function import redefined (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:525)");
+    expect(html).to.contain(`data-line="${demoDpcLine("/iwbep/if_mgw_appl_srv_runtime~create_deep_entity")}"`).and.to.contain("inherited (generic)").and.to.contain("Function imports");
+    expect(html).to.contain(`GET_STREAM interface operation redefined (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:${demoDpcLine("/iwbep/if_mgw_appl_srv_runtime~get_stream")})`);
+    expect(html).to.contain(`EXECUTE_ACTION function import redefined (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:${demoDpcLine("/iwbep/if_mgw_appl_srv_runtime~execute_action")})`);
     expect(html).to.contain("GET_EXPANDED_ENTITY interface operation <span class=\"muted\">inherited (generic)</span>");
   });
 
@@ -4251,7 +4259,7 @@ describe("editors/vscode: service card source navigation", () => {
     const card = serviceCardModel(row, [{set: "TravelSet"}], files);
     expect(card.model.map((one) => one.label)).to.include("MPC DEFINE");
     expect(card.model.map((one) => one.label)).not.to.include("IWPR");
-    expect(card.entitySets.find((one) => one.set === "TravelSet").operations.find((one) => one.name === "GET_ENTITYSET").link).to.include({line: 138});
+    expect(card.entitySets.find((one) => one.set === "TravelSet").operations.find((one) => one.name === "GET_ENTITYSET").link).to.include({line: demoDpcLine("travelset_get_entityset")});
   });
 
   it("uses known source paths and stable layer precedence for duplicate class names", () => {

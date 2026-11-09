@@ -31,11 +31,14 @@ CLASS zcl_zstg_demo_dpc_ext DEFINITION PUBLIC INHERITING FROM zcl_zstg_demo_dpc 
 
     TYPES ty_travel_id TYPE c LENGTH 8.
     TYPES ty_booking_id TYPE c LENGTH 4.
+* low and high are strings, not CHAR 8: a $filter literal is compared as it
+* was written, so TravelId eq 'T0001    X' matches nothing instead of being
+* cut to T0001 (and a Description longer than 8 is not cut either)
     TYPES: BEGIN OF ty_range,
              sign   TYPE c LENGTH 1,
              option TYPE c LENGTH 2,
-             low    TYPE c LENGTH 8,
-             high   TYPE c LENGTH 8,
+             low    TYPE string,
+             high   TYPE string,
            END OF ty_range.
     TYPES ty_ranges TYPE STANDARD TABLE OF ty_range WITH DEFAULT KEY.
 
