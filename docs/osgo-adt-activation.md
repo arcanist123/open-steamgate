@@ -63,7 +63,13 @@ writes `build/osgo-published/index.json` (file -> snapshot, digest) beside the
 snapshots, and every osgo process restores it at start
 (`objstore.RestorePublished`), so a restart or a replacement of the same
 build still reads the published source as active. A snapshot the starting
-build was built from is active there and is not restored. The files on disk
+build was built from is active there and is not restored. The write merges
+with the index on disk rather than replacing it from the writing process's
+own view: a session pinned to a draining generation can activate while
+another has published, and an entry the other generation wrote is kept. A
+drop (the working file is the build's own bytes) removes only the entry the
+process itself published, or one naming the bytes the starting build was
+built from. The files on disk
 are untouched by activation. A rebuild of osgo from the tree (`node
 tools/gogen/osgo.mjs`) makes the code live.
 

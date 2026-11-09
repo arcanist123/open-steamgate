@@ -75,3 +75,95 @@ func TestPublishedStateOutlivesTheProcess(t *testing.T) {
 		t.Fatal("a tampered snapshot was restored")
 	}
 }
+
+// critic #895 SHOULD 3: the index on disk is merged, not overwritten from
+// the writing process's own view. Generation N+1 publishes a change; while
+// it drains, a session pinned to generation N activates the object whose
+// working file is N's own build bytes (a drop): N's write must keep N+1's
+// entry, or a process of N+1 started after it (a crash replacement)
+// restores nothing and reads the object from the tree. A drop still takes
+// out the entry it owns: the process's own, or one naming the very bytes
+// the starting build was built from.
+func TestPublishedIndexMergesAcrossGenerations(t *testing.T) {
+	root, built := setupActivation(t)
+	gen := func(self string) {
+		t.Helper()
+		cfg, _ := json.Marshal(Config{Roots: []Root{{Path: "src", Writable: true, Package: "$WRITES"}},
+			Active: map[string]string{"src/zcl_act.clas.abap": "build2.abap"},
+			Built:  map[string]string{"src/zcl_act.clas.abap": self}})
+		if err := SetStore(root, cfg, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digestOf := func(s string) string { return storeDigestBytes([]byte(s)) }
+	entry := func() (publishedEntry, bool) {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(root, publishedIndex))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var index map[string]publishedEntry
+		if err := json.Unmarshal(raw, &index); err != nil {
+			t.Fatal(err)
+		}
+		e, ok := index["src/zcl_act.clas.abap"]
+		return e, ok
+	}
+	v1, v2 := built+"* version one\n", built+"* version two\n"
+	// generation N publishes v1; generation N+1, built from v1, publishes v2
+	save(t, v1)
+	if err := Activate("CLAS", "ZCL_ACT"); err != nil {
+		t.Fatal(err)
+	}
+	gen(digestOf(v1))
+	save(t, v2)
+	if err := Activate("CLAS", "ZCL_ACT"); err != nil {
+		t.Fatal(err)
+	}
+	// a session pinned to N activates the object back to N's build bytes
+	gen(digestOf(built))
+	save(t, built)
+	if err := Activate("CLAS", "ZCL_ACT"); err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := entry(); !ok {
+		t.Fatal("the draining generation's activation dropped the serving generation's entry")
+	} else if e.Digest != digestOf(v2) {
+		t.Fatalf("the entry is not what N+1 published: %+v", e)
+	}
+	// a crash replacement of N+1 restores what N+1 published
+	gen(digestOf(v1))
+	if n, err := RestorePublished(); err != nil || n != 1 {
+		t.Fatalf("the replacement restored %d %v", n, err)
+	}
+	if got := activeSource(t); got != v2 {
+		t.Fatalf("the replacement reads %q, not what N+1 published", got)
+	}
+	// the entry naming the starting build's own bytes goes (a snapshot that
+	// became active is no longer published)
+	gen(digestOf(v2))
+	save(t, v2)
+	if err := Activate("CLAS", "ZCL_ACT"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := entry(); ok {
+		t.Fatal("the entry of the starting build's own bytes stayed in the index")
+	}
+	// and the process's own entry goes: N publishes v1, then reverts to its
+	// build bytes
+	gen(digestOf(built))
+	save(t, v1)
+	if err := Activate("CLAS", "ZCL_ACT"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := entry(); !ok {
+		t.Fatal("N's own publish left no entry")
+	}
+	save(t, built)
+	if err := Activate("CLAS", "ZCL_ACT"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := entry(); ok {
+		t.Fatal("the process's own entry stayed after its revert")
+	}
+}

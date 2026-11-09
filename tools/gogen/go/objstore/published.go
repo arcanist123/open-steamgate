@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 )
 
 // The published index (ADR 0010 slice 4, "the snapshot restored at sidecar
@@ -13,8 +12,10 @@ import (
 // tree -- a replacement after a crash, a restart, a swap candidate -- reads
 // it in RestorePublished, so a published object stays published past the
 // process that published it. A snapshot whose digest is the starting
-// build's own is not published there: it is active, and is left out (the
-// next activation writes the index without it).
+// build's own is not published there: it is active, and the next activation
+// of the process that published it writes the index without it. Writers
+// merge (ActivateAll): an entry another generation published is kept -- a
+// whole-view overwrite would drop what a draining generation cannot see.
 const publishedIndex = publishedDir + "/index.json"
 
 type publishedEntry struct {
@@ -22,18 +23,9 @@ type publishedEntry struct {
 	Digest   string `json:"digest"`
 }
 
-// writePublishedIndex writes the index of snapshots (file -> snapshot) with
-// the bytes behind each; storeState.mu held. Written beside and renamed.
-func writePublishedIndex(snapshots map[string]string, bytesOf func(file string) []byte) error {
-	index := map[string]publishedEntry{}
-	files := make([]string, 0, len(snapshots))
-	for f := range snapshots {
-		files = append(files, f)
-	}
-	sort.Strings(files)
-	for _, f := range files {
-		index[f] = publishedEntry{Snapshot: snapshots[f], Digest: storeDigestBytes(bytesOf(f))}
-	}
+// writePublishedIndex writes the index (file -> entry); storeState.mu held.
+// Written beside and renamed.
+func writePublishedIndex(index map[string]publishedEntry) error {
 	raw, err := json.MarshalIndent(index, "", " ")
 	if err != nil {
 		return err
@@ -57,6 +49,26 @@ func writePublishedIndex(snapshots map[string]string, bytesOf func(file string) 
 	return os.Rename(tmp.Name(), full)
 }
 
+// readPublishedIndex is the index on disk; no index is none. storeState.mu
+// held.
+func readPublishedIndex() (map[string]publishedEntry, error) {
+	raw, err := os.ReadFile(filepath.Join(storeState.root, filepath.FromSlash(publishedIndex)))
+	if os.IsNotExist(err) {
+		return map[string]publishedEntry{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var index map[string]publishedEntry
+	if err := json.Unmarshal(raw, &index); err != nil {
+		return nil, err
+	}
+	if index == nil {
+		index = map[string]publishedEntry{}
+	}
+	return index, nil
+}
+
 // RestorePublished reads the published index of the tree and makes every
 // snapshot in it that this build did not build from the active version of
 // its file again, as activation left it. Skipped: a snapshot this build's
@@ -69,15 +81,8 @@ func RestorePublished() (int, error) {
 	if storeState.cfg == nil {
 		return 0, nil
 	}
-	raw, err := os.ReadFile(filepath.Join(storeState.root, filepath.FromSlash(publishedIndex)))
-	if os.IsNotExist(err) {
-		return 0, nil
-	}
+	index, err := readPublishedIndex()
 	if err != nil {
-		return 0, err
-	}
-	var index map[string]publishedEntry
-	if err := json.Unmarshal(raw, &index); err != nil {
 		return 0, err
 	}
 	n := 0
