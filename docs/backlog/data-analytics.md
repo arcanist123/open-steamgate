@@ -188,3 +188,9 @@ affect the caller's transaction. The vector page now points to the HANA destinat
   DuckDB copy or a HANA SQL lowering; decide when pAMDP is unparked. Until then the page must say why it is grey.
 - `Component.js` enables AMDP only for duckdb and HANA only for HDB; derive both from what the server reports it
   can run, not from the status fact.
+
+**Declared (2026-11-08):** the status page now has an **AMDP methods** facet (`AmdpMethodSet`) with the engine each
+method would run on at that moment -- `portable-duckdb`, `portable-refused`, `hdb`, `hdb-stale`, `hdb-idle`, `unavailable` + reason --
+read off the destination's own session state and the system connection, not off configuration
+(`docs/amdp-engine-status.md`, `tools/amdp-status.mjs`, `ZCL_OSD_STATUS=>ENGINE`). The zvdb page still decides
+from the status fact; pointing it at `AmdpMethodSet` is the remaining item here. pAMDP stays parked for new features.

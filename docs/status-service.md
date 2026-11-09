@@ -63,6 +63,20 @@ The refresh happens when a request for the service arrives, so what the app
 shows is what was true when it was asked; a failed refresh is logged and the
 tables are served as they are.
 
+## AMDP methods: where each body runs
+
+`AmdpMethodSet` (facet **AMDP methods**, table `ZOSD_AMDP`, view
+`ZC_OSD_AMDP`) lists every `BY DATABASE PROCEDURE / FUNCTION FOR HDB` method
+of the tree with the engine a call would use at the moment of the snapshot:
+`portable-duckdb`, `portable-refused`, `hdb`, `hdb-stale`, `hdb-idle` or `unavailable` with a
+reason. The facts come from the AMDP destination itself (its session's
+`readyState`, whether a driver and a HANA are configured) and from the system
+connection, through `tools/amdp-status.mjs`; a work process adds them to
+`/osd/serving` and the facade copies them into the snapshot, the way the
+database facts travel. `ZCL_OSD_STATUS=>ENGINE` does the classification in
+ABAP. Two `AMDP` rows in the Environment facet say the system-wide half. The
+whole story, with the truth table, is `docs/amdp-engine-status.md`.
+
 ## Platform facts in the Environment facet
 
 The existing `DatabaseSet` also carries coarse `Platform` rows, so adding
