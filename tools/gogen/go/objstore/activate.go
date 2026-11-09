@@ -84,6 +84,22 @@ func ActivateAll(objects []Object) error {
 	if storeState.publishedSnapshot == nil {
 		storeState.publishedSnapshot = map[string]string{}
 	}
+	// the index a later process restores from (published.go), written
+	// before anything changes here, so a failed write cancels the batch
+	next, nextBytes := map[string]string{}, map[string][]byte{}
+	for f, snap := range storeState.publishedSnapshot {
+		next[f], nextBytes[f] = snap, storeState.createdActive[f]
+	}
+	for _, c := range changes {
+		if c.drop {
+			delete(next, c.file)
+		} else {
+			next[c.file], nextBytes[c.file] = c.snapshot, c.bytes
+		}
+	}
+	if err := writePublishedIndex(next, func(f string) []byte { return nextBytes[f] }); err != nil {
+		return mutationError("INTERNAL", "the published index: "+err.Error())
+	}
 	for _, c := range changes {
 		if c.drop {
 			delete(storeState.createdActive, c.file)

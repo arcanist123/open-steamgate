@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -149,7 +148,8 @@ func TestSwapOldKilledDuringDrain(t *testing.T) {
 	if _, err := g.Swap(context.Background(), generation(t, "go:fakeB")); err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Kill(a.PID, syscall.SIGKILL); err != nil {
+	proc, _ := os.FindProcess(a.PID)
+	if err := proc.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the killed generation to retire", func() bool { return g.Table()[0].State == "retired" })

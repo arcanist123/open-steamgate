@@ -78,7 +78,7 @@ public port.
   (`SAP_SESSIONID_*`, `sap-contextid`) pins that session to the sidecar that
   set it, a cookie that is cleared unpins it, and a request carrying a pinned
   cookie goes to its sidecar while that one lives. With one sidecar this is
-  bookkeeping; it is what slice 4's swap routes by.
+  bookkeeping; it is what the swap routes by (below).
 - **The drain.** The gateway is wrapped in `serving.Host` (admission, the
   503 to newcomers, `X-OSD-Generation` on its own answers). On SIGTERM,
   SIGINT or SIGHUP (`cmd/osgw`): the requests in flight finish, the
@@ -90,25 +90,84 @@ public port.
   reaches the gateway only. On Windows there is no SIGTERM to send: the stop
   kills the sidecar.
 
-## Not yet (slice 4 and later)
+## The generation swap (slice 4, `swap.go`)
 
-No second generation, no swap, no builder; N = 1 sidecar. HTTPS, native RFC
-and DIAG listeners are still the sidecar's (osgo flags for them pass
-through), so they are re-bound when a sidecar is replaced. APC sockets are
-proxied, not held: a sidecar crash closes them.
+With a builder (`Options.Builder`, a `go/genbuild` `Builder`; `cmd/osgw
+-build "node tools/gogen/osgo.mjs --fast"`), the sidecars get
+`-gateway-builds` and the gateway swaps generations without a restart:
+
+1. **Build request.** An activation that published answers `X-OSD-Build:
+   published; building` from a sidecar that leaves nothing inactive
+   (otherwise `published; not building: n inactive object(s) ...`); the
+   gateway asks its `genbuild.Queue` for a build (debounced 500 ms, one at a
+   time, coalesced) and puts the id into the answer: `published; building
+   b3` (`; last build failed ...` when the one before failed).
+2. **Build to the side.** The builder runs in the tree; its executable is
+   stashed under `GenDir/<sha16>/` (written beside, renamed). The first
+   generation is stashed too, so a replacement after a crash restarts the
+   code that served, never the builder's newest output. A build that is the
+   executable already serving is no swap (`ErrSameGeneration`).
+3. **Candidate.** The stash is started with `-candidate`: the database file
+   opened `query_only` (`abap.OpenDBCandidate`), its boot writes (seed
+   normalisation, demo rows, status rows) deferred. A file whose DDL
+   fingerprint (`go/dbschema`) is not the candidate's makes it write
+   `RefusedFile(dir, pid)` and exit 4: the swap is refused, `X-OSD-Build:
+   built; schema differs, restart needed`, the old generation serves on.
+4. **Smoke.** `GET` of each `Options.Smoke` path (default `/health`;
+   `cmd/osgw` adds the demo service's `$metadata`) must answer 2xx, on read
+   transactions: a step that tries to write dumps.
+5. **Promote.** `POST /osd/promote` (the gateway's door; a client's request
+   to that path is answered 404 here): the candidate opens the file for
+   writing and runs its deferred boot writes. Then the routing flips: the
+   candidate is `serving`, new sessions and stateless requests go to it,
+   sessions pinned to the old generation stay there.
+6. **Drain, retire.** The old generation is `draining` until it has no step
+   in flight and no pinned session, then gets SIGTERM (its own drain) and
+   exits; past the grace (55 s) it is killed. Killed or crashed during the
+   drain, it is not replaced. Its lock connection closes with it, and the
+   lock server releases its sessions' dialog locks then; until then a lock
+   held by a pinned old-generation session refuses a conflicting request of
+   the new generation (one table, owner = generation, session, LUW).
+
+`/osd/serving` reports `gateway.build` (`state` building / swapping / live /
+failed / refused, `id`, `generation`, `why`, `swaps`, `seconds`), `hot.swaps`,
+and answers with `X-OSD-Build`: `building b3`, `live go:...`, `build failed b3:
+...`, `built; schema differs, restart needed`. `Swap(ctx, binary)` is the same
+swap for an embedder that builds by itself.
+
+Any failure keeps the old generation serving and is reported, never silent:
+a build that fails, a candidate that does not start, refuses the schema,
+fails its smoke or its promotion, or a serving sidecar that changed during
+the swap (a crash replaced it).
+
+## Not yet
+
+HTTPS, native RFC and DIAG listeners are still the sidecar's (osgo flags for
+them pass through), so they are re-bound when a sidecar is replaced, and a
+candidate given those flags cannot bind them while the old generation holds
+them: use the swap without them. APC sockets are proxied, not held: a
+sidecar crash or a retired generation closes them. A swap over an in-memory
+database is refused by the candidate (a restart is the way). No daemon
+mailboxes, no hand-over of in-memory session state (by design, ADR 0010).
 
 ## API
 
 `Start(ctx, Options) (*Gateway, error)` starts the lock server and the first
 sidecar and returns once it serves; `Handler()` is the front door
 (`Host().Wrap(gateway)`); `Host()`, `Locks()`, `Dir()`, `Table()`;
-`Stop(ctx)` drains, `Kill()` ends at once. `SidecarSocket`, `LockSocket` are
-the socket names both sides use.
+`Swap(ctx, binary)`, `BuildStatus()`; `Stop(ctx)` drains, `Kill()` ends at
+once. `SidecarSocket`, `LockSocket`, `RefusedFile` are the names both sides
+use.
 
 No import of `osg/gogen/abap`, of generated code or of `tools/osd-*`: it
-imports `go/enq`, `go/enqnet` and `go/serving`. Tests run the test binary itself as the
+imports `go/enq`, `go/enqnet`, `go/genbuild` and `go/serving`. Tests run the test binary itself as the
 sidecar (`GATEWAY_FAKE_SIDECAR=1`): pass-through, `/osd/serving`, a crash
-with its locks and the restart policy, pinning, the drain, a failed start.
+with its locks and the restart policy, pinning, the drain, a failed start;
+and the swap (`swap_test.go`, a generation = a shell wrapper of the test
+binary with another `FAKE_GENERATION`): promote and retire, a pinned
+session's lock against the new generation, the old one killed during its
+drain, a refused schema, a failed smoke and promotion, the same executable,
+the build an activation asks for. The real thing: `tools/osgw-swap-live.mjs`.
 
 ```sh
 go test -race ./osgw/

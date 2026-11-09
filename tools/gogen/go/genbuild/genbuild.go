@@ -82,6 +82,7 @@ func (c Command) Build(ctx context.Context, r Request) (Result, error) {
 		out = io.MultiWriter(tail, c.Log)
 	}
 	cmd.Stdout, cmd.Stderr = out, out
+	ownGroup(cmd)
 	err := cmd.Run()
 	res := Result{Duration: time.Since(started), Output: tail.String()}
 	if err != nil {
