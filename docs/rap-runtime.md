@@ -257,7 +257,8 @@ since the V4 write slice (#858): POST, PATCH and DELETE reach the same
 provider and so the same behavior (numbering, determination, validation),
 which needed no change for it (`test/rap-serve.mjs`, "reads and creates the
 same instances over V4"). Bound actions (`POST .../Note('...')/ZUI_RAP_NOTE.Approve`)
-are not a resource path the V4 facade knows and answer 404; over V2 they work.
+are a path the V4 facade parses, but it runs only the draft actions of sticky
+editing, so a BDEF action answers 501 naming the action; over V2 they work.
 
 ### Not in R2c
 

@@ -211,8 +211,10 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     assert.ok([200, 204].includes(patch.status), `${patch.status} ${JSON.stringify(patch.body)}`);
     assert.equal((await call(key)).body.NoteText, "v4 edit");
     const action = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
-    // bound actions are not a V4 resource path the facade knows yet
-    assert.equal(action.status, 404);
+    // the V4 facade knows a bound action path (#862) but serves only the
+    // draft actions of sticky editing; a BDEF action is named, not run
+    assert.equal(action.status, 501, JSON.stringify(action.body));
+    assert.match(JSON.stringify(action.body), /Approve is not implemented/);
     const del = await call(key, {method: "DELETE", headers: write});
     assert.equal(del.status, 204);
     assert.equal((await call(key)).status, 404);
