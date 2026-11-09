@@ -232,7 +232,10 @@ describe("tools/osd-status: the system as one JSON object", () => {
       ["Host OS", "Debian GNU/Linux 13 (trixie)"],
       ["Device", "Raspberry Pi 4 Model B Rev 1.5"],
     ]);
-    expect((await take({platform: facts})).database.slice(2)).to.deep.equal(facts);
+    // Engine and Storage, then the two AMDP rows (tools/amdp-status.mjs), then the platform
+    const database = (await take({platform: facts})).database;
+    expect(database.slice(2, 4).map((row) => row.section)).to.deep.equal(["AMDP", "AMDP"]);
+    expect(database.slice(4)).to.deep.equal(facts);
     expect(JSON.stringify(facts)).not.to.include("/run/host");
     expect(platformFacts({read: () => { throw new Error("absent"); }, platform: "linux", arch: "arm64", kernel: "6.12"})
       .map((fact) => fact.name)).to.deep.equal(["Architecture", "Kernel"]);
@@ -343,8 +346,15 @@ describe("tools/osd-status: the system as one JSON object", () => {
     expect(s.database).to.deep.equal([
       {section: "Database", name: "Engine", value: "sqlite", note: "configured backend; connection not observed"},
       {section: "Database", name: "Storage", value: "file", note: "persistent database storage"},
+      // the pool's work processes do not answer /osd/serving here, so where
+      // an AMDP body runs is not known -- and is said so, not guessed
+      {section: "AMDP", name: "pAMDP portable engine", value: "not known",
+        note: "the work process holding the AMDP destination did not answer; nothing is guessed"},
+      {section: "AMDP", name: "eAMDP HANA destination", value: "not known",
+        note: "the work process holding the AMDP destination did not answer; nothing is guessed"},
     ]);
-    expect(Object.keys(s)).to.deep.equal(["system", "processes", "ports", "services", "packs", "database"]);
+    expect(Object.keys(s)).to.deep.equal(["system", "processes", "ports", "services", "packs", "database", "amdp"]);
+    expect(s.amdp).to.deep.equal({db: "unknown", driver: false, configured: false, session: "none", methods: [], unknown: true});
     expect(Object.keys(s.processes[0])).to.deep.equal(["pid", "role", "port", "generation", "epoch", "since", "sockets", "rss_mb", "alive"]);
     expect(Object.keys(s.ports[0])).to.deep.equal(["port", "protocol", "purpose", "state", "note"]);
     expect(Object.keys(s.packs[0])).to.deep.equal(["name", "order", "objects", "folders", "description"]);

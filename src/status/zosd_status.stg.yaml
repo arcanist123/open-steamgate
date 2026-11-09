@@ -1,18 +1,19 @@
 # The system OSD is, as a service it serves itself.
 #
-# Six DDIC tables are the storage (src/status/*.tabl.xml); the data model
+# Seven DDIC tables are the storage (src/status/*.tabl.xml); the data model
 # is CDS over them (src/cds/zc_osd_*.ddls.asddls), and this file is the
-# service shell: six entity sets, all read-only, each `cds:`-sourced, so
+# service shell: seven entity sets, all read-only, each `cds:`-sourced, so
 # the generic SADL delegation reads them and no hand-written DPC exists.
 # What fills the tables is the facade: it knows the live facts (ports, pool
 # children, generation, ICF services, packs), computes a snapshot
 # (tools/osd-status.mjs) and posts it to ZCL_OSD_STATUS=>REFRESH before a
 # read of this service is proxied.
 #
-# The five navigations mirror the five associations ZC_OSD_SYSTEM exposes
-# (_Processes, _Ports, _Services, _Packs, _Database) and carry no referential
-# constraint on purpose: there is one system row, and every process, port,
-# service and pack of this instance belongs to it, so the association is
+# Six unconditional navigations: five mirror the five associations
+# ZC_OSD_SYSTEM exposes (_Processes, _Ports, _Services, _Packs, _Database),
+# and to_Amdp has no CDS association at all. None carries a referential
+# constraint, on purpose: there is one system row, and every process, port,
+# service, pack and AMDP method of this instance belongs to it, so the association is
 # unconditional and the SADL runtime reads the whole target set for the
 # expand (zcl_stg_sadl_dpc~navigation_where finds no constraint pair and
 # adds no WHERE).
@@ -131,6 +132,30 @@ entities:
       Value: {type: String(240), field: VALUE, readonly: true, label: Value}
       Note: {type: String(240), field: NOTE, readonly: true, label: Note}
 
+  # Every AMDP method of the tree (BY DATABASE PROCEDURE / FUNCTION FOR HDB)
+  # with the engine its body runs on at the moment of the snapshot: read off
+  # the AMDP destination's real session and the system connection
+  # (tools/amdp-status.mjs), classified in ZCL_OSD_STATUS=>ENGINE. The page
+  # used to say "HDB" off the system connection while the eAMDP session was
+  # dead (docs/backlog/data-analytics.md); this row says what a call would do.
+  AmdpMethod:
+    set: AmdpMethodSet
+    description: "the AMDP methods of the tree and where each body runs now"
+    source: {cds: ZC_OSD_AMDP, struct: "ZCL_STG_CDS_ZVOSDAMDP=>TY_ROW"}
+    keys: [ClassName, MethodName]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      ClassName: {type: String(30), field: CLASSNAME, readonly: true, label: Class}
+      MethodName: {type: String(30), field: METHODNAME, readonly: true, label: Method}
+      Kind: {type: String(10), field: KIND, readonly: true, label: Kind}
+      Portable: {type: String(1), field: PORTABLE, readonly: true, label: Portable subset}
+      Engine: {type: String(20), field: ENGINE, readonly: true, label: Engine}
+      Reason: {type: String(240), field: REASON, readonly: true, label: Reason}
+      Refusal: {type: String(240), field: REFUSAL, readonly: true, label: Portable refusal}
+
 associations:
   SystemToProcesses:
     from: System
@@ -157,6 +182,11 @@ associations:
     to: Database
     cardinality: 1:N
     navigation: {System: to_Database}
+  SystemToAmdp:
+    from: System
+    to: AmdpMethod
+    cardinality: 1:N
+    navigation: {System: to_Amdp}
 
 annotations:
   System:
@@ -181,6 +211,7 @@ annotations:
       - {id: Services, label: Services, lineItem: to_Services}
       - {id: Packs, label: Packs, lineItem: to_Packs}
       - {id: Database, label: Environment, lineItem: to_Database}
+      - {id: Amdp, label: AMDP methods, lineItem: to_Amdp}
     fieldGroups:
       General: [Sid, HostKind, GenLive, GenServing, Synced, Workers, StartedAt, SnapAt, RootHint, Pid]
       Runtime: [HostKind, Workers, StartedAt, Pid]
@@ -296,3 +327,24 @@ annotations:
   Database/Name: {label: Fact}
   Database/Value: {label: Value}
   Database/Note: {label: Note}
+
+  AmdpMethod:
+    header: {typeName: AMDP method, typeNamePlural: AMDP methods, title: MethodName, description: Engine}
+    selectionFields: [ClassName, Engine]
+    lineItem:
+      - {value: ClassName, label: Class}
+      - {value: MethodName, label: Method}
+      - {value: Kind, label: Kind}
+      - {value: Engine, label: Engine}
+      - {value: Reason, label: Reason}
+    facets:
+      - {id: AmdpGeneral, label: General, fieldGroup: General}
+    fieldGroups:
+      General: [ClassName, MethodName, Kind, Portable, Engine, Reason, Refusal]
+  AmdpMethod/ClassName: {label: Class}
+  AmdpMethod/MethodName: {label: Method}
+  AmdpMethod/Kind: {label: Kind}
+  AmdpMethod/Portable: {label: Portable subset}
+  AmdpMethod/Engine: {label: Engine}
+  AmdpMethod/Reason: {label: Reason}
+  AmdpMethod/Refusal: {label: Portable refusal}

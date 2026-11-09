@@ -6,6 +6,7 @@
     "test/database-identity.mjs",
     "test/db-migrate.mjs",
     "test/database-identity-host.mjs",
+    "test/amdp-status-host.mjs",
     "test/gateway-regression-contract.mjs",
     "test/http-case.mjs",
     "test/mocha.mjs",

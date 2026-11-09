@@ -79,7 +79,9 @@ the system inside it.
 ## Parked elsewhere
 
 - Portable AMDP (pAMDP): parked 2026-09-25; value parity against HANA is the
-  first step when it returns (`docs/handover-pamdp-2026-09-24.md`).
+  first step when it returns (`docs/handover-pamdp-2026-09-24.md`). Declared
+  while parked (2026-11-08): the status page says per AMDP method which
+  engine runs it (`docs/amdp-engine-status.md`).
 - The licence of open-abap-odata: parked (ADR 0003, consequences).
 
 ## Tails and small items
