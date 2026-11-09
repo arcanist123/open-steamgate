@@ -243,6 +243,78 @@ func TestPromoteIsNotAClientDoor(t *testing.T) {
 	}
 }
 
+// critic #895 SHOULD 5: a candidate that dies between its promotion and
+// the routing flip (kill, OOM -- a window nanoseconds wide) must fail the
+// swap loudly and leave the old generation serving. As it was, the flip
+// silently did nothing (serve() only flips a starting/candidate sidecar),
+// the old one drained and retired, no replacement came (watch saw a
+// planned exit), and the gateway answered 503 phase starting for ever with
+// Failed never closed.
+func TestSwapCandidateDiedBeforeTheFlip(t *testing.T) {
+	g, front := start(t, Options{GenDir: t.TempDir()})
+	g.mu.Lock()
+	old := g.current
+	g.mu.Unlock()
+	bin := generation(t, "go:fakeB")
+	cand, err := g.spawn(bin, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.waitReady(context.Background(), cand); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.smoke(context.Background(), cand); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.promote(context.Background(), cand); err != nil {
+		t.Fatal(err)
+	}
+	// the candidate dies here, in the gap between promote() and the flip
+	proc, err := os.FindProcess(cand.PID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proc.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	<-cand.exited // its watch has retired it
+	if _, err := g.flip(old, cand, bin, ""); err == nil {
+		t.Fatal("the flip took a dead candidate")
+	}
+	if row := g.Table()[0]; row.PID != old.PID || row.State != "serving" {
+		t.Fatalf("the old generation does not serve on: %+v", row)
+	}
+	if resp, _ := get(t, front.URL+"/echo"); resp.StatusCode != 200 || resp.Header.Get("X-OSD-Generation") != fakeGeneration {
+		t.Fatalf("served by %v %d", resp.Header, resp.StatusCode)
+	}
+	if b := g.BuildStatus(); b.State != "failed" {
+		t.Fatalf("build %+v", b)
+	}
+	select {
+	case <-g.Failed():
+		t.Fatal("the gateway gave up")
+	default:
+	}
+}
+
+// the same refusal at Start and at a replacement: serve() says so when the
+// sidecar died first, so neither leaves a gateway answering 503 for ever
+// with no failure signal
+func TestServeRefusesASidecarThatDiedFirst(t *testing.T) {
+	g, _ := start(t, Options{})
+	g.mu.Lock()
+	sc := g.current
+	sc.State, sc.Why = "retired", "signal: killed" // its watch has been here
+	g.current, g.ready = nil, make(chan struct{})
+	g.mu.Unlock()
+	if g.serve(sc) {
+		t.Fatal("serve took a sidecar that had died first")
+	}
+	if g.current != nil {
+		t.Fatal("serve left a serving generation")
+	}
+}
+
 type fakeBuilder struct {
 	binary string
 	err    error

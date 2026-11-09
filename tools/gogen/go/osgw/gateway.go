@@ -230,8 +230,8 @@ func Start(ctx context.Context, o Options) (*Gateway, error) {
 	if err == nil {
 		err = g.waitReady(ctx, sc)
 	}
-	if err == nil {
-		g.serve(sc)
+	if err == nil && !g.serve(sc) {
+		err = fmt.Errorf("%w: pid %d exited before it served (%s)", ErrNotReady, sc.PID, sc.Why)
 	}
 	if err != nil {
 		g.Stop(context.Background())
@@ -328,24 +328,43 @@ func (g *Gateway) waitReady(ctx context.Context, sc *sidecar) error {
 	}
 }
 
-// serve makes a ready sidecar the serving one
-func (g *Gateway) serve(sc *sidecar) {
-	g.mu.Lock()
-	if sc.State == "starting" || sc.State == "candidate" {
-		sc.State = "serving"
-		sc.candidate = false
-		g.current = sc
-		select {
-		case <-g.ready:
-		default:
-			close(g.ready)
-		}
+// flipLocked makes a live sidecar the serving one; false when it died
+// first (its watch retired it between its readiness and here). g.mu held.
+func (g *Gateway) flipLocked(sc *sidecar) bool {
+	if sc.State != "starting" && sc.State != "candidate" {
+		return false
 	}
-	g.mu.Unlock()
+	sc.State = "serving"
+	sc.candidate = false
+	g.current = sc
+	select {
+	case <-g.ready:
+	default:
+		close(g.ready)
+	}
+	return true
+}
+
+// served is what follows a flip: the host's generation and the log line
+func (g *Gateway) served(sc *sidecar) {
 	if g.host != nil {
 		g.host.SetGeneration(sc.Generation)
 	}
 	g.o.Logf("gateway: sidecar %d (pid %d) serves %s", sc.ID, sc.PID, sc.Generation)
+}
+
+// serve makes a ready sidecar the serving one; false when it died first:
+// nothing serves then, and the caller (Start, a replacement) fails loudly
+// rather than leaving a gateway that answers 503 for ever with no failure
+// signal
+func (g *Gateway) serve(sc *sidecar) bool {
+	g.mu.Lock()
+	ok := g.flipLocked(sc)
+	g.mu.Unlock()
+	if ok {
+		g.served(sc)
+	}
+	return ok
 }
 
 func ask(ctx context.Context, client *http.Client) (info, bool) {
@@ -405,8 +424,8 @@ func (g *Gateway) watch(sc *sidecar) {
 	if err == nil {
 		err = g.waitReady(context.Background(), next)
 	}
-	if err == nil {
-		g.serve(next)
+	if err == nil && !g.serve(next) {
+		err = fmt.Errorf("%w: pid %d exited before it served (%s)", ErrNotReady, next.PID, next.Why)
 	}
 	if err != nil {
 		g.fail("the replacement did not start: " + err.Error())

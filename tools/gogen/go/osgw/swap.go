@@ -269,17 +269,40 @@ func (g *Gateway) swap(ctx context.Context, id, binary string) (string, error) {
 		g.terminate(cand, 0)
 		return fail("failed", fmt.Errorf("the candidate %s failed its promotion: %w", cand.Generation, err))
 	}
+	return g.flip(old, cand, path, id)
+}
+
+// flip is a swap's routing flip (ADR 0010 slice 4, step 5's end): the old
+// generation starts draining, the candidate becomes the serving one, and
+// the drain of the old one begins (steps 6 and 7). One mutex hold refuses
+// a candidate that died between its promotion and here (kill, OOM): the
+// flip would otherwise leave the gateway with no serving generation -- the
+// old one draining, the candidate retired, no replacement (watch saw a
+// planned exit) -- answering 503 phase starting for ever with Failed never
+// closed. Refused, the old generation serves on, as on any failed swap.
+func (g *Gateway) flip(old, cand *sidecar, path, id string) (string, error) {
+	fail := func(err error) (string, error) {
+		g.o.Logf("gateway: swap %s: %v", id, err)
+		g.setBuild(func(b *BuildState) { b.State, b.ID, b.Why = "failed", id, err.Error() })
+		return g.host.Generation(), err
+	}
 	g.mu.Lock()
 	if g.current != old || g.stopping {
 		// the old one crashed meanwhile (a replacement serves) or a stop began
 		g.mu.Unlock()
 		g.terminate(cand, 0)
-		return fail("failed", errors.New("the generation that served changed during the swap"))
+		return fail(errors.New("the generation that served changed during the swap"))
+	}
+	if !g.flipLocked(cand) {
+		why := cand.Why
+		g.mu.Unlock()
+		g.terminate(cand, 0)
+		return fail(fmt.Errorf("the candidate %s ended between its promotion and the flip: %s", cand.Generation, why))
 	}
 	old.State = "draining"
 	g.binary = path
 	g.mu.Unlock()
-	g.serve(cand)
+	g.served(cand)
 	g.setBuild(func(b *BuildState) {
 		b.State, b.ID, b.Generation, b.Why = "live", id, cand.Generation, ""
 		b.Swaps++
