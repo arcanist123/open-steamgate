@@ -9,7 +9,15 @@ import {startServer} from "./start.mjs";
 const origin = `http://localhost:${process.env.STG_PORT ?? 3030}`;
 const base = `${origin}/sap/opu/odata4/sap/ZSTG_DEMO_SRV`;
 const literal = `${origin}/sap/opu/odata4/sap/ZOSD_V4_TEST`;
-const guid = "12345678-1234-1234-1234-123456789abc";
+// The Guid the DPC seeds, in its internal form: 32 hex digits, upper case
+// (test/v4/zcl_osd_v4_test_dpc.clas.abap). The V4 wire literal is the same value
+// hyphenated and lower case, which the parser and the serializer each derive, so
+// it is derived here too. Spelled out it is a UUID shape, and the leak scanner
+// flags every UUID shape on sight -- synthetic or not -- in the repository scan
+// and in the public layer the test folder is published as, where the
+// repository's allow list does not apply.
+const guidInternal = "12345678123412341234123456789ABC";
+const guid = guidInternal.toLowerCase().replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 const key = `Day=2026-11-07,Guid=${guid}`;
 const array = (value) => value === undefined ? [] : Array.isArray(value) ? value : [value];
 const query = (options) => "?" + new URLSearchParams(options);

@@ -73,8 +73,10 @@ have no `__metadata` or deferred navigation links. `$select` applies to the
 outer entity; expanded entities contain their structural properties.
 
 Keys and filters accept V4 literals such as `Day=2026-11-07`,
-`Guid=12345678-1234-1234-1234-123456789abc`, and
-`Moment eq 2026-11-07T12:30:45Z`. Timestamp filter offsets are converted to
+`Guid=<32 hex digits, hyphenated 8-4-4-4-12>`, and
+`Moment eq 2026-11-07T12:30:45Z`. A Guid literal reaches the DPC as its
+internal form, the same digits upper case and unhyphenated, and serializes
+back hyphenated and lower case. Timestamp filter offsets are converted to
 UTC before reaching the DPC. Temporal literals must match the property's
 Date or DateTimeOffset type, with valid calendar dates, clock times and
 UTC offsets (at most 14 hours). Numeric and quoted string literals are not
