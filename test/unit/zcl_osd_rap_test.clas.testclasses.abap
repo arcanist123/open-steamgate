@@ -28,6 +28,10 @@ CLASS lcl_narrow IMPLEMENTATION.
     rr_rows = mi_bo->new_rows( iv_entity ).
   ENDMETHOD.
 
+  METHOD zif_osd_rap_bo~new_table.
+    rr_table = mi_bo->new_table( iv_entity = iv_entity iv_kind = iv_kind iv_action = iv_action ).
+  ENDMETHOD.
+
   METHOD zif_osd_rap_bo~new_response.
     rr_response = mi_bo->new_response( iv_kind ).
   ENDMETHOD.

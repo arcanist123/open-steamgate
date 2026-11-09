@@ -248,6 +248,7 @@ CLASS zcl_osd_dsl_mpc IMPLEMENTATION.
   METHOD project_model_json.
     DATA lv_json TYPE string.
     DATA lv_first TYPE abap_bool.
+    DATA lv_incl TYPE abap_bool.
     DATA lv_inner TYPE abap_bool.
     DATA ls_type TYPE zcl_stg_segw_gen=>ty_entity_type.
     DATA ls_ct TYPE zcl_stg_segw_gen=>ty_complex_type.
@@ -456,6 +457,18 @@ CLASS zcl_osd_dsl_mpc IMPLEMENTATION.
       ENDLOOP.
     ENDLOOP.
     lv_json = lv_json && `],"has_texts":` && quoted( flag_text( xsdbool( lv_first = abap_false ) ) ).
+* the text element container: a labelled property, a function import or one
+* of its parameters names it, so any of them needs it declared
+    lv_incl = xsdbool( lv_first = abap_false ).
+    LOOP AT is_model-function_imports INTO ls_fi.
+      IF ls_fi-text_element IS NOT INITIAL.
+        lv_incl = abap_true.
+      ENDIF.
+      LOOP AT ls_fi-parameters INTO ls_fp WHERE text_element IS NOT INITIAL.
+        lv_incl = abap_true.
+      ENDLOOP.
+    ENDLOOP.
+    lv_json = lv_json && `,"has_text_include":` && quoted( flag_text( lv_incl ) ).
     lv_blocks = ``.
     LOOP AT is_model-complex_types INTO ls_ct.
       lv_kind = 'inline'.
@@ -906,9 +919,9 @@ CLASS zcl_osd_dsl_mpc IMPLEMENTATION.
       && `protected section.` && cl_abap_char_utilities=>newline
       && `private section.` && cl_abap_char_utilities=>newline
       && cl_abap_char_utilities=>newline
-      && `{{#has_texts}}  constants GC_INCL_NAME type STRING value '{{text_include}}' ##NO_TEXT.` && cl_abap_char_utilities=>newline
+      && `{{#has_text_include}}  constants GC_INCL_NAME type STRING value '{{text_include}}' ##NO_TEXT.` && cl_abap_char_utilities=>newline
       && cl_abap_char_utilities=>newline
-      && `{{/has_texts}}{{#declarations}}  methods {{name}}` && cl_abap_char_utilities=>newline
+      && `{{/has_text_include}}{{#declarations}}  methods {{name}}` && cl_abap_char_utilities=>newline
       && `    raising` && cl_abap_char_utilities=>newline
       && `      /IWBEP/CX_MGW_MED_EXCEPTION .` && cl_abap_char_utilities=>newline
       && `{{/declarations}}ENDCLASS.` && cl_abap_char_utilities=>newline
