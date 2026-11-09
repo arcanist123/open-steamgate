@@ -1,6 +1,9 @@
 package abap
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 type sessionStateStatics struct{ hits int }
 
@@ -117,5 +120,63 @@ func TestSessionWithoutDatabase(t *testing.T) {
 	}()
 	if e, ok := got.(ArithmeticError); !ok || e.Class != "NOT_COMPILED" {
 		t.Fatalf("statement without a database: %v", got)
+	}
+}
+
+// A statement outside a step, on a database whose one connection another
+// session's step holds, is refused by name rather than queued forever on
+// the pool -- the same rule as a second step at begin (db.go). Both the
+// plain path and a statement the cache has already prepared are covered.
+func TestStatementOutsideStepWhileAnotherHoldsConnection(t *testing.T) {
+	d, a := openTestDB(t, `["CREATE TABLE t (k TEXT)"]`)
+	b := &Session{DB: d}
+	const ins = "INSERT INTO t VALUES ('b')"
+	// two sightings in steps of b, then a step end: the text is prepared
+	for range 2 {
+		DialogStep(b, func() { b.conn().Exec(ins) })
+	}
+	if _, ok := d.stmtCache[ins]; !ok {
+		t.Fatal("the statement was not prepared")
+	}
+	for _, q := range []string{ins, "INSERT INTO t VALUES ('plain')"} {
+		done := make(chan any, 1)
+		DialogStep(a, func() {
+			go func() {
+				defer func() { done <- recover() }()
+				b.conn().Exec(q)
+			}()
+			select {
+			case got := <-done:
+				if e, ok := got.(ArithmeticError); !ok || e.Class != "NOT_COMPILED" {
+					t.Fatalf("%s: %v", q, got)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s: queued on the held connection", q)
+			}
+		})
+	}
+	// with the step over, the same session runs it in autocommit
+	if _, err := b.conn().Exec(ins); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// After Database.Close, a statement and a step are refused as
+// CX_SY_OPEN_SQL_DB "database is closed", not a nil dereference.
+func TestClosedDatabaseRefuses(t *testing.T) {
+	d, s := openTestDB(t, `["CREATE TABLE t (k TEXT)"]`)
+	d.Close()
+	for name, f := range map[string]func(){
+		"statement": func() { s.conn().Exec("SELECT 1") },
+		"step":      func() { DialogStep(s, func() {}) },
+	} {
+		var got any
+		func() {
+			defer func() { got = recover() }()
+			f()
+		}()
+		if e, ok := got.(ArithmeticError); !ok || e.Class != "CX_SY_OPEN_SQL_DB" || e.Op != "database is closed" {
+			t.Fatalf("%s after Close: %v", name, got)
+		}
 	}
 }

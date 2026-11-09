@@ -439,6 +439,8 @@ if (groups.some(({methods}) => methods.some((m) => m.db))) generated.push(
 else generated.push("_ = imageFile; if *imageOut != \"\" { if err := os.WriteFile(*imageOut, nil, 0600); err != nil { panic(err) }; return }");
 generated.push("if *phasesOut != \"\" { data, _ := json.Marshal(map[string]float64{\"startupSeedMs\": float64(time.Since(startupStarted).Microseconds()) / 1000}); if err := os.WriteFile(*phasesOut, data, 0600); err != nil { panic(err) } }");
 generated.push("checkpoint := func(active string) { if *resultsOut != \"\" { data, err := json.Marshal(struct { Active string `json:\"active,omitempty\"`; Rows []result `json:\"rows\"`; Durations map[string]float64 `json:\"durations\"` }{active, results, durations}); if err != nil { panic(err) }; temp := *resultsOut + \".tmp\"; if err := os.WriteFile(temp, data, 0600); err != nil { panic(err) }; if err := os.Rename(temp, *resultsOut); err != nil { panic(err) } } }");
+// any group with SQL hands every class's session the seed image (below)
+const hasDB = groups.some(({methods}) => methods.some((m) => m.db));
 for (const {key, methods} of groups) {
   const [owner, local] = key.split(":");
   const c = classes.get(key);
@@ -449,7 +451,6 @@ for (const {key, methods} of groups) {
   // own copy of the seed image as the database (abap.Session owns both).
   // The image is handed to every class's session, because a class whose
   // SQL the static detection missed opens its copy on its first statement.
-  const hasDB = groups.some(({methods}) => methods.some((m) => m.db));
   generated.push(`if *classesFile == "" || selected[${JSON.stringify(key)}] {`, `checkpoint(${JSON.stringify(key)})`, "classStarted := time.Now()", "session.BeginTestClass()", "s = &abap.Session{}", ...(hasDB ? ["s.UseUnitImage(dbImage)"] : []), ...(c.methods.some((m) => m.name === "CLASS_TEARDOWN") ? ["groupStart := len(results)"] : []), "classError := \"\"; classSite := \"\"", "stopClass := false");
   // one LUW chain as the Node unit run has (abap.BeginUnitLUW): COMMIT and
   // ROLLBACK WORK end it, nothing between the methods does

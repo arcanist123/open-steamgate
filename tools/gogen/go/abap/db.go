@@ -23,7 +23,9 @@ import (
 // In-memory SQLite is one database per connection, so the pool keeps one;
 // a -db file keeps one too (icf_db.go), so a step holds the connection its
 // transaction runs on and a second step on the same database is refused at
-// begin rather than queued forever on the pool (luw.go).
+// begin rather than queued forever on the pool, and so is a statement
+// outside a step while another session's step holds it (luw.go). A closed
+// Database refuses steps and statements as CX_SY_OPEN_SQL_DB.
 type Database struct {
 	sql *sql.DB
 	// the statement cache (luw.go), prepared on this database's connection

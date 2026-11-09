@@ -53,7 +53,21 @@ func (s *Session) plainConn() querier {
 	if s.tx != nil {
 		return s.tx
 	}
+	d.usable(s)
 	return d.sql
+}
+
+// usable refuses, by name, a statement outside a step that the pool could
+// only queue forever or that would reach a closed pool: the one connection
+// (db.go) held by another session's step is refused, not queued, as begin
+// refuses a second step.
+func (d *Database) usable(s *Session) {
+	if d.sql == nil {
+		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "database is closed"})
+	}
+	if d.inStep != nil && d.inStep != s {
+		panic(NotCompiled("database", "a dialog step of another session holds this database's one connection"))
+	}
 }
 
 // The statement cache (parity-wave2). SQLite parsed every statement again:
@@ -98,7 +112,9 @@ func cacheable(q string) bool {
 
 func (s *Session) stmtFor(q string) *sql.Stmt {
 	d := s.DB
-	if d == nil || d.sql == nil {
+	// outside a step while another session's step holds the connection,
+	// the pool would queue: plainConn refuses it instead
+	if d == nil || d.sql == nil || (s.tx == nil && d.inStep != nil) {
 		return nil
 	}
 	if p, ok := d.stmtCache[q]; ok {
@@ -146,8 +162,11 @@ func (d *Database) prepareSeen() {
 
 func (s *Session) begin() {
 	d := s.DB
-	if d == nil || d.sql == nil {
+	if d == nil {
 		return
+	}
+	if d.sql == nil {
+		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "database is closed"})
 	}
 	// one connection in the pool (db.go): a second Begin would wait for the
 	// first forever rather than fail

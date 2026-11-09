@@ -95,8 +95,10 @@ var workProcess = &abap.WorkProcess
 
 // instance owns what every session of this process runs on: the database
 // main opened and the statics the sessions share (ADR 0010 slice 2); every
-// dialog step runs in a Session minted from it.
-var instance *abap.Instance
+// dialog step runs in a Session minted from it. Until main opens the
+// database it is an instance without one, as the package's own tests run it
+// (a statement there is refused by name, a step opens no LUW).
+var instance = abap.NewInstance(nil)
 
 // a push channel (*.sapc.xml) this program serves: its path and handler class
 type apcChannel struct {
