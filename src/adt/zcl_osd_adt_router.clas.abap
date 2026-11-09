@@ -247,6 +247,38 @@ CLASS zcl_osd_adt_router IMPLEMENTATION.
       add( EXPORTING iv_method = `GET` iv_pattern = `/sap/bc/adt/core/http/xref/closure`
         iv_handler = `ZCL_OSD_ADT_XREF` CHANGING ct_routes = rt_routes ).
     ENDIF.
+*   Function groups and their parts (FUGR/F, FUGR/FF, FUGR/I), read-only.
+    lv_pattern = c_base && `/functions/groups/:name`.
+    add( EXPORTING iv_method = `GET` iv_pattern = lv_pattern
+      iv_handler = `ZCL_OSD_ADT_FUNCTION` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `GET` iv_pattern = lv_pattern && `/source/main`
+      iv_handler = `ZCL_OSD_ADT_FUNCTION` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `GET` iv_pattern = lv_pattern && `/includes/:include`
+      iv_handler = `ZCL_OSD_ADT_FUNCTION` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `GET` iv_pattern = lv_pattern && `/includes/:include/source/main`
+      iv_handler = `ZCL_OSD_ADT_FUNCTION` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `GET` iv_pattern = lv_pattern && `/fmodules/:module`
+      iv_handler = `ZCL_OSD_ADT_FUNCTION` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `GET` iv_pattern = lv_pattern && `/fmodules/:module/source/main`
+      iv_handler = `ZCL_OSD_ADT_FUNCTION` CHANGING ct_routes = rt_routes ).
+*   Message classes (MSAG/N): the document and its text form.
+    add( EXPORTING iv_method = `GET` iv_pattern = c_base && `/messageclass/:name`
+      iv_handler = `ZCL_OSD_ADT_MSAG` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `GET` iv_pattern = c_base && `/messageclass/:name/source/main`
+      iv_handler = `ZCL_OSD_ADT_MSAG` CHANGING ct_routes = rt_routes ).
+*   The creation wizards' other preflights (programs, includes).
+    add( EXPORTING iv_method = `POST` iv_pattern = `/sap/bc/adt/programs/validation`
+      iv_handler = `ZCL_OSD_ADT_CREATE_VALID` CHANGING ct_routes = rt_routes ).
+    add( EXPORTING iv_method = `POST` iv_pattern = `/sap/bc/adt/includes/validation`
+      iv_handler = `ZCL_OSD_ADT_CREATE_VALID` CHANGING ct_routes = rt_routes ).
+*   Cross-reference reads: the main programs of an include (D010INC) and
+*   where-used (WBCROSSGT), where the kernel has the seeded tables.
+    IF zcl_osd_kernel_guard=>has_cross_reference( ) = abap_true.
+      add( EXPORTING iv_method = `GET` iv_pattern = `/sap/bc/adt/programs/includes/:name/mainprograms`
+        iv_handler = `ZCL_OSD_ADT_INCLUDES` CHANGING ct_routes = rt_routes ).
+      add( EXPORTING iv_method = `POST` iv_pattern = `/sap/bc/adt/repository/informationsystem/usageReferences`
+        iv_handler = `ZCL_OSD_ADT_WHEREUSED` CHANGING ct_routes = rt_routes ).
+    ENDIF.
 *   everything else is still the Node facade's, until its group moves
 *   A2: editor helpers, transport checks and occurrence markers.
     add( EXPORTING iv_method = `GET` iv_pattern = `/sap/bc/adt/feeds`

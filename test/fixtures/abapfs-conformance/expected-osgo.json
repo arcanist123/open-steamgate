@@ -54,23 +54,20 @@
       "feature": "Open INCL (structure + source)"
     },
     "object.FUGR": {
-      "status": "MISSING",
-      "feature": "Open FUGR (structure + source)",
-      "reason": "GET /sap/bc/adt/functions/groups/zosd_test_fg is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Open FUGR (structure + source)"
     },
     "object.FM": {
-      "status": "MISSING",
-      "feature": "Open FM (structure + source)",
-      "reason": "GET /sap/bc/adt/functions/groups/zosd_test_fg/fmodules/z_osd_test_status_text is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Open FM (structure + source)"
     },
     "object.DDLS": {
       "status": "PASS",
       "feature": "Open DDLS (structure + source)"
     },
     "object.MSAG": {
-      "status": "MISSING",
-      "feature": "Open MSAG (structure + source)",
-      "reason": "GET /sap/bc/adt/messageclass/zosd_test_msg is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Open MSAG (structure + source)"
     },
     "object.TABL": {
       "status": "PASS",
@@ -85,9 +82,8 @@
       "feature": "Outline (objectstructure)"
     },
     "object.INCL.mainprograms": {
-      "status": "MISSING",
-      "feature": "Include main program",
-      "reason": "GET /sap/bc/adt/programs/includes/zosd_test_demo_inc/mainprograms is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Include main program"
     },
     "write.lockWriteUnlock": {
       "status": "PASS",
@@ -114,9 +110,8 @@
       "feature": "Object search (quickSearch)"
     },
     "whereused.references": {
-      "status": "MISSING",
-      "feature": "Where-used / find references",
-      "reason": "POST /sap/bc/adt/repository/informationsystem/usageReferences is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Where-used / find references"
     },
     "editor.completion": {
       "status": "MISSING",
@@ -180,9 +175,8 @@
       "reason": "POST /sap/bc/adt/atc/runs is not served by ABAP here."
     },
     "debugger.coreDiscovery": {
-      "status": "FAIL",
-      "feature": "Debug session start (core discovery)",
-      "reason": "Core discovery returns HTTP 200, but the pinned client cannot parse it (missing category @_term)."
+      "status": "PASS",
+      "feature": "Debug session start (core discovery)"
     },
     "debugger.listeners": {
       "status": "PASS",
@@ -198,9 +192,8 @@
       "feature": "Feeds / dumps / users"
     },
     "create.validate": {
-      "status": "MISSING",
-      "feature": "New object wizard: name validation",
-      "reason": "POST /sap/bc/adt/programs/validation is not served by ABAP here."
+      "status": "PASS",
+      "feature": "New object wizard: name validation"
     },
     "create.createDelete": {
       "status": "PASS",
@@ -233,15 +226,15 @@
     "create"
   ],
   "measured": {
-    "revision": "6847c55a45a4ec34c4872f63f4bd630adab67033",
+    "revision": "5aedcb937d0d9dc93bfb65516c490a5af8ff12f8",
     "build": "osgo-host fixture staging, npm run transpile, node tools/gogen/osgo.mjs; -adt",
     "counts": {
-      "PASS": 28,
-      "FAIL": 1,
-      "MISSING": 18
+      "PASS": 37,
+      "FAIL": 0,
+      "MISSING": 10
     },
     "exercised": 47,
     "omitted": [],
-    "note": "Full run of every group on feat/osgo-adt-read-families over main 6847c55a (after #855): data preview (go/adtpreview) and the inactive-objects feed (go/adtread) now pass. Before them, on 6847c55a itself: 25 PASS, 1 FAIL, 21 MISSING of 47."
+    "note": "Full run of every group on feat/osgo-adt-more-families over feat/osgo-adt-activate-unit 5aedcb93 (#863): function groups and modules, message classes, include main programs, program/include preflight, where-used and the core discovery form are ABAP on both hosts (docs/adt-abap-port/family-specs/functions-messages-xref.md); osgo seeds the cross-reference at build. Before it, on 5aedcb93: 30 PASS, 1 FAIL, 16 MISSING of 47."
   }
 }

@@ -151,15 +151,17 @@ Each release carries `osd-linux-x64`, `osd-linux-arm64`,
 copies the embedded system into your user data directory and serves on
 3030 (HTTP only: the binary makes no certificate, so Eclipse reaches it
 over RFC with `./osd protocols` in a second terminal, section 2).
-`./osd doctor` says what a binary contains. The release binaries
-were not downloaded for this page. What was measured: `npm run binary`
-in the clone builds the **checkout-mode** binary (105 MB in 1.3 s, Bun
-1.4.3, no embedded seed, as `build/osd doctor` says), and on this host
-`build/osd up` then failed in the `osd-gui-convert` generator with
-`Cannot find module '@abaplint/core'` from the pinned open-abap-gui
-converter. So the checkout-mode binary is not a route this page
-recommends; the seeded release binary is built by the release workflow
-with the pinned transpiler and is the one the release checks start.
+`./osd doctor` says what a binary contains. What was measured
+(2026-11-08): the seeded `osd-linux-x64`, built from main `af7a91f0`
+with the release workflow's recipe (116.0 MB), started in a container
+with no Node and no checkout and passed the whole chain of this page --
+discovery, `core/http/build`, package tree, source read, edit + activate
++ F9, ABAP Unit, F8, the OData V2 and V4 services, the launchpad in
+Chromium, and a zip passed with `--layer`. The macOS and Windows
+binaries were checked by their executable header only, not started. A
+binary built with plain `npm run binary` in a clone is the
+**checkout-mode** binary (no embedded seed, as `build/osd doctor` says)
+and serves that checkout; it is not the route this page recommends.
 And the browser demo at
 [oisee.github.io/open-steamgate/main/app/flp.html](https://oisee.github.io/open-steamgate/main/app/flp.html)
 runs the same ABAP in a service worker over sql.js; nothing to install,
@@ -257,7 +259,10 @@ beside it, never in your archive ([`source-layers.md`](source-layers.md)).
 
 Measured here: a folder with `.abapgit.xml` and three classes
 `ZCL_A4H_PROBE_*` (section 6), `node bin/osd.mjs up --layer <folder>`:
-`built … in 45132 ms, 2406 objects` (the base is 2403), ready about a
+`built … in 45132 ms, 2406 objects` (three more than the clone's base
+build; the base count depends on what the tree carries -- the seeded
+release binary's base build was 2222 objects on 2026-11-08, its
+zip layer of one class 2224), ready about a
 minute after the command, the package tree gained `$ZA4H` (derived from
 the `ZCL_A4H_` prefix; abapGit folders usually omit the root package,
 `OSD_LAYER_PACKAGE` names it when the prefix is ambiguous), and F9 on
@@ -325,7 +330,7 @@ facade's run of one class on this host:
 
 ```
 POST /sap/bc/adt/abapunit/testruns  (one objectReference to /sap/bc/adt/oo/classes/zcl_osd_adt_discovery)
-→ 200 application/vnd.sap.adt.abapunit.testruns.result.v2+xml, 4 testMethod, 0 alert
+→ 200 application/vnd.sap.adt.abapunit.testruns.result.v2+xml, 5 testMethod, 0 alert
 ```
 
 **F8 Data Preview and the SQL console.** `POST

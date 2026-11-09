@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"osg/gogen/abap"
 	"osg/gogen/profiling"
 	"osg/gogen/serving"
 )
@@ -49,9 +48,10 @@ func serveUntilSignal(host *serving.Host, server *http.Server, ln net.Listener) 
 // closeDatabase commits nothing: every dialog step committed or rolled back
 // when it ended (abap.DialogStep). Closing a WAL file checkpoints it.
 func closeDatabase() {
-	if d := abap.DB(); d != nil {
-		if err := d.Close(); err != nil {
-			log.Printf("database close: %v", err)
-		}
+	if instance == nil || instance.DB == nil {
+		return
+	}
+	if err := instance.DB.Close(); err != nil {
+		log.Printf("database close: %v", err)
 	}
 }

@@ -19,7 +19,7 @@ import {bindAddresses, bindHost, listenBound, relisten} from "../tools/osd-bind.
 import {forwardPorts} from "../tools/osd-tcp-forward.mjs";
 import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import {execFileSync} from "node:child_process";
-import {credentials, generate} from "../tools/osd-tls.mjs";
+import {credentials, generate, noTlsHint} from "../tools/osd-tls.mjs";
 import {closeProtocols, listenProtocols} from "../tools/protocols/server.mjs";
 import {runtimeRootFixture} from "./helpers/runtime-root.mjs";
 
@@ -103,6 +103,18 @@ function stop(one) {
     setTimeout(() => one.child.kill("SIGKILL"), 5000).unref();
   });
 }
+
+describe("the no-TLS start hint", () => {
+  it("names npm in a checkout and what the binary offers in a binary home", () => {
+    expect(noTlsHint({}, "/srv/checkout")).to.include("npm run osd:tls");
+    const binary = noTlsHint({OSD_BINARY_HOME: "/srv/osd-home"}, "/srv/osd-home");
+    expect(binary).to.not.include("npm");
+    expect(binary).to.include("./osd protocols");
+    expect(binary).to.include("Docker image");
+    // a binary started inside a checkout serves the checkout: npm is there
+    expect(noTlsHint({OSD_BINARY_HOME: "/srv/osd-home"}, "/srv/checkout")).to.include("npm run osd:tls");
+  });
+});
 
 describe("bind address (OSD_BIND)", function () {
   this.timeout(60000);

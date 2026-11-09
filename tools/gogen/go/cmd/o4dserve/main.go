@@ -38,9 +38,13 @@ func (a apcHost) Close(s *abap.Session, reason string, code int32) {
 }
 func (a apcHost) Drain(s *abap.Session) []string { return a.h.DRAIN(s) }
 
+// instance: no database, one statics store shared by every socket's
+// session, which is what the process had before sessions owned their state
+var instance = abap.NewInstance(nil)
+
 // Channel is an APC application of this program by its handler class.
 func Channel(app, handler string) *apc.Channel {
-	return &apc.Channel{Name: app, New: func(s *abap.Session, r *http.Request) apc.Host {
+	return &apc.Channel{Name: app, NewSession: instance.NewSession, New: func(s *abap.Session, r *http.Request) apc.Host {
 		// the query of the upgrade request, as ZCL_APC_INITIAL_REQUEST's
 		// form fields
 		fields := []IHTTPNVP{}
@@ -72,7 +76,7 @@ func main() {
 	}
 	ch.Step = func(s *abap.Session, name string, work func()) error {
 		t0 := time.Now()
-		err := abap.APCStep(name, work, s)
+		err := abap.APCStep(s, name, work)
 		if d := time.Since(t0); d > 200*time.Millisecond {
 			log.Printf("slow step %s %v", name, d)
 		}

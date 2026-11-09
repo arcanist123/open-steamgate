@@ -45,5 +45,22 @@
   "X1-activate-active": "pass",
   "X2-activate-syntax-error": "pass",
   "X3-unit-pass": "pass",
-  "X4-unit-failure": "pass"
+  "X4-unit-failure": "pass",
+  "F1-fugr-document": "pass",
+  "F2-fugr-source": "pass",
+  "F3-fmodule-document": "pass",
+  "F4-fmodule-source": "pass",
+  "F5-fugr-include-source": "pass",
+  "F6-fmodule-missing": "pass",
+  "F7-fugr-tree": "pass",
+  "M1-messageclass-document": "pass",
+  "M2-messageclass-text": "pass",
+  "I1-include-mainprograms": "pass",
+  "N1-program-validation": "pass",
+  "N2-program-validation-exists": "pass",
+  "N3-include-validation-resource": "pass",
+  "U1-whereused-interface": "pass",
+  "U2-whereused-missing": "pass",
+  "G1-core-discovery-form": "pass",
+  "G2-discovery-grouped": "pass"
 }

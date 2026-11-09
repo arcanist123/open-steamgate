@@ -36,37 +36,37 @@
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:30): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:40): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:33): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:43): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:34): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:44): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:35): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:45): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:36): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:46): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:37): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:47): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   },
   {
     "kind": "statement stub",
-    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:38): @KERNEL: host code of the transpiler runtime",
+    "entry": "ZCL_OSD_KERNEL_GUARD=>CALL_CLASSRUN (zcl_osd_kernel_guard.clas.abap:48): @KERNEL: host code of the transpiler runtime",
     "reason": "Pre-existing JS @KERNEL classrun host-error boundary, newly exposed by src/adt source coverage. OSGo does not compile these host statements; retain this exact gap until its classrun error boundary is implemented."
   }
 ]

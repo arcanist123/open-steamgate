@@ -192,7 +192,7 @@ version inside `extension/package.json`, the Docker image by
 preview by `release-verify.mjs pages` in `pages.yml`: its `build.json` must
 name the commit and its `sw.js` must carry the stamp `build.json` names.
 
-The measured seeded Linux x64 binary is 316.4 MB (decimal, 2026-09-30; it was 109.5 MB on 2026-09-16). All four requested Bun targets cross-compiled on Linux x64 with Bun 1.4.2
+The measured seeded Linux x64 binary is 116.0 MB (decimal, 2026-11-08, main `af7a91f0`; 316.4 MB was written here on 2026-09-30, and it was 109.5 MB on 2026-09-16). All four requested Bun targets cross-compiled on Linux x64 with Bun 1.4.2
 in the local release check. No target failed to build. Only Linux x64 was
 built on its native host; cross-compilation does not prove that Linux arm64,
 macOS arm64, or Windows x64 starts successfully. macOS x64 and Windows arm64

@@ -11,6 +11,10 @@ CLASS zcl_osd_v4_model DEFINITION PUBLIC CREATE PUBLIC.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
     DATA ms_service TYPE zcl_stg_model_info=>ty_service READ-ONLY.
     DATA mt_properties TYPE ty_properties READ-ONLY.
+* the vocabulary annotations the MPC built through vocab_anno_model (or
+* added as raw XML), rendered as CSDL <Annotations> elements; the syntax is
+* the same in V2 and V4 $metadata
+    DATA mt_vocabulary TYPE string_table READ-ONLY.
     METHODS constructor IMPORTING iv_service TYPE string
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
     METHODS metadata RETURNING VALUE(rv_xml) TYPE string.
@@ -46,6 +50,7 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     lo_mpc = zcl_oao_registry=>create_mpc( ms_service-name ).
     lo_mpc->define( ).
     lo_model ?= lo_mpc->model.
+    mt_vocabulary = lo_model->get_vocabulary_xml( ).
     lt_names = lo_model->get_entity_type_names( ).
     LOOP AT lt_names INTO lv_name.
       lo_type ?= lo_model->/iwbep/if_mgw_odata_model~get_entity_type( lv_name ).
@@ -116,6 +121,9 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     DATA lv_keys TYPE string.
     DATA lv_core TYPE string.
     DATA lv_paths TYPE string.
+    DATA lv_vocabulary TYPE string.
+    DATA lv_line TYPE string.
+    DATA lv_sticky TYPE string.
 
     lv_ns = xml( ms_service-namespace ).
 * Optimistic concurrency is announced through the Core vocabulary, which is
@@ -124,6 +132,33 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     IF sy-subrc = 0.
       lv_core = '<edmx:Reference Uri="https://oasis-tcs.github.io/odata-vocabularies/vocabularies/Org.OData.Core.V1.xml">' &&
         '<edmx:Include Namespace="Org.OData.Core.V1" Alias="Core"/></edmx:Reference>'.
+    ENDIF.
+* The MPC's vocabulary annotations (UI.LineItem, UI.HeaderInfo, Common.Label,
+* Common.ValueList...) are written with full term names, so they need no
+* alias; the references say where the vocabularies are. A V2 annotation
+* that targets the V2 entity container (<ns>.<ns>_Entities/...) is moved
+* to the V4 one, which is called Container.
+    LOOP AT mt_vocabulary INTO lv_line.
+      REPLACE ALL OCCURRENCES OF |Target="{ ms_service-namespace }.{ ms_service-namespace }_Entities|
+        IN lv_line WITH |Target="{ ms_service-namespace }.Container|.
+      lv_vocabulary = lv_vocabulary && lv_line.
+    ENDLOOP.
+    IF lv_vocabulary IS NOT INITIAL.
+      IF lv_core IS INITIAL.
+        lv_core = '<edmx:Reference Uri="https://oasis-tcs.github.io/odata-vocabularies/vocabularies/Org.OData.Core.V1.xml">' &&
+          '<edmx:Include Namespace="Org.OData.Core.V1" Alias="Core"/></edmx:Reference>'.
+      ENDIF.
+      lv_core = lv_core &&
+        '<edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/Common.xml">' &&
+        '<edmx:Include Namespace="com.sap.vocabularies.Common.v1" Alias="Common"/></edmx:Reference>' &&
+        '<edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/UI.xml">' &&
+        '<edmx:Include Namespace="com.sap.vocabularies.UI.v1" Alias="UI"/></edmx:Reference>'.
+    ENDIF.
+    lv_sticky = zcl_osd_v4_sticky=>actions_xml( me ).
+    IF lv_sticky IS NOT INITIAL.
+      lv_core = lv_core &&
+        '<edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/Session.xml">' &&
+        '<edmx:Include Namespace="com.sap.vocabularies.Session.v1" Alias="Session"/></edmx:Reference>'.
     ENDIF.
     rv_xml = '<?xml version="1.0" encoding="utf-8"?>' &&
       '<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">' && lv_core &&
@@ -169,7 +204,7 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
       ENDLOOP.
       rv_xml = rv_xml && '</EntityType>'.
     ENDLOOP.
-    rv_xml = rv_xml && '<EntityContainer Name="Container">'.
+    rv_xml = rv_xml && lv_sticky && '<EntityContainer Name="Container">' && zcl_osd_v4_sticky=>imports_xml( me ).
     LOOP AT ms_service-entity_sets INTO ls_set.
       rv_xml = rv_xml && |<EntitySet Name="{ xml( ls_set-name ) }" EntityType="{ lv_ns }.{ xml( ls_set-entity_type ) }">|.
       LOOP AT ls_set-navs INTO ls_nav WHERE target_set IS NOT INITIAL.
@@ -182,8 +217,9 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
       IF lv_paths IS NOT INITIAL.
         rv_xml = rv_xml && |<Annotation Term="Core.OptimisticConcurrency"><Collection>{ lv_paths }</Collection></Annotation>|.
       ENDIF.
+      rv_xml = rv_xml && zcl_osd_v4_sticky=>set_annotation( io_model = me is_set = ls_set ).
       rv_xml = rv_xml && '</EntitySet>'.
     ENDLOOP.
-    rv_xml = rv_xml && '</EntityContainer></Schema></edmx:DataServices></edmx:Edmx>'.
+    rv_xml = rv_xml && '</EntityContainer>' && lv_vocabulary && '</Schema></edmx:DataServices></edmx:Edmx>'.
   ENDMETHOD.
 ENDCLASS.

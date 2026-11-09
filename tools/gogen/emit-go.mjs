@@ -37,17 +37,17 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
 /** @type {boolean} */ let exportedFields = false, /** @type {import("./emit-go-types.ts").Ownership | undefined} */ OWNERSHIP, /** @type {import("./emit-go-types.ts").SymbolCollector | null | undefined} */ SYMBOLS;
 // @ts-expect-error -- abapiti form pending
 /** @param {import("./emit-go-types.ts").Field | import("./emit-go-types.ts").SupportedAttribute} v @returns {string} */ const ownedType = (v) => OWNERSHIP.declarations.has(v) ? (HELPER_IMPORTS.add("xbuf"), (v.type.k === "x" ? `[${v.type.len}]byte` : "hXbuf.Buffer")) : goType(v.type);
-/** @param {string} name @returns {string} */ export const ident = (name) => {
+/** a Go name, exported in a layered build (osgo.mjs spells host reads of fields with it) @param {string} name @param {boolean} exported @returns {string} */ export const goIdent = (name, exported) => {
   // A single leading underscore is reserved for compiler-only supplied flags.
-  if (name.startsWith("\0")) return `_sup_${ident(name.slice(1))}`;
+  if (name.startsWith("\0")) return `_sup_${goIdent(name.slice(1), exported)}`;
   // INTF~ATTR, an interface's attribute in the object, keeps the ~ apart
   // from the _ of an attribute of the class's own
   const id = String(name).toLowerCase().replace(/~/g, "__").replace(/[^a-z0-9_]/g, "_");
   const safe = id.startsWith("_") ? `_${id}` : GO_RESERVED.has(id) || /^\d/.test(id) ? `${id}_` : id;
-  // ABAP fields cross generated Go package boundaries in a layered build.
-  // A leading capital exports them; the rest of the spelling stays stable.
-  return exportedFields ? safe[0].toUpperCase() + safe.slice(1) : safe;
-};
+  // ABAP fields cross Go package boundaries in a layered build: a leading capital exports them, the
+  // rest stays; _x (RAP %KEY = __key) gets XP, whose second capital no capitalised name has.
+  return !exported ? safe : safe.startsWith("_") ? `XP${safe}` : safe[0].toUpperCase() + safe.slice(1);
+}; export const ident = (/** @type {string} */ name) => goIdent(name, exportedFields);
 /** @param {string} name @returns {string} */ const selfField = (name) => `${exportedFields ? "Self" : "self"}_${typeName(name)}`;
 
 /** @param {string} key @returns {string} */ const evType = (key) => `EV_${typeName(key)}`;
@@ -339,7 +339,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   for (const cls of /** @type {readonly import("./emit-go-types.ts").Class[]} */ (program.classes ?? program)) for (const method of cls.methods ?? []) collectStable(method.body);
   exportedFields = Boolean(layers);
   HELPER_IMPORTS = new Set();
-  OWNERSHIP = (/** @type {import("./emit-go-types.ts").AnalyzeOwnership} */ (analyzeOwnership))(program);
+  const own = /** @type {import("./emit-go-types.ts").AnalyzeOwnership} */ (analyzeOwnership); OWNERSHIP = layers?.analysis ? (layers.analysis.ownership ??= own(program)) : own(program); // analysis: one per go-layers.mjs writeLayers
   const classes = layers?.classes ?? (Array.isArray(program) ? program : program.classes);
   /** @type {import("./emit-go-types.ts").StructDefinitions} */ const structs = layers?.structs ?? (Array.isArray(program) ? new Map() : program.structs);
   CLONES = new Map();
@@ -349,7 +349,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   DYNAMIC_DISPATCH = Array.isArray(program) ? [] : program.dynamicDispatch ?? []; CLASSES = new Map((Array.isArray(program) ? classes : program.classes).map((c) => [c.name, c]));
   POLY = new Set();
   for (const cls of CLASSES.values()) if (cls.super) POLY.add(cls.super);
-  movePair = (/** @type {import("./emit-go-types.ts").AnalyzeTableMoves} */ (analyzeTableMoves))(program, stable, goType);
+  const moves = /** @type {import("./emit-go-types.ts").AnalyzeTableMoves} */ (analyzeTableMoves); movePair = layers?.analysis ? (layers.analysis.moves ??= moves(program, stable, goType)) : moves(program, stable, goType);
   HELPER_IMPORTS.add("hostclass");
   EVENTS = Array.isArray(program) ? new Map() : (program.events ?? new Map());
   /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ const consts = /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ (layers?.consts ?? (Array.isArray(program) ? /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ (new Map()) : program.consts));
@@ -1442,16 +1442,16 @@ const LINES = !env("GOGEN_NOLINE");
   // Instrument the actual routing decisions. These values belong to the
   // router table / registered model, never the parsed request's segments.
   if (st.s === "assign" && ((ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && ctx.method.name === "DISPATCH") || (ctx.cls.name === "ZCL_STG_DISPATCHER" && ctx.method.name === "RUN"))) {
-    const target = place(st.target, ctx);
-    if (ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && target === "ls_request.pattern")
-      lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute(ls_route.pattern) }`);
+    const target = place(st.target, ctx), v = (/** @type {string} */ path) => path.split(".").map(ident).join("."); // layered: Ls_request.Pattern
+    if (ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && target === v("ls_request.pattern"))
+      lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute(${v("ls_route.pattern")}) }`);
     if (ctx.cls.name === "ZCL_STG_DISPATCHER") {
-      if (target === "ls_service")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil && (ls_request.is_metadata == "X" || ls_request.is_service_root == "X" || ls_request.is_batch == "X") { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name) }`);
-      if (target === "ls_set")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name + "/" + ls_set.name) }`);
-      if (target === "ls_action")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil && ls_action.name != "" { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name + "/" + ls_action.name) }`);
+      if (target === v("ls_service"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil && (${v("ls_request.is_metadata")} == "X" || ${v("ls_request.is_service_root")} == "X" || ${v("ls_request.is_batch")} == "X") { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")}) }`);
+      if (target === v("ls_set"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")} + "/" + ${v("ls_set.name")}) }`);
+      if (target === v("ls_action"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil && ${v("ls_action.name")} != "" { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")} + "/" + ${v("ls_action.name")}) }`);
     }
   }
   if (LINES && st.pos && lines.length > 0) lines[0] = lines[0].replace(/^(\t*)/, `$1/*line ${st.pos.file}:${st.pos.row}*/ `);

@@ -1,0 +1,138 @@
+{
+  "_version": "1.59.0",
+  "sap.app": {
+    "id": "osd.travel4",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "title": "Travels (OData V4)",
+    "description": "open-steamgate demo list report over ZSTG_DEMO_SRV, OData V4",
+    "applicationVersion": {
+      "version": "0.0.1"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "../../sap/opu/odata4/sap/ZSTG_DEMO_SRV/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "TravelV4-manage": {
+          "semanticObject": "TravelV4",
+          "action": "manage",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "osd.travel4.i18n.i18n",
+          "supportedLocales": [
+            ""
+          ],
+          "fallbackLocale": ""
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      }
+    },
+    "routing": {
+      "config": {},
+      "routes": [
+        {
+          "pattern": ":?query:",
+          "name": "TravelList",
+          "target": "TravelList"
+        },
+        {
+          "pattern": "TravelSet({key}):?query:",
+          "name": "TravelObjectPage",
+          "target": "TravelObjectPage"
+        }
+      ],
+      "targets": {
+        "TravelList": {
+          "type": "Component",
+          "id": "TravelList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/TravelSet",
+              "variantManagement": "None",
+              "initialLoad": "Enabled",
+              "navigation": {
+                "TravelSet": {
+                  "detail": {
+                    "route": "TravelObjectPage"
+                  }
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable",
+                    "creationMode": {
+                      "name": "NewPage"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TravelObjectPage": {
+          "type": "Component",
+          "id": "TravelObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "contextPath": "/TravelSet",
+              "editableHeaderContent": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  }
+}

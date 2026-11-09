@@ -26,6 +26,7 @@
 //                   parameters: [{inOut: {Status: Status}}, {displayOnly: Text}]}
 const UI = "com.sap.vocabularies.UI.v1.";
 const COMMON = "com.sap.vocabularies.Common.v1.";
+const SESSION = "com.sap.vocabularies.Session.v1.";
 const expandAlias = (path) => String(path).replaceAll("@UI.", "@" + UI).replaceAll("@Common.", "@" + COMMON);
 const lit = (v) => `'${String(v).replaceAll("'", "''")}'`;
 
@@ -159,6 +160,14 @@ export class AnnotationWriter {
 
   entity(a) {
     const s = a.spec;
+    // sticky: true asks the OData V4 facade for sticky-session editing of
+    // this entity's set (what Fiori Elements V4 edits and creates through,
+    // docs/odata-v4.md). The marker is Session.StickySessionSupported on the
+    // type with an empty record; the facade defines the actions and names
+    // them on the entity set, where Fiori Elements reads them.
+    if (s.sticky === true) {
+      this.line(`lo_record = lo_target->create_annotation( ${lit(SESSION + "StickySessionSupported")} )->create_record( ${lit(SESSION + "StickySessionSupportedType")} ).`);
+    }
     if (s.header) {
       this.line(`lo_record = lo_target->create_annotation( ${lit(UI + "HeaderInfo")} )->create_record( ${lit(UI + "HeaderInfoType")} ).`);
       if (s.header.typeName) {

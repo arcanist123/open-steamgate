@@ -59,6 +59,29 @@ describe("layer version requirements (U11)", function () {
     ]) expect(compareVersions(left, right)).to.equal(expected);
   });
 
+  it("stamps the build commit into the seed, so a seeded binary does not answer commit unknown", () => {
+    const stage = (commit) => {
+      const seed = join(root, `seed-${commit}`);
+      mkdirSync(join(seed, "packs"), {recursive: true});
+      const {seedId} = finalizeSystemSeed(seed, [], {version: current, transpilerRef: "test-ref", commit});
+      return {seed, seedId};
+    };
+    const one = stage("1111111111111111111111111111111111111111");
+    const two = stage("2222222222222222222222222222222222222222");
+    // tools/adt-facade.mjs sourceCommit reads release.json in the home
+    expect(JSON.parse(readFileSync(join(one.seed, "release.json"), "utf8")).commit)
+      .to.equal("1111111111111111111111111111111111111111");
+    // the commit is part of the seed id: another commit, another home
+    expect(one.seedId).to.not.equal(two.seedId);
+    // default: the workflow's GITHUB_SHA, never "unknown"
+    process.env.GITHUB_SHA = "3333333333333333333333333333333333333333";
+    const seed = join(root, "seed-env");
+    mkdirSync(join(seed, "packs"), {recursive: true});
+    finalizeSystemSeed(seed, [], {version: current, transpilerRef: "test-ref"});
+    expect(JSON.parse(readFileSync(join(seed, "release.json"), "utf8")).commit)
+      .to.equal("3333333333333333333333333333333333333333");
+  });
+
   it("stages and extracts the marker with the exact VSIX version for both hosts", async () => {
     write("staged-package.json", readFileSync("editors/vscode/package.json"));
     const {pkg} = stampStagedPackage(join(root, "staged-package.json"));

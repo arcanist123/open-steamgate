@@ -45,6 +45,15 @@ describe("tools/osd-store: the objects of the local system", function () {
     expect(macros.source).to.equal("");
   });
 
+  it("reads the parts of a function group by their program names", () => {
+    const main = store.read("FUGR", "ZOSD_TEST_FG", "SAPLZOSD_TEST_FG");
+    expect(main.source).to.contain("INCLUDE lzosd_test_fgtop.");
+    expect(main.file).to.equal("src/zosd_test/src/zosd_test_fg.fugr.saplzosd_test_fg.abap");
+    expect(store.read("FUGR", "ZOSD_TEST_FG", "z_osd_test_status_text").source).to.contain("FUNCTION z_osd_test_status_text.");
+    expect(store.read("FUGR", "ZOSD_TEST_FG").source).to.contain("<FUNCNAME>Z_OSD_TEST_STATUS_TEXT</FUNCNAME>");
+    expect(() => store.read("FUGR", "ZOSD_TEST_FG", "LZOSD_TEST_FGF01")).to.throw(NotFound, "FUGR ZOSD_TEST_FG include LZOSD_TEST_FGF01 does not exist");
+  });
+
   it("an object that is not there says so, by type and name", () => {
     expect(() => store.read("CLAS", "ZCL_NOBODY_HOME")).to.throw(NotFound, "CLAS ZCL_NOBODY_HOME does not exist");
     expect(store.exists("CLAS", "ZCL_NOBODY_HOME")).to.equal(false);

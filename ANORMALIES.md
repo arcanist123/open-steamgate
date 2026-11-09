@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-08-escape-url-multibyte -- `cl_http_utility=>escape_url` writes one `%` before all UTF-8 bytes of a character
+
+- Status: `open`
+- Discovery date: `2026-11-08` (dell, the V2 Location header of a key outside Latin-1, PR fix/json-key-escape)
+- Affected versions: open-abap-core `src/http/cl_http_utility.clas.abap` at the pinned commit
+- Affected ABAP statement, runtime API or adapter: `cl_http_utility=>escape_url( )` (`if_http_utility~escape_url`)
+- Minimal ABAP reproducer: `lv = cl_http_utility=>escape_url( 'Жук' ).`
+- Exact command used to run it: `POST /sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet` with `TravelId` `Жук2`; the Location header read `TravelSet('%d096%d183%d0ba2')`
+- Expected SAP behaviour: each UTF-8 byte is its own escape, `%D0%96%D1%83%D0%BA2` (unmeasured; measure on A4H, case of the hex digits included)
+- Actual open-abap behaviour: `'%' && to_lower( cl_abap_codepage=>convert_to( lv_char ) )` per character, so a two-byte character becomes `%d096`, which a client decodes as byte D0 followed by the text `96`
+- Impact on open-steamgate: the V4 `@odata.id` and Location of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) cannot be decoded at all: byte D0 followed by the text `96` is not UTF-8, so a strict client (`decodeURIComponent`) throws and a lenient one gets U+FFFD, never the key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
+- Smallest safe workaround: none for V4 yet; V2 does not call it
+- Upstream issue: needs a PR in open-abap-core (fork route, #1218 precedent) after a measurement on A4H
+- Regression-test location: none for V4 yet; V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type
 
 - Status: `open`
@@ -595,7 +611,7 @@ Format adapted from `larshp/hithub` (MIT).
 - Exact command: `node --test tools/gogen/session-statics.test.mjs` (Go driver runs with `-race`)
 - Expected behaviour: each session reads 42 after initialization and finishes its own 10,000 increments
 - Actual behaviour before the fix: package globals shared values and constructor flags; the race detector reports concurrent access in `Ensure_ZCL_RACE_INIT`
-- Fix: stable class storage and constructor flags in lazy `abap.Statics` slots selected by `Session.Statics`, inherited attributes in the declaring class's slot. Nil selects private state; serialized HTTP/APC hosts select `ProcessStatics` to retain caches across requests. The host regression test observes counter values 1 then 2 on separate connections.
+- Fix: stable class storage and constructor flags in lazy `abap.Statics` slots selected by `Session.Statics`, inherited attributes in the declaring class's slot. Nil selects private state; serialized HTTP/APC hosts mint every step's Session from one `abap.Instance` (ADR 0010 slice 2; `ProcessStatics` before it), whose statics retain caches across requests. The host regression test observes counter values 1 then 2 on separate connections.
 - Regression location: `tools/gogen/session-statics.test.mjs` and its generated-code Go driver; wired into `gogen.yml`
 - Upstream issue: none; this is our Go emitter
 
@@ -4208,6 +4224,29 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Critic round 2: GET_TEXT_FOR_MESSAGE bypassed the metadata guard and returned the generic fallback for widened kernel errors. Both native helpers now return carried kernel text first; interface fields and generic bindings also guard the runtime object. Named refusals replace message-helper ASSERT-todo metadata lookups. The complete field/helper/RTTI audit and two-host tests are listed in tools/gogen/testdata/exception-previous-notes.md.
 - Critic round 1: materialized kernel attribute reads refuse by name (SAP TEXTID/KERNEL_ERRID values unmeasured; measure on A4H). Initial EXC GET_TEXT/class-name/PREVIOUS reads dump OBJECTS_OBJREF_NOT_ASSIGNED, matching initial CX references; compiled constructor-populated attributes remain readable.
 - Tests: generic testdata ABAP Unit contains only successful methods, including ordinary class descriptor INTERFACES. Registered test/osgo-exc-previous.mjs stages negative methods locally and checks both hosts for metadata refusals and initial dereferences; semantics.mjs and frontend-exception.test.mjs cover output and refusal boundaries.
+
+### ANOMALY-2026-11-08-sql-host-variable-inlined -- a host variable in Open SQL is inlined into the SQL text unescaped, so a quote in its value ends the literal (SQL injection through an OData key)
+
+- Status: `workaround` (fixed in the pinned fork `oisee/transpiler` `local/osd-build-3d` `9792b3c87997`; upstream patch drafted, not yet sent)
+- Discovery date: `2026-11-08` (post-merge critic of #856/#858, probing the V4 writes with keys that carry a quote)
+- Affected versions: `@abaplint/transpiler` 2.14.3 at the previously pinned `f34e9bf4` (`local/osd-build-3b`), `abaplint/transpiler` main at `37132489` (2.14.19), and every published version: `packages/transpiler/src/expressions/sql_cond.ts` emits `'" + lv.get() + "'` for a host variable (`sqlHost`, `basicConditionNew`, `sourceWithComponents`, the interface-constant and conversion branches of `sqlSource`), `sql_field_and_value.ts` the same for `UPDATE ... SET f = lv`, `update_database.ts` for `UPDATE dbtab FROM wa`, `sql_field.ts` for a host variable in a field list, and the runtime's `expand_dynamic.ts` for a `<fs>-comp` substituted into a dynamic WHERE. `INSERT` and `IN seltab` were already escaped (`insert_database.ts`, `expand_in.ts`).
+- Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE f = lv` / `= @lv` / `LIKE lv` / `IN (lv1, lv2)` / `FOR ALL ENTRIES ... WHERE f = lt-comp`, `UPDATE ... SET ... WHERE`, `UPDATE dbtab FROM wa`, `DELETE FROM ... WHERE`, `MODIFY` (through update) -- any host variable whose value holds a `'`
+- Minimal ABAP reproducer (our own objects): `src/demo/zcl_zstg_demo_dpc_ext.clas.abap` `travelset_get_entity` / `travelset_update_entity` reached as `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('x'' OR ''1''=''1')`; in the transpiler's own suite, `test/database.ts` "host variables with quotes":
+  ```abap
+  DATA lv_key TYPE c LENGTH 20.
+  DATA lt_result TYPE STANDARD TABLE OF t100.
+  lv_key = 'x'' OR ''1''=''1'.
+  SELECT * FROM t100 INTO TABLE lt_result WHERE arbgb = lv_key.
+  " sy-subrc 4 and no rows on a system; every row of t100 here
+  ```
+- Exact command used to run it: `npx mocha test/mocha.mjs --grep "quote in a key"` and `npx mocha test/odata-v4.mjs --grep "round three"` after `npm run transpile`; the critic's probes before the fix: `GET TravelSet('x'' OR ''1''=''1')` answered 200 with T0001, `PATCH TravelSet('x'' OR ''1''=''1') {"Description":"oracle"}` answered 204 and changed **every** travel's Description (the DPC's `UPDATE zstg_demo FROM ls_row` after a `SELECT SINGLE ... WHERE travel_id = lv_travel_id` that matched the first row), `GET NoteSet('a''b')` was a 500 (SQL syntax error); V2 and V4 alike, INSERT unaffected.
+- Expected SAP behaviour: a host variable is bound, never spliced into the statement text; its value is data whatever characters it holds. `WHERE travel_id = lv` with `lv = x' OR '1'='1` finds nothing (sy-subrc 4), `a'b` is an ordinary key. Not measured on A4H: this is the definition of a host variable, not a corner of it.
+- Actual open-abap behaviour: the generated JavaScript concatenates the value between two quotes and the DatabaseClient executes the text, so a `'` in the value ends the literal; what follows is read as SQL. `'x' OR '1'='1'` reads every row and `UPDATE ... WHERE` writes every row; `'a'b'` is a syntax error (500 at the gateway).
+- Impact on open-steamgate: any OData key or `$filter` literal that reaches a hand-written DPC's Open SQL (the whole point of the runtime) can read or overwrite other rows. `zcl_stg_url=>unquote` is right to turn `''` into `'` (the gateway's contract is the OData one), so the gateway cannot fix this by itself without refusing legitimate keys such as `a'b`. The SADL path (`zcl_stg_sadl_dpc`) builds its own SQL and was not the measured path; the generated `zcl_stg_tab_<table>` classes use Open SQL host variables and are covered by the fix.
+- Smallest safe workaround: the fix itself, carried on the pinned fork: `abap.sqlEscape(value)` in `@abaplint/runtime` (`'` doubled, nothing else: a LIKE pattern keeps its `%`), called around every host variable the transpiler inlines (`select.ts` binds a FOR ALL ENTRIES row reference inside the call too); a backtick literal with a quote in a WHERE gets the same treatment at transpile time. Binding would be the right fix, but `DatabaseClient` (`packages/runtime/src/db/db.ts`) takes SQL as text with no parameter list, so binding is an interface change for all four clients (SQLite, PostgreSQL, HANA, Snowflake) -- escape now, bind later. Dynamic WHERE text built by a program (`SELECT ... WHERE (lv_where)`) stays the program's responsibility, as on a system; only the field-symbol substitution the runtime does inside it is escaped. That substitution first went in through `String.replace` with a string, so `$'`, `$&` or `` $` `` in a value were read as JavaScript replacement patterns (`$'` pasted the rest of the condition into the literal), and it rescanned what it had written, so a value holding ` <x>` was expanded again inside its own literal or looped forever; `local/osd-build-3d` does it in one pass with a replacer function. Inlined by design and not escaped, because they are not values: `UP TO n ROWS` (a number), and the dynamic FROM, ORDER BY, GROUP BY and field lists, which are SQL text the program supplies, as on a system. Doubling the quote is the standard-SQL spelling, which SQLite (what OSG runs on), PostgreSQL (standard_conforming_strings) and HANA read; DuckDB too. A dialect that reads backslash escapes inside literals (Snowflake) is not covered by this and would need its client to double the backslash as well.
+- Upstream: needs an issue/PR in abaplint/transpiler, after our critic pass. Patch and draft PR text are in the sqlinj job directory (`transpiler-sql-escape.patch`, from `fix/sql-host-escape` on upstream main `37132489`); the same commit is cherry-picked onto `f34e9bf4` as `local/osd-build-3c` `1d78e3662545`, and the `$`-pattern fix of `expand_dynamic.ts` is the next commit on both, `local/osd-build-3d` `9792b3c87997`, pinned in `libs.lock.json`.
+- Regression-test location: `test/mocha.mjs` ("a quote in a key stays in the key"), `test/odata-v4.mjs` ("review fixes, round three"); in the transpiler `test/database.ts` "host variables with quotes" (SELECT, LIKE, IN, FOR ALL ENTRIES, UPDATE SET, UPDATE FROM, DELETE, backtick literal, a dynamic WHERE with `$'`, `$&` and ` <x>` in field-symbol values) and `packages/transpiler/test/single_statements.ts`
+- Upstream version containing a fix: `unknown` (none yet)
 
 ## RAP derived types cannot transpile (R1)
 
