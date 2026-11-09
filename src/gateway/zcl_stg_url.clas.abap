@@ -251,6 +251,7 @@ CLASS zcl_stg_url IMPLEMENTATION.
     DATA lv_index TYPE i.
     DATA lv_len   TYPE i.
     DATA lv_size  TYPE i.
+    DATA lv_byte  TYPE i.
     DATA lv_char  TYPE string.
     DATA lv_unit  TYPE x LENGTH 2.
     DATA lv_x     TYPE xstring.
@@ -272,9 +273,10 @@ CLASS zcl_stg_url IMPLEMENTATION.
         ENDIF.
         lv_x = cl_abap_codepage=>convert_to( lv_char ).
         lv_hex = lv_x.
-        WHILE lv_hex IS NOT INITIAL.
-          rv_value = rv_value && '%' && lv_hex(2).
-          SHIFT lv_hex LEFT BY 2 PLACES.
+        lv_byte = 0.
+        WHILE lv_byte < strlen( lv_hex ).
+          rv_value = rv_value && '%' && lv_hex+lv_byte(2).
+          lv_byte = lv_byte + 2.
         ENDWHILE.
       ENDIF.
       lv_index = lv_index + lv_size.

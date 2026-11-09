@@ -156,7 +156,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
 * every character JSON does not allow raw in a string: the quote, the
 * backslash and all of U+0000..U+001F (a lone CR, a backspace, a form feed
 * and the rest as much as CR LF and TAB), as zcl_osd_v4_json=>quote does
-    rv_string = lcl_json_string=>escape_text( iv_string ).
+    rv_string = zcl_stg_json_text=>escape_string( iv_string ).
   ENDMETHOD.
 
   METHOD error.
