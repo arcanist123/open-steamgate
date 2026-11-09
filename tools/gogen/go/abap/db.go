@@ -33,8 +33,10 @@ type Database struct {
 	stmtSeen    map[string]int
 	stmtPending []string
 	// inStep is the session whose dialog step holds the connection, nil
-	// between steps
+	// between steps; meaningless under pooled, where every step has a
+	// connection of its own (OpenPool)
 	inStep *Session
+	pooled bool
 }
 
 // newDatabase is the one place the pool is sized.
@@ -46,6 +48,25 @@ func newDatabase(d *sql.DB) *Database {
 // SQL is the pool itself, for a host that closes or inspects it; a
 // statement of a step goes through the Session, never through this.
 func (d *Database) SQL() *sql.DB { return d.sql }
+
+// OpenPool sizes the pool for the work processes of a serving host (ADR
+// 0010 slice 5): every work process of go/workpool holds one connection
+// for its life, and spare is what runs outside a step -- the boot's
+// normalisation, a tool reading the file. A pooled database no longer
+// refuses a statement or a second step by name (usable, begin): each step
+// has its own connection, and the ones outside a step have the spares. An
+// in-memory database wants no spare (one database per connection, the
+// spare would be an empty one).
+func (d *Database) OpenPool(workers, spare int) {
+	if d.sql == nil {
+		return
+	}
+	d.pooled = true
+	d.sql.SetMaxOpenConns(workers + spare)
+}
+
+// Pooled says whether OpenPool sized this database for work processes.
+func (d *Database) Pooled() bool { return d.pooled }
 
 // Close closes the prepared statements and the pool. Closing a WAL file
 // checkpoints it. A step still open on it is not ended here: the host ends

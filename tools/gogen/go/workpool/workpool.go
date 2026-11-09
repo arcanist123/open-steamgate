@@ -1,0 +1,528 @@
+// Package workpool is the work-process pool of a serving sidecar (ADR 0010
+// slice 5): M work processes, each one connection of the one SQLite WAL
+// file, one dialog step at a time on each. What a system's dispatcher gives
+// a request -- a work process of its own, the step's kind deciding what the
+// step may do to the database -- is decided here for the sidecar, and the
+// policy is the ADR's:
+//
+//   - a read step (ICF GET/HEAD, an ADT read, $metadata, an OData read
+//     without a function import) runs on a connection in query_only mode,
+//     so it never takes the write lock and M of them run in parallel; a
+//     write attempt inside one is a dump, as a write in a GET is already
+//     outside the LUW bracket (docs/luw-buffer.md);
+//   - a modifying step (POST, PUT, MERGE, DELETE, $batch, a function
+//     import, a job run, a daemon callback, an APC message) runs BEGIN
+//     IMMEDIATE: writers serialise at the database's one write lock, with
+//     busy_timeout set to the drain grace, so a writer waits rather than
+//     fails while a swap's drain window holds the file;
+//   - the fence of a hung step is sqlite3_interrupt, which the driver
+//     exposes as the cancellation of the running statement's context: each
+//     step's context is cancellable (Interrupt), and the step's next
+//     statement fails and unwinds as a dump, its LUW rolled back.
+//
+// The transaction itself is the kernel's bracket (go/abap DialogStepOn:
+// BEGIN by the kind, COMMIT when work returns, ROLLBACK when it dumps), so
+// this package lends the connection and owns what belongs to the
+// connection: query_only, busy_timeout, the per-work-process statement
+// cache, and the fence. A WAIT inside a step gives the work process up and
+// takes another on return (Yield); the step keeps working because the
+// connection under it is the pool's to swap.
+//
+// One step of a session at a time is the host's rule, not the pool's: the
+// host owns the logical internal sessions (their statics, their turn), and
+// what it hands the pool is only the step.
+//
+// No import of osg/gogen/abap, of generated code or of tools/osd-*.
+package workpool
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+)
+
+// DefaultBusyTimeout is the drain grace (go/serving DefaultGrace): a writer
+// waits for the write lock that long, so a swap's drain window -- two
+// sidecars on one file -- delays writers instead of failing them.
+const DefaultBusyTimeout = 55 * time.Second
+
+// Kind is the step's half of the database policy. It is a bool so the
+// modifying kind reads as the condition it is: Write for what changes rows.
+type Kind bool
+
+const (
+	Read  Kind = false // deferred transaction on a query_only connection
+	Write Kind = true  // BEGIN IMMEDIATE on the connection as it is
+)
+
+func (k Kind) String() string {
+	if k {
+		return "write"
+	}
+	return "read"
+}
+
+// Options describe the pool to New.
+type Options struct {
+	// DB is the opened database; every work process takes one connection
+	// of it and holds it for the pool's life. The caller sized the pool
+	// (SetMaxOpenConns) for the work processes plus what runs outside a
+	// step, and WAL mode is the file's own.
+	DB *sql.DB
+	// Workers is M. Below 1 is one work process (the in-memory database
+	// is one database per connection, so M cannot exceed 1 there).
+	Workers int
+	// BusyTimeout is on every connection; zero is DefaultBusyTimeout.
+	BusyTimeout time.Duration
+	// ReadOnly forces every step to Read: a swap candidate serves read
+	// transactions only until it is promoted (cmd/osgo candidate.go).
+	ReadOnly bool
+	// Generation is what the work-process rows say (the sidecar's build).
+	Generation string
+}
+
+// Pool is M work processes over one database. The free work processes live
+// in a channel of capacity M; a step takes one, runs, returns it, and the
+// drain (Locker) empties the channel of all M -- which waits for the steps
+// in flight, because they hold theirs until they end.
+type Pool struct {
+	o       Options
+	workers []*worker
+	tokens  chan *worker
+	mu      sync.Mutex // the registry rows and the lending state below
+	live    int        // steps running statements now (a Held WAIT is not)
+	running map[int]*Step
+	stop    chan struct{} // closed while the drain holds the pool
+	stopped bool
+	closed  bool
+}
+
+// worker is one work process: its connection, its statement cache, and the
+// facts of the row the status tables read (ZOSD_WP).
+type worker struct {
+	number    int
+	conn      *sql.Conn
+	stmts     map[string]*sql.Stmt
+	queryOnly bool // the mode the connection is in
+	// the registry row, guarded by Pool.mu
+	state   string // Running, Held, Idle
+	kind    Kind
+	started time.Time
+	report  string
+}
+
+// New takes the work processes' connections. One that cannot be prepared
+// (opened, pragmas set) fails the pool: a serving host would answer nothing
+// with it anyway.
+func New(o Options) (*Pool, error) {
+	if o.DB == nil {
+		return nil, errors.New("workpool: no database")
+	}
+	if o.Workers < 1 {
+		o.Workers = 1
+	}
+	if o.BusyTimeout <= 0 {
+		o.BusyTimeout = DefaultBusyTimeout
+	}
+	p := &Pool{o: o, running: map[int]*Step{}, stop: make(chan struct{})}
+	p.tokens = make(chan *worker, o.Workers)
+	ctx := context.Background()
+	for i := 0; i < o.Workers; i++ {
+		conn, err := o.DB.Conn(ctx)
+		if err != nil {
+			p.Close()
+			return nil, fmt.Errorf("workpool: work process %d: %w", i+1, err)
+		}
+		w := &worker{number: i + 1, conn: conn, stmts: map[string]*sql.Stmt{}, state: "Idle"}
+		if err := w.prime(ctx, o.BusyTimeout); err != nil {
+			conn.Close()
+			p.Close()
+			return nil, fmt.Errorf("workpool: work process %d: %w", i+1, err)
+		}
+		p.workers = append(p.workers, w)
+		p.tokens <- w
+	}
+	return p, nil
+}
+
+// prime sets what every connection of this database carries: the busy
+// timeout of the drain grace, and the store's own case-sensitive LIKE
+// (go/abap prepareStore sets it on the pool; a held connection never sees
+// it, so each work process takes it itself).
+func (w *worker) prime(ctx context.Context, busy time.Duration) error {
+	if _, err := w.conn.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", busy.Milliseconds())); err != nil {
+		return err
+	}
+	_, err := w.conn.ExecContext(ctx, "PRAGMA case_sensitive_like = ON")
+	return err
+}
+
+// queryOnly puts the connection in the mode the step kind wants. Read steps
+// run query_only so a write inside them is the database's refusal, not a
+// lock waited for; the pragma is only written when the mode changes, so a
+// work process that serves one kind pays nothing per step.
+func (w *worker) setQueryOnly(ctx context.Context, on bool) error {
+	if w.queryOnly == on {
+		return nil
+	}
+	if _, err := w.conn.ExecContext(ctx, fmt.Sprintf("PRAGMA query_only = %d", map[bool]int{true: 1, false: 0}[on])); err != nil {
+		return err
+	}
+	w.queryOnly = on
+	return nil
+}
+
+// ErrNotServing is what a step of a pool that no longer lends answers.
+var ErrNotServing = errors.New("workpool: the pool lends no work process (drain or close)")
+
+// Step runs work as one dialog step on a borrowed work process. It returns
+// when work has; a dump inside work is work's to handle (the kernel's
+// bracket re-panics it). ctx cancelled or expired cancels the step's
+// statements, which is the fence.
+func (p *Pool) Step(ctx context.Context, kind Kind, work func(*Step)) error {
+	w, err := p.acquire(ctx)
+	if err != nil {
+		return err
+	}
+	step := &Step{p: p, w: w}
+	step.ctx, step.cancel = context.WithCancel(ctx)
+	defer step.cancel()
+	if err := p.lend(step, kind); err != nil {
+		p.unlend(step)
+		return err
+	}
+	work(step)
+	p.unlend(step)
+	return nil
+}
+
+// acquire is the dispatcher's hand-over: the next free work process, to a
+// step that has none. Once the drain holds the pool, no new step is lent
+// one; a work process still out with a step is what the drain waits for.
+func (p *Pool) acquire(ctx context.Context) (*worker, error) {
+	for {
+		p.mu.Lock()
+		stopped := p.stopped || p.closed
+		p.mu.Unlock()
+		if stopped {
+			return nil, ErrNotServing
+		}
+		select {
+		case w := <-p.tokens:
+			return w, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		select {
+		case w := <-p.tokens:
+			return w, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-p.stopNow():
+			// the drain began while this waited: the check above decides
+		}
+	}
+}
+
+// stopNow is the stop channel of the moment (Unlock replaces it).
+func (p *Pool) stopNow() chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.stop
+}
+
+// take is acquire for a step already in flight (a WAIT taking another work
+// process back): the step must go on, so it waits for a work process even
+// while the drain holds the pool, until Unlock floods the channel again.
+// A cancelled context returns nil: the kernel's reopen on the old work
+// process fails there as the interrupted statement's own error.
+func (p *Pool) take(ctx context.Context) *worker {
+	select {
+	case w := <-p.tokens:
+		return w
+	case <-ctx.Done():
+		return nil
+	}
+}
+
+// lend gives the step its work process and records it in the row.
+func (p *Pool) lend(s *Step, kind Kind) error {
+	if p.o.ReadOnly {
+		kind = Read
+	}
+	if err := s.w.setQueryOnly(s.ctx, kind == Read); err != nil {
+		return fmt.Errorf("workpool: work process %d: %w", s.w.number, err)
+	}
+	s.kind = kind
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.live++
+	p.running[s.w.number] = s
+	s.w.state, s.w.kind, s.w.started = "Running", kind, time.Now()
+	return nil
+}
+
+// unlend is the step's end: the row says Idle, the work process goes back.
+func (p *Pool) unlend(s *Step) {
+	p.mu.Lock()
+	p.live--
+	delete(p.running, s.w.number)
+	s.w.state = "Idle"
+	p.mu.Unlock()
+	p.tokens <- s.w
+}
+
+// Step is what one dialog step runs on: a work process of its own.
+type Step struct {
+	p      *Pool
+	w      *worker
+	kind   Kind
+	ctx    context.Context
+	cancel context.CancelFunc
+	// report names the step in its work-process row (the report, as SM50
+	// shows one); the host sets it as soon as it knows the route.
+	report string
+}
+
+// Kind is the step's kind as the pool runs it (Read under ReadOnly).
+func (s *Step) Kind() Kind { return s.kind }
+
+// WP is the work process's number, 1 to M (ZOSD_WP-WPNO).
+func (s *Step) WP() int { return s.w.number }
+
+// Context is the step's; its cancellation is the fence.
+func (s *Step) Context() context.Context { return s.ctx }
+
+// Report is the name the row carries for this step.
+func (s *Step) Report() string { return s.report }
+
+// SetReport names the step in its work-process row.
+func (s *Step) SetReport(report string) {
+	s.report = report
+	p := s.p
+	p.mu.Lock()
+	s.w.report = report
+	p.mu.Unlock()
+}
+
+// Query runs a statement of the step on its work process's connection,
+// prepared on it when the same text ran here before. The context is the
+// step's: cancelled, the driver interrupts the statement in flight.
+func (s *Step) Query(q string, args ...any) (*sql.Rows, error) {
+	if st := s.stmtFor(q); st != nil {
+		return st.QueryContext(s.ctx, args...)
+	}
+	return s.w.conn.QueryContext(s.ctx, q, args...)
+}
+
+// Exec is Query for what returns no rows.
+func (s *Step) Exec(q string, args ...any) (sql.Result, error) {
+	if st := s.stmtFor(q); st != nil {
+		return st.ExecContext(s.ctx, args...)
+	}
+	return s.w.conn.ExecContext(s.ctx, q, args...)
+}
+
+// Prepare hands out the statement prepared on this work process, cached
+// with its kin (the kernel's adapter calls it).
+func (s *Step) Prepare(q string) (*sql.Stmt, error) {
+	if st := s.stmtFor(q); st != nil {
+		return st, nil
+	}
+	st, err := s.w.conn.PrepareContext(s.ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	s.w.stmts[q] = st
+	return st, nil
+}
+
+// cacheable is the kernel's rule (go/abap luw.go): one SELECT / INSERT /
+// UPDATE / DELETE without a ';' is worth preparing.
+func cacheable(q string) bool {
+	if strings.Contains(q, ";") || len(q) < 7 {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(q)[:6]) {
+	case "SELECT", "INSERT", "UPDATE", "DELETE":
+		return true
+	}
+	return false
+}
+
+const stmtCacheMax = 4096
+
+func (s *Step) stmtFor(q string) *sql.Stmt {
+	w := s.w
+	if st, ok := w.stmts[q]; ok {
+		return st
+	}
+	if len(w.stmts) >= stmtCacheMax || !cacheable(q) {
+		return nil
+	}
+	st, err := w.conn.PrepareContext(s.ctx, q)
+	if err != nil {
+		return nil
+	}
+	w.stmts[q] = st
+	return st
+}
+
+// Yield is a WAIT inside a step: the work process goes back to the
+// dispatcher for the sleep and another is lent on return. The step's
+// transaction is the kernel's to end and reopen around this (a WAIT ends
+// the LUW, as on a system); the statements after a Yield run on the new
+// work process's connection, and a prepared statement travelled with the
+// work process that made it. The work process given up is free while the
+// step waits, as a system's is while its session waits: another step may
+// run on it, and the row says Idle in the meantime.
+func (s *Step) Yield(d time.Duration) {
+	p := s.p
+	p.mu.Lock()
+	p.live--
+	p.mu.Unlock()
+	p.unlendWorker(s.w)
+	time.Sleep(d)
+	w := p.take(s.ctx)
+	if w == nil {
+		return // fenced in the WAIT: the kernel's reopen fails next
+	}
+	if err := w.setQueryOnly(s.ctx, s.kind == Read); err != nil {
+		s.w = w // the same: the reopen reports it and the step unwinds
+		return
+	}
+	s.w = w
+	p.mu.Lock()
+	p.live++
+	p.running[w.number] = s
+	w.state, w.kind, w.started = "Running", s.kind, time.Now()
+	p.mu.Unlock()
+}
+
+// unlendWorker is the give-up half of unlend, without the step's end.
+func (p *Pool) unlendWorker(w *worker) {
+	p.mu.Lock()
+	w.state = "Idle"
+	p.mu.Unlock()
+	p.tokens <- w
+}
+
+// Interrupt is the fence: the step running on work process wp stops at its
+// next statement (sqlite3_interrupt through the driver's context
+// cancellation). True when a step was running on it. A hung writer fenced
+// this way lets the writers waiting on the write lock proceed once its
+// rollback has run.
+func (p *Pool) Interrupt(wp int) bool {
+	p.mu.Lock()
+	s := p.running[wp]
+	p.mu.Unlock()
+	if s == nil {
+		return false
+	}
+	s.cancel()
+	return true
+}
+
+// Workers is M.
+func (p *Pool) Workers() int { return len(p.workers) }
+
+// InFlight is the number of steps running statements now.
+func (p *Pool) InFlight() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.live
+}
+
+// WPRow is one work process as the status tables read it (ZOSD_WP).
+type WPRow struct {
+	Number     int
+	Kind       string // DIAL: a dialog work process (BTC is a later slice)
+	State      string // Running (a step holds it) or Idle
+	Generation string
+	Started    time.Time // the running step's start; zero when idle
+	Report     string
+}
+
+// Snapshot is the work-process rows (ZOSD_WP): what runs, since when, of
+// what report -- the SM50 shape over the dispatcher's own table.
+func (p *Pool) Snapshot() []WPRow {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]WPRow, 0, len(p.workers))
+	for _, w := range p.workers {
+		out = append(out, WPRow{Number: w.number, Kind: "DIAL", State: w.state,
+			Generation: p.o.Generation, Started: w.started, Report: w.report})
+	}
+	return out
+}
+
+// Locker is the pool as the drain's sync.Locker (go/serving Stop.Lock):
+// Lock stops the lending and takes every work process out of circulation --
+// the steps in flight finish, because they hold theirs until they end, and
+// a WAIT that gave its up waits for one back, as a system's WAIT past the
+// shutdown does. Unlock lends them all again.
+type Locker struct{ P *Pool }
+
+func (l Locker) Lock() {
+	p := l.P
+	p.mu.Lock()
+	if p.stopped {
+		p.mu.Unlock()
+		return
+	}
+	p.stopped = true
+	p.mu.Unlock()
+	close(p.stop)
+	for i := 0; i < len(p.workers); i++ {
+		<-p.tokens
+	}
+}
+
+func (l Locker) Unlock() {
+	p := l.P
+	p.mu.Lock()
+	if !p.stopped {
+		p.mu.Unlock()
+		return
+	}
+	p.stopped = false
+	p.stop = make(chan struct{})
+	p.mu.Unlock()
+	for _, w := range p.workers {
+		select {
+		case p.tokens <- w:
+		default: // already in circulation
+		}
+	}
+}
+
+// Close ends the pool: the lending stops, the work processes still out are
+// waited for as Lock does, and every connection is closed. The host ends
+// its steps first (go/serving Quiesce); a step that never returns leaves
+// Close waiting, as the drain would.
+func (p *Pool) Close() error {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return nil
+	}
+	p.closed = true
+	p.stopped = true
+	p.mu.Unlock()
+	close(p.stop)
+	var err error
+	for _, w := range p.workers {
+		for _, st := range w.stmts {
+			st.Close()
+		}
+		if e := w.conn.Close(); e != nil {
+			err = e
+		}
+	}
+	return err
+}
