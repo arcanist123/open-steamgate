@@ -3,7 +3,9 @@
 New creates a lazy v1 NDJSON client; Hello, Check, Status and Close own its lifecycle.
 BuildSnapshot pins regular-file hashes, rejects paths or symlinks outside the
 root and special files, honors its context between files, and bounds source reads.
-Discovery never uses PATH. Requests serialize; the default 30-second deadline
+Discovery never uses PATH. Locate runs the same discovery without starting a child
+and Describe words its answer, so a host can report at start whether a sidecar
+was found (osgo does with -adt). Requests serialize; the default 30-second deadline
 covers admission, handshake, pipe writes and response reads. Cancellation while
 waiting for admission or the mutex returns promptly without recording LastError;
 errors during an operation update it under the client mutex.
