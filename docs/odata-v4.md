@@ -145,7 +145,11 @@ set (`sap:searchable`, `searchable: true` in a `stg.yaml` entity) and
 otherwise 501, which names the flag. The search expression grammar is not
 implemented: `AND`, `OR`, `NOT`, several terms or phrases answer 501; the
 DPC receives one term or one phrase (its quotes removed, `\"` and `\\`
-undone). Inside `$expand(...)` it applies to the target set the same way.
+undone in one left-to-right pass). A phrase ends at its first unescaped
+quote: anything after it is 501, a phrase without its closing quote or with
+a backslash before anything but a quote or a backslash is 400. The term is
+data for the DPC: quotes, backslashes and JSON in it are never read as
+syntax, and a NUL is 400 like everywhere else. Inside `$expand(...)` it applies to the target set the same way.
 SADL/CDS sets have no search flag yet.
 
 ## Operations
@@ -215,7 +219,10 @@ Control information and instance annotations (`@odata.type`, `Name@...`)
 are ignored. An unknown property (also a V2 `{"d":{...}}` envelope) or a
 value that does not fit is 400 before the DPC is called and the entity is
 unchanged. The key of a PATCH or PUT is the one in the URL; a key property in
-the body cannot move the update to another entity. A missing entity is 404.
+the body cannot move the update to another entity. A missing entity is 404,
+and so is a string key longer than its property's MaxLength: the DPC's
+CHAR field would cut `TravelSet('T0002    X')` down to `T0002` and read,
+change, delete or call a bound action on that entity instead.
 A relationship binding (`Nav@odata.bind` or `Nav@bind`, scalar or array)
 answers 501; a binding is never acknowledged and dropped. Binary values in
 bodies are 501. A write to a collection other than POST answers 405 with

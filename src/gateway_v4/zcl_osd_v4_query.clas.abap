@@ -534,7 +534,8 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
     DATA ls_info TYPE zcl_osd_v4_model=>ty_property.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA lt_names TYPE string_table.
-
+    DATA lv_max TYPE string.
+    DATA lv_length TYPE i.
 
     IF mv_empty_parens = abap_true.
       fail( 'Empty key predicate' ).
@@ -572,6 +573,15 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
             fail( 'String keys must be quoted' ).
           ENDIF.
           ls_key-value = zcl_stg_url=>unquote( lv_value ).
+* a key longer than its MaxLength names no entity (404): the DPC's CHAR field
+* would cut it, and TravelSet('T0002    X') would read, change or delete T0002
+          FIND REGEX 'MaxLength="([0-9]+)"' IN ls_info-facets SUBMATCHES lv_max.
+          IF sy-subrc = 0.
+            lv_length = lv_max.
+            IF strlen( ls_key-value ) > lv_length.
+              fail( iv_text = |No entity: key property { ls_key-name } is longer than MaxLength { lv_length }| iv_status = 404 ).
+            ENDIF.
+          ENDIF.
         WHEN 'Edm.Date' OR 'Edm.DateTimeOffset'.
           IF ls_info-edm_type = 'Edm.Date' AND strlen( lv_value ) <> 10.
             fail( 'Expected a V4 Date literal' ).
@@ -703,19 +713,57 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
 
   METHOD search_term.
     DATA lv_text TYPE string.
+    DATA lv_len TYPE i.
+    DATA lv_pos TYPE i.
+    DATA lv_char TYPE string.
+    DATA lv_closed TYPE abap_bool.
     DATA lt_words TYPE string_table.
     DATA lv_word TYPE string.
+* trimmed only: the spaces inside a phrase are the phrase's
     lv_text = iv_text.
-    CONDENSE lv_text.
+    SHIFT lv_text LEFT DELETING LEADING space.
+    SHIFT lv_text RIGHT DELETING TRAILING space.
     IF lv_text IS INITIAL.
       fail( '$search needs a term' ).
     ENDIF.
-    IF strlen( lv_text ) >= 2 AND lv_text(1) = '"' AND substring( val = lv_text off = strlen( lv_text ) - 1 ) = '"'.
+    IF lv_text(1) = '"'.
 * a phrase; the escapes of OData 4.01 Part 2, 5.1.7 (backslash before a quote
-* or a backslash) are undone
-      rv_term = substring( val = lv_text off = 1 len = strlen( lv_text ) - 2 ).
-      REPLACE ALL OCCURRENCES OF '\"' IN rv_term WITH '"'.
-      REPLACE ALL OCCURRENCES OF '\\' IN rv_term WITH '\'.
+* or a backslash) are undone in one pass, left to right, so an escaped
+* backslash before a quote cannot turn the quote into an escaped one. A quote
+* that is not escaped ends the phrase: anything after it is a second phrase
+* or an operator, which this slice does not serve.
+      lv_len = strlen( lv_text ).
+      lv_pos = 1.
+      WHILE lv_pos < lv_len.
+        lv_char = substring( val = lv_text off = lv_pos len = 1 ).
+        IF lv_char = '\'.
+          lv_pos = lv_pos + 1.
+          IF lv_pos >= lv_len.
+            fail( '$search phrase ends inside an escape' ).
+          ENDIF.
+          lv_char = substring( val = lv_text off = lv_pos len = 1 ).
+          IF lv_char <> '"' AND lv_char <> '\'.
+            fail( |$search phrase: a backslash escapes only a quote or a backslash| ).
+          ENDIF.
+          rv_term = rv_term && lv_char.
+        ELSEIF lv_char = '"'.
+          lv_closed = abap_true.
+          EXIT.
+        ELSE.
+          rv_term = rv_term && lv_char.
+        ENDIF.
+        lv_pos = lv_pos + 1.
+      ENDWHILE.
+      IF lv_closed = abap_false.
+        fail( '$search phrase without its closing quote' ).
+      ENDIF.
+      IF lv_pos + 1 < lv_len.
+        fail( iv_text = '$search expressions (grouping, several phrases) are not implemented: one term or one quoted phrase'
+          iv_status = 501 ).
+      ENDIF.
+      IF rv_term IS INITIAL.
+        fail( '$search needs a term' ).
+      ENDIF.
       RETURN.
     ENDIF.
     IF lv_text CS '"' OR lv_text CS '('.

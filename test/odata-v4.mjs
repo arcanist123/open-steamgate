@@ -1385,6 +1385,58 @@ describe("OData V4 operations, deep insert, expand options and search", () => {
     expect((await res.json()).error.message).to.contain("searchable");
     expect((await fetch(base + "/TravelSet?$search=")).status).to.equal(400);
   });
+
+  // The injection classes fixed on the V2 path (SQL host variables, JSON keys)
+  // tried on the operation parameters, the bound key and $search: no row
+  // changes, every answer is JSON, nothing is a 500.
+  it("keeps quotes, backslashes, NUL and JSON fragments in parameters, keys and $search as data", async () => {
+    const rows = async () => JSON.stringify((await json(base + "/TravelSet?$orderby=TravelId&$select=TravelId,Status,Seats,Description")).value);
+    const answer = async (path, init) => {
+      const res = await fetch(base + path, init);
+      const text = await res.text();
+      expect(() => JSON.parse(text), `${path}: ${text}`).not.to.throw();
+      expect(res.status, `${path}: ${text}`).not.to.equal(500);
+      return {status: res.status, body: JSON.parse(text)};
+    };
+    const literal = (v) => encodeURIComponent("'" + v.replaceAll("'", "''") + "'");
+    const phrase = (v) => encodeURIComponent('"' + v.replaceAll("\\", "\\\\").replaceAll('"', '\\"') + '"');
+    // T0003 is cancelled below with every value; cancel it once first so the snapshot is its final state
+    await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel", {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: "{}"});
+    const before = await rows();
+    const values = ["'", "A'", "' OR '1'='1", '"', "\\", '"},{"x":1', '{"TravelId":"T0002"}', "A\u2028"];
+    for (const value of values) {
+      const count = await answer(`/TravelCount(Status=${literal(value)})`);
+      expect(count.status, value).to.equal(200);
+      expect(count.body.value, value).to.be.a("number");
+      // the binding's key wins over a body parameter of the same name
+      const cancel = await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel",
+        {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: JSON.stringify({TravelId: value})});
+      expect(cancel.status, value).to.equal(200);
+      expect(cancel.body.TravelId, value).to.equal("T0003");
+      expect((await answer(`/TravelSet(${literal("T9" + value)})`)).status, value).to.be.oneOf([400, 404]);
+      expect((await answer(`/TravelSet?$search=${phrase(value)}`)).body.value, value).to.deep.equal([]);
+      expect([200, 400, 501], value).to.include((await answer(`/TravelSet?$search=${encodeURIComponent(value)}`)).status);
+    }
+    // NUL is refused wherever it comes from
+    expect((await answer(`/TravelCount(Status=${literal("A\u0000")})`)).status).to.equal(400);
+    expect((await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel", {method: "POST",
+      headers: {"content-type": "application/json"}, body: '{"TravelId":"T\\u0000"}'})).status).to.equal(400);
+    // a key longer than its MaxLength would be cut to another entity's key by the DPC
+    const long = encodeURIComponent("'T0002    X'");
+    expect((await answer(`/TravelSet(${long})`)).status).to.equal(404);
+    expect((await answer(`/TravelSet(${long})/ZSTG_DEMO_SRV.CancelTravel`, {method: "POST",
+      headers: {"content-type": "application/json", "if-match": "*"}, body: "{}"})).status).to.equal(404);
+    expect((await answer(`/TravelSet(${long})`, {method: "PATCH",
+      headers: {"content-type": "application/json", "if-match": "*"}, body: '{"Seats":9}'})).status).to.equal(404);
+    expect(await rows()).to.equal(before);
+    // a phrase is read in one pass: an escaped backslash before a quote ends it
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"x\\\\" OR "y"')}`)).status).to.equal(501);
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a" "b"')}`)).status).to.equal(501);
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a\\"')}`)).status).to.equal(400);
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a\\q"')}`)).status).to.equal(400);
+    const spaced = await answer(`/TravelSet?$search=${encodeURIComponent('"Aarhus to"')}&$orderby=TravelId`);
+    expect(spaced.body.value.map((t) => t.TravelId)).to.deep.equal(["T0003"]);
+  });
 });
 
 // This goes through the parent proxy and real child, so losing the V4
