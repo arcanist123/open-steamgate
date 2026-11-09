@@ -78,6 +78,27 @@ func discover(override, executable string) (string, error) {
 	return "", &AbsentError{Paths: paths}
 }
 
+// Locate is the discovery a first request makes (OSGO_SIDECAR, then osd
+// beside this executable) without starting anything, so a host can say at
+// start whether ADT checks will have a compiler. A copied binary without osd
+// beside it otherwise fails only later, request by request.
+func Locate() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return discover(os.Getenv("OSGO_SIDECAR"), executable)
+}
+
+// Describe is the start-up line for Locate's answer.
+func Describe(path string, err error) string {
+	if err == nil {
+		return "compiler     sidecar " + path
+	}
+	return "compiler     " + err.Error() + ": ADT activation, checkrun, CHECK and outline " +
+		"cannot compile; put osd beside this binary or set OSGO_SIDECAR"
+}
+
 func (c *Client) Status() Status {
 	c.mu.Lock()
 	defer c.mu.Unlock()
