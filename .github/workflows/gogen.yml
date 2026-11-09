@@ -127,13 +127,15 @@ jobs:
       - name: Go vet and tests
         working-directory: tools/gogen/go
         run: |
-          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./adtref/ ./adtactivate/ ./adtunit/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/ ./serving/
+          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./adtref/ ./adtactivate/ ./adtunit/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/ ./serving/ ./enqnet/ ./osgw/ ./cmd/osgw/ ./adtenq/ ./adtlock/ ./adtsystem/
           go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./adtwrite/... ./adtpreview/... ./adtread/... ./adtref/... ./adtactivate/... ./adtunit/... ./objstore/... ./osdbind/...
           # the sandbox builds for the browser too (nofollow_other.go)
           GOOS=js GOARCH=wasm go build ./sandbox/ ./adtwrite/ ./objstore/
           # ABAP's process-global string memos, the AMC broker and the lock
           # server are concurrent: test them with the race detector (enq: E0).
-          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/... ./serving/...
+          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/... ./serving/... ./enqnet/... ./osgw/... ./adtenq/... ./adtlock/... ./adtsystem/...
+          # the gateway and its sidecar seam build for Windows too (no SIGTERM there: the stop kills)
+          GOOS=windows go vet ./osgw/ ./cmd/osgw/ ./enq/ ./enqnet/
       - name: ABAP lint bridge and CHECKRUN edit gates
         run: node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
       - name: Semantics, Go and IR-as-JS against the measured answers

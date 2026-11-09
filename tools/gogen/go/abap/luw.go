@@ -307,8 +307,8 @@ func RollbackWork(s *Session) {
 	s.Sy.Subrc = 0
 }
 
-// GeneratedCommitWork is only for an explicit generated COMMIT WORK.
-// YieldSleep and dialog-step completion use the database functions directly.
+// GeneratedCommitWork is an explicit COMMIT WORK: the database commits FIRST, then the lock hook
+// runs; go/enqnet relies on that order (TestGeneratedLUWDatabaseOrder). Steps commit directly.
 func GeneratedCommitWork(s *Session) {
 	CommitWork(s)
 	updated := s.UpdateTask
