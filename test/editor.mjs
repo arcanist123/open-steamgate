@@ -1,6 +1,6 @@
 import {expect} from "chai";
-import {existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
-import {dirname, join, relative} from "node:path";
+import {readFileSync} from "node:fs";
+import {snapshotTree, restoreTree} from "./helpers/tree-snapshot.mjs";
 import {startServer} from "./start.mjs";
 import {givenText, fill} from "../tools/osd-destination.mjs";
 
@@ -20,28 +20,6 @@ const BASE = `http://localhost:${PORT}/sap/bc/osd/edit/`;
 const OBJECT = "ZCL_OSD_ST05";
 const FILE = "src/webgui/zcl_osd_st05.clas.abap";
 const INACTIVE = "build/inactive";
-
-// The folder as bytes per relative path, or null when it does not exist.
-const snapshotTree = (root) => {
-  if (!existsSync(root)) return null;
-  const files = new Map();
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir, {withFileTypes: true})) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) walk(path); else files.set(relative(root, path), readFileSync(path));
-    }
-  };
-  walk(root);
-  return files;
-};
-const restoreTree = (root, files) => {
-  rmSync(root, {recursive: true, force: true});
-  if (files === null) return;
-  for (const [path, bytes] of files) {
-    mkdirSync(dirname(join(root, path)), {recursive: true});
-    writeFileSync(join(root, path), bytes);
-  }
-};
 
 // HTML entities back to text, numeric ones included: the escaper on the
 // screen writes `&#39;` for an apostrophe, and ABAP source is full of them.
