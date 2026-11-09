@@ -123,7 +123,7 @@ func field(obj any, name string) string {
 	if v.Kind() != reflect.Struct {
 		return ""
 	}
-	f := v.FieldByName(name)
+	f := v.FieldByNameFunc(func(n string) bool { return strings.EqualFold(n, name) }) // msg, or Msg in a layered build
 	if !f.IsValid() || f.Kind() != reflect.String {
 		return ""
 	}
