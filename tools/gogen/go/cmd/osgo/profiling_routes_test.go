@@ -38,11 +38,13 @@ func TestDispatcherProfileRoutes(t *testing.T) {
 					Name: "ZPROFILE_SRV", Entity_sets: []*ZCL_STG_MODEL_INFO__TY_ENTITY_SET{{Name: "Users"}},
 				}}
 				// A matched handler may need database/host services after routing. Its
-				// label has already been decided; those execution failures are irrelevant.
+				// label has already been decided; those execution failures are
+				// irrelevant. These probes read, and a read carries no request
+				// headers, so it_headers is the empty table.
 				func() {
 					defer func() { _ = recover() }()
 					if strings.HasPrefix(tc.path, odataBase) {
-						ZCL_STG_DISPATCHER_DISPATCH(s, tc.method, tc.path, new([]*IHTTPNVP), "", "", "", "")
+						ZCL_STG_DISPATCHER_DISPATCH(s, tc.method, tc.path, new([]*IHTTPNVP), "", "", "", "", new([]*IHTTPNVP))
 					} else {
 						req := ZIF_OSD_ADT_ROUTE__TY_REQUEST{Method: tc.method, Path: tc.path}
 						ZCL_OSD_ADT_ROUTER_DISPATCH(s, &req, new([]ZCL_OSD_ADT_ROUTER__TY_ROUTE))
