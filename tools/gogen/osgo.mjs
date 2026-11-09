@@ -15,6 +15,8 @@ import {gofmtCached} from "./gofmt-cache.mjs";
 //   tests the ADT test runner can run (osgo-adt-unit.mjs; default the fixture)
 //   --unlayered (or OSGO_LAYERS=0): all generated Go in package main, as
 //   before the layered build (below)
+//   --fast (or OSGO_FAST=1): no Node build when only class/interface bodies
+//   changed since the live generation (osgo-fast.mjs), else run it first
 //
 // The generated classes go into three Go packages (go-layers.mjs,
 // osgo-layers.mjs): generated/osgo/core (the libraries), generated/osgo/app
@@ -40,6 +42,17 @@ const here = import.meta.dirname;
 const echo = process.argv.includes("--echo");
 const layered = !echo && !process.argv.includes("--unlayered") && process.env.OSGO_LAYERS !== "0";
 const layersDir = join(here, "go", "generated", "osgo");
+const fast = !echo && (process.argv.includes("--fast") || process.env.OSGO_FAST === "1");
+// what the fast path decided (osgo-fast.mjs), for .out/osgo-phases.json
+let fastInfo;
+// the full Node build, run by --fast when it cannot skip it; its failure is
+// this build's, with its exit code (osd-build.mjs has said why)
+function nodeBuild() {
+  try {
+    execFileSync(process.execPath, [join(home, "tools", "osd-build.mjs")], {cwd: home, stdio: ["ignore", "inherit", "inherit"]});
+  } catch (e) { console.error(`osgo: the Node build failed (exit ${e.status})`); process.exit(e.status || 1); }
+  phase("transpile");
+}
 // the phases of this run, in ms (printed at the end, .out/osgo-phases.json)
 const phases = {};
 let phaseMark = performance.now();
@@ -77,22 +90,65 @@ if (echo) {
   console.log(`front end: ${program.classes.length} classes, ${program.partial.length} statement stubs`);
   services = [{path: "/echo", handler: "ZCL_OSGO_ECHO", active: true}];
 } else {
+  // --fast (or OSGO_FAST=1): skip the Node build when only class or
+  // interface bodies changed since the live generation (osgo-fast.mjs proves
+  // it), else run it here first; docs/osgo-fast-rebuild.md "The fast path"
+  if (fast) {
+    const {fastProof} = await import("./osgo-fast.mjs");
+    const proof = await fastProof(home);
+    fastInfo = proof;
+    phase("fast proof");
+    if (proof.ok) {
+      console.log(`osgo fast: generation ${proof.hash} is live ${proof.base} with ${proof.changed.length} edited source file(s) (${proof.changed.join(", ")}); no Node build`);
+    } else {
+      console.log(`osgo fast: full build (${proof.reason})`);
+      nodeBuild();
+    }
+  }
   const {compileOsg, osgDatabase, staleGen} = await import("./osg-build.mjs");
   // a stale gen/ is refused (--stale-gen builds it anyway, with the warning)
-  const stale = await staleGen();
-  if (stale && !process.argv.includes("--stale-gen")) {
-    console.error(`osgo: refused: ${stale} (or pass --stale-gen)`);
-    process.exit(2);
-  }
-  if (stale) console.warn(`osgo: WARNING ${stale}`);
+  const staleCheck = async () => {
+    const stale = await staleGen();
+    if (stale && !process.argv.includes("--stale-gen")) {
+      console.error(`osgo: refused: ${stale} (or pass --stale-gen)`);
+      process.exit(2);
+    }
+    if (stale) console.warn(`osgo: WARNING ${stale}`);
+  };
+  if (!fastInfo?.ok) await staleCheck();
   phase("stale check");
-  const built = compileOsg({extraFolders, includeTests: new Set(owners)});
+  let built = compileOsg({extraFolders, includeTests: new Set(owners)});
+  phase("front end");
+  // the fast path skipped the Node build's syntax check: an edited object
+  // the front end found errors in is not built here. The full path runs
+  // instead, so the refusal is osd-build.mjs's own (message, exit code), and
+  // a tree it accepts is built as the full path builds it
+  if (fastInfo?.ok) {
+    const {fastSyntaxRefusal} = await import("./osgo-fast.mjs");
+    const refusal = fastSyntaxRefusal(fastInfo.changed, built.program.diagnostics ?? []);
+    phase("fast syntax check");
+    if (refusal !== undefined) {
+      console.log(`osgo fast: full build (${refusal})`);
+      fastInfo = {ok: false, hash: fastInfo.hash, base: fastInfo.base, reason: refusal};
+      nodeBuild();
+      await staleCheck();
+      built = compileOsg({extraFolders, includeTests: new Set(owners)});
+      phase("front end");
+    }
+  }
   program = built.program;
   console.log(built.summary);
-  phase("front end");
   unit = unitClasses(program, owners);
   console.log(`ABAP Unit: ${unit.classes.length} test classes of ${owners.length} owners (${owners.join(", ") || "none"})${unit.missing.length ? `; left out: ${unit.missing.join("; ")}` : ""}`);
-  const db = await osgDatabase(program);
+  // the fast path: the live generation's cross-reference with the edited
+  // objects' rows derived again, instead of a parse of the tree
+  let xref;
+  if (fastInfo?.ok) {
+    const {fastXrefRows} = await import("./osgo-fast.mjs");
+    xref = await fastXrefRows(home, fastInfo);
+    console.log(`osgo fast: cross-reference ${xref ? "from the live generation's rows" : "parsed (no live rows to start from)"}`);
+  }
+  const db = await osgDatabase(program, {xref});
   statements = db.statements;
   console.log(db.summary);
   // SMW0: the W3MI objects of the layers (the BSP apps' pages among them)
@@ -138,7 +194,11 @@ if (echo) {
   }
   // DESTINATION 'STORE' over the files of the tree (go/objstore)
   const {storeConfig} = await import("./store.mjs");
-  const cfg = await storeConfig(home);
+  // the fast path: the edited files are active as they are now (osgo-fast.mjs);
+  // copies neither this build nor the last one (the binary that may still be
+  // serving, its zz_store.json) names are removed
+  const edited = fastInfo?.ok ? (await import("./osgo-fast.mjs")).fastStoreEdits(home, fastInfo.changed, join(here, ".out", "osgo-active"), {previous: join(dir, "zz_store.json")}) : undefined;
+  const cfg = await storeConfig(home, {edited});
   store = JSON.stringify(cfg);
   console.log(`store: ${cfg.roots.length} roots, ${cfg.libs.length} libraries (${cfg.libs.reduce((n, l) => n + l.files.length, 0)} files), ${Object.keys(cfg.built).length} files of this generation`);
   const {tilesOf, webappsOf} = await import(`${home}/tools/osd-packs.mjs`);
@@ -361,5 +421,5 @@ writeFileSync(reportPath, JSON.stringify({classes: program.classes.map(c => c.na
   statementStubs: program.partial, methodsNotCompiled: program.skipped}, null, 2) + "\n");
 console.log(`${services.length} SICF nodes mounted, ${notServed.length} not served, ${webapps.length} pack folders, ${tiles.tiles.length} tiles, ${channels.length} push channels${channelsLeftOut.length ? ` (left out: ${channelsLeftOut.map((c) => `${c.path} ${c.why}`).join("; ")})` : ""}`);
 phase("report");
-writeFileSync(join(here, ".out", `${echo ? "osgo-echo" : "osgo"}-phases.json`), JSON.stringify({phases, layered, layers: layerInfo}, null, 1) + "\n");
+writeFileSync(join(here, ".out", `${echo ? "osgo-echo" : "osgo"}-phases.json`), JSON.stringify({phases, layered, layers: layerInfo, fast: fastInfo}, null, 1) + "\n");
 console.log(`phases (ms): ${Object.entries(phases).map(([k, v]) => `${k} ${v}`).join(", ")}`);

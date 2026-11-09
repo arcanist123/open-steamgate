@@ -727,6 +727,14 @@ generation is hashed from the unlayered emission either way.
 `gofmt-cache.mjs` formats the generated Go and gives an unchanged core or
 app package its formatted copy back from `.out/gofmt` (keyed by the hash of
 the emission) instead of another gofmt pass over 20 MB.
+`node tools/gogen/osgo.mjs --fast` (or `OSGO_FAST=1`) builds without the
+Node build when `osgo-fast.mjs` proves that a full build would leave `gen/`
+as it is: the live generation's `gen/` on disk, no inactive overlay, every
+changed file an existing class or interface source of the live generation
+(the tree hashes back to it with them put back) that passes the warm rule
+(`osd-warm.mjs warmRule`). Anything else runs `tools/osd-build.mjs` first.
+Nothing is written under `build/`; `osgo-fast.test.mjs` is the decision,
+`docs/osgo-fast-rebuild.md` "The fast path" the parity proof.
 
 With `INSTANCE=nn` (exactly two ASCII digits), OSGo defaults to HTTP `80nn`
 and HTTPS `443nn`; opt-in DIAG (`-diag` / `OSD_OSGO_DIAG=1`) and RFC

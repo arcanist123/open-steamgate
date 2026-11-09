@@ -156,6 +156,8 @@ export function wellFormed(tables) {
  *    identity, already inside hashOf, stands for them.
  *
  *  Undefined where there is no tree to hash, which only costs the cache. */
+// options.hash names another generation of this tree than its own hash (the
+// osgo fast path asks for the live generation's rows, tools/gogen/osgo-fast.mjs)
 export async function cacheKey(root, options = {}) {
   try {
     const {hashOf, genHash, generatorClosure} = await import(/* webpackIgnore: true */ "./osd-build.mjs");
@@ -164,7 +166,7 @@ export async function cacheKey(root, options = {}) {
     const {readFileSync} = await import(/* webpackIgnore: true */ "node:fs");
     const {fileURLToPath} = await import(/* webpackIgnore: true */ "node:url");
     const h = createHash("sha256");
-    h.update(DERIVATION).update("\0").update(hashOf(root)).update("\0").update(genHash(root)).update("\0");
+    h.update(DERIVATION).update("\0").update(options.hash ?? hashOf(root)).update("\0").update(genHash(root)).update("\0");
     if (!hosted()) {
       // `tools` is for the test that proves a change to the derivation
       // moves the key, over a copy of this folder

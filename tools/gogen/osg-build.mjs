@@ -110,7 +110,7 @@ export function compileOsg({extraFolders = [], includeTests = new Set()} = {}) {
  * Rows of a table this program has no definition for (a pack's) are left out,
  * and said so in the summary.
  */
-export async function osgDatabase(program) {
+export async function osgDatabase(program, options = {}) {
   const {DatabaseSetup} = await import(`${home}/node_modules/@abaplint/transpiler/build/src/db/index.js`);
   assertTableFieldsTyped(program.reg);
   const setup = new DatabaseSetup(program.reg).run();
@@ -131,7 +131,8 @@ export async function osgDatabase(program) {
   // once at build time, so where-used and the main programs of an include
   // answer on osgo as they do on Node; only the tables this program defines
   const {rows: xrefRows, insertStatements: xrefInserts, counts: xrefCounts} = await import(`${home}/tools/osd-xref-seed.mjs`);
-  const xref = await xrefRows(home);
+  // options.xref: rows the caller has already (the osgo fast path's, osgo-fast.mjs)
+  const xref = options.xref ?? await xrefRows(home);
   const xrefStatements = xrefInserts(xref).filter((x) => {
     const t = /^(?:INSERT\s+INTO|DELETE\s+FROM)\s+['"]?([\w\/]+)/i.exec(x)?.[1]?.toLowerCase();
     return t !== undefined && created.has(t);
