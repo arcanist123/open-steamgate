@@ -9,7 +9,7 @@ into the persistent table, and the LUW ends in `COMMIT WORK` or
 ```
 node tools/rap/bdef-gen.mjs                  # types, adapter, registry -> gen/rap/
 npx mocha test/rap-runtime-gen.mjs           # what is generated and refused
-node tools/osd-unit.mjs CLAS ZCL_OSD_RAP_TEST   # after npm run transpile
+node tools/osd-unit.mjs CLAS ZCL_OSD_RAP_TEST   # after npm run transpile: both pools
 ```
 
 ## Decision: handler-direct, no EML
@@ -27,6 +27,62 @@ instances it works on as a table parameter `entities` and changes them in
 place. The runtime takes the changed fields back into the buffer, where they
 trigger what depends on them. When EML arrives the handlers can be written the
 SAP way and this parameter goes.
+
+**R3: handlers in the system's form.** A pool may instead declare its
+methods as on a system (`FOR DETERMINE ON MODIFY IMPORTING keys FOR
+Note~SetStatus`, [rap-derived-types.md](rap-derived-types.md), "Handler
+declarations"). Such a method gets the keys and the response structures and
+no instances; it reads and changes them through EML. Three rules make that
+work, all in `ZCL_OSD_RAP_RUNTIME`:
+
+- **EML inside a handler reaches the calling transaction.** While a handler
+  runs, the runtime is on a stack (`ZCL_OSD_RAP_RUNTIME=>ACTIVE`), and
+  `ZCL_OSD_RAP_EML=>RUNTIME`, which the transpiled statements and direct
+  callers go through, answers that runtime rather than the session's.
+- **It acts as IN LOCAL MODE.** A modification made while a handler of the
+  runtime runs may set a read-only field, and it does not start a request of
+  its own: the determinations it triggers run in the loop of the request
+  that called the handler (on modify) or of the save (on save), each at most
+  once per instance. This is an OSG convention: `IN LOCAL MODE` itself is
+  still accepted and ignored ([rap-eml.md](rap-eml.md)), so an EML call
+  inside a handler is treated as local whether it says so or not.
+- **No take-back.** The runtime copies changed rows back only from a handler
+  with an `entities` table (`ty_callable-entities`, set by the generator); a
+  handler without one has already changed the buffer, and copying its stale
+  rows back would undo that.
+
+The pinned transpiler does not lower EML statements yet, so
+`src/rap_demo/zbp_rap_note_sf` writes each statement as the
+`ZCL_OSD_RAP_EML` call it lowers to, with the statement in a comment above
+it. `test/unit/zcl_osd_rap_test` runs the same eleven-test scenario over
+both pools (`ltcl_explicit`, `ltcl_system_form`); with the stack routing
+removed, nine of the system form's eleven fail.
+
+**The flight sample's determination does not run yet.** The gate set for R3
+was one determination of SAP's public flight reference scenario
+([abap-platform-refscen-flight](https://github.com/SAP-samples/abap-platform-refscen-flight),
+commit `5353cbeb`, managed travel) compiled and run without edits. Its
+handler declarations now lower (`calculatetotalprice FOR DETERMINE ON
+MODIFY`, the six `FOR VALIDATE ON SAVE`, the `FOR MODIFY ... FOR ACTION`
+ones), but the business object never gets that far. What blocks it, in the
+order the build meets it:
+
+1. **The BDEF.** `bdef-gen.mjs` refuses `/DMO/I_Travel_M` at its
+   composition, `association _Booking { create ( features : instance ); }`
+   ("associations/functions/determine actions are outside R1"). Behind it
+   in the same definition:
+   `early numbering`, `factory action`, `internal action`,
+   `features : instance` on actions, `with additional save`, `etag master`.
+2. **The pool.** Beside the determination, the same local class declares
+   `FOR INSTANCE FEATURES` and `FOR NUMBERING` methods, which the lowering
+   refuses by name (no derived request/result types; early numbering).
+3. **The determination's body** is one statement, `MODIFY ENTITIES ... IN
+   LOCAL MODE ENTITY travel EXECUTE recalctotalprice FROM CORRESPONDING #(
+   keys )`: EML, which the pinned transpiler does not lower, executing an
+   `internal action` the generator refuses.
+
+So the proof here is the demo twin; the flight determination needs
+compositions in R1/R2, the two refused handler forms, and the EML pin.
 
 ## The pieces
 

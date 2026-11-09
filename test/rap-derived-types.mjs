@@ -240,7 +240,7 @@ describe("RAP derived type generator (R1)", () => {
     assert.ok(out.includes(`cud IMPORTING c TYPE ${t("CREATE NOTE")} u TYPE ${t("UPDATE NOTE")} d TYPE ${t("DELETE NOTE")} CHANGING mapped TYPE`));
     assert.ok(out.includes("METHODS other IMPORTING x TYPE i.") && out.includes("METHODS t FOR TESTING.") && out.includes('" a comment'));
     for (const [decl, error] of [
-      ["METHODS n FOR NUMBERING IMPORTING entities FOR CREATE Note.", /not lowered/],
+      ["METHODS n FOR NUMBERING IMPORTING entities FOR CREATE Note.", /FOR NUMBERING is outside R3/],
       ["METHODS f FOR INSTANCE FEATURES IMPORTING keys REQUEST r FOR Note RESULT result.", /INSTANCE FEATURES has no derived request\/result types/],
       ["METHODS a FOR GLOBAL AUTHORIZATION IMPORTING REQUEST r FOR Note RESULT result.", /GLOBAL AUTHORIZATION has no derived/],
       ["METHODS c FOR MODIFY IMPORTING e FOR CREATE Note\\_Items.", /create by association/],

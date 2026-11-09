@@ -111,11 +111,11 @@ describe("RAP managed runtime generator (R2)", () => {
     const classes = poolClasses("zbp_rap_note_sf", pool(files));
     assert.deepEqual(classes[0].methods.find(m => m.name === "default_status").parameters.map(p => `${p.direction} ${p.name}`), ["importing keys", "changing reported"]);
     // a parameter named otherwise keeps its role; a wrong ON and a missing FOR clause are refused
-    const renamed = edit(systemForm(), "_sf.clas.locals_imp.abap", "IMPORTING keys FOR Note~CheckText", "IMPORTING lt_keys FOR Note~CheckText");
+    const renamed = edit(systemForm(), "_sf.clas.locals_imp.abap", "IMPORTING keys FOR note~checktext", "IMPORTING lt_keys FOR note~checktext");
     assert.match(Object.values(runtimeOutputs(generate(renamed).plans, pool(renamed))).join(), /io_handler->\('TEXT_LENGTH'\)\s+EXPORTING\s+lt_keys = lt_keys/);
     for (const [from, to, error] of [
-      ["FOR DETERMINE ON MODIFY\n      IMPORTING keys FOR Note~SetStatus", "FOR DETERMINE ON SAVE\n      IMPORTING keys FOR Note~SetStatus", /FOR DETERMINE ON SAVE for a determination on modify/],
-      ["IMPORTING keys FOR Note~CheckText", "IMPORTING keys FOR Note~CheckOther", /no handler method named after it/],
+      ["FOR DETERMINE ON MODIFY\n      IMPORTING keys FOR note~setstatus", "FOR DETERMINE ON SAVE\n      IMPORTING keys FOR note~setstatus", /FOR DETERMINE ON SAVE for a determination on modify/],
+      ["IMPORTING keys FOR note~checktext", "IMPORTING keys FOR note~checkother", /no handler method named after it/],
     ]) {
       const f = edit(systemForm(), "_sf.clas.locals_imp.abap", from, to);
       assert.throws(() => runtimeOutputs(generate(f).plans, pool(f)), error, to);

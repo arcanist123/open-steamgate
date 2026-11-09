@@ -15,13 +15,13 @@ CLASS lhc_note DEFINITION INHERITING FROM cl_abap_behavior_handler FINAL.
     CONSTANTS co_bdef TYPE string VALUE 'ZI_RAP_NOTE_SF'.
 
     METHODS default_status FOR DETERMINE ON MODIFY
-      IMPORTING keys FOR Note~SetStatus.
+      IMPORTING keys FOR note~setstatus.
     METHODS tidy_text FOR DETERMINE ON SAVE
-      IMPORTING keys FOR Note~Normalize.
+      IMPORTING keys FOR note~normalize.
     METHODS text_length FOR VALIDATE ON SAVE
-      IMPORTING keys FOR Note~CheckText.
+      IMPORTING keys FOR note~checktext.
     METHODS approve_note FOR MODIFY
-      IMPORTING keys FOR ACTION Note~Approve RESULT result.
+      IMPORTING keys FOR ACTION note~approve RESULT result.
 ENDCLASS.
 
 CLASS lhc_note IMPLEMENTATION.

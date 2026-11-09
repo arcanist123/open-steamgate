@@ -62,8 +62,10 @@ function parseForm(text, where) {
     }
     return {form: "MODIFY", clauses};
   }
-  const first = text.split(" ")[0].toUpperCase();
-  fail(first === "INSTANCE" || first === "GLOBAL" ? `${text.split(" ").slice(0, 2).join(" ").toUpperCase()} has no derived request/result types yet` : "unsupported clause");
+  const words = text.split(" ").map(x => x.toUpperCase());
+  if (words[0] === "INSTANCE" || words[0] === "GLOBAL") fail(`${words.slice(0, 2).join(" ")} has no derived request/result types yet`);
+  if (["NUMBERING", "PRECHECK"].includes(words[0])) fail(`FOR ${words[0]} is outside R3`);
+  fail("unsupported clause");
 }
 
 /**

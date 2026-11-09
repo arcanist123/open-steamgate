@@ -44,7 +44,7 @@ CLASS lcl_narrow IMPLEMENTATION.
 
 ENDCLASS.
 
-CLASS lcl_scenario DEFINITION FOR TESTING FINAL.
+CLASS ltcl_scenario DEFINITION FOR TESTING FINAL.
 * The note demo (src/rap_demo/) through the managed runtime: the buffer,
 * field control, numbering, determinations on modify and on save, the
 * validation, the action and the order of the save sequence. The same
@@ -72,8 +72,8 @@ CLASS lcl_scenario DEFINITION FOR TESTING FINAL.
     DATA ms_reported TYPE ty_reported.
 
     METHODS constructor IMPORTING iv_bdef TYPE csequence.
-    METHODS setup RAISING cx_static_check.
-    METHODS teardown.
+    METHODS prepare RAISING cx_static_check.
+    METHODS finish.
     METHODS create_update_delete RAISING cx_static_check.
     METHODS determination_on_modify RAISING cx_static_check.
     METHODS determination_on_save RAISING cx_static_check.
@@ -107,7 +107,7 @@ CLASS lcl_scenario DEFINITION FOR TESTING FINAL.
     METHODS clear_phases.
 ENDCLASS.
 
-CLASS lcl_scenario IMPLEMENTATION.
+CLASS ltcl_scenario IMPLEMENTATION.
 
   METHOD constructor.
     mv_bdef = iv_bdef.
@@ -125,7 +125,7 @@ CLASS lcl_scenario IMPLEMENTATION.
     CLEAR: zbp_rap_note=>phases, zbp_rap_note_sf=>phases.
   ENDMETHOD.
 
-  METHOD setup.
+  METHOD prepare.
     DELETE FROM zrap_note WHERE status <> '#'.
     COMMIT WORK.
     clear_phases( ).
@@ -133,7 +133,7 @@ CLASS lcl_scenario IMPLEMENTATION.
     mo_rap = zcl_osd_rap_runtime=>for_bdef( mv_bdef ).
   ENDMETHOD.
 
-  METHOD teardown.
+  METHOD finish.
     DELETE FROM zrap_note WHERE status <> '#'.
     COMMIT WORK.
   ENDMETHOD.
@@ -184,7 +184,8 @@ CLASS lcl_scenario IMPLEMENTATION.
     ls_update-notetext = 'Changed note'.
     ls_update-%control-notetext = if_abap_behv=>mk-on.
     APPEND ls_update TO lt_update.
-    mo_rap->modify( EXPORTING iv_entity = 'ZI_RAP_NOTE' iv_operation = 'U' it_rows = lt_update
+* the entity by its CDS name, which is the root's and so the definition's
+    mo_rap->modify( EXPORTING iv_entity = mv_bdef iv_operation = 'U' it_rows = lt_update
                     CHANGING cs_mapped = ms_mapped cs_failed = ms_failed cs_reported = ms_reported ).
     cl_abap_unit_assert=>assert_initial( ms_failed-note ).
     cl_abap_unit_assert=>assert_equals( act = commit( ) exp = abap_true ).
@@ -457,7 +458,7 @@ ENDCLASS.
 CLASS ltcl_explicit DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINAL.
 * ZBP_RAP_NOTE: explicit derived signatures, the instances as a table
   PRIVATE SECTION.
-    DATA mo_scenario TYPE REF TO lcl_scenario.
+    DATA mo_scenario TYPE REF TO ltcl_scenario.
     METHODS setup RAISING cx_static_check.
     METHODS teardown.
     METHODS create_update_delete FOR TESTING RAISING cx_static_check.
@@ -477,11 +478,11 @@ CLASS ltcl_explicit IMPLEMENTATION.
 
   METHOD setup.
     CREATE OBJECT mo_scenario EXPORTING iv_bdef = 'ZI_RAP_NOTE'.
-    mo_scenario->setup( ).
+    mo_scenario->prepare( ).
   ENDMETHOD.
 
   METHOD teardown.
-    mo_scenario->teardown( ).
+    mo_scenario->finish( ).
   ENDMETHOD.
 
   METHOD create_update_delete.
@@ -533,7 +534,7 @@ ENDCLASS.
 CLASS ltcl_system_form DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINAL.
 * ZBP_RAP_NOTE_SF: the handler declared as on a system (R3)
   PRIVATE SECTION.
-    DATA mo_scenario TYPE REF TO lcl_scenario.
+    DATA mo_scenario TYPE REF TO ltcl_scenario.
     METHODS setup RAISING cx_static_check.
     METHODS teardown.
     METHODS create_update_delete FOR TESTING RAISING cx_static_check.
@@ -553,11 +554,11 @@ CLASS ltcl_system_form IMPLEMENTATION.
 
   METHOD setup.
     CREATE OBJECT mo_scenario EXPORTING iv_bdef = 'ZI_RAP_NOTE_SF'.
-    mo_scenario->setup( ).
+    mo_scenario->prepare( ).
   ENDMETHOD.
 
   METHOD teardown.
-    mo_scenario->teardown( ).
+    mo_scenario->finish( ).
   ENDMETHOD.
 
   METHOD create_update_delete.
