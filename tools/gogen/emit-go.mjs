@@ -1442,16 +1442,16 @@ const LINES = !env("GOGEN_NOLINE");
   // Instrument the actual routing decisions. These values belong to the
   // router table / registered model, never the parsed request's segments.
   if (st.s === "assign" && ((ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && ctx.method.name === "DISPATCH") || (ctx.cls.name === "ZCL_STG_DISPATCHER" && ctx.method.name === "RUN"))) {
-    const target = place(st.target, ctx);
-    if (ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && target === "ls_request.pattern")
-      lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute(ls_route.pattern) }`);
+    const target = place(st.target, ctx), v = (/** @type {string} */ path) => path.split(".").map(ident).join("."); // layered: Ls_request.Pattern
+    if (ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && target === v("ls_request.pattern"))
+      lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute(${v("ls_route.pattern")}) }`);
     if (ctx.cls.name === "ZCL_STG_DISPATCHER") {
-      if (target === "ls_service")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil && (ls_request.is_metadata == "X" || ls_request.is_service_root == "X" || ls_request.is_batch == "X") { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name) }`);
-      if (target === "ls_set")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name + "/" + ls_set.name) }`);
-      if (target === "ls_action")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil && ls_action.name != "" { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name + "/" + ls_action.name) }`);
+      if (target === v("ls_service"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil && (${v("ls_request.is_metadata")} == "X" || ${v("ls_request.is_service_root")} == "X" || ${v("ls_request.is_batch")} == "X") { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")}) }`);
+      if (target === v("ls_set"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")} + "/" + ${v("ls_set.name")}) }`);
+      if (target === v("ls_action"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil && ${v("ls_action.name")} != "" { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")} + "/" + ${v("ls_action.name")}) }`);
     }
   }
   if (LINES && st.pos && lines.length > 0) lines[0] = lines[0].replace(/^(\t*)/, `$1/*line ${st.pos.file}:${st.pos.row}*/ `);

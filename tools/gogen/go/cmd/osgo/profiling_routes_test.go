@@ -7,12 +7,19 @@ import (
 	"net/http/httptest"
 	"os"
 	"osg/gogen/abap"
+	. "osg/gogen/generated/osgo/app"
+	. "osg/gogen/generated/osgo/core"
 	"osg/gogen/profiling"
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
 	"testing"
 )
+
+// The generated classes live in the layered packages (osgo-layers.mjs) with
+// exported fields, reached the way zz_*.go reaches them.
+var _ = GogenCoreLayer{}
+var _ = GogenAppLayer{}
 
 // Requires the full OSGo generation; run with -tags profilingroutes.
 func TestDispatcherProfileRoutes(t *testing.T) {
@@ -27,8 +34,8 @@ func TestDispatcherProfileRoutes(t *testing.T) {
 			h := profiling.HTTP(true, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				s := &abap.Session{ProfileRoute: func(template string) { profiling.Matched(r, template) }}
 				// Install a registered model without requiring database boot.
-				St_ZCL_STG_MODEL_INFO(s).gt_services = []ZCL_STG_MODEL_INFO__TY_SERVICE{{
-					name: "ZPROFILE_SRV", entity_sets: []*ZCL_STG_MODEL_INFO__TY_ENTITY_SET{{name: "Users"}},
+				St_ZCL_STG_MODEL_INFO(s).Gt_services = []ZCL_STG_MODEL_INFO__TY_SERVICE{{
+					Name: "ZPROFILE_SRV", Entity_sets: []*ZCL_STG_MODEL_INFO__TY_ENTITY_SET{{Name: "Users"}},
 				}}
 				// A matched handler may need database/host services after routing. Its
 				// label has already been decided; those execution failures are irrelevant.
@@ -37,7 +44,7 @@ func TestDispatcherProfileRoutes(t *testing.T) {
 					if strings.HasPrefix(tc.path, odataBase) {
 						ZCL_STG_DISPATCHER_DISPATCH(s, tc.method, tc.path, new([]*IHTTPNVP), "", "", "", "")
 					} else {
-						req := ZIF_OSD_ADT_ROUTE__TY_REQUEST{method: tc.method, path: tc.path}
+						req := ZIF_OSD_ADT_ROUTE__TY_REQUEST{Method: tc.method, Path: tc.path}
 						ZCL_OSD_ADT_ROUTER_DISPATCH(s, &req, new([]ZCL_OSD_ADT_ROUTER__TY_ROUTE))
 					}
 				}()
