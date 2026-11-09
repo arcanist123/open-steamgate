@@ -634,6 +634,8 @@ func main() {
 	var routes []route
 	if adtEnabled(*adtFlag, os.Getenv) {
 		abap.ADTPreview = true
+		// the compiler-backed ADT routes fail late and quietly without it
+		log.Print(compiler.Describe(compiler.Locate()))
 		routes = append(routes, route{"/sap/bc/adt", false, icfHandler("ZCL_OSD_ADT_HANDLER", "/sap/bc/adt", adtDump)},
 			// the ADT logoff is the ABAP front's too, as on Node (tools/adt-facade.mjs)
 			route{"/sap/public/bc/icf/logoff", true, icfHandler("ZCL_OSD_ADT_HANDLER", "/sap/public/bc/icf/logoff", adtDump)})

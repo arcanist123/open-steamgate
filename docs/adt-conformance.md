@@ -124,6 +124,16 @@ when CI provides `osd`): 17 pass, 6 known-gap with the observed first cause
 in `expected/osgo.json`, 0 fail. Without a sidecar the five outline cases
 fail: they expect passes, so a 501 refusal fails the ratchet.
 
+**Running the osgo kit locally: run the binary where it was built.** osgo finds
+the compiler sidecar through `OSGO_SIDECAR`, else `osd` beside its own
+executable (`tools/gogen/.out/osd`, written by `tools/abapfs-osgo.sh`). A copy of
+`tools/gogen/.out/osgo` taken elsewhere (to compare two builds, say) has no
+sidecar, and exactly the eight compiler-backed cases fail: X1, C9b, O1-O5 and
+W5. `-home` plays no part: measured 2026-11-09 at `bd8566cc`, in place 64/64
+with and without `-home`, the copy 56/8 with and without it, and the copy with
+`OSGO_SIDECAR=$PWD/tools/gogen/.out/osd` 64/64. With `-adt` the start-up log
+names the sidecar it found or says it is absent.
+
 `expected/osgo.json` maps every ID to `pass`, `known-gap: reason` or `n/a: reason`.
 Unknown IDs, missing entries and invalid values are errors. JS cannot supply a
 gap file. A known gap that passes fails with “update the expected file”. An n/a
