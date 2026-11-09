@@ -35,6 +35,7 @@ func ActivateAll(objects []Object) error {
 	type change struct {
 		file, snapshot string
 		bytes          []byte
+		digest         string // the working bytes' digest ("" for an absent include)
 		drop           bool
 	}
 	var changes []change
@@ -62,7 +63,7 @@ func ActivateAll(objects []Object) error {
 			digest := storeDigestBytes(b)
 			if built, ok := storeState.cfg.Built[file]; ok && built == digest && storeState.cfg.Active[file] != "" {
 				// the build's own bytes: its snapshot stays the proof
-				changes = append(changes, change{file: file, drop: true})
+				changes = append(changes, change{file: file, digest: digest, drop: true})
 				continue
 			}
 			snapshot := publishedDir + "/" + digest[:32] + "/" + filepath.Base(file)
@@ -75,7 +76,7 @@ func ActivateAll(objects []Object) error {
 					return mutationError("INTERNAL", err.Error())
 				}
 			}
-			changes = append(changes, change{file: file, snapshot: snapshot, bytes: b})
+			changes = append(changes, change{file: file, snapshot: snapshot, bytes: b, digest: digest})
 		}
 	}
 	if storeState.createdActive == nil {
@@ -83,6 +84,43 @@ func ActivateAll(objects []Object) error {
 	}
 	if storeState.publishedSnapshot == nil {
 		storeState.publishedSnapshot = map[string]string{}
+	}
+	// the index a later process restores from (published.go), written
+	// before anything changes here, so a failed write cancels the batch.
+	// It is merged with the index on disk, not written from this process's
+	// own view: two generations can activate inside one drain window (a
+	// session pinned to the old one), and a whole-view overwrite would drop
+	// what the other published and this process never saw. Where both have
+	// an entry the disk's wins (its writer published after this one did);
+	// the batch's own changes then apply on top.
+	next, err := readPublishedIndex()
+	if err != nil {
+		return mutationError("INTERNAL", "the published index: "+err.Error())
+	}
+	for f, snap := range storeState.publishedSnapshot {
+		if _, onDisk := next[f]; !onDisk {
+			next[f] = publishedEntry{Snapshot: snap, Digest: storeDigestBytes(storeState.createdActive[f])}
+		}
+	}
+	for _, c := range changes {
+		if c.drop {
+			mine, own := false, false
+			if snap, ok := storeState.publishedSnapshot[c.file]; ok && next[c.file].Snapshot == snap {
+				mine = true // this process published the entry and now reverts it
+			}
+			if c.digest != "" && next[c.file].Digest == c.digest {
+				own = true // the entry names the bytes this build was built from
+			}
+			if !mine && !own {
+				continue // another generation published the file in between: kept
+			}
+			delete(next, c.file)
+			continue
+		}
+		next[c.file] = publishedEntry{Snapshot: c.snapshot, Digest: c.digest}
+	}
+	if err := writePublishedIndex(next); err != nil {
+		return mutationError("INTERNAL", "the published index: "+err.Error())
 	}
 	for _, c := range changes {
 		if c.drop {
