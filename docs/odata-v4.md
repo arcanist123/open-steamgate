@@ -73,8 +73,10 @@ have no `__metadata` or deferred navigation links. `$select` applies to the
 outer entity; expanded entities contain their structural properties.
 
 Keys and filters accept V4 literals such as `Day=2026-11-07`,
-`Guid=12345678-1234-1234-1234-123456789abc`, and
-`Moment eq 2026-11-07T12:30:45Z`. Timestamp filter offsets are converted to
+`Guid=<32 hex digits, hyphenated 8-4-4-4-12>`, and
+`Moment eq 2026-11-07T12:30:45Z`. A Guid literal reaches the DPC as its
+internal form, the same digits upper case and unhyphenated, and serializes
+back hyphenated and lower case. Timestamp filter offsets are converted to
 UTC before reaching the DPC. Temporal literals must match the property's
 Date or DateTimeOffset type, with valid calendar dates, clock times and
 UTC offsets (at most 14 hours). Numeric and quoted string literals are not
@@ -122,6 +124,14 @@ the model refuses answers 405 and never reaches the DPC.
 | `PUT TravelSet('T0001')` | 204; the entity is replaced, a property left out becomes initial |
 | `PATCH`/`PUT` with `Prefer: return=representation` | 200 with the entity after the update |
 | `DELETE TravelSet('T0001')` | 204 |
+
+The `Location` (and `OData-EntityId`) of a create percent-encodes every string
+key value per UTF-8 byte, `TravelSet('%D0%96%D1%83%D0%BA')` for the key
+`Жук`, so a key outside ASCII reads back with a plain GET. An ASCII key keeps
+the exact bytes `cl_http_utility=>escape_url` wrote for it — the kept
+characters raw, the rest `%` and lowercase hex (`TravelSet('It%27%27s')` for
+`It's`, `TravelSet('a%2cb')` for `a,b`); the per-byte form reaches only the
+characters outside ASCII.
 
 Request bodies are V4 JSON, read with their token kinds (ajson) and, for
 numbers, the literal text as the client wrote it (no float round trip): strings

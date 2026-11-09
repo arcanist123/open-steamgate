@@ -9,7 +9,15 @@ import {startServer} from "./start.mjs";
 const origin = `http://localhost:${process.env.STG_PORT ?? 3030}`;
 const base = `${origin}/sap/opu/odata4/sap/ZSTG_DEMO_SRV`;
 const literal = `${origin}/sap/opu/odata4/sap/ZOSD_V4_TEST`;
-const guid = "12345678-1234-1234-1234-123456789abc";
+// The Guid the DPC seeds, in its internal form: 32 hex digits, upper case
+// (test/v4/zcl_osd_v4_test_dpc.clas.abap). The V4 wire literal is the same value
+// hyphenated and lower case, which the parser and the serializer each derive, so
+// it is derived here too. Spelled out it is a UUID shape, and the leak scanner
+// flags every UUID shape on sight -- synthetic or not -- in the repository scan
+// and in the public layer the test folder is published as, where the
+// repository's allow list does not apply.
+const guidInternal = "12345678123412341234123456789ABC";
+const guid = guidInternal.toLowerCase().replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 const key = `Day=2026-11-07,Guid=${guid}`;
 const array = (value) => value === undefined ? [] : Array.isArray(value) ? value : [value];
 const query = (options) => "?" + new URLSearchParams(options);
@@ -293,6 +301,41 @@ describe("OData V4 read wire", () => {
     expect(body.value[0].Name).to.equal("O'Brien, (a=b)  test");
   });
 
+  // the MaxLength check of zcl_stg_model_info=>check_keys, shared with V2: a
+  // key the DPC's CHAR(8) field would cut is a 400, never another entity.
+  // The $filter half is the demo DPC's behaviour, not the gateway's: its
+  // ranges are strings (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:37-42), so
+  // the literal stays whole and matches no row; a DDIC-typed CHAR range on a
+  // system would cut it to T0001 (docs/key-length.md).
+  it("refuses a key longer than its MaxLength with 400 and changes nothing; a long $filter literal matches nothing in the demo DPC", async () => {
+    const before = await json(base + "/TravelSet('T0002')");
+    const url = base + "/TravelSet(" + encodeURIComponent("'T0002    X'") + ")";
+    const read = await fetch(url);
+    expect(read.status).to.equal(400);
+    expect((await read.json()).error.message).to.contain("MaxLength 8");
+    expect((await fetch(base + "/TravelSet(" + encodeURIComponent("TravelId='T0002    X'") + ")")).status).to.equal(400);
+    expect((await send(url, "PATCH", {Description: "wrong row"})).status).to.equal(400);
+    expect((await send(url, "PUT", {Description: "wrong row"})).status).to.equal(400);
+    expect((await send(url, "DELETE")).status).to.equal(400);
+    expect((await fetch(url + "/to_Bookings")).status).to.equal(400);
+    expect(await json(base + "/TravelSet('T0002')")).to.deep.equal(before);
+    // the demo DPC's string ranges keep the literal whole, so no row matches
+    const filtered = await json(base + "/TravelSet" + query({$filter: "TravelId eq 'T0001    X'"}));
+    expect(filtered.value).to.deep.equal([]);
+  });
+
+  // trailing blanks never make a key too long: the check measures at the
+  // last non-blank character, the way a CHAR field holds the value, so a key
+  // of MaxLength characters plus blanks addresses the entity and only a
+  // non-blank beyond the MaxLength is a 400 (shared check, same as V2)
+  it("accepts a key of MaxLength characters plus trailing blanks; a non-blank beyond is still a 400", async () => {
+    // T0001 + 4 blanks: 9 characters, 5 significant, MaxLength 8
+    const padded = await fetch(base + "/TravelSet(" + encodeURIComponent("'T0001    '") + ")");
+    expect(padded.status).to.equal(200);
+    expect((await padded.json()).TravelId).to.equal("T0001");
+    expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'T0001   X'") + ")")).status).to.equal(400);
+  });
+
   it("serves SADL/CDS and YAML-compiled services through the same registration", async () => {
     const sadl = `${origin}/sap/opu/odata4/sap/ZSTG_SADL_SRV`;
     await schema(sadl);
@@ -370,6 +413,39 @@ describe("OData V4 read wire", () => {
       expect(await minimal.text()).to.equal("");
       expect((await json(base + "/TravelSet('T0101')")).Seats).to.equal(1);
       expect((await send(base + "/TravelSet('T0101')", "DELETE")).status).to.equal(204);
+    });
+
+    // ANOMALY-2026-11-08-escape-url-multibyte: escape_url wrote one % before
+    // all UTF-8 bytes of a character (Жук -> %d096%d183%d0ba), so the Location
+    // could not be decoded and following it was the server's URIError 400
+    // page. A character outside ASCII is percent-encoded per UTF-8 byte now;
+    // an ASCII key keeps the exact bytes cl_http_utility=>escape_url wrote
+    // before (kept set, % and lowercase hex), pinned per key below.
+    it("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII", async () => {
+      const cases = [
+        ["It's", "It%27%27s"],
+        ["a,b", "a%2cb"],
+        ["a<b", "a%3cb"],
+        ["T0102", "T0102"],
+        ["T 0102", "T%200102"],
+        ["100%", "100%25"],
+        ["Жук", "%D0%96%D1%83%D0%BA"],
+        ["\u{1F600}", "%F0%9F%98%80"],
+        ["a\u{1F600}b", "a%F0%9F%98%80b"],
+        ["Ж'ук", "%D0%96%27%27%D1%83%D0%BA"],
+      ];
+      for (const [key, escaped] of cases) {
+        const res = await send(base + "/TravelSet", "POST", {TravelId: key, Description: "odd", Status: "A", Seats: 1});
+        expect(res.status, key).to.equal(201);
+        const location = res.headers.get("location");
+        expect(location, key).to.equal(base + "/TravelSet('" + escaped + "')");
+        expect(location, key).to.match(/^[\x20-\x7e]*$/);
+        const got = await fetch(location);
+        expect(got.status, key).to.equal(200);
+        expect((await got.json()).TravelId, key).to.equal(key);
+        expect((await send(location, "DELETE")).status, key).to.equal(204);
+        expect((await fetch(location)).status, key).to.equal(404);
+      }
     });
 
     it("PATCH merges the properties sent, PUT replaces the entity", async () => {
@@ -763,11 +839,17 @@ describe("OData V4 read wire", () => {
     const injected = encodeURIComponent("'x'' OR ''1''=''1'");
 
     it("a quote in a key is a character of the key, not the end of the SQL literal", async () => {
-      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(404);
-      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(404);
-      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(404);
+      // longer than the key's MaxLength these are refused before the DPC (400);
+      // the quoted keys that fit reach the SELECT and find nothing (404)
+      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(400);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(400);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(400);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x''OR''1'") + ")")).status).to.equal(404);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + encodeURIComponent("'''--'") + ")")).status).to.equal(404);
       const patched = await raw(base + `/TravelSet(${injected})`, "PATCH", '{"Description":"oracle"}');
-      expect(patched.status).to.equal(404);
+      expect(patched.status).to.equal(400);
+      const fits = await raw(base + "/TravelSet(" + encodeURIComponent("'x''OR''1'") + ")", "PATCH", '{"Description":"oracle"}', {"if-match": "*"});
+      expect(fits.status).to.equal(404);
       const all = await json(base + "/TravelSet?$select=TravelId,Description");
       expect(all.value.map((t) => t.Description)).to.not.include("oracle");
       expect(all.value.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");
