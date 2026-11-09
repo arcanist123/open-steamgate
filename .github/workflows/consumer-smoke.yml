@@ -23,7 +23,9 @@ defaults:
 jobs:
   consumer-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # The budget the steps below must fit in: their own bounds add up to 45,
+    # and the checkout plus the six fleet commands need about 46 more.
+    timeout-minutes: 95
     env:
       OSD_HOME: ${{ github.workspace }}/osd
       GOTOOLCHAIN: local
