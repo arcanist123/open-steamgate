@@ -4,8 +4,12 @@
 // new one, wait until /osd/serving answers with the new generation. Prints a
 // phase table per run and the median per phase.
 //
-//   node tools/gogen/osgo-cycle.mjs [--runs 3] [--unlayered] [--gocache warm|cold]
+//   node tools/gogen/osgo-cycle.mjs [--runs 3] [--unlayered] [--fast] [--gocache warm|cold]
 //        [--file src/demo/zcl_zstg_demo_dpc_ext.clas.abap] [--port 8091] [--json out.json]
+//
+// --fast rebuilds with `osgo.mjs --fast` alone (osgo-fast.mjs): the Node
+// build runs inside it only when the edit is not a class body edit; the prime
+// is always a full build, so the edits start from a live generation.
 //
 // Heavy: run it under the shared lock. Before the first edit it builds once
 // unedited (the prime, not counted), so a warm run starts from a build of the
@@ -24,6 +28,7 @@ const args = process.argv.slice(2);
 const value = (flag, fallback) => { const i = args.indexOf(flag); return i < 0 ? fallback : args[i + 1]; };
 const runs = Number(value("--runs", "3"));
 const unlayered = args.includes("--unlayered");
+const fast = args.includes("--fast");
 const gocache = value("--gocache", "warm");
 const file = resolve(home, value("--file", "src/demo/zcl_zstg_demo_dpc_ext.clas.abap"));
 const port = Number(value("--port", "8091"));
@@ -115,9 +120,10 @@ async function build(label) {
   const env = gocache === "cold" ? {GOCACHE: mkdtempSync(join(scratch, "gocache-"))} : {};
   const trace = join(scratch, `trace-${label}.json`);
   const row = {run: label};
-  row.transpile = run("node", ["tools/osd-build.mjs"]);
+  const viaFast = fast && label !== "prime";
+  if (!viaFast) row.transpile = run("node", ["tools/osd-build.mjs"]);
   const t0 = performance.now();
-  run("node", ["tools/gogen/osgo.mjs", ...(unlayered ? ["--unlayered"] : [])], {...env, OSGO_GO_TRACE: trace});
+  run("node", ["tools/gogen/osgo.mjs", ...(unlayered ? ["--unlayered"] : []), ...(viaFast ? ["--fast"] : [])], {...env, OSGO_GO_TRACE: trace});
   row["osgo.mjs"] = ms(t0);
   const facts = JSON.parse(readFileSync(join(home, "tools/gogen/.out/osgo-phases.json"), "utf8"));
   Object.assign(row, facts.phases);
@@ -129,12 +135,13 @@ async function build(label) {
   const status = readFileSync(join(home, "tools/gogen/go/cmd/osgo/zz_status.go"), "utf8");
   row.generation = /const buildGeneration = "([^"]+)"/.exec(status)?.[1];
   row.layers = facts.layers?.classes;
+  if (viaFast) row.fast = facts.fast?.ok === true ? "fast" : `full: ${facts.fast?.reason}`;
   return row;
 }
 
 const rows = [];
 try {
-  console.error(`osgo-cycle: ${unlayered ? "unlayered" : "layered"}, GOCACHE ${gocache}, ${runs} edit runs of ${file}`);
+  console.error(`osgo-cycle: ${unlayered ? "unlayered" : "layered"}${fast ? ", fast path" : ""}, GOCACHE ${gocache}, ${runs} edit runs of ${file}`);
   const prime = await build("prime");
   prime.restart = await start(prime.generation);
   console.error(`prime: ${JSON.stringify(prime)}`);
@@ -162,6 +169,6 @@ const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s.lengt
 const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => rows.some((r) => typeof r[k] === "number"));
 const table = [`| phase (ms) | ${rows.map((r) => r.run).join(" | ")} | median of edits |`, `| --- | ${rows.map(() => "---:").join(" | ")} | ---: |`];
 for (const k of keys) table.push(`| ${k} | ${rows.map((r) => r[k] ?? "").join(" | ")} | ${median(counted.map((r) => r[k] ?? 0))} |`);
-console.log(`osgo-cycle: ${unlayered ? "unlayered" : "layered"} build, GOCACHE ${gocache}, ${new Date().toISOString()}`);
+console.log(`osgo-cycle: ${unlayered ? "unlayered" : "layered"} build${fast ? ", fast path" : ""}, GOCACHE ${gocache}, ${new Date().toISOString()}`);
 console.log(table.join("\n"));
-if (jsonOut) writeFileSync(jsonOut, JSON.stringify({unlayered, gocache, rows}, null, 1) + "\n");
+if (jsonOut) writeFileSync(jsonOut, JSON.stringify({unlayered, fast, gocache, rows}, null, 1) + "\n");

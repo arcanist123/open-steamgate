@@ -15,6 +15,8 @@ import {gofmtCached} from "./gofmt-cache.mjs";
 //   tests the ADT test runner can run (osgo-adt-unit.mjs; default the fixture)
 //   --unlayered (or OSGO_LAYERS=0): all generated Go in package main, as
 //   before the layered build (below)
+//   --fast (or OSGO_FAST=1): no Node build when only class/interface bodies
+//   changed since the live generation (osgo-fast.mjs), else run it first
 //
 // The generated classes go into three Go packages (go-layers.mjs,
 // osgo-layers.mjs): generated/osgo/core (the libraries), generated/osgo/app
@@ -40,6 +42,9 @@ const here = import.meta.dirname;
 const echo = process.argv.includes("--echo");
 const layered = !echo && !process.argv.includes("--unlayered") && process.env.OSGO_LAYERS !== "0";
 const layersDir = join(here, "go", "generated", "osgo");
+const fast = !echo && (process.argv.includes("--fast") || process.env.OSGO_FAST === "1");
+// what the fast path decided (osgo-fast.mjs), for .out/osgo-phases.json
+let fastInfo;
 // the phases of this run, in ms (printed at the end, .out/osgo-phases.json)
 const phases = {};
 let phaseMark = performance.now();
@@ -77,9 +82,27 @@ if (echo) {
   console.log(`front end: ${program.classes.length} classes, ${program.partial.length} statement stubs`);
   services = [{path: "/echo", handler: "ZCL_OSGO_ECHO", active: true}];
 } else {
+  // --fast (or OSGO_FAST=1): skip the Node build when only class or
+  // interface bodies changed since the live generation (osgo-fast.mjs proves
+  // it), else run it here first; docs/osgo-fast-rebuild.md "The fast path"
+  if (fast) {
+    const {fastProof} = await import("./osgo-fast.mjs");
+    const proof = await fastProof(home);
+    fastInfo = proof;
+    phase("fast proof");
+    if (proof.ok) {
+      console.log(`osgo fast: generation ${proof.hash} is live ${proof.base} with ${proof.changed.length} edited source file(s) (${proof.changed.join(", ")}); no Node build`);
+    } else {
+      console.log(`osgo fast: full build (${proof.reason})`);
+      try {
+        execFileSync(process.execPath, [join(home, "tools", "osd-build.mjs")], {cwd: home, stdio: ["ignore", "inherit", "inherit"]});
+      } catch (e) { console.error(`osgo: the Node build failed (exit ${e.status})`); process.exit(1); }
+      phase("transpile");
+    }
+  }
   const {compileOsg, osgDatabase, staleGen} = await import("./osg-build.mjs");
   // a stale gen/ is refused (--stale-gen builds it anyway, with the warning)
-  const stale = await staleGen();
+  const stale = fastInfo?.ok ? undefined : await staleGen();
   if (stale && !process.argv.includes("--stale-gen")) {
     console.error(`osgo: refused: ${stale} (or pass --stale-gen)`);
     process.exit(2);
@@ -361,5 +384,5 @@ writeFileSync(reportPath, JSON.stringify({classes: program.classes.map(c => c.na
   statementStubs: program.partial, methodsNotCompiled: program.skipped}, null, 2) + "\n");
 console.log(`${services.length} SICF nodes mounted, ${notServed.length} not served, ${webapps.length} pack folders, ${tiles.tiles.length} tiles, ${channels.length} push channels${channelsLeftOut.length ? ` (left out: ${channelsLeftOut.map((c) => `${c.path} ${c.why}`).join("; ")})` : ""}`);
 phase("report");
-writeFileSync(join(here, ".out", `${echo ? "osgo-echo" : "osgo"}-phases.json`), JSON.stringify({phases, layered, layers: layerInfo}, null, 1) + "\n");
+writeFileSync(join(here, ".out", `${echo ? "osgo-echo" : "osgo"}-phases.json`), JSON.stringify({phases, layered, layers: layerInfo, fast: fastInfo}, null, 1) + "\n");
 console.log(`phases (ms): ${Object.entries(phases).map(([k, v]) => `${k} ${v}`).join(", ")}`);
