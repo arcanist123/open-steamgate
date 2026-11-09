@@ -25,7 +25,7 @@ import {closeWarm} from "../tools/osd-store-warm.mjs";
 import {ObjectStore} from "../tools/osd-store.mjs";
 import {Data} from "../tools/osd-data.mjs";
 import {DEFAULT_DATABASE} from "../tools/sqlite-file-client.mjs";
-import {credentials as tlsCredentials, fingerprint as tlsFingerprint, dirOf as tlsDirOf} from "../tools/osd-tls.mjs";
+import {credentials as tlsCredentials, fingerprint as tlsFingerprint, dirOf as tlsDirOf, noTlsHint} from "../tools/osd-tls.mjs";
 import {odataProxy, upgradeProxy} from "../tools/osd-proxy.mjs";
 import {inspectPortOf} from "../tools/osd-inspector.mjs";
 import {devLoop} from "../tools/osd-dev.mjs";
@@ -671,7 +671,7 @@ export function startServer(quiet) {
     }
     console.log("ADT façade   on http://localhost:" + PORT + "/sap/bc/adt/core/discovery");
     if (secure === undefined) {
-      console.log("No TLS: run `npm run osd:tls` to make a certificate, for a client that refuses plain HTTP");
+      console.log(noTlsHint());
     } else {
       console.log("HTTPS        on https://localhost:" + TLS_PORT + "  (self-signed, sha256 " + tlsFingerprint() + ")");
       console.log("             the certificate is " + tlsDirOf(process.cwd()) + "/osd.crt; a client will ask once whether to trust it");
