@@ -8,6 +8,8 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
              edm_type  TYPE string,
              is_key    TYPE abap_bool,
              nullable  TYPE abap_bool,
+* set_as_etag in the MPC: the property is (part of) the entity's ETag
+             is_etag   TYPE abap_bool,
            END OF ty_property.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
 
@@ -90,6 +92,15 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
         is_set          TYPE ty_entity_set
       RETURNING
         VALUE(rt_names) TYPE string_table.
+
+* does the entity type declare an ETag (set_as_etag on a property)? A write
+* of such an entity is only lost-update protected when the client sends
+* If-Match, so the model asking for it is what makes the header required
+    CLASS-METHODS has_etag
+      IMPORTING
+        is_set         TYPE ty_entity_set
+      RETURNING
+        VALUE(rv_etag) TYPE abap_bool.
 
     CLASS-METHODS find_property
       IMPORTING
@@ -223,6 +234,7 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         ENDIF.
         ls_info-is_key   = lo_property->mv_is_key.
         ls_info-nullable = lo_property->mv_nullable.
+        ls_info-is_etag  = lo_property->mv_etag.
         APPEND ls_info TO lt_info.
       ENDLOOP.
 
@@ -374,6 +386,11 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
     LOOP AT is_set-properties INTO ls_property WHERE is_key = abap_true.
       APPEND ls_property-name TO rt_names.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD has_etag.
+    READ TABLE is_set-properties TRANSPORTING NO FIELDS WITH KEY is_etag = abap_true.
+    rv_etag = boolc( sy-subrc = 0 ).
   ENDMETHOD.
 
   METHOD find_property.

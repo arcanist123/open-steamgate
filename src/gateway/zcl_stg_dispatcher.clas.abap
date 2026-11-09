@@ -20,6 +20,7 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         iv_body            TYPE string OPTIONAL
         iv_body_x          TYPE xstring OPTIONAL
         iv_content_type    TYPE string OPTIONAL
+        it_headers         TYPE tihttpnvp OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response.
   PRIVATE SECTION.
@@ -37,6 +38,7 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         iv_body            TYPE string
         iv_body_x          TYPE xstring
         iv_content_type    TYPE string
+        it_headers         TYPE tihttpnvp
       RETURNING
         VALUE(rs_response) TYPE ty_response
       RAISING
@@ -97,6 +99,7 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         it_navigation_path TYPE /iwbep/t_mgw_navigation_path OPTIONAL
         it_key_tab         TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
         iv_source_set      TYPE string OPTIONAL
+        io_etag_model      TYPE REF TO zcl_osd_v4_model OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response
       RAISING
@@ -134,6 +137,7 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         is_set             TYPE zcl_stg_model_info=>ty_entity_set
         is_request         TYPE zcl_stg_url=>ty_request
         iv_base_url        TYPE string
+        io_etag_model      TYPE REF TO zcl_osd_v4_model OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response
       RAISING
@@ -215,6 +219,8 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         it_navigation_path TYPE /iwbep/t_mgw_navigation_path OPTIONAL
         it_key_tab         TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
         iv_source_set      TYPE string OPTIONAL
+        it_headers         TYPE tihttpnvp OPTIONAL
+        io_etag_model      TYPE REF TO zcl_osd_v4_model OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response
       RAISING
@@ -233,6 +239,19 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
       RAISING
         zcx_stg_error
         /iwbep/cx_mgw_base_exception.
+
+* If-Match of a MERGE/PUT/DELETE against the entity's current ETag. Only a
+* type whose model declares an ETag is checked (the metadata's
+* ConcurrencyMode Fixed is what makes the header required), and only for a
+* row that is there: a missing one stays the DPC's to answer, as before
+    CLASS-METHODS check_precondition
+      IMPORTING
+        is_set        TYPE zcl_stg_model_info=>ty_entity_set
+        io_etag_model TYPE REF TO zcl_osd_v4_model
+        it_headers    TYPE tihttpnvp
+        ir_current    TYPE REF TO data
+      RAISING
+        zcx_stg_error.
 
     CLASS-METHODS expand_tree
       IMPORTING
@@ -281,7 +300,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                            iv_host    = iv_host
                            iv_body    = iv_body
                            iv_body_x  = iv_body_x
-                           iv_content_type = iv_content_type ).
+                           iv_content_type = iv_content_type
+                           it_headers = it_headers ).
       CATCH zcx_stg_error INTO lx_stg.
         rs_response = json_response( iv_status = lx_stg->status
                                      iv_body   = zcl_stg_json=>error( iv_code    = lx_stg->code
@@ -326,6 +346,10 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
         rs_response-reason = 'Not Found'.
       WHEN 405.
         rs_response-reason = 'Method Not Allowed'.
+      WHEN 412.
+        rs_response-reason = 'Precondition Failed'.
+      WHEN 428.
+        rs_response-reason = 'Precondition Required'.
       WHEN 501.
         rs_response-reason = 'Not Implemented'.
       WHEN OTHERS.
@@ -340,6 +364,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA ls_action  TYPE zcl_stg_model_info=>ty_action.
     DATA lv_base    TYPE string.
     DATA lv_method  TYPE string.
+    DATA lo_etags   TYPE REF TO zcl_osd_v4_model.
+    DATA ls_etags   TYPE zcl_stg_model_info=>ty_entity_set.
 
     ls_request = zcl_stg_url=>parse( iv_path    = iv_path
                                      it_options = it_options ).
@@ -396,6 +422,19 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ls_set = zcl_stg_model_info=>find_set( is_service    = ls_service
                                            iv_entity_set = ls_request-entity_set ).
 
+* ETags: when any type of the service declares one (set_as_etag), the V4
+* model of the same MPC is built once per request and handed to the
+* serializer (the __metadata.etag of the entries) and the write path (the
+* If-Match check). It is the V4 facade's own computation, so both protocols
+* answer the same tag for the same row byte for byte.
+    LOOP AT ls_service-entity_sets INTO ls_etags.
+      IF zcl_stg_model_info=>has_etag( ls_etags ) = abap_true.
+        CREATE OBJECT lo_etags EXPORTING iv_service = ls_service-name.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
+    zcl_stg_json=>register_etag_model( lo_etags ).
+
     IF ls_request-is_value = abap_true.
       rs_response = media( iv_method       = lv_method
                            is_service      = ls_service
@@ -408,10 +447,11 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 
     IF ls_request-nav_prop IS NOT INITIAL.
       IF lv_method = 'GET'.
-        rs_response = read_navigation( is_service  = ls_service
-                                       is_set      = ls_set
-                                       is_request  = ls_request
-                                       iv_base_url = lv_base ).
+        rs_response = read_navigation( is_service    = ls_service
+                                       is_set        = ls_set
+                                       is_request    = ls_request
+                                       iv_base_url   = lv_base
+                                       io_etag_model = lo_etags ).
         RETURN.
       ENDIF.
       IF lv_method = 'POST' AND ls_request-nav_key_string IS INITIAL.
@@ -432,12 +472,14 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ENDIF.
 
     IF lv_method <> 'GET'.
-      rs_response = write_entity( iv_method   = lv_method
-                                  is_service  = ls_service
-                                  is_set      = ls_set
-                                  is_request  = ls_request
-                                  iv_base_url = lv_base
-                                  iv_body     = iv_body ).
+      rs_response = write_entity( iv_method     = lv_method
+                                  is_service    = ls_service
+                                  is_set        = ls_set
+                                  is_request    = ls_request
+                                  iv_base_url   = lv_base
+                                  iv_body       = iv_body
+                                  it_headers    = it_headers
+                                  io_etag_model = lo_etags ).
       RETURN.
     ENDIF.
 
@@ -447,10 +489,11 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                      is_request  = ls_request
                                      iv_base_url = lv_base ).
     ELSE.
-      rs_response = read_entity( is_service  = ls_service
-                                 is_set      = ls_set
-                                 is_request  = ls_request
-                                 iv_base_url = lv_base ).
+      rs_response = read_entity( is_service    = ls_service
+                                 is_set        = ls_set
+                                 is_request    = ls_request
+                                 iv_base_url   = lv_base
+                                 io_etag_model = lo_etags ).
     ENDIF.
   ENDMETHOD.
 
@@ -541,6 +584,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lr_entity   TYPE REF TO data.
     DATA ls_header   TYPE ihttpnvp.
     DATA lv_location TYPE string.
+    DATA lv_etag     TYPE string.
     DATA lt_values   TYPE tihttpnvp.
     DATA lt_nested   TYPE tihttpnvp.
     DATA ls_source   TYPE zcl_stg_model_info=>ty_entity_set.
@@ -634,6 +678,17 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                                              is_set  = is_set ) ).
         ls_header-value = |{ iv_base_url }/{ is_set-name }({ lv_location })|.
         APPEND ls_header TO rs_response-headers.
+        IF io_etag_model IS BOUND.
+          lv_etag = zcl_osd_v4_json=>etag( is_data  = <ls_data>
+                                           is_set   = is_set
+                                           io_model = io_etag_model ).
+          IF lv_etag IS NOT INITIAL.
+            CLEAR ls_header.
+            ls_header-name  = 'etag'.
+            ls_header-value = lv_etag.
+            APPEND ls_header TO rs_response-headers.
+          ENDIF.
+        ENDIF.
 
       WHEN 'PUT' OR 'PATCH' OR 'MERGE'.
         IF is_request-key_string IS INITIAL.
@@ -652,8 +707,9 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
             is_set     = is_set
             is_service = is_service.
 * PATCH and MERGE change only the properties sent: as the Gateway does, read
-* the entity first and let the provider lay the request over it
-        IF iv_method <> 'PUT'.
+* the entity first and let the provider lay the request over it. The same
+* read is the ETag the If-Match check compares against.
+        IF iv_method <> 'PUT' OR io_etag_model IS BOUND.
           lo_dpc->get_entity(
             EXPORTING
               iv_entity_name          = is_set-entity_type
@@ -664,9 +720,13 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
               io_tech_request_context = lo_context
             IMPORTING
               er_entity               = lr_entity ).
-          IF lr_entity IS BOUND.
-            lo_provider->set_base( lr_entity ).
-          ENDIF.
+        ENDIF.
+        check_precondition( is_set        = is_set
+                            io_etag_model = io_etag_model
+                            it_headers    = it_headers
+                            ir_current    = lr_entity ).
+        IF iv_method <> 'PUT' AND lr_entity IS BOUND.
+          lo_provider->set_base( lr_entity ).
         ENDIF.
         lo_dpc->update_entity(
           EXPORTING
@@ -690,6 +750,22 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
               code    = 'STG/METHOD_NOT_ALLOWED'
               message = 'DELETE needs an entity key'.
         ENDIF.
+        IF io_etag_model IS BOUND.
+          lo_dpc->get_entity(
+            EXPORTING
+              iv_entity_name          = is_set-entity_type
+              iv_entity_set_name      = is_set-name
+              iv_source_name          = ''
+              it_key_tab              = lo_context->mt_key_tab
+              it_navigation_path      = lt_nav_path
+              io_tech_request_context = lo_context
+            IMPORTING
+              er_entity               = lr_entity ).
+        ENDIF.
+        check_precondition( is_set        = is_set
+                            io_etag_model = io_etag_model
+                            it_headers    = it_headers
+                            ir_current    = lr_entity ).
         lo_dpc->delete_entity(
           iv_entity_name          = is_set-entity_type
           iv_entity_set_name      = is_set-name
@@ -707,6 +783,33 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
             code    = 'STG/VERB_NOT_IMPLEMENTED'
             message = |{ iv_method } is not implemented|.
     ENDCASE.
+  ENDMETHOD.
+
+  METHOD check_precondition.
+    DATA lx_pre TYPE REF TO zcx_stg_error.
+
+    IF io_etag_model IS NOT BOUND OR ir_current IS NOT BOUND.
+      RETURN.
+    ENDIF.
+
+* the comparison itself is the V4 write path's own check (428 without the
+* header, 412 when none of its tags is the current one, * always passes),
+* so both protocols judge the same tag the same way; only the error code
+* on the wire is the V2 family's
+    TRY.
+        zcl_osd_v4_write=>precondition( is_set     = is_set
+                                        io_model   = io_etag_model
+                                        ir_current = ir_current
+                                        it_headers = it_headers ).
+      CATCH zcx_stg_error INTO lx_pre.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING
+            status  = lx_pre->status
+            code    = COND string( WHEN lx_pre->status = 428 THEN 'STG/PRECONDITION_REQUIRED'
+                                   WHEN lx_pre->status = 412 THEN 'STG/ETAG_MISMATCH'
+                                   ELSE 'STG/PRECONDITION' )
+            message = lx_pre->message.
+    ENDTRY.
   ENDMETHOD.
 
   METHOD function_import.
@@ -1032,6 +1135,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lt_expand   TYPE string_table.
     DATA lt_nav_json TYPE zcl_stg_json=>ty_nav_jsons.
     DATA lt_tech_clauses TYPE string_table.
+    DATA ls_header   TYPE ihttpnvp.
+    DATA lv_etag     TYPE string.
     FIELD-SYMBOLS <ls_data> TYPE any.
 
     lo_dpc     = zcl_oao_registry=>create_dpc( is_service-name ).
@@ -1096,6 +1201,19 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                                   iv_namespace = is_service-namespace
                                                                   iv_base_url  = iv_base_url
                                                                   it_nav_json  = lt_nav_json ) ).
+
+* the entity's ETag as a response header too (it is in __metadata already):
+* a client that goes by headers alone sees the same tag a UI5 sees
+    IF io_etag_model IS BOUND.
+      lv_etag = zcl_osd_v4_json=>etag( is_data  = <ls_data>
+                                       is_set   = is_set
+                                       io_model = io_etag_model ).
+      IF lv_etag IS NOT INITIAL.
+        ls_header-name  = 'etag'.
+        ls_header-value = lv_etag.
+        APPEND ls_header TO rs_response-headers.
+      ENDIF.
+    ENDIF.
   ENDMETHOD.
 
   METHOD expand_list.
@@ -1426,14 +1544,16 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                  iv_base_url        = iv_base_url
                                  it_navigation_path = lt_path
                                  it_key_tab         = lt_keys
-                                 iv_source_set      = is_set-name ).
+                                 iv_source_set      = is_set-name
+                                 io_etag_model      = io_etag_model ).
     ELSE.
       rs_response = read_entity( is_service         = is_service
                                  is_set             = ls_target
                                  is_request         = ls_request
                                  iv_base_url        = iv_base_url
                                  it_navigation_path = lt_path
-                                 iv_source_set      = is_set-name ).
+                                 iv_source_set      = is_set-name
+                                 io_etag_model      = io_etag_model ).
     ENDIF.
   ENDMETHOD.
 
