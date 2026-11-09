@@ -477,18 +477,30 @@ func (g *Gateway) endProcess(h enqnet.Hello) {
 
 // route is the sidecar a request goes to: the one its session is pinned to
 // while that one lives, else the serving one, waited for while it starts.
+// The step is counted here, under the same mutex that reads g.current and
+// the pins, so a request that has selected a sidecar is a step before it is
+// forwarded: the drain of a swap cannot observe zero and retire the sidecar
+// under a request that sits between its routing and its forward (the
+// counting used to happen later, in ServeHTTP, a few instructions wide and
+// wide enough). The caller removes the step when its answer is done.
 func (g *Gateway) route(r *http.Request) *sidecar {
 	g.mu.Lock()
 	for _, k := range sessionKeys(r) {
 		if sc := g.pins[k]; sc != nil && sc.State != "retired" {
+			sc.steps.Add(1)
 			g.mu.Unlock()
 			return sc
 		}
 	}
 	sc, ready, failed := g.current, g.ready, g.failed
-	g.mu.Unlock()
-	if sc != nil || failed != "" {
+	if sc != nil {
+		sc.steps.Add(1)
+		g.mu.Unlock()
 		return sc
+	}
+	g.mu.Unlock()
+	if failed != "" {
+		return nil
 	}
 	t := time.NewTimer(g.o.AdmitWait)
 	defer t.Stop()
@@ -499,7 +511,10 @@ func (g *Gateway) route(r *http.Request) *sidecar {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return g.current
+	if sc = g.current; sc != nil {
+		sc.steps.Add(1)
+	}
+	return sc
 }
 
 // the cookies a stateful session carries (ADT: SAP_SESSIONID_<sid>_<client>
@@ -591,8 +606,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g.notServing(w)
 		return
 	}
-	sc.steps.Add(1)
-	defer sc.steps.Add(-1)
+	defer sc.steps.Add(-1) // counted inside route, under its mutex
 	// the sidecar's own header is the one that counts: it says which code ran
 	w.Header().Del("X-OSD-Generation")
 	if isUpgrade(r) {
