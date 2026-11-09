@@ -8,13 +8,21 @@ the `/IWBEP/` V4 provider API.
 - `ZCL_OSD_V4_MODEL`: V4 property types/facets, ETag properties and CSDL XML,
   including the MPC's vocabulary annotations (`vocab_anno_model`).
 - `ZCL_OSD_V4_QUERY`: resource/query validation (entity sets, keys, one
-  navigation segment, a bound action segment) and V4 literals adapted to the
-  existing select-options contract.
+  navigation segment, an operation segment with its parameters), `$expand`
+  items with the options inside their parentheses, `$select` paths,
+  `$search` terms, and V4 literals adapted to the existing select-options
+  contract.
 - `ZCL_OSD_V4_JSON`: typed JSON without V2 envelopes or deferred links.
 - `ZCL_OSD_V4_WRITE`: POST/PATCH/PUT/DELETE through the DPC
-  create/update/delete, typed V4 body values (ajson), ETags and `If-Match`
-  under the entity lock `EZOSD_V4_LOCK` (table `ZOSD_V4_LOCK`).
-- `ZCL_OSD_V4_PROVIDER`: the entry provider those writes hand the DPC.
+  create/update/delete, deep insert through `create_deep_entity`, typed V4
+  body values (ajson; `CONVERT` is the scalar converter the operations
+  share), ETags and `If-Match` under the entity lock `EZOSD_V4_LOCK` (table
+  `ZOSD_V4_LOCK`).
+- `ZCL_OSD_V4_PROVIDER`: the entry provider those writes hand the DPC (a deep
+  insert's related entities through the V2 provider's nested fill).
+- `ZCL_OSD_V4_ACTION`: the model's function imports as bound and unbound
+  actions and functions (CSDL, imports, invocation through `execute_action`,
+  result serialization).
 - `ZCL_OSD_V4_BATCH`: JSON `$batch` (atomicity groups as LUWs, `dependsOn`,
   `$<id>` references) and multipart `$batch` (parsed by the V2
   `ZCL_STG_BATCH`, a change set becomes an atomicity group).
@@ -22,8 +30,10 @@ the `/IWBEP/` V4 provider API.
   (`Session.StickySessionSupported`): Edit/Save/New bound actions, the
   unbound Discard, a per-session buffer keyed by `SAP-ContextId`.
 - `ZCL_OSD_V4_HTTP`: dispatch (one LUW per modifying request), HEAD and
-  the CSRF token, collection counts/paging, reads through a navigation
-  property and single-level expansion through DPC navigation calls. Raw queries reuse the existing
+  the CSRF token, collection counts/paging, `$search`, reads through a
+  navigation property and expansion through DPC navigation calls, each
+  expanded navigation read as a query of its target set (nested options and
+  levels). Raw queries reuse the existing
   `ZCL_OSD_FORM` decoder (the shim name/plus gap is logged in ANORMALIES).
 - `zosd_odata4.sicf.xml`: mounts the handler through the existing SICF
   registry in the inline server, child server and browser preview.

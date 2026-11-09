@@ -14,7 +14,9 @@ import {warmRule} from "../tools/osd-warm.mjs";
 import {libraryPath} from "../tools/osd-lib-path.mjs";
 
 const read = f => ({filename: basename(f), contents: readFileSync(f, "utf8")});
-const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f)).map(read);
+// the original BO; the twin with handlers in the system's form (_sf, R3) is systemForm()
+const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !/_sf\./.test(basename(f))).map(read);
+const systemForm = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !/zcl_rap_note_eml/.test(f)).map(read);
 const pool = files => files.filter(f => /\.clas\.(locals_imp\.)?abap$/.test(f.filename));
 function build(files) {
   const {plans} = generate(files);
@@ -93,6 +95,33 @@ describe("RAP managed runtime generator (R2)", () => {
       [".locals_imp.abap", "CHANGING  failed   TYPE", "CHANGING  failure  TYPE", /parameters must be keys/],
     ]) {
       assert.throws(() => build(edit(demo(), suffix, from, to)), error, `${from} -> ${to}`);
+    }
+  });
+
+  it("binds the system-form pool by the FOR clause and passes parameters by role (R3)", () => {
+    const files = systemForm();
+    const {plans} = generate(files);
+    const outputs = runtimeOutputs(plans, pool(files));
+    const adapter = Object.values(outputs).find(s => s.includes("rs_model-bdef = 'ZI_RAP_NOTE_SF'."));
+    const explicit = Object.values(outputs).find(s => s.includes("rs_model-bdef = 'ZI_RAP_NOTE'."));
+    for (const [name, method] of [["SETSTATUS", "DEFAULT_STATUS"], ["NORMALIZE", "TIDY_TEXT"], ["CHECKTEXT", "TEXT_LENGTH"], ["APPROVE", "APPROVE_NOTE"]]) {
+      assert.match(adapter, new RegExp(`ls_callable-name = '${name}'\\.\\n    ls_callable-method = '${method}'\\.\\n    ls_callable-on`.replace("\\n    ls_callable-on", name === "APPROVE" ? "" : "\\n    ls_callable-on")));
+    }
+    assert.ok(!adapter.includes("ls_callable-entities"), "no instances table: the handler works through EML");
+    assert.equal(explicit.match(/ls_callable-entities = abap_true/g).length, 4, "the explicit pool still takes its table back");
+    assert.match(adapter, /io_handler->\('TEXT_LENGTH'\)\s+EXPORTING\s+keys = lt_keys\s+CHANGING\s+failed = <ls_failed>\s+reported = <ls_reported>\./);
+    assert.match(adapter, /io_handler->\('APPROVE_NOTE'\)\s+EXPORTING\s+keys = lt_keys\s+CHANGING\s+result = <lt_result>\s+mapped = ls_mapped\s+failed = <ls_failed>\s+reported = <ls_reported>\./);
+    const classes = poolClasses("zbp_rap_note_sf", pool(files));
+    assert.deepEqual(classes[0].methods.find(m => m.name === "default_status").parameters.map(p => `${p.direction} ${p.name}`), ["importing keys", "changing reported"]);
+    // a parameter named otherwise keeps its role; a wrong ON and a missing FOR clause are refused
+    const renamed = edit(systemForm(), "_sf.clas.locals_imp.abap", "IMPORTING keys FOR note~checktext", "IMPORTING lt_keys FOR note~checktext");
+    assert.match(Object.values(runtimeOutputs(generate(renamed).plans, pool(renamed))).join(), /io_handler->\('TEXT_LENGTH'\)\s+EXPORTING\s+lt_keys = lt_keys/);
+    for (const [from, to, error] of [
+      ["FOR DETERMINE ON MODIFY\n      IMPORTING keys FOR note~setstatus", "FOR DETERMINE ON SAVE\n      IMPORTING keys FOR note~setstatus", /FOR DETERMINE ON SAVE for a determination on modify/],
+      ["IMPORTING keys FOR note~checktext", "IMPORTING keys FOR note~checkother", /no handler method named after it/],
+    ]) {
+      const f = edit(systemForm(), "_sf.clas.locals_imp.abap", from, to);
+      assert.throws(() => runtimeOutputs(generate(f).plans, pool(f)), error, to);
     }
   });
 

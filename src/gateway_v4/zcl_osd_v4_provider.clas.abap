@@ -4,6 +4,9 @@ CLASS zcl_osd_v4_provider DEFINITION PUBLIC CREATE PUBLIC.
 * (PATCH) or over an initial one (POST, PUT). A JSON null clears the field;
 * a string is assigned as it is, so the text "null" stays "null". Other
 * values go through the V2 provider's conversion (dates, times, booleans).
+* A deep insert's related entities (it_nested, already checked and converted
+* by ZCL_OSD_V4_WRITE) fill the navigation components through the V2
+* provider, which builds them from nested JSON.
   PUBLIC SECTION.
     INTERFACES /iwbep/if_mgw_entry_provider.
     TYPES: BEGIN OF ty_value,
@@ -14,11 +17,14 @@ CLASS zcl_osd_v4_provider DEFINITION PUBLIC CREATE PUBLIC.
            END OF ty_value.
     TYPES ty_values TYPE STANDARD TABLE OF ty_value WITH DEFAULT KEY.
     METHODS constructor IMPORTING it_values TYPE ty_values is_set TYPE zcl_stg_model_info=>ty_entity_set
-      ir_base TYPE REF TO data OPTIONAL.
+      ir_base TYPE REF TO data OPTIONAL
+      it_nested TYPE tihttpnvp OPTIONAL is_service TYPE zcl_stg_model_info=>ty_service OPTIONAL.
   PRIVATE SECTION.
     DATA mt_values TYPE ty_values.
     DATA ms_set TYPE zcl_stg_model_info=>ty_entity_set.
     DATA mr_base TYPE REF TO data.
+    DATA mt_nested TYPE tihttpnvp.
+    DATA ms_service TYPE zcl_stg_model_info=>ty_service.
 ENDCLASS.
 
 CLASS zcl_osd_v4_provider IMPLEMENTATION.
@@ -26,11 +32,15 @@ CLASS zcl_osd_v4_provider IMPLEMENTATION.
     mt_values = it_values.
     ms_set = is_set.
     mr_base = ir_base.
+    mt_nested = it_nested.
+    ms_service = is_service.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_entry_provider~read_entry_data.
     DATA ls_value TYPE ty_value.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
+    DATA lo_deep TYPE REF TO zcl_stg_entry_provider.
+    DATA lt_none TYPE tihttpnvp.
     FIELD-SYMBOLS <ls_base> TYPE any.
     FIELD-SYMBOLS <lv_target> TYPE any.
     CLEAR es_data.
@@ -56,5 +66,9 @@ CLASS zcl_osd_v4_provider IMPLEMENTATION.
           CHANGING cv_target = <lv_target> ).
       ENDIF.
     ENDLOOP.
+    IF mt_nested IS NOT INITIAL.
+      CREATE OBJECT lo_deep EXPORTING it_values = lt_none is_set = ms_set is_service = ms_service.
+      lo_deep->fill( EXPORTING it_values = lt_none it_nested = mt_nested is_set = ms_set CHANGING cs_data = es_data ).
+    ENDIF.
   ENDMETHOD.
 ENDCLASS.
