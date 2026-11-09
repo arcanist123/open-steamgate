@@ -19,8 +19,15 @@ import (
 //     right-trimmed.
 var charColumn = regexp.MustCompile(`'([^']+)' NCHAR\(\d+\) COLLATE RTRIM`)
 
+// connectionPragmas is the part of prepareStore that writes nothing: a
+// read-only candidate (OpenDBCandidate) takes only this.
+func connectionPragmas(d *sql.DB) error {
+	_, err := d.Exec(`PRAGMA case_sensitive_like = ON`)
+	return err
+}
+
 func prepareStore(d *sql.DB) error {
-	if _, err := d.Exec(`PRAGMA case_sensitive_like = ON`); err != nil {
+	if err := connectionPragmas(d); err != nil {
 		return err
 	}
 	rows, err := d.Query(`SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL`)
