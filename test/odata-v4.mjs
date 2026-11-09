@@ -415,6 +415,39 @@ describe("OData V4 read wire", () => {
       expect((await send(base + "/TravelSet('T0101')", "DELETE")).status).to.equal(204);
     });
 
+    // ANOMALY-2026-11-08-escape-url-multibyte: escape_url wrote one % before
+    // all UTF-8 bytes of a character (Жук -> %d096%d183%d0ba), so the Location
+    // could not be decoded and following it was the server's URIError 400
+    // page. A character outside ASCII is percent-encoded per UTF-8 byte now;
+    // an ASCII key keeps the exact bytes cl_http_utility=>escape_url wrote
+    // before (kept set, % and lowercase hex), pinned per key below.
+    it("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII", async () => {
+      const cases = [
+        ["It's", "It%27%27s"],
+        ["a,b", "a%2cb"],
+        ["a<b", "a%3cb"],
+        ["T0102", "T0102"],
+        ["T 0102", "T%200102"],
+        ["100%", "100%25"],
+        ["Жук", "%D0%96%D1%83%D0%BA"],
+        ["\u{1F600}", "%F0%9F%98%80"],
+        ["a\u{1F600}b", "a%F0%9F%98%80b"],
+        ["Ж'ук", "%D0%96%27%27%D1%83%D0%BA"],
+      ];
+      for (const [key, escaped] of cases) {
+        const res = await send(base + "/TravelSet", "POST", {TravelId: key, Description: "odd", Status: "A", Seats: 1});
+        expect(res.status, key).to.equal(201);
+        const location = res.headers.get("location");
+        expect(location, key).to.equal(base + "/TravelSet('" + escaped + "')");
+        expect(location, key).to.match(/^[\x20-\x7e]*$/);
+        const got = await fetch(location);
+        expect(got.status, key).to.equal(200);
+        expect((await got.json()).TravelId, key).to.equal(key);
+        expect((await send(location, "DELETE")).status, key).to.equal(204);
+        expect((await fetch(location)).status, key).to.equal(404);
+      }
+    });
+
     it("PATCH merges the properties sent, PUT replaces the entity", async () => {
       const patch = await send(base + "/TravelSet('T0100')", "PATCH", {Description: "patched"});
       expect(patch.status).to.equal(204);
