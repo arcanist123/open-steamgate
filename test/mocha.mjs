@@ -208,6 +208,49 @@ describe("wire", () => {
     expect((await v4.json()).TravelId).to.equal("T0001");
   });
 
+  // A key or a function import parameter longer than the MaxLength of its
+  // property is a 400, as the Gateway's URI parser answers it. Before, the
+  // DPC's CHAR(8) field cut it: TravelSet('T0002    X') read, merged, put
+  // and deleted T0002, and TravelCount(Status='A''') counted the 'A' rows.
+  // A $filter literal is compared as written: longer than the column, it
+  // matches no row (docs/key-length.md).
+  it("a key or a parameter longer than its MaxLength is a 400; a long $filter literal matches nothing", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const long = encodeURIComponent("'T0002    X'");
+    const before = (await (await fetch(`${BASE}/TravelSet('T0002')?$format=json`)).json()).d;
+    let res = await fetch(`${BASE}/TravelSet(${long})?$format=json`);
+    expect(res.status).to.equal(400);
+    const error = (await res.json()).error;
+    expect(error.code).to.equal("STG/VALUE_TOO_LONG");
+    expect(JSON.stringify(error.message)).to.contain("TravelId").and.contain("MaxLength 8");
+    expect((await fetch(`${BASE}/TravelSet(TravelId=${long})?$format=json`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/TravelSet(${long})/to_Bookings?$format=json`)).status).to.equal(400);
+    for (const [method, body] of [["MERGE", {Description: "wrong row"}], ["PUT", {Description: "wrong row", Status: "X", Seats: 1}], ["DELETE", undefined]]) {
+      res = await fetch(`${BASE}/TravelSet(${long})`, {method, headers, body: body && JSON.stringify(body)});
+      expect(res.status, method).to.equal(400);
+    }
+    res = await fetch(`${BASE}/TravelSet(${long})/to_Bookings`, {method: "POST", headers, body: JSON.stringify({BookingId: "B990", Customer: "wrong"})});
+    expect(res.status, "POST through navigation").to.equal(400);
+    const after = await fetch(`${BASE}/TravelSet('T0002')?$format=json`);
+    expect(after.status).to.equal(200);
+    expect((await after.json()).d).to.deep.equal(before);
+    // exactly MaxLength is still a key
+    expect((await fetch(`${BASE}/TravelSet('T0002%20%20%20')?$format=json`)).status).to.equal(200);
+
+    const filtered = await (await fetch(`${BASE}/TravelSet?$format=json&$filter=` + encodeURIComponent("TravelId eq 'T0001    X'"))).json();
+    expect(filtered.d.results).to.deep.equal([]);
+    const v4 = await (await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet?$filter=` + encodeURIComponent("TravelId eq 'T0001    X'"))).json();
+    expect(v4.value).to.deep.equal([]);
+
+    res = await fetch(`${BASE}/TravelCount?Status=${encodeURIComponent("'A'''")}`);
+    expect(res.status).to.equal(400);
+    expect((await res.json()).error.code).to.equal("STG/VALUE_TOO_LONG");
+    expect((await fetch(`${BASE}/TravelCount?Status='AX'`)).status).to.equal(400);
+    res = await fetch(`${BASE}/CancelTravel?TravelId=${long}`, {method: "POST", headers: {"x-csrf-token": "open-steamgate"}});
+    expect(res.status).to.equal(400);
+    expect((await (await fetch(`${BASE}/TravelSet('T0002')?$format=json`)).json()).d.Status).to.equal(before.Status);
+  });
+
   // ANOMALY-2026-11-08-sql-host-variable-inlined: the transpiler inlined a
   // host variable into the SQL text unescaped, so a quote in a key ended the
   // literal. Measured before the pinned fix: GET of this key answered T0001,
@@ -215,7 +258,10 @@ describe("wire", () => {
   it("a quote in a key stays in the key: nothing else is read or written", async () => {
     const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
     const injected = encodeURIComponent("'x'' OR ''1''=''1'");
-    expect((await fetch(`${BASE}/TravelSet(${injected})?$format=json`)).status).to.equal(404);
+    // longer than TravelId's MaxLength 8, it is refused before the DPC; a
+    // quoted key that fits reaches the SELECT and finds nothing
+    expect((await fetch(`${BASE}/TravelSet(${injected})?$format=json`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/TravelSet(${encodeURIComponent("'x''OR''1'")})?$format=json`)).status).to.equal(404);
     const merged = await fetch(`${BASE}/TravelSet(${injected})`, {method: "MERGE", headers, body: JSON.stringify({Description: "oracle"})});
     expect(merged.status).to.equal(400);
     const all = await (await fetch(`${BASE}/TravelSet?$format=json`)).json();

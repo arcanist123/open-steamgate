@@ -293,6 +293,24 @@ describe("OData V4 read wire", () => {
     expect(body.value[0].Name).to.equal("O'Brien, (a=b)  test");
   });
 
+  // the MaxLength check of zcl_stg_model_info=>check_keys, shared with V2: a
+  // key the DPC's CHAR(8) field would cut is a 400, never another entity
+  it("refuses a key longer than its MaxLength with 400 and changes nothing; a long $filter literal matches nothing", async () => {
+    const before = await json(base + "/TravelSet('T0002')");
+    const url = base + "/TravelSet(" + encodeURIComponent("'T0002    X'") + ")";
+    const read = await fetch(url);
+    expect(read.status).to.equal(400);
+    expect((await read.json()).error.message).to.contain("MaxLength 8");
+    expect((await fetch(base + "/TravelSet(" + encodeURIComponent("TravelId='T0002    X'") + ")")).status).to.equal(400);
+    expect((await send(url, "PATCH", {Description: "wrong row"})).status).to.equal(400);
+    expect((await send(url, "PUT", {Description: "wrong row"})).status).to.equal(400);
+    expect((await send(url, "DELETE")).status).to.equal(400);
+    expect((await fetch(url + "/to_Bookings")).status).to.equal(400);
+    expect(await json(base + "/TravelSet('T0002')")).to.deep.equal(before);
+    const filtered = await json(base + "/TravelSet" + query({$filter: "TravelId eq 'T0001    X'"}));
+    expect(filtered.value).to.deep.equal([]);
+  });
+
   it("serves SADL/CDS and YAML-compiled services through the same registration", async () => {
     const sadl = `${origin}/sap/opu/odata4/sap/ZSTG_SADL_SRV`;
     await schema(sadl);
@@ -763,11 +781,17 @@ describe("OData V4 read wire", () => {
     const injected = encodeURIComponent("'x'' OR ''1''=''1'");
 
     it("a quote in a key is a character of the key, not the end of the SQL literal", async () => {
-      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(404);
-      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(404);
-      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(404);
+      // longer than the key's MaxLength these are refused before the DPC (400);
+      // the quoted keys that fit reach the SELECT and find nothing (404)
+      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(400);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(400);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(400);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x''OR''1'") + ")")).status).to.equal(404);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + encodeURIComponent("'''--'") + ")")).status).to.equal(404);
       const patched = await raw(base + `/TravelSet(${injected})`, "PATCH", '{"Description":"oracle"}');
-      expect(patched.status).to.equal(404);
+      expect(patched.status).to.equal(400);
+      const fits = await raw(base + "/TravelSet(" + encodeURIComponent("'x''OR''1'") + ")", "PATCH", '{"Description":"oracle"}', {"if-match": "*"});
+      expect(fits.status).to.equal(404);
       const all = await json(base + "/TravelSet?$select=TravelId,Description");
       expect(all.value.map((t) => t.Description)).to.not.include("oracle");
       expect(all.value.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");
