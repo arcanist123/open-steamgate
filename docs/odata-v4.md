@@ -123,6 +123,11 @@ the model refuses answers 405 and never reaches the DPC.
 | `PATCH`/`PUT` with `Prefer: return=representation` | 200 with the entity after the update |
 | `DELETE TravelSet('T0001')` | 204 |
 
+The `Location` (and `OData-EntityId`) of a create carries the key predicate
+percent-encoded per UTF-8 byte, `TravelSet('%D0%96%D1%83%D0%BA')` for the key
+`Жук`, so a key outside ASCII reads back with a plain GET; an ASCII key keeps
+the URI it always had.
+
 Request bodies are V4 JSON, read with their token kinds (ajson) and, for
 numbers, the literal text as the client wrote it (no float round trip): strings
 for `Edm.String`, `Edm.Date` (`2026-11-07`), `Edm.DateTimeOffset` (`Z` or an
