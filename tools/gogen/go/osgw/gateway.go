@@ -141,6 +141,9 @@ type info struct {
 	Generation string `json:"generation"`
 	Root       string `json:"root"`
 	Database   string `json:"database"`
+	// the sidecar's work processes in and out of service (go/workpool);
+	// relayed live on the gateway's own answer
+	WorkProcesses json.RawMessage `json:"workProcesses,omitempty"`
 }
 
 // Gateway runs one sidecar behind one port.
@@ -724,6 +727,13 @@ func (g *Gateway) serving(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		return
 	}
+	// what the serving sidecar says of its work processes now: one stopped
+	// for want of a connection must show here, not only in its ZOSD_WP rows
+	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+	if in, ok := ask(ctx, &http.Client{Transport: sc.transport}); ok && len(in.WorkProcesses) > 0 {
+		body["workProcesses"] = in.WorkProcesses
+	}
+	cancel()
 	writeJSON(w, 200, body)
 }
 

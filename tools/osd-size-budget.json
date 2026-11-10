@@ -255,8 +255,8 @@
    "reason": "Record existing bind package after removing its unsafe obsolete profiler address selector; profiling now owns loopback validation."
   },
   "go:osgw": {
-   "lines": 1460,
-   "reason": "ADR 0010 slice 3: the gateway -- lock server on a Unix socket, sidecar spawn/readiness/restart policy, reverse proxy, session pins, generation table, /osd/serving, drain and kill. No go/abap import. forward.go: the hop in the request goroutine over pooled Unix connections (hop-by-hop headers, 1xx, streaming, one replay of a body-less request); ReverseProxy kept for upgrades. Measured: the Transport hand-off was a quarter of the gateway CPU. Review of #888: endProcess (a broken lock connection kills its live sidecar before the release), replay only of safe methods or a failed write, Failed/FailedWhy; a socket directory others can enter is refused (privateDir), since the Unix sockets bind no interface. ADR 0010 slice 4: swap.go (build trigger, candidate, smoke, promote, drain, retire, build status) and its tests' fake doors; the builder seam is its own package (go/genbuild), the schema stamp too (go/dbschema). The ICF logoff ends a pin (the live swap found a logged-off session holding the old generation to the grace). PR #895 review: the step counted inside route() under its mutex; the builder gated on every live generation inactive count (gatedBuilder, GET /osd/inactive); the flip one mutex hold that refuses a candidate that died between its promotion and it, serve() answering whether it took effect (+122)."
+   "lines": 1470,
+   "reason": "ADR 0010 slice 3: the gateway -- lock server on a Unix socket, sidecar spawn/readiness/restart policy, reverse proxy, session pins, generation table, /osd/serving, drain and kill. No go/abap import. forward.go: the hop in the request goroutine over pooled Unix connections (hop-by-hop headers, 1xx, streaming, one replay of a body-less request); ReverseProxy kept for upgrades. Measured: the Transport hand-off was a quarter of the gateway CPU. Review of #888: endProcess (a broken lock connection kills its live sidecar before the release), replay only of safe methods or a failed write, Failed/FailedWhy; a socket directory others can enter is refused (privateDir), since the Unix sockets bind no interface. ADR 0010 slice 4: swap.go (build trigger, candidate, smoke, promote, drain, retire, build status) and its tests' fake doors; the builder seam is its own package (go/genbuild), the schema stamp too (go/dbschema). The ICF logoff ends a pin (the live swap found a logged-off session holding the old generation to the grace). PR #895 review: the step counted inside route() under its mutex; the builder gated on every live generation inactive count (gatedBuilder, GET /osd/inactive); the flip one mutex hold that refuses a candidate that died between its promotion and it, serve() answering whether it took effect (+122). PR #900 review round 2: the gateway relays the serving sidecar's workProcesses (in and out of service) live on its own /osd/serving."
   },
   "go:packedint": {
    "lines": 32,
@@ -675,8 +675,8 @@
    "reason": "baseline 2026-10-01"
   },
   "tools/gogen/go/osgw/gateway.go": {
-   "lines": 814,
-   "reason": "PR #895 review: route() counts the step under the mutex that reads g.current (the drain cannot retire a sidecar under a routed request); flipLocked/served/serve, serve answering whether it took effect so Start and a replacement fail loudly on a sidecar that died first."
+   "lines": 824,
+   "reason": "PR #895 review: route() counts the step under the mutex that reads g.current (the drain cannot retire a sidecar under a routed request); flipLocked/served/serve, serve answering whether it took effect so Start and a replacement fail loudly on a sidecar that died first. PR #900 review round 2: the gateway relays the serving sidecar's workProcesses (in and out of service) live on its own /osd/serving."
   },
   "tools/gogen/js/abap.mjs": {
    "lines": 1945,
