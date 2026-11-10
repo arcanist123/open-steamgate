@@ -512,9 +512,12 @@ func (p *Pool) Close() error {
 		return nil
 	}
 	p.closed = true
+	wasStopped := p.stopped
 	p.stopped = true
 	p.mu.Unlock()
-	close(p.stop)
+	if !wasStopped { // the drain's Lock closed it already
+		close(p.stop)
+	}
 	var err error
 	for _, w := range p.workers {
 		for _, st := range w.stmts {

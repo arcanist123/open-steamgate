@@ -519,3 +519,22 @@ func TestStatementsCachedPerWorkProcess(t *testing.T) {
 		t.Fatal("no statement was cached on the work processes")
 	}
 }
+
+// The host's stop is the drain's Lock and then Close (serving.Stop's Lock,
+// then its Final): Close after Lock must not close the stop channel twice.
+// The first run of the gateway conformance found it as a panic at SIGTERM.
+func TestCloseAfterDrainLock(t *testing.T) {
+	d := openWAL(t, 3, 5*time.Second)
+	defer d.Close()
+	p, err := New(Options{DB: d, Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	Locker{P: p}.Lock()
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
