@@ -42,12 +42,12 @@ var wp *workpool.Pool
 var workProcessCount int
 
 // workProcesses is M: -wp, else OSD_WPS, else the cores.
-func workProcesses(count string, getenv func(string) string, cores int) int {
+func workProcesses(count string, getenv func(string) (string, bool), cores int) int {
 	if n, err := strconv.Atoi(strings.TrimSpace(count)); err == nil && n > 0 {
 		return n
 	}
-	if v := strings.TrimSpace(getenv("OSD_WPS")); v != nil && v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+	if v, ok := getenv("OSD_WPS"); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
 			return n
 		}
 	}
@@ -64,6 +64,9 @@ func workProcesses(count string, getenv func(string) string, cores int) int {
 // runs outside a step -- the ADT session rows below, a tool.
 func openWorkProcesses(dbFile string, count int) {
 	workProcessCount = count
+	if count < 1 {
+		count = 1 // workProcesses answers at least one; a zero is a caller's
+	}
 	memory := dbFile == ""
 	workers, spare := count, 1
 	if memory {

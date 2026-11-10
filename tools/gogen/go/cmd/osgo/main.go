@@ -587,7 +587,7 @@ func main() {
 	abap.HostFacts = append(abap.HostFacts, "host\tosgo: net/http in front of cl_express_icf_shim, one dialog step per request", buildFacts)
 	if wp != nil {
 		abap.HostFacts = append(abap.HostFacts, fmt.Sprintf("work processes\t%d of %d asked for; read steps deferred and query_only, modifying steps BEGIN IMMEDIATE, busy_timeout %s",
-			wp.Workers(), workProcesses(strconv.Itoa(*wpFlag), os.Getenv, runtime.NumCPU()), workpool.DefaultBusyTimeout))
+			wp.Workers(), workProcesses(strconv.Itoa(*wpFlag), os.LookupEnv, runtime.NumCPU()), workpool.DefaultBusyTimeout))
 	}
 
 	if *media == "" {
@@ -626,7 +626,7 @@ func main() {
 	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
 
 	openDatabase(*dbFile, *sidecarDir) // database.go
-	openWorkProcesses(*dbFile, workProcesses(strconv.Itoa(*wpFlag), os.Getenv, runtime.NumCPU()))
+	openWorkProcesses(*dbFile, workProcesses(strconv.Itoa(*wpFlag), os.LookupEnv, runtime.NumCPU()))
 	mintADTState() // the ADT session rows outside the step's LUW (workprocesses.go)
 	func() {
 		defer func() {

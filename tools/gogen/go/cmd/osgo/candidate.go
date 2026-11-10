@@ -102,7 +102,9 @@ func promote(dbFile string) error {
 	}
 	// the pool's connections were the read-only database's: new ones, on the
 	// file as it is open now, for the writes a serving generation runs
-	wp.Close()
+	if wp != nil {
+		wp.Close()
+	}
 	candidate.Store(false)
 	openWorkProcesses(dbFile, workProcessCount)
 	mintADTState()

@@ -23,8 +23,8 @@ func TestCandidatePromotionOpensTheFileForWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, wasCandidate := instance, candidate.Load()
-	defer func() { instance = own; candidate.Store(wasCandidate) }()
+	own, wasCandidate, ownWP := instance, candidate.Load(), wp
+	defer func() { instance = own; candidate.Store(wasCandidate); wp = ownWP }()
 	instance = abap.NewInstance(ro)
 	candidate.Store(true)
 	if _, err := ro.SQL().Exec("CREATE TABLE zz_candidate_probe (x TEXT)"); err == nil {
@@ -39,6 +39,10 @@ func TestCandidatePromotionOpensTheFileForWriting(t *testing.T) {
 	if _, err := instance.DB.SQL().Exec("CREATE TABLE zz_candidate_probe (x TEXT)"); err != nil {
 		t.Fatalf("the promoted database refuses a write: %v", err)
 	}
+	// the pool promote made holds its connections: close it before the
+	// database, or the close waits for them to come back
+	wp.Close()
+	wp = ownWP
 	instance.DB.Close()
 }
 
