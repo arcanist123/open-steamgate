@@ -9,22 +9,18 @@ ENTITIES`, runs over [the managed runtime](rap-runtime.md). Two halves:
   class the transpiled statements call. Both transpile and run today;
   `test/unit/zcl_osd_rap_eml_test` drives them without EML syntax.
 - **in the transpiler**: `@abaplint/transpiler` parses the statements
-  (abaplint, v754 and OpenABAP) and until now emitted
-  `throw new Error("ModifyEntities, not supported, transpiler")` for
-  `MODIFY` / `READ ENTITIES` and had no `COMMIT` / `ROLLBACK ENTITIES` at
-  all. The patch lowering them onto `KERNEL_RAP_EML` is kept beside this
-  repository until it is sent upstream ([upstream.md](upstream.md), "EML");
-  the pinned transpiler does not carry it yet, so a class written with EML
-  does not even transpile: `COMMIT ENTITIES` has no statement transpiler
-  there and the build stops at `Statement CommitEntities not supported`.
-  `src/rap_demo/zcl_rap_note_eml` is such a class; it is in the
-  `exclude_filter` of `abap_transpile.json` (lint still reads it) until the
-  pin moves, and its three tests run with the patched build (below).
+  (abaplint, v754 and OpenABAP) and lowers `MODIFY` / `READ` / `COMMIT` /
+  `ROLLBACK ENTITIES` onto `KERNEL_RAP_EML` since abaplint/transpiler#2049
+  (upstream `62931245`, after 2.14.19), which the pin carries
+  ([transpiler-pin-4.md](transpiler-pin-4.md)). Before that the build
+  stopped at `Statement CommitEntities not supported`, and
+  `src/rap_demo/zcl_rap_note_eml` sat in the `exclude_filter` of
+  `abap_transpile.json`; it is built and its tests run like any other class.
 
 ```
 npm run transpile                                 # under the lock
 node tools/osd-unit.mjs CLAS ZCL_OSD_RAP_EML_TEST  # the facade and the kernel entry
-node tools/osd-unit.mjs CLAS ZCL_RAP_NOTE_EML      # real EML: patched transpiler linked, the exclude line removed
+node tools/osd-unit.mjs CLAS ZCL_RAP_NOTE_EML      # real EML
 ```
 
 ## The calling convention

@@ -30,6 +30,38 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-09-modify-in-loop-by-key -- `MODIFY itab FROM wa` inside a LOOP over itab no longer changes the row
+
+- Status: `workaround` (the L3 set template builds the dry report's rows into a new table instead of MODIFY in the loop; `recipes/l3-set/template.tpl`, `src/l2demo/zcl_l3_fleet2.clas.abap`)
+- Discovery date: `2026-11-09` (the first completed `tests` run of the 4c pin, job `suites (5)` of run 42629576810; reproduced locally on the pin)
+- Affected versions: `@abaplint/runtime` 2.14.14 onwards (upstream #2041, the same release as the FOR UPDATE refusal above); the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff` carries it
+- Affected ABAP statement, runtime API or adapter: `MODIFY itab FROM wa` without INDEX inside `LOOP AT itab`, `packages/runtime/src/statements/modify_internal.ts` with `packages/runtime/src/statements/read_table.ts` and `packages/runtime/src/primary_key.ts`
+- Minimal ABAP reproducer: a `STANDARD TABLE OF ty_rule WITH DEFAULT KEY` whose `status TYPE c LENGTH 16` is a character component (so it is part of the default key), then `LOOP AT lt INTO ls WHERE status = 'DONE'. ls-status = 'DRY'. MODIFY lt FROM ls. ENDLOOP.`
+- Exact command used to run it: `flock /tmp/osg-nov-heavy.lock npx mocha test/dsl-l3-resilience.mjs` -- "a dry run writes nothing and finalises nothing..." fails with `rules ["DONE","DONE",...]`
+- Expected SAP behaviour: inside a LOOP the work area overwrites the current row; no key search happens at all, so changing a key component of the work area still lands in the row the loop is on.
+- Actual open-abap behaviour: `modifyInternal` looks the row up by the table's primary key values taken from the work area (`readTable` with `from`), and since 2.14.14 it modifies that row in place or does nothing when the lookup misses. A `WITH DEFAULT KEY` table serialises as `keyFields: []`, which `primaryKeyValues` expands to every character-like component, `status` included; the loop has already written `DRY` there, so the lookup finds nothing and the statement is a silent no-op (`sy-subrc` 4). Up to 2.14.13 the same lookup missed too, but the old code then inserted the work area unconditionally, which for this loop shape produced the table the SAP rule expects.
+- Impact on open-steamgate: the L3 fleet's dry run reported every rule `DONE` instead of `DRY` (`test/dsl-l3-resilience.mjs`); a real dry run still wrote nothing, so the wrong statuses were the whole of it.
+- Smallest safe workaround: build the rows into a fresh table in the loop (`APPEND`) and assign it once, which both runtimes and a real system run the same way; no other in-tree shape MODIFYs an internal table from a loop while changing a key component (the rest are database-table MODIFYs, `MODIFY TABLE`, or carry INDEX).
+- Upstream issue: needs an issue in `abaplint/transpiler` (after the critic pass): the statement should modify the current row when it sits inside a LOOP over the table -- the loop index the runtime already tracks -- and only fall back to the key search outside a loop; the append-on-miss behaviour of 2.14.13 was itself not the SAP rule for sorted and hashed keys.
+- Regression-test location: `test/dsl-l3-resilience.mjs` ("a dry run writes nothing and finalises nothing, and its report holds what a real run writes; every row says DRY")
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-09-select-for-update-refused -- `SELECT SINGLE FOR UPDATE` stops with "not supported" since transpiler 2.14.14
+
+- Status: `workaround` (the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff`, commit `1ea248fd`, runs it as the plain SELECT again)
+- Discovery date: `2026-11-09` (moving the pin from `f34e9bf4` to upstream main `62931245`)
+- Affected versions: `@abaplint/transpiler` 2.14.14 (refused at transpile time, #2041) and 2.14.15 onwards (`throw new Error("SELECT SINGLE FOR UPDATE, not supported, transpiler")` in the generated code, #2043); upstream main `62931245`
+- Affected ABAP statement, runtime API or adapter: `SELECT SINGLE FOR UPDATE`, `packages/transpiler/src/statements/select.ts`
+- Minimal ABAP reproducer: `SELECT SINGLE FOR UPDATE * FROM t100 INTO ls_row WHERE sprsl = 'E'.`
+- Exact command used to run it: `node tools/osd-unit-run.mjs` after `npm run transpile` on the unpatched pin: 845 methods, 9 failed, all in `ZCL_L3_FLEET_PROOF`, every one at a `SELECT SINGLE FOR UPDATE` of `zcl_l3_fleet2`
+- Expected SAP behaviour: the row is read and a database lock is held on it until the end of the LUW.
+- Actual open-abap behaviour: the statement raises a plain JavaScript `Error` instead of reading; up to 2.14.13 it read the row and took no lock.
+- Impact on open-steamgate: the L3 job fleet (`src/l2demo/zcl_l3_fleet*.clas.abap`, 16 statements) reads its piles, budgets, watches and settings FOR UPDATE; with the refusal every L3 run dumps. Locally a lock is not needed: every dialog step, APC event and job step takes the one work-process lock (`tools/osd-dialog-step.mjs`), so nothing runs beside the step that read the row.
+- Smallest safe workaround: the fork commit restores the 2.14.13 behaviour (the SELECT runs, no lock). Correct for OSG's single work process; not correct for a host that runs steps in parallel on one database.
+- Upstream: needs an issue in abaplint/transpiler (after the critic pass): upstream's refusal is a deliberate "fail rather than pretend to lock"; the question for Lars is whether a host may declare that it serializes (a runtime option), or whether the statement may run as `SELECT ... FOR UPDATE` on the clients that have it (PostgreSQL) and as the plain SELECT on SQLite, which has no row locks and serializes writers anyway.
+- Regression-test location: `ZCL_L3_FLEET_PROOF` (ABAP Unit); in the fork `packages/transpiler/test/multiple_lines.ts` "SELECT SINGLE FOR UPDATE runs as the SELECT"
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-09-space-eq-string-substring -- `x+off(1) = space` is false for a blank: a String substring never equals the Character constant
 
 - Status: `open`
@@ -2206,7 +2238,7 @@ for `zosd_status_app`, which has been deployed for a day.
 
 ### ANOMALY-2026-09-23-epoch-ms-overflow — `ZCL_STG_JSON=>EPOCH_MS` overflows `i` on a system, and the transpiler runtime lets it through
 
-- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits.
+- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-23`
 - Affected versions: `@abaplint/transpiler` 2.13.89 (npm) runtime; OSG's own `src/gateway/zcl_stg_json.clas.abap`
 - Affected ABAP statement, runtime API or adapter: an arithmetic expression of `i` operands embedded in a string template, `rv_ms = |{ ( lv_days * 86400 + lv_seconds ) * 1000 }|` in `EPOCH_MS`, which every `Edm.DateTime` of a JSON answer goes through
@@ -3130,7 +3162,7 @@ point approximation and is format-checked before masking in wire tests.
 
 ### ANOMALY-2026-09-25-zip-read-int4 — open-abap-core's `CL_ABAP_ZIP=>LOAD` overflows `i` in `LCL_STREAM=>READ_INT4`, and the transpiler runtime lets it through
 
-- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits.
+- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-25`
 - Affected versions: open-abap-core (`src/abap/cl_abap_zip.clas.locals_imp.abap`, as cloned in `.local/lars/open-abap-core`); `@abaplint/runtime` 2.13.89
 - Affected ABAP statement, runtime API or adapter: `LCL_STREAM=>READ_INT4` (and `READ_INT2`'s pattern): `DO 4 TIMES. ... lv_factor = lv_factor * 256. ENDDO.`, which after the fourth byte computes 256 ** 4 into an `i`; `CL_ABAP_ZIP=>LOAD` calls it for every header
@@ -4226,7 +4258,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-10-08-zip-read-int4 - cl_abap_zip's read_int4 overflows type i, and only the Go runtime notices
 
-- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits.
+- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery: abapiti's case 033, `cl_abap_zip=>load` raising `CX_SY_ARITHMETIC_OVERFLOW` on osgo for an ordinary 50-file ZIP, while OSG-JS loaded it.
 - Affected path: open-abap-core `lcl_stream=>read_int4` (`cl_abap_zip.clas.locals_imp.abap`) before #1282: `rv_int = rv_int + lv_val * lv_factor`, then `lv_factor = lv_factor * 256`, all in `i`; the factor reaches 2^32 after the fourth byte for any input.
 - Expected SAP behaviour (7.58): the same method body dumps `COMPUTE_INT_TIMES_OVERFLOW` for both `01020304` and `01020380` (measured on A4H by abapiti on 2026-10-08 in a throwaway package, removed after). SAP's own `cl_abap_zip` is not affected; this is open-abap-core's implementation.
@@ -4259,7 +4291,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-08-sql-host-variable-inlined -- a host variable in Open SQL is inlined into the SQL text unescaped, so a quote in its value ends the literal (SQL injection through an OData key)
 
-- Status: `workaround` (fixed in the pinned fork `oisee/transpiler` `local/osd-build-3d` `9792b3c87997`; upstream patch drafted, not yet sent)
+- Status: `fixed upstream: abaplint/transpiler#2050` (merged 2026-11-09 as `8824945a`, not yet in a release); the pin `local/osd-build-4c` is based on upstream main `8824945a`, which contains it
 - Discovery date: `2026-11-08` (post-merge critic of #856/#858, probing the V4 writes with keys that carry a quote)
 - Affected versions: `@abaplint/transpiler` 2.14.3 at the previously pinned `f34e9bf4` (`local/osd-build-3b`), `abaplint/transpiler` main at `37132489` (2.14.19), and every published version: `packages/transpiler/src/expressions/sql_cond.ts` emits `'" + lv.get() + "'` for a host variable (`sqlHost`, `basicConditionNew`, `sourceWithComponents`, the interface-constant and conversion branches of `sqlSource`), `sql_field_and_value.ts` the same for `UPDATE ... SET f = lv`, `update_database.ts` for `UPDATE dbtab FROM wa`, `sql_field.ts` for a host variable in a field list, and the runtime's `expand_dynamic.ts` for a `<fs>-comp` substituted into a dynamic WHERE. `INSERT` and `IN seltab` were already escaped (`insert_database.ts`, `expand_in.ts`).
 - Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE f = lv` / `= @lv` / `LIKE lv` / `IN (lv1, lv2)` / `FOR ALL ENTRIES ... WHERE f = lt-comp`, `UPDATE ... SET ... WHERE`, `UPDATE dbtab FROM wa`, `DELETE FROM ... WHERE`, `MODIFY` (through update) -- any host variable whose value holds a `'`
@@ -4276,9 +4308,9 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: the generated JavaScript concatenates the value between two quotes and the DatabaseClient executes the text, so a `'` in the value ends the literal; what follows is read as SQL. `'x' OR '1'='1'` reads every row and `UPDATE ... WHERE` writes every row; `'a'b'` is a syntax error (500 at the gateway).
 - Impact on open-steamgate: any OData key or `$filter` literal that reaches a hand-written DPC's Open SQL (the whole point of the runtime) can read or overwrite other rows. `zcl_stg_url=>unquote` is right to turn `''` into `'` (the gateway's contract is the OData one), so the gateway cannot fix this by itself without refusing legitimate keys such as `a'b`. The SADL path (`zcl_stg_sadl_dpc`) builds its own SQL and was not the measured path; the generated `zcl_stg_tab_<table>` classes use Open SQL host variables and are covered by the fix.
 - Smallest safe workaround: the fix itself, carried on the pinned fork: `abap.sqlEscape(value)` in `@abaplint/runtime` (`'` doubled, nothing else: a LIKE pattern keeps its `%`), called around every host variable the transpiler inlines (`select.ts` binds a FOR ALL ENTRIES row reference inside the call too); a backtick literal with a quote in a WHERE gets the same treatment at transpile time. Binding would be the right fix, but `DatabaseClient` (`packages/runtime/src/db/db.ts`) takes SQL as text with no parameter list, so binding is an interface change for all four clients (SQLite, PostgreSQL, HANA, Snowflake) -- escape now, bind later. Dynamic WHERE text built by a program (`SELECT ... WHERE (lv_where)`) stays the program's responsibility, as on a system; only the field-symbol substitution the runtime does inside it is escaped. That substitution first went in through `String.replace` with a string, so `$'`, `$&` or `` $` `` in a value were read as JavaScript replacement patterns (`$'` pasted the rest of the condition into the literal), and it rescanned what it had written, so a value holding ` <x>` was expanded again inside its own literal or looped forever; `local/osd-build-3d` does it in one pass with a replacer function. Inlined by design and not escaped, because they are not values: `UP TO n ROWS` (a number), and the dynamic FROM, ORDER BY, GROUP BY and field lists, which are SQL text the program supplies, as on a system. Doubling the quote is the standard-SQL spelling, which SQLite (what OSG runs on), PostgreSQL (standard_conforming_strings) and HANA read; DuckDB too. A dialect that reads backslash escapes inside literals (Snowflake) is not covered by this and would need its client to double the backslash as well.
-- Upstream: needs an issue/PR in abaplint/transpiler, after our critic pass. Patch and draft PR text are in the sqlinj job directory (`transpiler-sql-escape.patch`, from `fix/sql-host-escape` on upstream main `37132489`); the same commit is cherry-picked onto `f34e9bf4` as `local/osd-build-3c` `1d78e3662545`, and the `$`-pattern fix of `expand_dynamic.ts` is the next commit on both, `local/osd-build-3d` `9792b3c87997`, pinned in `libs.lock.json`.
+- Upstream: fixed upstream by abaplint/transpiler#2050 (a branch inside the repository, merged 2026-11-09 as `8824945a`), which carries both the escape and the one-pass `$`-safe substitution in `expand_dynamic.ts`; in the pin since `local/osd-build-4c` `a0d80fff` (based on `8824945a`, docs/transpiler-pin-4.md), so the fork no longer carries it. Before that it was pinned as fork commits on `local/osd-build-3c` `1d78e3662545` and `local/osd-build-3d` `9792b3c87997`; the PR branch is merged and nothing is owed.
 - Regression-test location: `test/mocha.mjs` ("a quote in a key stays in the key"), `test/odata-v4.mjs` ("review fixes, round three"); in the transpiler `test/database.ts` "host variables with quotes" (SELECT, LIKE, IN, FOR ALL ENTRIES, UPDATE SET, UPDATE FROM, DELETE, backtick literal, a dynamic WHERE with `$'`, `$&` and ` <x>` in field-symbol values) and `packages/transpiler/test/single_statements.ts`
-- Upstream version containing a fix: `unknown` (none yet)
+- Upstream version containing a fix: main `8824945a` (#2050); no release yet
 
 ## RAP derived types cannot transpile (R1)
 

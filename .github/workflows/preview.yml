@@ -43,11 +43,10 @@ jobs:
       - run: npm ci
       - name: Load the tracked source pins
         run: node tools/osd-lock.mjs github-env >> "$GITHUB_ENV"
-      # The integration build is based on upstream 2.14.3 and keeps the
-      # fork's builtin, incremental-build, packed and overflow fixes.
-      # Parser 2.120.73 is shared with OSG and checked by the build gate.
-      # The W3MI, binary output and float fixes are now upstream.
-      # See docs/transpiler-pin-2.md for the reviewed pin set.
+      # The integration build is upstream main after 2.14.19 (EML lowering,
+      # SQL escape) and keeps the fork's builtin, incremental-build, FOR
+      # UPDATE, packed and overflow commits. Parser 2.120.94 is shared with OSG and checked by the build
+      # gate. See docs/transpiler-pin-4.md for the reviewed pin set.
       #
       # So the deployment is pinned to a commit of an integration branch,
       # built here and linked the same way a developer links it. Pinned to a

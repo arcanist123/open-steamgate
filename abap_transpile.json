@@ -155,9 +155,7 @@
       }
     ]
   },
-  "_eml_demo": "src/rap_demo/zcl_rap_note_eml is written with real EML (docs/rap-eml.md). The pinned transpiler has no statement transpiler for COMMIT ENTITIES / ROLLBACK ENTITIES, so it refuses the whole build at transpile time (Statement CommitEntities not supported); the class is excluded until the pin carries the EML lowering (docs/upstream.md, EML). Lint still reads it. To run its tests: remove the line below and build with a transpiler that has the patch.",
   "exclude_filter": [
-    "/src/rap_demo/zcl_rap_note_eml\\.clas\\.",
     "/test/e2e/",
     "/src/.*/cockpit/",
     "/test/fixtures/",
@@ -168,7 +166,6 @@
     "\\.samc\\.model\\.json$",
     "\\.samc\\.decl\\.json$",
     "\\.ddls\\.",
-    "\\.bdef\\.",
     "\\.srvd\\.",
     "/gen/rap/bindings\\.json$",
     "\\.stg\\.yaml$",

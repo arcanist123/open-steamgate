@@ -13,8 +13,14 @@ export function selectionDiagnostics(reg, objects, session) {
   const wanted = objects.map(o => o.toLowerCase().replaceAll("#", "/"));
   // Dynamic RAISE validates its actual object at lowering; retain every other
   // parser/syntax refusal, including those in a changed owner's attached files.
+  // And zcl_gogen_t_movclr is the oracle for what a whole-table CLEAR/FREE/assign
+  // inside its own LOOP does: core's LoopTableChange check (new in 2.120.94)
+  // refuses the statement as statically illegal in classes, the statement
+  // lowers all the same, and the corpus exists to measure it. src/ stays
+  // policed by the lint (abaplint.jsonc runs check_syntax over it).
   return syntaxDiagnostics(reg, fn => selectionHas(wanted, objectName(fn)), objectName, session)
-    .filter(d => !d.message.endsWith("RAISE EXCEPTION, must be object reference, got GenericObjectReferenceType"));
+    .filter(d => !d.message.endsWith("RAISE EXCEPTION, must be object reference, got GenericObjectReferenceType"))
+    .filter(d => !d.message.endsWith("cannot be changed as a whole inside a LOOP over it"));
 }
 /** @param {import("./frontend-session-types.ts").Registry} reg @param {Pick<import("./frontend-session-types.ts").CompileOptions, "objects" | "tolerant" | "strictRoots">} options @param {import("./frontend-diagnostics.ts").DiagnosticsSession | null} [session] @param {() => void} [prepare] @param {import("./frontend-session-types.ts").PreparedSelection} [prepared] @returns {import("./frontend-session-types.ts").PreparedSelection} */
 export function prepareSelection(reg, {objects, tolerant = false, strictRoots}, session, prepare, prepared) {

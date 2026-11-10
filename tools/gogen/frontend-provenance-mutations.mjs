@@ -18,7 +18,7 @@ add("cross.findCandidates", hooks, 'patch(cross, "findCandidates",', 'patch(cros
 for (const method of ["getObject", "getFileByName", "findObjectForFile", "getFirstObject"]) {
   add(`named-${method}`, hooks, `NAMED:${method}`, '', undefined);
 }
-for (const method of ["parse", "parseType", "getDefinition", "getClassDefinition", "getABAPFiles", "getMainABAPFile", "getInclude", "getIncludeFiles", "getIncludes", "getModule", "getModules", "getSequencedFiles", "getSQLViewName", "getDefinitionName", "listBadiDefinitions"]) {
+for (const method of ["parse", "parseType", "parseDomainType", "getDefinition", "getClassDefinition", "getABAPFiles", "getMainABAPFile", "getInclude", "getIncludeFiles", "getIncludes", "getModule", "getModules", "getSequencedFiles", "getSQLViewName", "getDefinitionName", "listBadiDefinitions"]) {
   // Restrict edits to the artifact-method list, not the registry adapters.
   add(`artifact-${method}`, hooks, `ARTIFACT:${method}`, '', {
     getClassDefinition: "getMainABAPFile/getABAPFiles still link the same class owner",

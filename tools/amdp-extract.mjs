@@ -238,16 +238,19 @@ export function extract(source, filename = "x.clas.abap", extraTypeSources = [])
     const params = [];
     const methodParameters = m.parameters ?? [];
     for (const [index, p] of methodParameters.entries()) {
-      const row = p.identifier?.token?.start?.row;
+      // getStart(), not .start: core 2.120.94 made a token its own position
+      // and dropped the field, which left every parameter without a row
+      const at = p.identifier?.token?.getStart?.();
+      const row = at?.getRow?.();
       const line = row === undefined ? "" : (lines[row - 1] ?? "");
       // The token position is authoritative. Searching the line for the
       // parameter text can hit the same spelling inside the method name.
-      const start = Math.max(0, Number(p.identifier?.token?.start?.col ?? 1) - 1);
-      const next = methodParameters[index + 1]?.identifier?.token?.start;
+      const start = Math.max(0, Number(at?.getCol?.() ?? 1) - 1);
+      const next = methodParameters[index + 1]?.identifier?.token?.getStart?.();
       // `OPTIONAL` belongs to this parameter only. Method declarations may
       // put several VALUE(...) parameters on one line, so scanning to EOL
       // lets a later OPTIONAL silently relax every earlier required input.
-      const end = next?.row === row ? Math.max(start, Number(next.col) - 1) : undefined;
+      const end = next !== undefined && row !== undefined && next.getRow() === row ? Math.max(start, Number(next.getCol()) - 1) : undefined;
       const after = line.slice(start, end);
       // A double quote starts an ABAP comment. Words in that prose are not
       // declaration modifiers (`" not OPTIONAL` must stay required).

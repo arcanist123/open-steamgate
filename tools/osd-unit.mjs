@@ -107,9 +107,9 @@ export function unitClasses(store, type, name) {
       // a method's position is where its body is, not where it was
       // declared: a client that follows the URI wants the code
       const bodies = new Map((implementations.get(definition.name.toUpperCase())?.methods ?? [])
-        .map((m) => [m.token.strUpper, m.token.start]));
+        .map((m) => [m.token.strUpper, m.token.getStart()]));
       const methods = definition.methods.filter((m) => m.isForTesting === true).map((m) => {
-        const at = bodies.get(m.name.toUpperCase()) ?? m.identifier?.token?.start;
+        const at = bodies.get(m.name.toUpperCase()) ?? m.identifier?.token?.getStart?.();
         return {
           name: m.name.toUpperCase(),
           // the transpiler keys FRIENDS_ACCESS_INSTANCE and the exports in lower case;
@@ -131,8 +131,8 @@ export function unitClasses(store, type, name) {
         include: includeOf(filename),
         source: filename,
         module: basename(filename).replace(/\.abap$/, ".mjs"),
-        line: definition.identifier?.token?.start?.row ?? 1,
-        column: definition.identifier?.token?.start?.col ?? 1,
+        line: definition.identifier?.token?.getStart?.().getRow() ?? 1,
+        column: definition.identifier?.token?.getStart?.().getCol() ?? 1,
         testMethods: methods,
       });
     }

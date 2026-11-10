@@ -10,17 +10,13 @@ import {keepGeneratedSources} from "../tools/osd-source-snapshot.mjs";
 import {loadFiles, modulesOf} from "../tools/osd-transpile.mjs";
 import {libraryPath} from "../tools/osd-lib-path.mjs";
 
-// The build's exclude_filter entries for this folder hold here too:
-// abap_transpile.json leaves the real-EML demo out (_eml_demo) until the pin
-// lowers EML. (Its generic \.bdef\. / \.ddls\. entries are not taken: the
-// generators read those sources, and so does this test.)
-const excluded = f => (JSON.parse(readFileSync("abap_transpile.json", "utf8")).exclude_filter ?? [])
-  .filter(r => r.startsWith("/src/rap_demo/")).some(r => new RegExp(r).test("/" + f.replace(/\\/g, "/")));
-// the original BO; its twin with handlers in the system's form (_sf, R3) is
-// read by systemForm() and has tests of its own
+// The pin lowers EML, so abap_transpile.json no longer leaves the real-EML
+// demo (_eml_demo) out of this folder. The original BO; its twin with
+// handlers in the system's form (_sf, R3) is read by systemForm() and has
+// tests of its own.
 const sf = f => /_sf\./.test(basename(f));
-const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !excluded(f) && !sf(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
-const systemForm = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !excluded(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !sf(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+const systemForm = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
 // The pool inherits the clean-room bases of the R2 runtime (src/rap/), which
 // lean on the LUW buffer, the CDS source interface and open-abap-core; those
 // are dependencies here, checked but not the subject (`npm run lint` lints

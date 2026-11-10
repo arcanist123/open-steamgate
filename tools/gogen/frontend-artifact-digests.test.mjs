@@ -100,7 +100,9 @@ test("projection includes resolved types, defaults, constants, visibility, alias
   probe("CLAS ZCL_INTERFACE", () => { reg.getObject("CLAS", "ZCL_INTERFACE").getDefinition().getAliases()[0].component = "ZIF_ORACLE~OTHER"; });
   probe("CLAS ZCL_EVENTS", () => { reg.getObject("CLAS", "ZCL_EVENTS").getDefinition().getEvents()[0].is_static = true; });
   const method = reg.getObject("CLAS", "ZCL_POOL_IMPLICIT").syntaxResult.spaghetti.getTop().getChildren()[0].getChildren()[0];
-  probe("CLAS ZCL_POOL_IMPLICIT", () => { method.getData().vars.EXTRA = params.getAll()[0]; });
+  // Core 2.120.94 shares one frozen empty container per scope datum, so a new
+  // variable goes through the setter instead of a raw property write.
+  probe("CLAS ZCL_POOL_IMPLICIT", () => { method.setVariable("EXTRA", params.getAll()[0]); });
 }));
 
 test("borrowed global definition checks semantics at the same coordinates and memoizes repeated fingerprints", () => scratch((dir) => {
