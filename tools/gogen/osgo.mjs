@@ -266,16 +266,55 @@ type adtSystemSession struct {
  resolved ZIF_OSD_ADT_SESSION__TY_SESSION
 }
 func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RESOLVE(s *abap.Session, cookies, headers *[]*IHTTPNVP) ZIF_OSD_ADT_SESSION__TY_SESSION {
- a.resolved = a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__RESOLVE(s, cookies, headers)
+ // the session class's own rows (ZOSD_ADT_SESS and its handles) run on the
+ // state session, outside the step's LUW (workprocesses.go withADTState):
+ // a system's session context is kernel state, it survives a dumped
+ // request, and an ADT read that touches it stays a read step. The class
+ // is the same one either way; only the session it runs on moves.
+ withADTState(a.step, func(state *abap.Session) {
+  a.resolved = a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__RESOLVE(state, cookies, headers)
+ })
  return a.resolved
 }
+// END, ENQ_CONTEXT_ENDED and RELEASE_OBJECT delete the same rows (a plain
+// GET that opened a session and asks nothing of it ends it in the same
+// step): on the state session too, or a read step's query_only connection
+// refuses them (every ADT source read of the slice-5 bench answered 500)
+func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__END(s *abap.Session, id string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__END(state, id) })
+ adtSessionEnded(id) // the logical internal session ends with it (workprocesses.go)
+}
+func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__ENQ_CONTEXT_ENDED(s *abap.Session, id string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__ENQ_CONTEXT_ENDED(state, id) })
+}
+func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RELEASE_OBJECT(s *abap.Session, id, typ, name string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__RELEASE_OBJECT(state, id, typ, name) })
+}
 func (a *adtSystemSession) View() (string, bool) { return a.resolved.${field("id")}, a.resolved.${field("stateful")} == "X" }
-func (a *adtSystemSession) Alive(id string) bool { return a.ZIF_OSD_ADT_SESSION__ALIVE(a.step, id) == "X" }
-func (a *adtSystemSession) Adopt(id, typ, name string) string { return a.ZIF_OSD_ADT_SESSION__ADOPT_HANDLE(a.step, id, typ, name) }
-func (a *adtSystemSession) Forget(id, handle string) (typ, name string) { a.ZIF_OSD_ADT_SESSION__RELEASE_HANDLE(a.step, id, handle, &typ, &name); return }
+func (a *adtSystemSession) Alive(id string) bool {
+ alive := false
+ withADTState(a.step, func(state *abap.Session) { alive = a.ZIF_OSD_ADT_SESSION__ALIVE(state, id) == "X" })
+ return alive
+}
+func (a *adtSystemSession) Adopt(id, typ, name string) string {
+ handle := ""
+ withADTState(a.step, func(state *abap.Session) { handle = a.ZIF_OSD_ADT_SESSION__ADOPT_HANDLE(state, id, typ, name) })
+ return handle
+}
+func (a *adtSystemSession) Forget(id, handle string) (typ, name string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZIF_OSD_ADT_SESSION__RELEASE_HANDLE(state, id, handle, &typ, &name) })
+ return
+}
 func (a *adtSystemSession) Holds(handle, typ, name string) bool {
  id := a.resolved.${field("id")}
- if id == "" || handle == "" || !a.Alive(id) || a.ZIF_OSD_ADT_SESSION__HOLDS(a.step, id, handle, typ, name) != "X" { return false }
+ if id == "" || handle == "" || !a.Alive(id) {
+  return false
+ }
+ held := false
+ withADTState(a.step, func(state *abap.Session) { held = a.ZIF_OSD_ADT_SESSION__HOLDS(state, id, handle, typ, name) == "X" })
+ if !held {
+  return false
+ }
  holder, found := (adtsystem.ENQHolders{Server: adtLocks, Kernel: adtKernel, Client: abap.Mandt}).Holder(typ, name)
  return found && holder == adtKernel.Owner().Key(id)
 }

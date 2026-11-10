@@ -6,7 +6,11 @@
 // instrument -- the rule in CLAUDE.md "same instrument for speed".
 //
 //   node tools/osd-bench-http.mjs --url http://localhost:3095/health [--clients 1,4,16] [--seconds 5] [--warmup 1]
-//                                 [--timeout 30] [--header 'Accept: application/json'] [--json]
+//                                 [--timeout 30] [--header 'Accept: application/json'] [--method GET] [--data '<body>'] [--json]
+//
+// --method and --data are the write mix of ADR 0010 slice 5: the same
+// closed loop over a modifying request (a MERGE with its CSRF token and
+// session cookie in --header, fetched once before the run).
 //
 // Each clients value is one run; the runs go one after another, never
 // together. The measurement window is [warmup, warmup + seconds) from the
@@ -33,10 +37,12 @@ const {values} = parseArgs({options: {
   warmup: {type: "string", default: "1"},
   timeout: {type: "string", default: "30"},
   header: {type: "string", multiple: true, default: []},
+  method: {type: "string", default: "GET"},
+  data: {type: "string"},
   json: {type: "boolean", default: false},
   help: {type: "boolean", default: false},
 }});
-const usage = "usage: node tools/osd-bench-http.mjs --url <url> [--clients 1,4,16] [--seconds 5] [--warmup 1] [--timeout 30] [--header 'K: V'] [--json]";
+const usage = "usage: node tools/osd-bench-http.mjs --url <url> [--clients 1,4,16] [--seconds 5] [--warmup 1] [--timeout 30] [--header 'K: V'] [--method GET] [--data '<body>'] [--json]";
 if (values.help) {
   console.log(usage);
   process.exit(0);
@@ -56,6 +62,11 @@ const clientCounts = values.clients.split(",").map((s) => s.trim()).filter((s) =
 if (clientCounts.length === 0 || clientCounts.some((n) => !Number.isInteger(n) || n <= 0)) {
   fail(`--clients must be positive integers separated by commas, got ${values.clients}`);
 }
+const method = values.method.toUpperCase();
+if (!["GET", "HEAD", "POST", "PUT", "MERGE", "PATCH", "DELETE"].includes(method)) {
+  fail(`--method must be an HTTP method the hosts answer, got ${values.method}`);
+}
+const body = values.data;
 const headers = Object.fromEntries(values.header.map((h) => {
   const i = h.indexOf(":");
   if (i <= 0) fail(`--header must be 'Name: value', got ${h}`);
@@ -83,7 +94,7 @@ async function run(clients) {
       let ok = false;
       let status;
       try {
-        const res = await fetch(values.url, {headers, signal: AbortSignal.timeout(timeoutMs)});
+        const res = await fetch(values.url, {method, headers, body: body === undefined ? undefined : body, signal: AbortSignal.timeout(timeoutMs)});
         await res.arrayBuffer();
         ok = res.status < 400;
         status = res.status;

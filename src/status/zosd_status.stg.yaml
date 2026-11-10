@@ -69,6 +69,24 @@ entities:
       RssMb: {type: Int32, field: RSSMB, readonly: true, label: RSS (MB)}
       Alive: {type: String(1), field: ALIVE, readonly: true, label: Alive}
 
+  WorkProcess:
+    set: WorkProcessSet
+    description: "the work processes of this sidecar (ZOSD_WP, the SM50 shape)"
+    source: {cds: ZC_OSD_WP, struct: "ZCL_STG_CDS_ZVOSDWP=>TY_ROW"}
+    keys: [Wpno]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Wpno: {type: Int32, field: WPNO, readonly: true, label: Work process}
+      Kind: {type: String(4), field: KIND, readonly: true, label: Kind}
+      State: {type: String(10), field: STATE, readonly: true, label: State}
+      Generation: {type: String(40), field: GENERATION, readonly: true, label: Generation}
+      Started: {type: String(30), field: STARTED, readonly: true, label: Step started}
+      Username: {type: String(12), field: USERNAME, readonly: true, label: User}
+      Report: {type: String(60), field: REPORT, readonly: true, label: Report}
+
   Port:
     set: PortSet
     description: "the ports of this instance"

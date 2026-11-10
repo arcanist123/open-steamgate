@@ -48,6 +48,11 @@ func (s *Session) conn() querier {
 func (s *Session) StepQuerier() any { return s.plainConn() }
 
 func (s *Session) plainConn() querier {
+	// a work-process step runs on its lent connection (stepconn.go), the
+	// transaction the kernel opened on it included
+	if s.stepConn != nil {
+		return s.stepConn
+	}
 	// database may lazily open the Unit class's image and its transaction.
 	d := s.database()
 	if s.tx != nil {
@@ -60,12 +65,13 @@ func (s *Session) plainConn() querier {
 // usable refuses, by name, a statement outside a step that the pool could
 // only queue forever or that would reach a closed pool: the one connection
 // (db.go) held by another session's step is refused, not queued, as begin
-// refuses a second step.
+// refuses a second step. A pooled database (OpenPool) has a connection per
+// work process, so no step holds the one connection another would wait for.
 func (d *Database) usable(s *Session) {
 	if d.sql == nil {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "database is closed"})
 	}
-	if d.inStep != nil && d.inStep != s {
+	if !d.pooled && d.inStep != nil && d.inStep != s {
 		panic(NotCompiled("database", "a dialog step of another session holds this database's one connection"))
 	}
 }
@@ -112,9 +118,14 @@ func cacheable(q string) bool {
 
 func (s *Session) stmtFor(q string) *sql.Stmt {
 	d := s.DB
+	// a work-process step's statements are cached on its connection
+	// (go/workpool), which holds the transaction they run in
+	if s.stepConn != nil {
+		return nil
+	}
 	// outside a step while another session's step holds the connection,
 	// the pool would queue: plainConn refuses it instead
-	if d == nil || d.sql == nil || (s.tx == nil && d.inStep != nil) {
+	if d == nil || d.sql == nil || (s.tx == nil && d.inStep != nil && !d.pooled) {
 		return nil
 	}
 	if p, ok := d.stmtCache[q]; ok {
@@ -169,7 +180,8 @@ func (s *Session) begin() {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "database is closed"})
 	}
 	// one connection in the pool (db.go): a second Begin would wait for the
-	// first forever rather than fail
+	// first forever rather than fail. A pooled database (OpenPool) runs its
+	// steps on their own lent connections and never comes here.
 	if s.tx != nil {
 		panic(NotCompiled("dialog step", "a dialog step is already open"))
 	}
@@ -208,8 +220,9 @@ func (s *Session) end(commit bool) {
 	}
 }
 
-// InStep says whether the session's dialog step is open (its transaction).
-func (s *Session) InStep() bool { return s.tx != nil }
+// InStep says whether the session's dialog step is open (its transaction,
+// on the database's connection or on the one a work process lent).
+func (s *Session) InStep() bool { return s.tx != nil || s.stepOpen }
 
 // DialogStep runs one step of work of the session in a database LUW of its
 // own: committed when work returns, rolled back when it panics (the panic
@@ -251,6 +264,12 @@ func (s *Session) YieldSleep(d time.Duration) {
 		time.Sleep(d)
 		return
 	}
+	// a step on a lent connection (stepconn.go): the pool's Yield gives the
+	// work process up and lends another, the transaction reopened around it
+	if s.Yield != nil {
+		s.Yield(d)
+		return
+	}
 	if !s.HoldsWorkProcess {
 		CommitWork(s)
 		time.Sleep(d)
@@ -285,7 +304,10 @@ func BeginUnitLUW(s *Session) {
 // CommitWork is COMMIT WORK [AND WAIT]. Outside a dialog step it has
 // nothing to do: autocommit already made every write durable.
 func CommitWork(s *Session) {
-	if s.tx != nil {
+	if s.stepOpen { // a work-process step: the same on the lent connection
+		s.pooledEnd(true)
+		s.pooledBegin()
+	} else if s.tx != nil {
 		s.end(true)
 		s.begin()
 	}
@@ -297,10 +319,12 @@ func CommitWork(s *Session) {
 // could undo: refused rather than answered 0 as if it had undone it. Without
 // a database (a harness that runs no SQL) there is nothing written either.
 func RollbackWork(s *Session) {
-	if s.tx == nil && s.DB != nil {
+	if s.stepOpen { // a work-process step: the same on the lent connection
+		s.pooledEnd(false)
+		s.pooledBegin()
+	} else if s.tx == nil && s.DB != nil {
 		panic(NotCompiled("ROLLBACK WORK", "outside a dialog step, where every statement already committed"))
-	}
-	if s.tx != nil {
+	} else if s.tx != nil {
 		s.end(false)
 		s.begin()
 	}

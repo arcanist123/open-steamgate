@@ -33,6 +33,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 	"sort"
@@ -50,6 +51,7 @@ import (
 	"osg/gogen/profiling"
 	"osg/gogen/storecompiler"
 	"osg/gogen/sysid"
+	"osg/gogen/workpool"
 )
 
 //go:embed zz_db.json
@@ -133,9 +135,11 @@ func channelRoutes() func(w http.ResponseWriter, r *http.Request) bool {
 		// that rewrites Host a same-origin rule would refuse every page
 		// (ultra/packs review); Handler names the class in a start dump's 503
 		ch := &apc.Channel{Name: c.Name, Handler: c.Handler, AnyOrigin: true,
-			New:        func(s *abap.Session, r *http.Request) apc.Host { return newAPCHost(s, c.Handler, r) },
-			Step:       runAPCStep,
-			NewSession: func() *abap.Session { return instance.NewSession() }}
+			New:  func(s *abap.Session, r *http.Request) apc.Host { return newAPCHost(s, c.Handler, r) },
+			Step: runAPCStep,
+			// a channel is one logical internal session: its statics are its
+			// own, and its steps run one at a time on the channel's socket
+			NewSession: func() *abap.Session { return &abap.Session{DB: instance.DB, Shared: instance.Statics} }}
 		byPath[c.Path] = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// the receipt the Node host writes into its 101 (tools/osd-apc.mjs)
 			w.Header().Set("X-OSD-Channel", c.Name)
@@ -233,31 +237,33 @@ func dumpText(r any) string {
 	return castdiag.DumpText(r)
 }
 
-// step runs one ICF request through the shim as a dialog step. The dump, if
-// there is one, comes back with its ABAP frames; the response is then not
-// the shim's.
-func step(x *abap.ICFExchange, base string, profileRoute func(string)) (dump any, frames []string) {
-	workProcess.Lock()
-	defer workProcess.Unlock()
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				dump, frames = r, abapStack(r)
-			}
-		}()
-		s := instance.NewSession()
+// step runs one ICF request through the shim as a dialog step on a work
+// process (workprocesses.go): the logical session borrowed by the kind's
+// transaction. The dump, if there is one, comes back with its ABAP frames;
+// the response is then not the shim's.
+func step(x *abap.ICFExchange, base string, r *http.Request, profileRoute func(string)) (dump any, frames []string) {
+	work := func(s *abap.Session) {
 		s.ProfileRoute = profileRoute
 		dialog := func() {
-			abap.DialogStepIn(s, func() {
-				runShim(s, x, base)
-				if base == "/sap/bc/adt" {
-					completeADTWrite(s, x)
-				}
-			})
+			runShim(s, x, base)
+			if base == "/sap/bc/adt" {
+				completeADTWrite(s, x)
+			}
 		}
 		runDialogStep(s, dialog, base == "/sap/bc/adt" || base == "/sap/public/bc/icf/logoff")
-	}()
+	}
+	dump, frames, _ = runWorkStep(r, stepKindOf(x.Method, base), adtSessionKey(r), stepReport(x.Method, x.Path, base), work)
 	return dump, frames
+}
+
+// stepReport names the step in its work-process row (ZOSD_WP-REPORT): the
+// service and the path the SM50 shape shows.
+func stepReport(method, path, base string) string {
+	p := strings.TrimPrefix(strings.TrimPrefix(path, strings.TrimSuffix(base, "/")), "/")
+	if p == "" {
+		return strings.Trim(base, "/")
+	}
+	return strings.Trim(base, "/") + " " + p
 }
 
 func runDialogStep(s *abap.Session, dialog func(), adt bool) {
@@ -284,7 +290,24 @@ func runDialogStep(s *abap.Session, dialog func(), adt bool) {
 
 func runAPCStep(s *abap.Session, name string, work func()) error {
 	adtHost.Begin(s)
-	err := abap.APCStep(s, name, work)
+	var err error
+	if wp == nil {
+		err = abap.APCStep(s, name, work)
+	} else {
+		// an APC message is a modifying step (ADR 0010): on a work process,
+		// the channel's session borrowed, a dump returned as APCStep does
+		if stepErr := wp.Step(context.Background(), workpool.Write, func(st *workpool.Step) {
+			st.SetReport("APC " + name)
+			defer func() {
+				if r := recover(); r != nil {
+					err = &abap.ErrDump{Step: name, Dump: r}
+				}
+			}()
+			abap.DialogStepOn(s, stepKindOn(st), st, work)
+		}); stepErr != nil {
+			err = stepErr
+		}
+	}
 	adtHost.Finish(s, err != nil)
 	return err
 }
@@ -309,7 +332,7 @@ func icfHandler(class, base string, onDump func(w http.ResponseWriter, r *http.R
 		if _, ok := pprof.Label(r.Context(), "path"); ok {
 			label = func(template string) { profiling.Matched(r, template) }
 		}
-		if dump, frames := step(x, base, label); dump != nil {
+		if dump, frames := step(x, base, r, label); dump != nil {
 			log.Printf("runtime error: %s %s: %s  at %s", r.Method, r.RequestURI, dumpText(dump), strings.Join(frames, " <- "))
 			onDump(w, r, dump, frames)
 			return
@@ -498,6 +521,7 @@ func main() {
 	sidecarDir := flag.String("sidecar", "", "run as a gateway's work sidecar (cmd/osgw): HTTP on <dir>/http-<pid>.sock, locks from <dir>/enq.sock")
 	candidateFlag := flag.Bool("candidate", false, "with -sidecar: start as a swap candidate, the database read-only and the boot writes deferred to the gateway's POST /osd/promote (candidate.go)")
 	gatewayBuilds := flag.Bool("gateway-builds", false, "with -sidecar: the gateway builds a new generation after an activation; the activation answer says so (candidate.go)")
+	wpFlag := flag.Int("wp", 0, "work processes over the database, each a connection of its own (OSD_WPS, else the cores; an in-memory database keeps one)")
 	flag.Parse()
 	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
 	if lintErr != nil {
@@ -561,6 +585,10 @@ func main() {
 		log.Printf("pprof: http://%s/debug/pprof/ (separate loopback listener)", profileListener.Addr())
 	}
 	abap.HostFacts = append(abap.HostFacts, "host\tosgo: net/http in front of cl_express_icf_shim, one dialog step per request", buildFacts)
+	if wp != nil {
+		abap.HostFacts = append(abap.HostFacts, fmt.Sprintf("work processes\t%d of %d asked for; read steps deferred and query_only, modifying steps BEGIN IMMEDIATE, busy_timeout %s",
+			wp.Workers(), workProcesses(strconv.Itoa(*wpFlag), os.LookupEnv, runtime.NumCPU()), workpool.DefaultBusyTimeout))
+	}
 
 	if *media == "" {
 		if exe, err := os.Executable(); err == nil {
@@ -598,14 +626,17 @@ func main() {
 	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
 
 	openDatabase(*dbFile, *sidecarDir) // database.go
+	openWorkProcesses(*dbFile, workProcesses(strconv.Itoa(*wpFlag), os.LookupEnv, runtime.NumCPU()))
+	mintADTState() // the ADT session rows outside the step's LUW (workprocesses.go)
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Fatalf("boot: %s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
 			}
 		}()
-		s := instance.NewSession()
-		abap.DialogStep(s, func() { boot(s) })
+		if err := runSystemStep(abap.WriteStep, "boot", func(s *abap.Session) { boot(s) }); err != nil {
+			log.Fatalf("boot: %v", err)
+		}
 	}()
 	// the synthetic demo rows: a candidate writes them when it is promoted
 	if !candidate.Load() {

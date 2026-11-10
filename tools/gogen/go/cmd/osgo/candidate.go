@@ -86,8 +86,8 @@ func promoteRoute(dbFile string, status statusHost) route {
 }
 
 func promote(dbFile string) error {
-	workProcess.Lock()
-	defer workProcess.Unlock()
+	stepLock().Lock()
+	defer stepLock().Unlock()
 	if !candidate.Load() {
 		return nil // promoted already
 	}
@@ -100,7 +100,14 @@ func promote(dbFile string) error {
 	if readOnly != nil {
 		_ = readOnly.Close()
 	}
+	// the pool's connections were the read-only database's: new ones, on the
+	// file as it is open now, for the writes a serving generation runs
+	if wp != nil {
+		wp.Close()
+	}
 	candidate.Store(false)
+	openWorkProcesses(dbFile, workProcessCount)
+	mintADTState()
 	runDemoData() // a dump there is logged, and the generation serves without the rows
 	return nil
 }

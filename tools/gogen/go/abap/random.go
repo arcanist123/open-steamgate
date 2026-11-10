@@ -23,4 +23,4 @@ var seeded bool
 var state uint32
 
 // SeedRandom makes RandomInt a fixed sequence (harnesses only).
-func SeedRandom(seed uint32)	{ seeded, state = true, seed }
+func SeedRandom(seed uint32) { seeded, state = true, seed }

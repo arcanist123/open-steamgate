@@ -18,30 +18,30 @@ import (
 // a component knows how to reach its field inside a struct, a table how many
 // rows it has and where row i lives. Elementary ones are here.
 type Type struct {
-	Kind	byte	// cl_abap_typedescr=>typekind_*: I 8 F g y C X D T u h l
-	Len	int
-	Comps	[]Comp
-	Row	*Type
-	Lines	func(p any) int
-	At	func(p any, i int) any
+	Kind  byte // cl_abap_typedescr=>typekind_*: I 8 F g y C X D T u h l
+	Len   int
+	Comps []Comp
+	Row   *Type
+	Lines func(p any) int
+	At    func(p any, i int) any
 	// Copy moves a whole structure or table of this type (tables cloned);
 	// Zero clears one. Generated with the descriptor.
-	Copy	func(dst, src any)
-	Zero	func(p any)
+	Copy func(dst, src any)
+	Zero func(p any)
 	// Append adds an initial row to a standard table and returns it; nil
 	// for a hashed table, whose rows only a keyed INSERT may add
-	Append	func(p any) any
+	Append func(p any) any
 	// Delete removes row i (from 0) of a standard table; nil for a hashed one
-	Delete	func(p any, i int)
+	Delete func(p any, i int)
 	// New allocates a new initial value of this type and returns its
 	// address (CREATE DATA through a descriptor, tables.go NewData)
-	New	func() any
+	New func() any
 	// Name and DDIC: the type's name as the transpiler's runtime carries it
 	// (abaplint's qualified name, upper case) and the dictionary type it
 	// comes from, for RTTI's absolute names (rtti.go); empty when the
 	// front end gave none (ultra/json)
-	Name	string
-	DDIC	string
+	Name string
+	DDIC string
 }
 
 var named sync.Map
@@ -60,17 +60,17 @@ func Named(base *Type, name, ddic string) *Type {
 }
 
 type Comp struct {
-	Name	string
-	T	*Type
-	Get	func(p any) any
+	Name string
+	T    *Type
+	Get  func(p any) any
 }
 
 // Data is a generic value, a field symbol TYPE any, or a data reference. P
 // nil is an unassigned field symbol or an initial reference.
 type Data struct {
-	P	any
-	T	*Type
-	Valid	func() bool	// retained table-row reference; false after its row is deleted
+	P     any
+	T     *Type
+	Valid func() bool // retained table-row reference; false after its row is deleted
 }
 
 // RowRef keeps the row's address, including when its table grows or shifts.
@@ -93,19 +93,19 @@ func (d Data) Check() {
 }
 
 var (
-	TI		= &Type{Kind: 'I', Len: 4}
-	TInt8		= &Type{Kind: '8', Len: 8}
-	TF		= &Type{Kind: 'F', Len: 8}
-	TString		= &Type{Kind: 'g'}
-	TXString	= &Type{Kind: 'y'}
-	TD		= &Type{Kind: 'D', Len: 8}
-	TT		= &Type{Kind: 'T', Len: 6}
-	TRef		= &Type{Kind: 'l'}
+	TI       = &Type{Kind: 'I', Len: 4}
+	TInt8    = &Type{Kind: '8', Len: 8}
+	TF       = &Type{Kind: 'F', Len: 8}
+	TString  = &Type{Kind: 'g'}
+	TXString = &Type{Kind: 'y'}
+	TD       = &Type{Kind: 'D', Len: 8}
+	TT       = &Type{Kind: 'T', Len: 6}
+	TRef     = &Type{Kind: 'l'}
 )
 
 var (
-	sized	sync.Map
-	sizedMu	sync.Mutex
+	sized   sync.Map
+	sizedMu sync.Mutex
 )
 
 func sizedType(kind byte, n int) *Type {
@@ -120,11 +120,11 @@ func sizedType(kind byte, n int) *Type {
 }
 
 // TC and TX are c and x of a length.
-func TC(n int) *Type	{ return sizedType('C', n) }
-func TX(n int) *Type	{ return sizedType('X', n) }
+func TC(n int) *Type { return sizedType('C', n) }
+func TX(n int) *Type { return sizedType('X', n) }
 
 // TN is n of a length, carried as its digits.
-func TN(n int) *Type	{ return sizedType('N', n) }
+func TN(n int) *Type { return sizedType('N', n) }
 
 func itoa(n int) string {
 	if n == 0 {
@@ -219,6 +219,7 @@ func DataString(d Data) string {
 	}
 	panic(NotCompiled("move", "a generic value of type kind "+string(d.T.Kind)+" into a string"))
 }
+
 // DataI is a generic value moved into an i.
 func DataI(d Data) int32 {
 	d.Check()
@@ -227,6 +228,7 @@ func DataI(d Data) int32 {
 	}
 	panic(NotCompiled("move", "a generic value of type kind "+string(d.T.Kind)+" into an i"))
 }
+
 // FmtData is a generic value in a string template.
 func FmtData(d Data) string {
 	d.Check()
@@ -342,15 +344,15 @@ func DataBound(d Data) bool {
 
 // TP is p of a length and number of decimals, Len = n*100 + dec. A p value
 // is carried as its decimal text with its decimals (packed.go).
-func TP(n, dec int) *Type	{ return sizedType('P', n*100+dec) }
+func TP(n, dec int) *Type { return sizedType('P', n*100+dec) }
 
 // InitialCh is IS INITIAL of a d, t or n value: "" (a structure field never
 // set) or its typed zero.
-func InitialCh(v, zero string) bool	{ return v == "" || v == zero }
+func InitialCh(v, zero string) bool { return v == "" || v == zero }
 
 // IsInitialOf is IS INITIAL of a typed value through its descriptor, for a
 // structure whose initial value is not Go's zero value.
-func IsInitialOf[T any](v T, t *Type) bool	{ return IsInitialData(Data{P: &v, T: t}) }
+func IsInitialOf[T any](v T, t *Type) bool { return IsInitialData(Data{P: &v, T: t}) }
 
 // InsertData is INSERT v INTO TABLE <generic table> (ultra/json): a
 // standard table takes the row at the end, as INSERT INTO TABLE does to a

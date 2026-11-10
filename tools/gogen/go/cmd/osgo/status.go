@@ -17,8 +17,10 @@ package main
 //     (buildGeneration, "go:" and 16 hex digits, zz_status.go); gen_live the
 //     tree's live generation (-root/build/live), which names a Node build, so
 //     synced is true only if the two ever are one name, which they are not;
-//   - workers 0 and one process, role "facade", as the Node host inline:
-//     OSGo has no work processes of its own;
+//   - workers M (the work processes of go/workpool, ADR 0010 slice 5) and
+//     one process, role "facade", as the Node host inline: the work
+//     processes are goroutines of this process, not pool children, and
+//     their rows are the workprocesses section (ZOSD_WP, the SM50 shape);
 //   - ports: this listener only. The RFC and DIAG rows Node adds are its
 //     built-in JS protocol listeners, which OSGo does not have;
 //   - services: the OData services and SICF nodes this binary serves
@@ -92,6 +94,21 @@ type statusProcess struct {
 	Alive      bool   `json:"alive"`
 }
 
+// statusWP is one work process of the sidecar (ZOSD_WP): what a system's
+// SM50 shows, the dispatcher's table as data. The host records each step's
+// begin and end in the pool's registry; the rows land here, at the refresh
+// the other tables land at, because a read step's connection is query_only
+// and writes nothing.
+type statusWP struct {
+	Wpno       int    `json:"wpno"`
+	Kind       string `json:"kind"`
+	State      string `json:"state"`
+	Generation string `json:"generation"`
+	Started    string `json:"started"`
+	User       string `json:"user"`
+	Report     string `json:"report"`
+}
+
 type statusPort struct {
 	Port     int    `json:"port"`
 	Protocol string `json:"protocol"`
@@ -108,12 +125,13 @@ type statusFact struct {
 }
 
 type statusSnapshotJSON struct {
-	System    statusSystem    `json:"system"`
-	Processes []statusProcess `json:"processes"`
-	Ports     []statusPort    `json:"ports"`
-	Services  []statusService `json:"services"`
-	Packs     []statusPack    `json:"packs"`
-	Database  []statusFact    `json:"database"`
+	System        statusSystem    `json:"system"`
+	Processes     []statusProcess `json:"processes"`
+	WorkProcesses []statusWP      `json:"workprocesses"`
+	Ports         []statusPort    `json:"ports"`
+	Services      []statusService `json:"services"`
+	Packs         []statusPack    `json:"packs"`
+	Database      []statusFact    `json:"database"`
 }
 
 // statusHost is what the snapshot needs of main: the listener, the tree,
@@ -394,15 +412,26 @@ func statusSnapshot(h statusHost) []byte {
 	if h.dbFile != "" {
 		storage, note = "file", "persistent database storage"
 	}
+	workers := 0
+	var wps []statusWP
+	if wp != nil {
+		workers = wp.Workers()
+		for _, row := range wpSnapshot() {
+			wps = append(wps, statusWP{Wpno: row.Number, Kind: row.Kind, State: row.State,
+				Generation: row.Generation, Started: wpStarted(row.Started),
+				User: safeLabel(abap.UName), Report: safeLabel(row.Report)})
+		}
+	}
 	snap := statusSnapshotJSON{
 		System: statusSystem{Sid: strings.TrimSpace(abap.SysID), HostKind: "abap-go", GenLive: live, GenServing: buildGeneration,
-			Synced: live != "" && live == buildGeneration, Workers: 0, StartedAt: isoTime(h.started), SnapAt: isoTime(now),
+			Synced: live != "" && live == buildGeneration, Workers: workers, StartedAt: isoTime(h.started), SnapAt: isoTime(now),
 			RootHint: filepath.Base(root), Pid: os.Getpid()},
 		Processes: []statusProcess{{Pid: os.Getpid(), Role: "facade", Port: h.port, Generation: buildGeneration, Epoch: 0,
 			Since: isoTime(h.started), Sockets: countState(rows, h.port, 0x01), RssMb: rssMb(), Alive: true}},
-		Ports:    []statusPort{{Port: h.port, Protocol: "HTTP", Purpose: "OData, apps, ICF", State: state, Note: ""}},
-		Services: services,
-		Packs:    append([]statusPack{}, statusPacksServed...),
+		WorkProcesses: wps,
+		Ports:         []statusPort{{Port: h.port, Protocol: "HTTP", Purpose: "OData, apps, ICF", State: state, Note: ""}},
+		Services:      services,
+		Packs:         append([]statusPack{}, statusPacksServed...),
 		Database: append([]statusFact{
 			{"Database", "Engine", "sqlite", "connected backend"},
 			{"Database", "Storage", storage, note},
@@ -416,20 +445,23 @@ func statusSnapshot(h statusHost) []byte {
 }
 
 // refreshStatus writes the snapshot into the status tables through the
-// compiled ZCL_OSD_STATUS=>REFRESH, one dialog step in the work process;
-// the rows written, or the error that stopped it
+// compiled ZCL_OSD_STATUS=>REFRESH, one modifying dialog step on a work
+// process (the five tables are rows); the rows written, or the error that
+// stopped it
 func refreshStatus(h statusHost) (rows int32, err error) {
 	body := string(statusSnapshot(h))
-	workProcess.Lock()
-	defer workProcess.Unlock()
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
-		}
-	}()
-	s := instance.NewSession()
-	abap.DialogStepIn(s, func() { rows = statusRefresh(s, body) })
-	return rows, nil
+	stepErr := runSystemStep(abap.WriteStep, "status refresh", func(s *abap.Session) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("%s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
+			}
+		}()
+		rows = statusRefresh(s, body)
+	})
+	if err == nil {
+		err = stepErr
+	}
+	return rows, err
 }
 
 // freshPath: a route at or below one of statusFreshPrefixes (the glob
