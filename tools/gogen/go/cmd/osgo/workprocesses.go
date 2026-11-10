@@ -70,6 +70,7 @@ func openWorkProcesses(dbFile string, count int) {
 		workers, spare = 1, 0
 	}
 	instance.DB.OpenPool(workers, spare)
+	adtStateSpare = spare > 0
 	p, err := workpool.New(workpool.Options{DB: instance.DB.SQL(), Workers: workers,
 		ReadOnly: candidate.Load(), Generation: buildGeneration})
 	if err != nil {
@@ -93,6 +94,10 @@ func openWorkProcesses(dbFile string, count int) {
 // the whole ADT step runs as the modifying step it is.
 var adtReadSteps bool
 
+// adtStateSpare says the pool made the spare connection the state session
+// runs on; an in-memory database has none.
+var adtStateSpare bool
+
 // adtState is where the ADT session class keeps its rows: a session of its
 // own on the spare connection, outside the step's LUW. A system's session
 // context is kernel state, not business data -- it must survive a dumped
@@ -106,17 +111,29 @@ var adtState struct {
 	s  *abap.Session
 }
 
-// withADTState runs the ADT session class's persistence on that session.
-// The generated adapter (zz_adt_session.go) wraps every call of the class
-// in this, so its rows leave the step's transaction whatever route ran it.
-func withADTState(run func(*abap.Session)) {
+// withADTState runs the ADT session class's persistence on that session,
+// or -- on the one connection of an in-memory database, where the work
+// process holds it -- on the step's own session, as it always ran. The
+// generated adapter (zz_adt_session.go) wraps every call of the class in
+// this, so its rows leave the step's transaction wherever there is a
+// connection for them.
+func withADTState(step *abap.Session, run func(*abap.Session)) {
+	if adtState.s == nil {
+		run(step)
+		return
+	}
 	adtState.mu.Lock()
 	defer adtState.mu.Unlock()
 	run(adtState.s)
 }
 
-// mintADTState makes the state session once the instance has its database.
+// mintADTState makes the state session once the instance has its database:
+// on the spare connection, when there is one (a file); an in-memory
+// database has none, and the rows stay in the step.
 func mintADTState() {
+	if !adtStateSpare {
+		return
+	}
 	adtState.s = &abap.Session{DB: instance.DB, Shared: instance.Statics}
 }
 

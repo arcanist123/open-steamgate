@@ -289,7 +289,6 @@ CLASS zcl_osd_status IMPLEMENTATION.
     DATA ls_pack_in TYPE ty_pack.
     DATA ls_sys     TYPE zosd_sys.
     DATA ls_proc    TYPE zosd_proc.
-    DATA ls_wp      TYPE zosd_wp.
     DATA ls_port    TYPE zosd_port.
     DATA ls_svc     TYPE zosd_svc.
     DATA ls_pack    TYPE zosd_pack.
@@ -488,13 +487,13 @@ CLASS zcl_osd_status IMPLEMENTATION.
     DATA ls_snap    TYPE ty_snapshot.
     DATA ls_proc_out TYPE ty_process.
     DATA ls_wp_out   TYPE ty_wp.
+    DATA ls_wp       TYPE zosd_wp.
     DATA ls_port_out TYPE ty_port.
     DATA ls_svc_out  TYPE ty_service.
     DATA ls_pack_out TYPE ty_pack.
     DATA ls_db_out   TYPE ty_dbfact.
     DATA ls_sys     TYPE zosd_sys.
     DATA ls_proc    TYPE zosd_proc.
-    DATA ls_wp      TYPE zosd_wp.
     DATA ls_port    TYPE zosd_port.
     DATA ls_svc     TYPE zosd_svc.
     DATA ls_pack    TYPE zosd_pack.
