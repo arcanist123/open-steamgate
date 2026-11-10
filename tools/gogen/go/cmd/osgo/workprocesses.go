@@ -155,7 +155,7 @@ func withADTState(step *abap.Session, run func(*abap.Session)) {
 			}
 			adtState.tuned = true
 		}
-		abap.DialogStepOn(adtState.s, kind, st, func() { run(adtState.s) })
+		abap.DialogStepOn(adtState.s, stepKindOn(st), st, func() { run(adtState.s) })
 	})
 	if err != nil { // the state work process is closed: the host is stopping
 		panic(abap.ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
@@ -319,11 +319,18 @@ func runWorkStep(r *http.Request, kind abap.StepKind, key, report string, work f
 		sess, done := sessions.stepSession(key)
 		defer done()
 		s := &abap.Session{DB: instance.DB, Statics: sess.statics, Shared: instance.Statics}
-		abap.DialogStepOn(s, kind, st, func() { work(s) })
+		abap.DialogStepOn(s, stepKindOn(st), st, func() { work(s) })
 		sess.statics = s.Statics
 	})
 	return dump, frames, err
 }
+
+// stepKindOn is the kind the kernel opens the step's transaction with: the
+// one the pool lent the work process for. A read-only pool (a candidate
+// generation, query_only until promoted) lends every step as a read, and
+// BEGIN IMMEDIATE on its connection is refused ("attempt to write a
+// readonly database"): the candidate's boot died of it in the CI swap test.
+func stepKindOn(st *workpool.Step) abap.StepKind { return abap.StepKind(st.Kind()) }
 
 // requestContext is the request's, so a client that goes away fences the
 // statements of its step (sqlite3_interrupt through the driver).
@@ -347,7 +354,7 @@ func runSystemStep(kind abap.StepKind, report string, work func(s *abap.Session)
 		sess, done := sessions.stepSession("osgo-system")
 		defer done()
 		s := &abap.Session{DB: instance.DB, Statics: sess.statics, Shared: instance.Statics}
-		abap.DialogStepOn(s, kind, st, func() { work(s) })
+		abap.DialogStepOn(s, stepKindOn(st), st, func() { work(s) })
 		sess.statics = s.Statics
 	})
 }

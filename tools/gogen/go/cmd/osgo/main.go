@@ -303,7 +303,7 @@ func runAPCStep(s *abap.Session, name string, work func()) error {
 					err = &abap.ErrDump{Step: name, Dump: r}
 				}
 			}()
-			abap.DialogStepOn(s, abap.WriteStep, st, work)
+			abap.DialogStepOn(s, stepKindOn(st), st, work)
 		}); stepErr != nil {
 			err = stepErr
 		}

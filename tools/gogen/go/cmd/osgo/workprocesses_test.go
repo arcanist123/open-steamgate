@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -231,5 +232,32 @@ func TestADTStateOnlyOutsideWriteSteps(t *testing.T) {
 	}
 	if !adtState.tuned {
 		t.Error("the state connection's synchronous pragma was not set")
+	}
+}
+
+// A candidate's pool is read-only: every step is lent as a read, and the
+// kernel must open it as one (BEGIN, not BEGIN IMMEDIATE, on a query_only
+// connection), or the candidate's boot dies before it can be smoked.
+func TestStepKindFollowsAReadOnlyPool(t *testing.T) {
+	d, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "cand.sqlite")+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.Exec("CREATE TABLE r (id INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := workpool.New(workpool.Options{DB: d, Workers: 1, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if err := p.Step(context.Background(), workpool.Write, func(st *workpool.Step) {
+		if k := stepKindOn(st); k != abap.ReadStep {
+			t.Errorf("a read-only pool's step opens as %v", k)
+		}
+		abap.DialogStepOn(&abap.Session{}, stepKindOn(st), st, func() {})
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
