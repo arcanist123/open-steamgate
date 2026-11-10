@@ -1,4 +1,5 @@
 import {test, expect} from "@playwright/test";
+import {launchpadTile} from "./launchpad-navigation.shared.mjs";
 // the port of the gateway under test: STG_PORT, as test/start.mjs reads it, so sessions do not collide on 3030
 const PORT = process.env.STG_PORT ?? 3030;
 const V4 = "/sap/opu/odata4/sap/ZSTG_DEMO_SRV";
@@ -135,7 +136,9 @@ test("create: NewAction asks for the key, Save creates through the DPC", async (
 
 test("the launchpad tile opens the V4 app", async ({page}) => {
   await page.goto("/app/flp.html");
-  await page.getByText("Travels (OData V4)").first().click();
-  await expect(page).toHaveURL(/#TravelV4-manage/);
+  const tile = launchpadTile(page, "TravelV4-manage");
+  await expect(tile).toContainText("OData V4 Travels");
+  await tile.click();
+  await expect(page).toHaveURL(/#TravelV4-manage(?:$|[?&])/);
   await expect(page.getByText("Berlin to Copenhagen")).toBeVisible();
 });

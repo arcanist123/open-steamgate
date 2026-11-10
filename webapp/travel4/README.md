@@ -1,4 +1,4 @@
-# Travels (OData V4)
+# OData V4 Travels
 
 A Fiori Elements V4 list report and object page over the demo service
 `ZSTG_DEMO_SRV`, served by the OData V4 facade at
@@ -26,7 +26,7 @@ has an ETag (Description, Status, Seats), so every change carries
 `If-Match`.
 
 Opened standalone at `/app/travel4/index.html`, from the launchpad as the
-tile "Travels (OData V4)" (`#TravelV4-manage`, BSP application
+tile "OData V4 Travels" (`#TravelV4-manage`, BSP application
 `ZOSD_TRAVEL4` in `src/bsp/apps.json`). The test is
 `test/e2e/travel4.spec.mjs`:
 

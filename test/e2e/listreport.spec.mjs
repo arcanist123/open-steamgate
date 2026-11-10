@@ -1,4 +1,5 @@
 import {test, expect} from "@playwright/test";
+import {launchpadTile} from "./launchpad-navigation.shared.mjs";
 // the port of the gateway under test: STG_PORT, as test/start.mjs reads it, so sessions do not collide on 3030
 const PORT = process.env.STG_PORT ?? 3030;
 
@@ -252,13 +253,14 @@ test("object page: Create on the bookings table posts to TravelSet('T0001')/to_B
 test("launchpad: intent navigation from a booking to the Bookings app and back to the filtered Travels", async ({page}) => {
   await page.goto("/app/flp.html");
   // the sandbox shell with our two tiles
-  const travels = page.getByRole("link", {name: /Travels/}).or(page.locator(".sapUshellTile", {hasText: "Travels"})).first();
+  // the tile by its target: a title match also hit the V4 app's tile
+  const travels = launchpadTile(page, "Travel-manage");
   await expect(travels).toBeVisible();
   // only our group: the sandbox's own catalog (RTA Demo App...) is not shown
   await expect(page.getByText("RTA Demo App")).toHaveCount(0);
   await expect(page.locator(".sapUshellTile", {hasText: "SEGW"}).first()).toBeVisible();
   await travels.click();
-  await expect(page).toHaveURL(/#Travel-manage/);
+  await expect(page).toHaveURL(/#Travel-manage(?:$|[?&])/);
   await expect(page.getByText("Berlin to Copenhagen")).toBeVisible();
 
   // into the object page, select the first booking, the intent button opens the Bookings app
@@ -280,7 +282,7 @@ test("launchpad: intent navigation from a booking to the Bookings app and back t
   // the travel field is a link (UI.DataFieldWithIntentBasedNavigation): back
   // to the Travels app on that travel
   await page.getByRole("link", {name: "T0001"}).first().click();
-  await expect(page).toHaveURL(/#Travel-manage/);
+  await expect(page).toHaveURL(/#Travel-manage(?:$|[?&])/);
   // the key came along, so the Travels app lands on that travel's page
   await expect(page.getByRole("heading", {name: "Berlin to Copenhagen"})).toBeVisible();
   await expect(page.getByText("Aarhus to Odense")).toHaveCount(0);
