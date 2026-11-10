@@ -271,7 +271,7 @@ func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RESOLVE(s *abap.Session, cookies
  // a system's session context is kernel state, it survives a dumped
  // request, and an ADT read that touches it stays a read step. The class
  // is the same one either way; only the session it runs on moves.
- withADTState(s, func(state *abap.Session) {
+ withADTState(a.step, func(state *abap.Session) {
   a.resolved = a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__RESOLVE(state, cookies, headers)
  })
  return a.resolved
@@ -279,16 +279,16 @@ func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RESOLVE(s *abap.Session, cookies
 func (a *adtSystemSession) View() (string, bool) { return a.resolved.${field("id")}, a.resolved.${field("stateful")} == "X" }
 func (a *adtSystemSession) Alive(id string) bool {
  alive := false
- withADTState(s, func(state *abap.Session) { alive = a.ZIF_OSD_ADT_SESSION__ALIVE(state, id) == "X" })
+ withADTState(a.step, func(state *abap.Session) { alive = a.ZIF_OSD_ADT_SESSION__ALIVE(state, id) == "X" })
  return alive
 }
 func (a *adtSystemSession) Adopt(id, typ, name string) string {
  handle := ""
- withADTState(s, func(state *abap.Session) { handle = a.ZIF_OSD_ADT_SESSION__ADOPT_HANDLE(state, id, typ, name) })
+ withADTState(a.step, func(state *abap.Session) { handle = a.ZIF_OSD_ADT_SESSION__ADOPT_HANDLE(state, id, typ, name) })
  return handle
 }
 func (a *adtSystemSession) Forget(id, handle string) (typ, name string) {
- withADTState(s, func(state *abap.Session) { a.ZIF_OSD_ADT_SESSION__RELEASE_HANDLE(state, id, handle, &typ, &name) })
+ withADTState(a.step, func(state *abap.Session) { a.ZIF_OSD_ADT_SESSION__RELEASE_HANDLE(state, id, handle, &typ, &name) })
  return
 }
 func (a *adtSystemSession) Holds(handle, typ, name string) bool {
@@ -297,7 +297,7 @@ func (a *adtSystemSession) Holds(handle, typ, name string) bool {
   return false
  }
  held := false
- withADTState(s, func(state *abap.Session) { held = a.ZIF_OSD_ADT_SESSION__HOLDS(state, id, handle, typ, name) == "X" })
+ withADTState(a.step, func(state *abap.Session) { held = a.ZIF_OSD_ADT_SESSION__HOLDS(state, id, handle, typ, name) == "X" })
  if !held {
   return false
  }
