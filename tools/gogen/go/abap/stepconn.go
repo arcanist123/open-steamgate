@@ -139,3 +139,11 @@ func (s *Session) pooledEnd(commit bool) {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}
 }
+
+// InWriteStep says the session runs a modifying step on a lent connection:
+// its connection holds SQLite's one write lock from BEGIN IMMEDIATE to the
+// step's end, so nothing the step waits for may write on another
+// connection of the file -- it would wait for this step's own lock.
+func (s *Session) InWriteStep() bool {
+	return s.stepConn != nil && s.stepKind == WriteStep
+}

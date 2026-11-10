@@ -188,15 +188,17 @@ func (p *Pool) Step(ctx context.Context, kind Kind, work func(*Step)) error {
 	if err != nil {
 		return err
 	}
-	step := &Step{p: p, w: w}
+	step := &Step{p: p, w: w, held: true}
 	step.ctx, step.cancel = context.WithCancel(ctx)
 	defer step.cancel()
 	if err := p.lend(step, kind); err != nil {
 		p.unlend(step)
 		return err
 	}
+	// deferred: a dump that leaves work unrecovered must not take the work
+	// process with it (the pool would lend M-1, then M-2, ...)
+	defer p.unlend(step)
 	work(step)
-	p.unlend(step)
 	return nil
 }
 
@@ -267,8 +269,14 @@ func (p *Pool) lend(s *Step, kind Kind) error {
 	return nil
 }
 
-// unlend is the step's end: the row says Idle, the work process goes back.
+// unlend is the step's end: the row says Idle, the work process goes back
+// -- unless a WAIT already gave it back and the fence kept the step from
+// taking another (held false), when there is nothing to return.
 func (p *Pool) unlend(s *Step) {
+	if !s.held {
+		return
+	}
+	s.held = false
 	p.mu.Lock()
 	p.live--
 	delete(p.running, s.w.number)
@@ -287,7 +295,15 @@ type Step struct {
 	// report names the step in its work-process row (the report, as SM50
 	// shows one); the host sets it as soon as it knows the route.
 	report string
+	// held: the step holds w. False between a WAIT's give-up and its take,
+	// and after a WAIT the fence ended: the step's statements are refused
+	// then rather than run on a connection another step may hold.
+	held bool
 }
+
+// errNotHeld is a statement of a step that holds no work process: one
+// fenced inside a WAIT.
+var errNotHeld = errors.New("workpool: the step holds no work process (fenced in a WAIT)")
 
 // Kind is the step's kind as the pool runs it (Read under ReadOnly).
 func (s *Step) Kind() Kind { return s.kind }
@@ -314,6 +330,9 @@ func (s *Step) SetReport(report string) {
 // prepared on it when the same text ran here before. The context is the
 // step's: cancelled, the driver interrupts the statement in flight.
 func (s *Step) Query(q string, args ...any) (*sql.Rows, error) {
+	if !s.held {
+		return nil, errNotHeld
+	}
 	if st := s.stmtFor(q); st != nil {
 		return st.QueryContext(s.ctx, args...)
 	}
@@ -322,6 +341,9 @@ func (s *Step) Query(q string, args ...any) (*sql.Rows, error) {
 
 // Exec is Query for what returns no rows.
 func (s *Step) Exec(q string, args ...any) (sql.Result, error) {
+	if !s.held {
+		return nil, errNotHeld
+	}
 	if st := s.stmtFor(q); st != nil {
 		return st.ExecContext(s.ctx, args...)
 	}
@@ -331,6 +353,9 @@ func (s *Step) Exec(q string, args ...any) (sql.Result, error) {
 // Prepare hands out the statement prepared on this work process, cached
 // with its kin (the kernel's adapter calls it).
 func (s *Step) Prepare(q string) (*sql.Stmt, error) {
+	if !s.held {
+		return nil, errNotHeld
+	}
 	if st := s.stmtFor(q); st != nil {
 		return st, nil
 	}
@@ -383,33 +408,23 @@ func (s *Step) stmtFor(q string) *sql.Stmt {
 // run on it, and the row says Idle in the meantime.
 func (s *Step) Yield(d time.Duration) {
 	p := s.p
-	p.mu.Lock()
-	p.live--
-	p.mu.Unlock()
-	p.unlendWorker(s.w)
+	p.unlend(s) // the row says Idle; Interrupt no longer finds the step there
 	time.Sleep(d)
 	w := p.take(s.ctx)
 	if w == nil {
-		return // fenced in the WAIT: the kernel's reopen fails next
+		return // fenced in the WAIT: held stays false, the kernel's reopen fails next
 	}
-	if err := w.setQueryOnly(s.ctx, s.kind == Read); err != nil {
-		s.w = w // the same: the reopen reports it and the step unwinds
-		return
-	}
-	s.w = w
+	s.w, s.held = w, true
 	p.mu.Lock()
 	p.live++
 	p.running[w.number] = s
 	w.state, w.kind, w.started = "Running", s.kind, time.Now()
 	p.mu.Unlock()
-}
-
-// unlendWorker is the give-up half of unlend, without the step's end.
-func (p *Pool) unlendWorker(w *worker) {
-	p.mu.Lock()
-	w.state = "Idle"
-	p.mu.Unlock()
-	p.tokens <- w
+	if err := w.setQueryOnly(s.ctx, s.kind == Read); err != nil {
+		// the connection is in the other kind's mode: the step must not go
+		// on there; it dumps and its end gives the work process back
+		panic(fmt.Errorf("workpool: work process %d after a WAIT: %w", w.number, err))
+	}
 }
 
 // Interrupt is the fence: the step running on work process wp stops at its

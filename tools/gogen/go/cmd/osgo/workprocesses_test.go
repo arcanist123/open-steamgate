@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -175,5 +176,39 @@ func TestStepReport(t *testing.T) {
 	}
 	if got := stepReport("GET", "/sap/bc/adt", "/sap/bc/adt"); got != "sap/bc/adt" {
 		t.Fatalf("the mount itself: %q", got)
+	}
+}
+
+// fakeConn is a lent connection that runs nothing: enough for the bracket.
+type fakeConn struct{}
+
+func (fakeConn) Query(string, ...any) (*sql.Rows, error) { return nil, nil }
+func (fakeConn) Exec(string, ...any) (sql.Result, error) { return nil, nil }
+func (fakeConn) Prepare(string) (*sql.Stmt, error)       { return nil, nil }
+
+// The ADT session rows leave the step only in a read step: a modifying
+// step holds the file's one write lock, and the state session writing on
+// the spare connection inside it waited for that very lock (every ADT POST
+// through the gateway answered SQLITE_BUSY after the busy timeout).
+func TestADTStateOnlyOutsideWriteSteps(t *testing.T) {
+	state := &abap.Session{}
+	adtState.s = state
+	defer func() { adtState.s = nil }()
+	on := func(kind abap.StepKind) *abap.Session {
+		step := &abap.Session{}
+		var got *abap.Session
+		abap.DialogStepOn(step, kind, fakeConn{}, func() {
+			withADTState(step, func(s *abap.Session) { got = s })
+		})
+		if got == step {
+			return step
+		}
+		return got
+	}
+	if got := on(abap.ReadStep); got != state {
+		t.Fatalf("a read step's ADT rows ran on %p, want the state session", got)
+	}
+	if got := on(abap.WriteStep); got == state {
+		t.Fatal("a modifying step's ADT rows ran on the state session: it would wait for the step's own write lock")
 	}
 }

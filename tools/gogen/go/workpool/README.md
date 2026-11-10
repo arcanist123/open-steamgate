@@ -29,7 +29,11 @@ What is here and what is not:
 - **A WAIT gives the work process up** (`Step.Yield`): back to the
   dispatcher for the sleep, another lent on return; the step handle keeps
   working because the connection under it is the pool's to swap. The kernel
-  ends and reopens the transaction around the yield.
+  ends and reopens the transaction around the yield. A step fenced while
+  it waits for a work process back holds none: its statements are refused
+  (never run on a connection another step holds) and its end returns
+  nothing. A dump that leaves the step's work unrecovered still gives the
+  work process back.
 - **The drain** (`Locker`): the pool as the `sync.Locker` of
   `go/serving`'s stop -- Lock stops the lending and takes every work
   process out of circulation, which waits for the steps in flight (they

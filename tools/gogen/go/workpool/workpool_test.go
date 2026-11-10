@@ -538,3 +538,82 @@ func TestCloseAfterDrainLock(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A dump that leaves work unrecovered gives the work process back: the
+// pool still lends all M afterwards. The kernel test of a failed commit in
+// a WAIT hung on the lost one.
+func TestPanicInStepReturnsTheWorkProcess(t *testing.T) {
+	d := openWAL(t, 2, 5*time.Second)
+	defer d.Close()
+	p, err := New(Options{DB: d, Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	func() {
+		defer func() { recover() }()
+		p.Step(context.Background(), Write, func(*Step) { panic("dump") })
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Step(ctx, Read, func(*Step) {}); err != nil {
+		t.Fatalf("the next step after a dump: %v", err)
+	}
+}
+
+// A step fenced inside its WAIT holds no work process when it ends: its
+// end returns nothing (the WAIT gave its one back), its statements are
+// refused instead of running on a connection another step holds, and the
+// pool lends exactly M afterwards.
+func TestFencedWaitReturnsNothingTwice(t *testing.T) {
+	d := openWAL(t, 3, 5*time.Second)
+	defer d.Close()
+	p, err := New(Options{DB: d, Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	inWait := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- p.Step(ctx, Read, func(s *Step) {
+			close(inWait)
+			// the only work process is taken by the step below while this
+			// one sleeps, so the take waits until the fence cancels it
+			s.Yield(50 * time.Millisecond)
+			if _, err := s.Exec("SELECT 1"); !errors.Is(err, errNotHeld) {
+				t.Errorf("a statement after a fenced WAIT: %v", err)
+			}
+		})
+	}()
+	<-inWait
+	other := make(chan struct{})
+	go p.Step(context.Background(), Read, func(*Step) {
+		close(other)
+		<-release
+	})
+	<-other
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	// one work process: two steps in a row, then a third must wait
+	for i := 0; i < 2; i++ {
+		c, cl := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := p.Step(c, Read, func(*Step) {}); err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+		cl()
+	}
+	held := make(chan struct{})
+	go p.Step(context.Background(), Read, func(*Step) { close(held); time.Sleep(200 * time.Millisecond) })
+	<-held
+	c, cl := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cl()
+	if err := p.Step(c, Read, func(*Step) {}); err == nil {
+		t.Fatal("a second step ran beside the first on a one-work-process pool: the fenced WAIT returned its work process twice")
+	}
+}

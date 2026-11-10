@@ -120,8 +120,16 @@ var adtState struct {
 // generated adapter (zz_adt_session.go) wraps every call of the class in
 // this, so its rows leave the step's transaction wherever there is a
 // connection for them.
+//
+// Only a read step leaves: a modifying step holds the file's one write lock
+// (BEGIN IMMEDIATE) until it ends, and a write of the state session on the
+// spare connection inside it would wait for that very lock -- a deadlock
+// broken only by busy_timeout, found by the first conformance run through
+// the gateway (every ADT POST SQLITE_BUSY). In a modifying step the rows
+// stay in the step's LUW, as before slice 5: a dump there rolls the touch
+// back with the rest of the step.
 func withADTState(step *abap.Session, run func(*abap.Session)) {
-	if adtState.s == nil {
+	if adtState.s == nil || step.InWriteStep() {
 		run(step)
 		return
 	}

@@ -131,8 +131,8 @@
    "reason": "Compute explicit user read grants and pin sandbox handles before constructing any ABAP report; expose granting parameters and the opt-out in help. Native profiling: startup-only label selection in go/profiling. 2026-10-22: one import wires the host-only castdiag reporter at the existing uncaught boundary. ADR 0010 slice 2: the -db file is the report session's Database, kept for closeDB."
   },
   "go:cmd/osgo": {
-   "lines": 2446,
-   "reason": "ADR 0010 slice 5 (feat/osgo-work-processes): workprocesses.go: the logical internal sessions (statics, turn), the step kinds by request, the ADT state session outside the step's LUW, -wp/OSD_WPS, the drain's lock over the pool; step()/runAPCStep/refreshStatus/boot/promote run on work processes; the ZOSD_WP rows in the status snapshot. The in-memory fallback of the ADT state session (withADTState runs on the step session when there is no spare connection). The zero-count clamp before the pool is sized."
+   "lines": 2454,
+   "reason": "ADR 0010 slice 5: the dispatcher, ZOSD_WP and the ADT state session only outside write steps"
   },
   "go:cmd/osgw": {
    "lines": 184,
@@ -343,8 +343,8 @@
    "reason": "baseline 2026-10-01"
   },
   "go:workpool": {
-   "lines": 531,
-   "reason": "ADR 0010 slice 5: the pool, its drain locker and Close after the drain"
+   "lines": 546,
+   "reason": "ADR 0010 slice 5: the pool; a dump or a fenced WAIT returns its work process exactly once"
   },
   "go:xbuf": {
    "lines": 75,
@@ -727,8 +727,8 @@
    "reason": "baseline 2026-10-01"
   },
   "tools/gogen/go/abap/stepconn.go": {
-   "lines": 141,
-   "reason": "ADR 0010 slice 5 (feat/osgo-work-processes): the kernel's dialog-step bracket on a connection a work process lent (go/workpool owns the lending): BEGIN by the step kind (deferred on a query_only connection, IMMEDIATE for what writes), COMMIT on return, ROLLBACK on a dump, a WAIT yielding the work process. It is the LUW rule of luw.go in the work-process shape, not a capability of its own: it calls pooledBegin/pooledEnd and raises the kernel's exceptions, so it cannot live outside go/abap."
+   "lines": 149,
+   "reason": "ADR 0010 slice 5: the kernel's lent step and InWriteStep"
   },
   "tools/gogen/go/cmd/osgo/main.go": {
    "lines": 817,
