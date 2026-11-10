@@ -435,7 +435,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
         // buffer, not per internal session). Only a class filled once and
         // read afterwards may be here: a shared slot is written by the
         // generated code directly, with no lock the kernel could take.
-        out.push(`var _ = abap.RegisterSharedStatics(slot_${name})`, "");
+        out.push(`func init() { abap.RegisterSharedStatics(slot_${name}) }`, "");
       }
     }
     if (chainCctor(cls)) {
