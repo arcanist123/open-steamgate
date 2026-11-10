@@ -343,8 +343,8 @@
    "reason": "baseline 2026-10-01"
   },
   "go:workpool": {
-   "lines": 847,
-   "reason": "ADR 0010 slice 5: the pool, the write token, a dump or a fenced WAIT returns its work process once PR #900 review: Step.Cleanup (rollback on its own context) and the scrub/replace of a fenced or failed step's connection before the write token goes. PR #900 review round 2: a work process is never lent or parked without a connection -- the reconnect retried within the grace, else stopped (counted, logged, the row says Stopped), the drain waiting only for the ones in service; the replacement lives in replace.go beside the pool."
+   "lines": 913,
+   "reason": "ADR 0010 slice 5: the pool, the write token, a dump or a fenced WAIT returns its work process once PR #900 review: Step.Cleanup (rollback on its own context) and the scrub/replace of a fenced or failed step's connection before the write token goes. PR #900 review round 2: a work process is never lent or parked without a connection -- the reconnect retried within the grace, else stopped (counted, logged, the row says Stopped), the drain waiting only for the ones in service; the replacement lives in replace.go beside the pool. PR #900 review round 3: every reconnect attempt (admission, open, priming) is bounded by the grace and by Close, on a goroutine waited for no longer than that, a late connection closed rather than published, and Close ends and waits for a reconnect in progress."
   },
   "go:xbuf": {
    "lines": 75,

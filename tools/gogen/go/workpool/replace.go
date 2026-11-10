@@ -7,7 +7,10 @@ package workpool
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -38,56 +41,82 @@ func (p *Pool) scrub(w *worker) {
 // service for good, counted, logged, its row saying Stopped -- and the pool
 // goes on with one fewer rather than lend a work process that has nothing
 // to run statements on (PR #900 review round 2).
+//
+// The grace is a bound on the caller, not on the attempts' count: every
+// attempt -- database/sql admission, the driver's open, the priming -- runs
+// under a context that ends with the grace or with Close, and is waited for
+// no longer than that context even when the driver does not watch it (a
+// hung open, a held file lock). A connection that arrives after that is
+// closed, never published (PR #900 review round 3).
 func (p *Pool) giveBack(w *worker) {
 	if w.conn == nil {
 		p.mu.Lock()
+		if p.closed {
+			p.mu.Unlock()
+			p.stopWorker(w, errors.New("the pool is closed"))
+			return
+		}
 		w.state = "Reconnect"
+		p.reconnecting.Add(1) // under mu: Close, which sets closed under it, waits for this
 		p.mu.Unlock()
 		err := p.reconnectWithin(w, p.o.ReconnectGrace)
 		if err != nil {
-			p.mu.Lock()
-			w.state, w.report, w.started = "Stopped", "out of service: no connection", time.Time{}
-			p.outOfService++
-			all := p.outOfService == len(p.workers)
-			p.mu.Unlock()
-			if p.o.Logf != nil {
-				p.o.Logf("work process %d out of service (no new connection within %s): %v; %d of %d serve",
-					w.number, p.o.ReconnectGrace, err, len(p.workers)-p.OutOfService(), len(p.workers))
-			}
-			if all {
-				close(p.dead)
-			}
-			select {
-			case p.changed <- struct{}{}:
-			default:
-			}
+			p.stopWorker(w, err)
+			p.reconnecting.Done()
 			return
 		}
 		p.mu.Lock()
 		w.state = "Idle"
 		p.mu.Unlock()
+		p.reconnecting.Done()
 	}
 	p.tokens <- w
 }
 
+// stopWorker takes a work process without a connection out of service.
+func (p *Pool) stopWorker(w *worker, err error) {
+	p.mu.Lock()
+	w.state, w.report, w.started = "Stopped", "out of service: no connection", time.Time{}
+	p.outOfService++
+	all := p.outOfService == len(p.workers)
+	p.mu.Unlock()
+	if p.o.Logf != nil {
+		p.o.Logf("work process %d out of service (no new connection within %s): %v; %d of %d serve",
+			w.number, p.o.ReconnectGrace, err, len(p.workers)-p.OutOfService(), len(p.workers))
+	}
+	if all {
+		close(p.dead)
+	}
+	select {
+	case p.changed <- struct{}{}:
+	default:
+	}
+}
+
 // reconnectWithin is reconnect tried until it succeeds, grace passes or the
-// pool closes.
+// pool closes -- whichever comes first, also in the middle of an attempt.
 func (p *Pool) reconnectWithin(w *worker, grace time.Duration) error {
-	deadline := time.Now().Add(grace)
+	ctx, cancel := context.WithTimeout(context.Background(), grace)
+	defer cancel()
+	go func() { // Close ends the attempt as the grace does
+		select {
+		case <-p.quit:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	backoff := 10 * time.Millisecond
 	for {
-		err := p.reconnect(w)
+		conn, err := p.reconnect(ctx)
 		if err == nil {
+			w.conn, w.queryOnly = conn, false
 			return nil
 		}
-		p.mu.Lock()
-		closed := p.closed
-		p.mu.Unlock()
-		left := time.Until(deadline)
-		if closed || left <= 0 {
+		select {
+		case <-ctx.Done():
 			return err
+		case <-time.After(backoff):
 		}
-		time.Sleep(min(backoff, left))
 		backoff = min(2*backoff, time.Second)
 	}
 }
@@ -98,26 +127,53 @@ func (p *Pool) discard(w *worker) {
 		st.Close()
 		delete(w.stmts, q)
 	}
-	_ = w.conn.Raw(func(any) error { return driver.ErrBadConn })
+	drop(w.conn)
 	w.conn = nil
 	w.queryOnly = false
 }
 
-// reconnect gives a work process without a connection a new one, primed
-// as New primes them.
-func (p *Pool) reconnect(w *worker) error {
-	ctx := context.Background()
-	conn, err := p.o.DB.Conn(ctx)
-	if err != nil {
-		return err
+// reconnect takes a new connection and primes it as New primes them. The
+// attempt runs on a goroutine of its own and is waited for only as long as
+// ctx lives: database/sql's admission watches ctx, a driver's Open does not
+// (driver.Driver has no context). An attempt given up on hands what it got,
+// whenever it gets it, to a closer instead of to the work process; a
+// success that crosses the deadline is closed the same way.
+func (p *Pool) reconnect(ctx context.Context) (*sql.Conn, error) {
+	type got struct {
+		conn *sql.Conn
+		err  error
 	}
-	w.conn, w.queryOnly = conn, false
-	if err := w.prime(ctx, p.o.BusyTimeout); err != nil {
-		p.discard(w)
-		return err
+	ch := make(chan got, 1)
+	go func() {
+		conn, err := p.o.DB.Conn(ctx)
+		if err == nil {
+			w := &worker{conn: conn}
+			if err = w.prime(ctx, p.o.BusyTimeout); err != nil {
+				drop(conn)
+				conn = nil
+			}
+		}
+		ch <- got{conn, err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err == nil && ctx.Err() != nil { // too late: not published
+			drop(r.conn)
+			return nil, ctx.Err()
+		}
+		return r.conn, r.err
+	case <-ctx.Done():
+		go func() {
+			if r := <-ch; r.conn != nil {
+				drop(r.conn)
+			}
+		}()
+		return nil, fmt.Errorf("new connection: %w", ctx.Err())
 	}
-	return nil
 }
+
+// drop closes a connection for good instead of pooling it.
+func drop(conn *sql.Conn) { _ = conn.Raw(func(any) error { return driver.ErrBadConn }) }
 
 // OutOfService is the number of work processes stopped for want of a
 // connection (the rows say Stopped); the pool serves with the rest.

@@ -55,7 +55,12 @@ What is here and what is not:
   service; with every one stopped a new step answers `ErrNoWorkProcess` and
   a WAIT's return holds none (its statements are refused). No lend, no
   WAIT's return and no `Close` ever meets a work process without a
-  connection.
+  connection. The grace bounds the caller, not the number of tries: every
+  attempt (database/sql admission, the driver's open, the priming) runs
+  under a context that ends with the grace or with `Close`, on a goroutine
+  waited for no longer than that, so a hung open or a held file lock cannot
+  keep the step past it; a connection that arrives late is closed, never
+  published. `Close` ends a reconnect in progress and waits for it.
 - **The drain** (`Locker`): the pool as the `sync.Locker` of
   `go/serving`'s stop -- Lock stops the lending and takes every work
   process out of circulation, which waits for the steps in flight (they

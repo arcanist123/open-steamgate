@@ -126,6 +126,11 @@ type Pool struct {
 	changed chan struct{}
 	// dead is closed when the last work process left service
 	dead chan struct{}
+	// quit is closed by Close; it ends a reconnect in progress
+	quit chan struct{}
+	// reconnecting counts the giveBacks looking for a new connection; Close
+	// waits for them (each ends within ReconnectGrace, at once on quit)
+	reconnecting sync.WaitGroup
 }
 
 // worker is one work process: its connection, its statement cache, and the
@@ -159,7 +164,7 @@ func New(o Options) (*Pool, error) {
 		o.ReconnectGrace = o.BusyTimeout
 	}
 	p := &Pool{o: o, running: map[int]*Step{}, stop: make(chan struct{}),
-		changed: make(chan struct{}, 1), dead: make(chan struct{})}
+		changed: make(chan struct{}, 1), dead: make(chan struct{}), quit: make(chan struct{})}
 	p.tokens = make(chan *worker, o.Workers)
 	p.writer = make(chan struct{}, 1)
 	ctx := context.Background()
@@ -666,10 +671,11 @@ func (l Locker) Unlock() {
 	}
 }
 
-// Close ends the pool: the lending stops, the work processes still out are
-// waited for as Lock does, and every connection is closed. The host ends
-// its steps first (go/serving Quiesce); a step that never returns leaves
-// Close waiting, as the drain would.
+// Close ends the pool: the lending stops, a reconnect in progress is ended
+// and waited for (it stops its work process and closes whatever connection
+// it gets late), and every connection is closed. Close does not wait for
+// steps still running: the host ends them first (go/serving Quiesce, the
+// drain's Lock), as before.
 func (p *Pool) Close() error {
 	p.mu.Lock()
 	if p.closed {
@@ -683,6 +689,10 @@ func (p *Pool) Close() error {
 	if !wasStopped { // the drain's Lock closed it already
 		close(p.stop)
 	}
+	// a work process looking for a new connection gives up now and is
+	// stopped; what it would have got is closed, not put into the pool
+	close(p.quit)
+	p.reconnecting.Wait()
 	var err error
 	for _, w := range p.workers {
 		for _, st := range w.stmts {

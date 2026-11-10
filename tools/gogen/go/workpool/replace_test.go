@@ -28,13 +28,24 @@ type faultDriver struct {
 	failOpen     atomic.Int32 // that many opens fail; below 0, every open
 	failPragma   atomic.Bool  // the next PRAGMA query_only fails
 	closed       atomic.Int32
+	// hang, when set, makes every open wait for it to be closed -- a
+	// driver that ignores the caller's deadline (driver.Open has no
+	// context), as a hung open or a held file lock would
+	hang atomic.Pointer[chan struct{}]
+	// openFails counts the injected open failures
+	openFails atomic.Int32
 }
 
 func (d *faultDriver) Open(name string) (driver.Conn, error) {
+	if h := d.hang.Load(); h != nil {
+		<-*h
+	}
 	if n := d.failOpen.Load(); n < 0 {
+		d.openFails.Add(1)
 		return nil, errors.New("injected: open failed")
 	} else if n > 0 {
 		d.failOpen.Add(-1)
+		d.openFails.Add(1)
 		return nil, errors.New("injected: open failed")
 	}
 	c, err := d.inner.Open(name)
@@ -340,4 +351,161 @@ func TestFailedLendKeepsTheCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkResources(t, p, 1)
+}
+
+// PR #900 review round 3: ReconnectGrace bounds the caller, whatever the
+// attempt waits on.
+
+// stepWithin runs poison on a goroutine and says how long its Step took,
+// failing when it is still blocked after limit.
+func stepWithin(t *testing.T, p *Pool, d *faultDriver, failOpen int32, limit time.Duration) (time.Duration, chan struct{}) {
+	t.Helper()
+	done := make(chan struct{})
+	start := time.Now()
+	go func() { poison(t, p, d, failOpen); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(limit):
+		t.Errorf("Step still blocked after %s (grace %s); row %s, InFlight %d",
+			limit, p.o.ReconnectGrace, p.Snapshot()[0].State, p.InFlight())
+	}
+	return time.Since(start), done
+}
+
+func awaitState(t *testing.T, p *Pool, wp int, state string) {
+	t.Helper()
+	until := time.Now().Add(2 * time.Second)
+	for time.Now().Before(until) {
+		if p.Snapshot()[wp-1].State == state {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("work process %d never reached %s (is %s)", wp, state, p.Snapshot()[wp-1].State)
+}
+
+func awaitInUse(t *testing.T, db *sql.DB, want int) {
+	t.Helper()
+	until := time.Now().Add(2 * time.Second)
+	for db.Stats().InUse != want && time.Now().Before(until) {
+		time.Sleep(time.Millisecond)
+	}
+	if n := db.Stats().InUse; n != want {
+		t.Errorf("%d connections in use, want %d", n, want)
+	}
+}
+
+// An open that never returns (the driver ignores every deadline): the work
+// process is stopped when the grace ends, the step answers, and the
+// connection the open delivers later is closed rather than published.
+func TestReconnectWithAHungOpenEndsWithinTheGrace(t *testing.T) {
+	const grace = 150 * time.Millisecond
+	p, d, logs := faultPool(t, 2, grace)
+	defer p.Close()
+	h := make(chan struct{})
+	d.hang.Store(&h)
+	took, _ := stepWithin(t, p, d, 0, grace+500*time.Millisecond)
+	if took < grace {
+		t.Errorf("Step returned after %s, before the grace %s: the reconnect was not tried", took, grace)
+	}
+	if n := p.OutOfService(); n != 1 {
+		t.Fatalf("OutOfService %d, want 1", n)
+	}
+	if len(*logs) != 1 {
+		t.Errorf("logged %v, want one out-of-service line", *logs)
+	}
+	checkResources(t, p, 1)
+	if err := writeStep(t, p, 1); err != nil { // the other work process serves
+		t.Fatal(err)
+	}
+	d.hang.Store(nil)
+	close(h)                 // the hung open returns now: its connection must not survive
+	awaitInUse(t, p.o.DB, 1) // the other work process's own
+	if n := p.o.DB.Stats().OpenConnections; n != 1 {
+		t.Errorf("%d connections open after the late open returned, want 1", n)
+	}
+	if p.workers[0].conn != nil && p.workers[1].conn != nil {
+		t.Error("the late connection was given to the stopped work process")
+	}
+	checkResources(t, p, 1)
+}
+
+// database/sql's own admission: the freed slot is taken by someone else
+// during the backoff, so DB.Conn waits; the grace still ends the wait
+// (the critic's reproducer, kept).
+func TestReconnectGraceBoundsConnectionAdmission(t *testing.T) {
+	const grace = 600 * time.Millisecond
+	p, d, _ := faultPool(t, 1, grace)
+	defer p.Close()
+	done := make(chan struct{})
+	go func() { poison(t, p, d, -1); close(done) }()
+	// the fourth failed open is followed by an 80 ms backoff: the slot is
+	// taken inside it, so the next attempt waits in DB.Conn's admission
+	until := time.Now().Add(2 * time.Second)
+	for d.openFails.Load() < 4 && time.Now().Before(until) {
+		time.Sleep(100 * time.Microsecond)
+	}
+	d.failOpen.Store(0)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	other, err := p.o.DB.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(grace + 500*time.Millisecond):
+		t.Errorf("Step still blocked in admission after the grace; row %s", p.Snapshot()[0].State)
+	}
+	if p.o.DB.Stats().WaitCount == 0 {
+		t.Error("the reconnect never waited for admission: the test did not test it")
+	}
+	other.Close()
+	<-done
+	if n := p.OutOfService(); n != 1 {
+		t.Errorf("OutOfService %d, want 1", n)
+	}
+	awaitInUse(t, p.o.DB, 0)
+}
+
+// Close during a reconnect ends it at once and waits for it: the work
+// process is stopped, and a connection the attempt gets afterwards is
+// closed, never parked in the closed pool.
+func TestCloseEndsAReconnectInProgress(t *testing.T) {
+	for _, hung := range []bool{false, true} {
+		t.Run(fmt.Sprintf("hung=%v", hung), func(t *testing.T) {
+			p, d, _ := faultPool(t, 1, 10*time.Second)
+			h := make(chan struct{})
+			done := make(chan struct{})
+			if hung {
+				d.hang.Store(&h)
+				go func() { poison(t, p, d, 0); close(done) }()
+			} else {
+				go func() { poison(t, p, d, -1); close(done) }()
+			}
+			awaitState(t, p, 1, "Reconnect")
+			start := time.Now()
+			if err := p.Close(); err != nil {
+				t.Error(err)
+			}
+			if took := time.Since(start); took > time.Second {
+				t.Errorf("Close took %s with a reconnect in progress (grace 10s)", took)
+			}
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("the step did not return after Close")
+			}
+			if n := p.OutOfService(); n != 1 {
+				t.Errorf("OutOfService %d, want 1", n)
+			}
+			if len(p.tokens) != 0 {
+				t.Errorf("%d work processes parked in the closed pool", len(p.tokens))
+			}
+			d.hang.Store(nil)
+			close(h)
+			d.failOpen.Store(0)
+			awaitInUse(t, p.o.DB, 0)
+		})
+	}
 }
