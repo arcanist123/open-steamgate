@@ -92,13 +92,22 @@ concurrency:
 
 jobs:
   gogen:
+    # One job of 20 steps ran 26-45 minutes depending on the runner (the same
+    # tree measured 27.6 and 43.2) and was cut at its 45-minute limit on main
+    # and most PRs from 2026-11-09. It had been marginal since #816
+    # (2026-10-19), which added runner-selection-cache.test.mjs and took the
+    # cache step from ~5.5 to ~16 minutes on a slow runner. The three long
+    # blocks are independent, so they run side by side as parts of a matrix
+    # on the same setup; every check of the single job is still here, in the
+    # same order within its part. Slowest part measured on a slow runner:
+    # suites ~14 + setup ~2 minutes; 30 leaves room for that runner.
+    name: gogen (${{ matrix.part }})
     runs-on: ubuntu-latest
-    # 20 minutes cut the job mid-suite on main (2026-10-11, 10-13) and on
-    # #721 twice: a cancelled run is not a green one, so give it room.
-    # 45 since #816: the cache block carries runner-selection-cache.test.mjs
-    # (broad-edit certification, isolated parses in both line modes); main
-    # peaked at 33 of 35 and the additions need ~5 more.
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [core, cache-selection, cache, osabap, suites]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -114,6 +123,7 @@ jobs:
       - name: Build and link the pinned transpiler
         run: npm run transpiler:pin
       - name: Types
+        if: matrix.part == 'core'
         run: npx tsc -p tsconfig.gogen.json
       - uses: actions/setup-go@v5
         with:
@@ -132,6 +142,7 @@ jobs:
           node tools/osd-libs.mjs
           node tools/osd-libs.mjs --check
       - name: Go vet and tests
+        if: matrix.part == 'core'
         working-directory: tools/gogen/go
         run: |
           go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./adtref/ ./adtactivate/ ./adtunit/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/ ./serving/ ./enqnet/ ./osgw/ ./cmd/osgw/ ./genbuild/ ./dbschema/ ./adtenq/ ./adtlock/ ./adtsystem/
@@ -144,37 +155,55 @@ jobs:
           # the gateway and its sidecar seam build for Windows too (no SIGTERM there: the stop kills)
           GOOS=windows go vet ./osgw/ ./cmd/osgw/ ./enq/ ./enqnet/ ./genbuild/ ./dbschema/
       - name: ABAP lint bridge and CHECKRUN edit gates
+        if: matrix.part == 'core'
         run: node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
       - name: Semantics, Go and IR-as-JS against the measured answers
+        if: matrix.part == 'core'
         run: node tools/gogen/semantics.mjs
       - name: Byte ownership and frontend emission
+        if: matrix.part == 'core'
         run: node --test tools/gogen/frontend-token-parsers.test.mjs tools/gogen/emit-large.test.mjs tools/gogen/frontend-owned.test.mjs tools/gogen/frontend-ddic.test.mjs tools/gogen/frontend-bytes.test.mjs tools/gogen/emit-go.test.mjs tools/gogen/emit-sink-locals.test.mjs tools/gogen/symbols.test.mjs tools/gogen/local-constants.test.mjs tools/gogen/cfit.test.mjs tools/gogen/session-statics.test.mjs tools/gogen/frontend-supplied.test.mjs tools/gogen/sink-locals.test.mjs tools/gogen/ir-children.test.mjs tools/gogen/ir-children-completeness.test.mjs
-      # frontend-artifact-digests.test.mjs compares Node and Bun digests
+      - name: Go byte fixtures and ABAPiti repros
+        if: matrix.part == 'core'
+        run: node tools/gogen/unit.mjs --fixture tools/gogen/testdata --jobs 4
+      # Node only: reuse the pinned libraries without rebuilding a native
+      # binary for every list fixture; keep the job time budget.
+      - name: List positioning, direct and converted Node
+        if: matrix.part == 'core'
+        run: node tools/gogen/list-position-oracle.mjs --check
+      # frontend-artifact-digests.test.mjs compares Node and Bun digests; the
+      # later parts ran after Bun was set up in the single job, so they keep it
       - uses: oven-sh/setup-bun@v2
+        if: matrix.part != 'core'
         with:
           bun-version: 1.4.2
-      - name: Frontend cache validation and replay
-        # One file at a time: the cache's tool identity hashes tools/**, so a
-        # file writing there while another compiles changes that identity
-        # mid-test (provenance, digest and query suites were never run here).
+      # Two halves of one suite list, ~7.5 and ~8 minutes on a slow runner
+      # (runner-selection-cache.test.mjs alone is the first). Within a half,
+      # still one file at a time: the cache's tool identity hashes tools/**,
+      # so a file writing there while another compiles changes that identity
+      # mid-test (provenance, digest and query suites were never run here).
+      # The halves are separate machines, so they cannot disturb each other.
+      - name: Frontend cache validation and replay (runner selection)
+        if: matrix.part == 'cache-selection'
         env:
           GOGEN_CACHE_SHADOW_VALIDATE: "1"
-        run: node --test --test-concurrency=1 tools/gogen/frontend-cache.test.mjs tools/gogen/runner-cache.test.mjs tools/gogen/runner-selection-cache.test.mjs tools/gogen/frontend-object-cache.test.mjs tools/gogen/frontend-replay.test.mjs tools/gogen/frontend-portable.test.mjs tools/gogen/frontend-provenance.test.mjs tools/gogen/frontend-provenance-regression.test.mjs tools/gogen/frontend-provenance-compare.test.mjs tools/gogen/frontend-artifact-digests.test.mjs tools/gogen/frontend-queries.test.mjs tools/gogen/frontend-v3-shadow.test.mjs tools/gogen/frontend-certificates.test.mjs tools/gogen/frontend-v3-sensitivity.test.mjs tools/gogen/frontend-v3-audit.test.mjs tools/gogen/cache-oracle.test.mjs
-      - name: Go byte fixtures and ABAPiti repros
-        run: node tools/gogen/unit.mjs --fixture tools/gogen/testdata --jobs 4
+        run: node --test --test-concurrency=1 tools/gogen/runner-selection-cache.test.mjs
+      - name: Frontend cache validation and replay
+        if: matrix.part == 'cache'
+        env:
+          GOGEN_CACHE_SHADOW_VALIDATE: "1"
+        run: node --test --test-concurrency=1 tools/gogen/frontend-cache.test.mjs tools/gogen/runner-cache.test.mjs tools/gogen/frontend-object-cache.test.mjs tools/gogen/frontend-replay.test.mjs tools/gogen/frontend-portable.test.mjs tools/gogen/frontend-provenance.test.mjs tools/gogen/frontend-provenance-regression.test.mjs tools/gogen/frontend-provenance-compare.test.mjs tools/gogen/frontend-artifact-digests.test.mjs tools/gogen/frontend-queries.test.mjs tools/gogen/frontend-v3-shadow.test.mjs tools/gogen/frontend-certificates.test.mjs tools/gogen/frontend-v3-sensitivity.test.mjs tools/gogen/frontend-v3-audit.test.mjs tools/gogen/cache-oracle.test.mjs
       # osabap: a report built into a native command (open-abap-gui's
       # converter, from the pinned clone osd-libs made), run with flags,
       # ranges, no arguments and the native frontend
       - name: osabap, a report as a native command
+        if: matrix.part == 'osabap'
         # the library clones must be the pinned ones (tools/gogen/lib-pins.mjs)
         env:
           OSABAP_STRICT_PINS: "1"
         run: node --test tools/gogen/builtins.test.mjs tools/gogen/lib-pins.test.mjs tools/gogen/osabap-f4.test.mjs tools/gogen/osabap-list.test.mjs tools/gogen/osabap.test.mjs tools/gogen/osabap-sql-corpus.test.mjs tools/gogen/unit.test.mjs tools/gogen/osgo-fast.test.mjs
-      # Node only: reuse the pinned libraries without rebuilding a native
-      # binary for every list fixture; keep the job time budget.
-      - name: List positioning, direct and converted Node
-        run: node tools/gogen/list-position-oracle.mjs --check
       - name: Generated-class ABAP Unit CI entry points (real Go and JS builds)
+        if: matrix.part == 'suites'
         run: flock /tmp/osd-heavy.lock node tools/osd-suites.mjs --group gogen
 
   unit-inventory:
