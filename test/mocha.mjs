@@ -735,9 +735,9 @@ describe("wire", () => {
 
     // a type without ETag properties keeps writing without If-Match (Booking
     // has none), so the requirement follows the model and nothing else
-    let booking = await fetch(BASE + "/BookingSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B0500", Customer: "No ETag"})});
+    let booking = await fetch(BASE + "/BookingSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B500", Customer: "No ETag"})});
     expect(booking.status).to.equal(201);
-    booking = await fetch(`${BASE}/BookingSet(TravelId='T0002',BookingId='B0500')`, {method: "DELETE", headers});
+    booking = await fetch(`${BASE}/BookingSet(TravelId='T0002',BookingId='B500')`, {method: "DELETE", headers});
     expect(booking.status).to.equal(204);
 
     // inside a $batch changeset the part's own If-Match is judged: a part
@@ -765,5 +765,85 @@ describe("wire", () => {
     expect((await (await fetch(url)).json()).d.Seats).to.equal(5);
     // put the seed row back the way the earlier tests left it
     await fetch(url, {method: "MERGE", headers: {...headers, "if-match": "*"}, body: JSON.stringify({Seats: 2})});
+  });
+
+  // A function import that returns an entity returns an ordinary entry, and
+  // the entry carries its tag like any read does. The serializer's model is
+  // registered per request; it used to be registered only after the function
+  // imports had branched off, so an import answered with whatever the
+  // previous request had left there: nothing after a request to a service
+  // without ETags, and the client's next write then came back 428.
+  it("V2 function import results carry the entity's ETag, whatever ran before", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/TravelSet('T0501')`;
+    expect((await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0501", Description: "fi scratch", Status: "A", Seats: 1})})).status).to.equal(201);
+    try {
+      // the previous request is one to a service whose types declare no ETag
+      expect((await fetch(`http://localhost:${PORT}/sap/opu/odata/sap/ZSTG_SADL_SRV/Zc_Stg_TravelSet?$top=1`)).status).to.equal(200);
+      const action = await fetch(`${BASE}/CancelTravel?TravelId='T0501'`, {method: "POST", headers});
+      expect(action.status).to.equal(200);
+      const tag = (await action.json()).d.__metadata.etag;
+      expect(tag).to.match(/^W\/"/);
+      // it is the entity's current tag: a read answers the same, and a write
+      // that sends it back passes
+      expect((await fetch(url)).headers.get("etag")).to.equal(tag);
+      const res = await fetch(url, {method: "MERGE", headers: {...headers, "if-match": tag}, body: JSON.stringify({Seats: 3})});
+      expect(res.status).to.equal(204);
+    } finally {
+      await fetch(url, {method: "DELETE", headers: {...headers, "if-match": "*"}});
+    }
+  });
+
+  // The model is service-wide, the guard is per type: a type without ETag
+  // properties in a service where another type has them writes as before,
+  // with no read in front of its PUT or DELETE. A provider may implement
+  // update and delete without the single read; here Booking's GET_ENTITY is
+  // put back to the generated Not Implemented stub for the duration.
+  it("V2 PUT/DELETE of a type without ETags reads nothing first, even beside a type with one", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/BookingSet(TravelId='T0002',BookingId='B901')`;
+    expect((await fetch(BASE + "/BookingSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B901", Customer: "Write only"})})).status).to.equal(201);
+    const {zcl_zstg_demo_dpc_ext: Ext} = await import("../output/zcl_zstg_demo_dpc_ext.clas.mjs");
+    const {zcl_zstg_demo_dpc: Base} = await import("../output/zcl_zstg_demo_dpc.clas.mjs");
+    const original = Ext.prototype.bookingset_get_entity;
+    Ext.prototype.bookingset_get_entity = Base.prototype.bookingset_get_entity;
+    try {
+      // the stub is in place: a read of the booking is Not Implemented
+      const probe = await fetch(url);
+      expect(probe.status, await probe.clone().text()).to.equal(501);
+      let res = await fetch(url, {method: "PUT", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B901", Customer: "Written"})});
+      expect(res.status, await res.clone().text()).to.equal(204);
+      res = await fetch(url, {method: "DELETE", headers});
+      expect(res.status, await res.clone().text()).to.equal(204);
+    } finally {
+      Ext.prototype.bookingset_get_entity = original;
+      await fetch(url, {method: "DELETE", headers});
+    }
+  });
+
+  // A guarded write answers the entity's new tag with its 204, so the next
+  // conditional write needs no GET in between.
+  it("V2 answers the new ETag after a guarded update", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/TravelSet('T0502')`;
+    expect((await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0502", Description: "tag scratch", Status: "A", Seats: 1})})).status).to.equal(201);
+    try {
+      let tag = (await fetch(url)).headers.get("etag");
+      for (const [method, body] of [["MERGE", {Seats: 4}], ["PUT", {TravelId: "T0502", Description: "tag scratch", Status: "B", Seats: 5}], ["PATCH", {Seats: 6}]]) {
+        const res = await fetch(url, {method, headers: {...headers, "if-match": tag}, body: JSON.stringify(body)});
+        expect(res.status, method).to.equal(204);
+        const next = res.headers.get("etag");
+        expect(next, method).to.match(/^W\/"/);
+        expect(next, method).to.not.equal(tag);
+        expect((await fetch(url)).headers.get("etag"), method).to.equal(next);
+        tag = next;
+      }
+      // a type without ETags answers its 204 without one, as before
+      const booking = await fetch(`${BASE}/BookingSet(TravelId='T0001',BookingId='B001')`, {method: "MERGE", headers, body: JSON.stringify({})});
+      expect(booking.status).to.equal(204);
+      expect(booking.headers.get("etag")).to.equal(null);
+    } finally {
+      await fetch(url, {method: "DELETE", headers: {...headers, "if-match": "*"}});
+    }
   });
 });

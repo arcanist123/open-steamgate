@@ -240,6 +240,18 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         zcx_stg_error
         /iwbep/cx_mgw_base_exception.
 
+* the entity's tag as it is now, read back through the DPC; empty when the
+* read fails or answers nothing
+    CLASS-METHODS current_etag
+      IMPORTING
+        io_dpc         TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
+        io_context     TYPE REF TO zcl_stg_request_context
+        is_set         TYPE zcl_stg_model_info=>ty_entity_set
+        it_nav_path    TYPE /iwbep/t_mgw_navigation_path
+        io_etag_model  TYPE REF TO zcl_osd_v4_model
+      RETURNING
+        VALUE(rv_etag) TYPE string.
+
 * If-Match of a MERGE/PUT/DELETE against the entity's current ETag. Only a
 * type whose model declares an ETag is checked (the metadata's
 * ConcurrencyMode Fixed is what makes the header required), and only for a
@@ -404,6 +416,22 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
       RETURN.
     ENDIF.
 
+* ETags: when any type of the service declares one (set_as_etag), the V4
+* model of the same MPC is built once per request and handed to the
+* serializer (the __metadata.etag of the entries) and the write path (the
+* If-Match check). It is the V4 facade's own computation, so both protocols
+* answer the same tag for the same row byte for byte. It is registered (or
+* cleared) before the function imports branch off: an import that returns
+* an entity returns it as an ordinary entry, tag included, and the static
+* the serializer reads must not be left over from the previous request.
+    LOOP AT ls_service-entity_sets INTO ls_etags.
+      IF zcl_stg_model_info=>has_etag( ls_etags ) = abap_true.
+        CREATE OBJECT lo_etags EXPORTING iv_service = ls_service-name.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
+    zcl_stg_json=>register_etag_model( lo_etags ).
+
 * a segment that is not an entity set may be a function import
     READ TABLE ls_service-entity_sets TRANSPORTING NO FIELDS WITH KEY name = ls_request-entity_set.
     IF sy-subrc <> 0.
@@ -421,19 +449,6 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 
     ls_set = zcl_stg_model_info=>find_set( is_service    = ls_service
                                            iv_entity_set = ls_request-entity_set ).
-
-* ETags: when any type of the service declares one (set_as_etag), the V4
-* model of the same MPC is built once per request and handed to the
-* serializer (the __metadata.etag of the entries) and the write path (the
-* If-Match check). It is the V4 facade's own computation, so both protocols
-* answer the same tag for the same row byte for byte.
-    LOOP AT ls_service-entity_sets INTO ls_etags.
-      IF zcl_stg_model_info=>has_etag( ls_etags ) = abap_true.
-        CREATE OBJECT lo_etags EXPORTING iv_service = ls_service-name.
-        EXIT.
-      ENDIF.
-    ENDLOOP.
-    zcl_stg_json=>register_etag_model( lo_etags ).
 
     IF ls_request-is_value = abap_true.
       rs_response = media( iv_method       = lv_method
@@ -589,9 +604,17 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lt_nested   TYPE tihttpnvp.
     DATA ls_source   TYPE zcl_stg_model_info=>ty_entity_set.
     DATA lv_source_name TYPE string.
+    DATA lo_guard    TYPE REF TO zcl_osd_v4_model.
     FIELD-SYMBOLS <ls_data> TYPE any.
 
     lo_dpc     = zcl_oao_registry=>create_dpc( is_service-name ).
+* the service-wide model is bound when any type of the service declares an
+* ETag; only a type that declares one itself is guarded. A type without one
+* writes as it did before ETags: no If-Match, and no read the provider may
+* not implement in front of its PUT or DELETE.
+    IF io_etag_model IS BOUND AND zcl_stg_model_info=>has_etag( is_set ) = abap_true.
+      lo_guard = io_etag_model.
+    ENDIF.
     lo_context = build_context( is_request = is_request
                                 is_set     = is_set ).
     IF it_navigation_path IS NOT INITIAL.
@@ -709,7 +732,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * PATCH and MERGE change only the properties sent: as the Gateway does, read
 * the entity first and let the provider lay the request over it. The same
 * read is the ETag the If-Match check compares against.
-        IF iv_method <> 'PUT' OR io_etag_model IS BOUND.
+        IF iv_method <> 'PUT' OR lo_guard IS BOUND.
           lo_dpc->get_entity(
             EXPORTING
               iv_entity_name          = is_set-entity_type
@@ -722,7 +745,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
               er_entity               = lr_entity ).
         ENDIF.
         check_precondition( is_set        = is_set
-                            io_etag_model = io_etag_model
+                            io_etag_model = lo_guard
                             it_headers    = it_headers
                             ir_current    = lr_entity ).
         IF iv_method <> 'PUT' AND lr_entity IS BOUND.
@@ -741,6 +764,23 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
             er_entity               = lr_entity ).
         rs_response = json_response( iv_status = 204
                                      iv_body   = '' ).
+* the entity's new tag goes back with the 204, so the client's next
+* conditional write needs no GET first. It is read back rather than taken
+* from er_entity: a provider may answer that partly filled or not at all,
+* and a wrong tag would make the next write fail. A failing read-back costs
+* the header only; the update is done.
+        IF lo_guard IS BOUND.
+          lv_etag = current_etag( io_dpc        = lo_dpc
+                                  io_context    = lo_context
+                                  is_set        = is_set
+                                  it_nav_path   = lt_nav_path
+                                  io_etag_model = lo_guard ).
+          IF lv_etag IS NOT INITIAL.
+            ls_header-name  = 'etag'.
+            ls_header-value = lv_etag.
+            APPEND ls_header TO rs_response-headers.
+          ENDIF.
+        ENDIF.
 
       WHEN 'DELETE'.
         IF is_request-key_string IS INITIAL.
@@ -750,7 +790,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
               code    = 'STG/METHOD_NOT_ALLOWED'
               message = 'DELETE needs an entity key'.
         ENDIF.
-        IF io_etag_model IS BOUND.
+        IF lo_guard IS BOUND.
           lo_dpc->get_entity(
             EXPORTING
               iv_entity_name          = is_set-entity_type
@@ -763,7 +803,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
               er_entity               = lr_entity ).
         ENDIF.
         check_precondition( is_set        = is_set
-                            io_etag_model = io_etag_model
+                            io_etag_model = lo_guard
                             it_headers    = it_headers
                             ir_current    = lr_entity ).
         lo_dpc->delete_entity(
@@ -783,6 +823,33 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
             code    = 'STG/VERB_NOT_IMPLEMENTED'
             message = |{ iv_method } is not implemented|.
     ENDCASE.
+  ENDMETHOD.
+
+  METHOD current_etag.
+    DATA lr_entity TYPE REF TO data.
+    FIELD-SYMBOLS <ls_data> TYPE any.
+
+    TRY.
+        io_dpc->get_entity(
+          EXPORTING
+            iv_entity_name          = is_set-entity_type
+            iv_entity_set_name      = is_set-name
+            iv_source_name          = ''
+            it_key_tab              = io_context->mt_key_tab
+            it_navigation_path      = it_nav_path
+            io_tech_request_context = io_context
+          IMPORTING
+            er_entity               = lr_entity ).
+      CATCH cx_root.
+        RETURN.
+    ENDTRY.
+    IF lr_entity IS NOT BOUND.
+      RETURN.
+    ENDIF.
+    ASSIGN lr_entity->* TO <ls_data>.
+    rv_etag = zcl_osd_v4_json=>etag( is_data  = <ls_data>
+                                     is_set   = is_set
+                                     io_model = io_etag_model ).
   ENDMETHOD.
 
   METHOD check_precondition.
