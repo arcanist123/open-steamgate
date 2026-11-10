@@ -4345,3 +4345,26 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
   `METHODS` statements.
 - Upstream: none filed. It belongs with implicit RAP handler signatures in
   abaplint; explicit signatures are this project's interim form.
+
+## Class statics outlive the HTTP request (LUW_HELD, PR #901)
+
+- Status: worked around locally; by design of the hosts, no upstream change.
+- Discovery: crit901-r2 review of RAP actions over V4, 2026-11-10.
+- Expected: on a system a stateless ICF request is an ABAP session of its
+  own, so a static set during the request is gone when it ends, whether it
+  ended normally, by an exception nobody caught, or by a short dump.
+- Here: the JS hosts keep one process of class statics across requests
+  (`tools/osd-dialog-step.mjs` rolls the database back after a dump, not
+  the statics). `ZCL_OSD_LUW_HOLD=>HELD`, set while a changeset or V4
+  atomicity group holds the LUW, stayed `X` after a group member dumped,
+  and the next RAP save outside any batch then left its COMMIT to a group
+  that no longer existed (`IV_END_LUW = ' '`).
+- Reproducer: `test/rap-serve.mjs`, "does not carry a dumped group's LUW
+  hold into the next request" (fails without the workaround).
+- Workaround: both batch loops clear the flag in `CLEANUP` (class-based
+  exceptions), and both OData fronts (`ZCL_STG_HTTP_HANDLER`,
+  `ZCL_OSD_V4_HTTP`) clear it at request entry, which is the only place a
+  dump can be answered for. A WAIT inside a group member would let another
+  request clear it early; WAIT already commits the step's LUW, so a group
+  with a WAIT in it is not atomic either way.
+- Upstream: none.

@@ -104,8 +104,12 @@ CLASS zcl_osd_rap_runtime DEFINITION PUBLIC CREATE PRIVATE.
 
 * the save sequence. EV_SAVED is false when finalize or check_before_save
 * failed: then nothing is written, the LUW is rolled back and the buffer is
-* kept, so the caller can correct it or ROLLBACK
+* kept, so the caller can correct it or ROLLBACK. IV_END_LUW false: the
+* save writes but neither commits nor rolls back, because an enclosing owner
+* holds the LUW (a $batch changeset or atomicity group) and ends it
     METHODS commit
+      IMPORTING
+        iv_end_luw  TYPE abap_bool DEFAULT abap_true
       EXPORTING
         ev_saved    TYPE abap_bool
       CHANGING
@@ -1340,7 +1344,9 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
       IF lo_saver IS NOT INITIAL.
         lo_saver->cleanup_finalize( ).
       ENDIF.
-      ROLLBACK WORK.
+      IF iv_end_luw = abap_true.
+        ROLLBACK WORK.
+      ENDIF.
       RETURN.
     ENDIF.
 
@@ -1348,10 +1354,14 @@ CLASS zcl_osd_rap_runtime IMPLEMENTATION.
     TRY.
         persist( ).
       CATCH zcx_osd_rap INTO lx_error.
-        ROLLBACK WORK.
+        IF iv_end_luw = abap_true.
+          ROLLBACK WORK.
+        ENDIF.
         RAISE EXCEPTION lx_error.
     ENDTRY.
-    COMMIT WORK.
+    IF iv_end_luw = abap_true.
+      COMMIT WORK.
+    ENDIF.
 
     APPEND 'CLEANUP' TO mt_trace.
     IF lo_saver IS NOT INITIAL.

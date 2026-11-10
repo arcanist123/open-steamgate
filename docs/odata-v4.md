@@ -213,11 +213,17 @@ deep components inlined), a table as a collection (`$metadata#TravelSet`,
 `{"@odata.context":".../$metadata#Edm.Int32","value":3}` typed by its ABAP
 kind, and no data as 204. A collection of primitive or complex values is 501.
 The sticky-session actions keep their names and are served as before.
-A bound operation of a DPC that SADL serves (one implementing
-`IF_SADL_GW_DPC_UTIL`, as SEGW generates for a reference data source and
-the RAP services, or `IF_SADL_GW_DPC` itself) is not run here: SADL's
-`EXECUTE_ACTION` is the V2 function-import path, so such an action stays the
-named 501 of the sticky facade (`docs/rap-runtime.md`; `test/rap-serve.mjs`).
+Every operation goes to the DPC's `execute_action` with the context a V2
+function import gets: `mv_function_import` and `mt_parameter` (the binding's
+key included) set, and for an action for an entity type, which names no set
+of its own, the first set of that type as `mv_entity_set`. So a DPC that
+SADL serves (one implementing `IF_SADL_GW_DPC_UTIL`, as SEGW generates for a
+reference data source and the RAP services, or `IF_SADL_GW_DPC` itself) runs
+its bound actions here too: a RAP service's BDEF action runs through the
+behavior, under the same 404 / lock / If-Match / MaxLength rules as any
+bound action (`docs/rap-runtime.md`, "V4"; `test/rap-serve.mjs`). An entity
+SADL serves without a behavior, or an action its behavior does not declare,
+is SADL's `not_impl`, 501.
 
 ## Writes
 
@@ -348,6 +354,9 @@ Each request runs through the same dispatch as a single request.
   own error, members that ran before it answer 424 ("rolled back"), members
   after it are not executed and answer 424. Requests of one group must be
   adjacent (400 otherwise). A request outside any group is its own LUW.
+  What runs inside a group does not end the LUW itself: a RAP save (CRUD
+  or a bound action) writes without `COMMIT WORK` while
+  `ZCL_OSD_LUW_HOLD=>HELD` says the batch holds it.
 - `dependsOn` names earlier request ids or ended groups (a forward or
   unknown name is 400 for the whole batch). A request of another atomicity
   group can only be depended on together with its group (s19.1; 400

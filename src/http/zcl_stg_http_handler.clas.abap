@@ -21,6 +21,11 @@ CLASS zcl_stg_http_handler IMPLEMENTATION.
     DATA lv_body     TYPE string.
     DATA lv_body_x   TYPE xstring.
 
+* A request starts with no group holding the LUW. The flag is a static and a
+* static outlives the request here (on a system each request is a session of
+* its own); a batch that dumped never reached its reset, and the next RAP save
+* would leave its COMMIT to a group that is gone (ZCL_OSD_LUW_HOLD=>HELD).
+    zcl_osd_luw_hold=>hold( abap_false ).
     lv_method = server->request->get_header_field( '~request_method' ).
     lv_path   = server->request->get_header_field( '~path' ).
     lv_host   = server->request->get_header_field( 'host' ).

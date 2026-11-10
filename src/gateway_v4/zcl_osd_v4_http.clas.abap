@@ -26,10 +26,6 @@ CLASS zcl_osd_v4_http DEFINITION PUBLIC CREATE PUBLIC.
       it_nav_select TYPE zcl_osd_v4_query=>ty_nav_selects OPTIONAL
       RETURNING VALUE(rt_nav) TYPE zcl_stg_json=>ty_nav_jsons
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
-* a DPC whose operations SADL serves: the SEGW-generated shape
-* (IF_SADL_GW_DPC_UTIL) or the SADL data provider itself
-    CLASS-METHODS sadl_served IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
-      RETURNING VALUE(rv_sadl) TYPE abap_bool.
 ENDCLASS.
 
 CLASS zcl_osd_v4_http IMPLEMENTATION.
@@ -45,6 +41,11 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_body TYPE string.
     DATA lv_writes TYPE abap_bool.
     DATA lt_headers TYPE tihttpnvp.
+* A request starts with no group holding the LUW. The flag is a static and a
+* static outlives the request here (on a system each request is a session of
+* its own); a batch that dumped never reached its reset, and the next RAP save
+* would leave its COMMIT to a group that is gone (ZCL_OSD_LUW_HOLD=>HELD).
+    zcl_osd_luw_hold=>hold( abap_false ).
 * ANORMALIES: posted-form-has-no-fields, V4 GET addendum. Decode once
 * from the raw query: names, form spaces and literal encoded plus signs.
     lv_query = server->request->get_header_field( '~query_string' ).
@@ -289,13 +290,11 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
         lv_op = substring( val = lv_op off = strlen( lo_model->ms_service-namespace ) + 1 ).
       ENDIF.
       lo_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name ).
-* A DPC that hands its operations to SADL (SEGW's reference data source,
-* the RAP services) keeps the sticky facade's answer for every action:
-* SADL's EXECUTE_ACTION is the V2 function-import path and is not driven
-* from here, so a BDEF action stays a named 501 (docs/rap-runtime.md).
-* Only a code-based DPC is given ZCL_OSD_V4_ACTION.
-      IF lv_op = zcl_osd_v4_sticky=>gc_edit OR lv_op = zcl_osd_v4_sticky=>gc_save OR lv_op = zcl_osd_v4_sticky=>gc_new
-          OR sadl_served( lo_dpc ) = abap_true.
+* The draft actions of sticky editing go to the sticky facade; every other
+* bound operation, of a code-based DPC or of one SADL serves (a RAP service:
+* its BDEF action runs through the behavior, docs/rap-runtime.md), goes to
+* ZCL_OSD_V4_ACTION, which hands it to EXECUTE_ACTION as the V2 path does.
+      IF lv_op = zcl_osd_v4_sticky=>gc_edit OR lv_op = zcl_osd_v4_sticky=>gc_save OR lv_op = zcl_osd_v4_sticky=>gc_new.
         IF iv_method <> 'POST'.
           gv_allow = 'POST'.
           zcl_osd_v4_query=>fail( iv_text = 'An action takes POST' iv_status = 405 ).
@@ -501,22 +500,6 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lv_sep = ','.
     ENDLOOP.
     rv_json = '{"@odata.context":' && zcl_osd_v4_json=>quote( iv_base ) && ',"value":[' && lv_rows && ']}'.
-  ENDMETHOD.
-
-  METHOD sadl_served.
-    DATA li_util TYPE REF TO if_sadl_gw_dpc_util.
-    DATA li_sadl TYPE REF TO if_sadl_gw_dpc.
-    TRY.
-        li_util ?= io_dpc.
-        rv_sadl = abap_true.
-        RETURN.
-      CATCH cx_sy_move_cast_error.
-    ENDTRY.
-    TRY.
-        li_sadl ?= io_dpc.
-        rv_sadl = abap_true.
-      CATCH cx_sy_move_cast_error.
-    ENDTRY.
   ENDMETHOD.
 
   METHOD expand.
