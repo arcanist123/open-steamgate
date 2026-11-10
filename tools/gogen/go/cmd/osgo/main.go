@@ -252,14 +252,14 @@ func step(x *abap.ICFExchange, base string, r *http.Request, profileRoute func(s
 		}
 		runDialogStep(s, dialog, base == "/sap/bc/adt" || base == "/sap/public/bc/icf/logoff")
 	}
-	dump, frames, _ = runWorkStep(r, stepKindOf(x.Method, base), adtSessionKey(r), stepReport(x, base), work)
+	dump, frames, _ = runWorkStep(r, stepKindOf(x.Method, base), adtSessionKey(r), stepReport(x.Method, x.Path, base), work)
 	return dump, frames
 }
 
 // stepReport names the step in its work-process row (ZOSD_WP-REPORT): the
 // service and the path the SM50 shape shows.
-func stepReport(x *abap.ICFExchange, base string) string {
-	p := strings.TrimPrefix(strings.TrimPrefix(x.Path, strings.TrimSuffix(base, "/")), "/")
+func stepReport(method, path, base string) string {
+	p := strings.TrimPrefix(strings.TrimPrefix(path, strings.TrimSuffix(base, "/")), "/")
 	if p == "" {
 		return strings.Trim(base, "/")
 	}
