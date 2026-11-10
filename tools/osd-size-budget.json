@@ -131,8 +131,8 @@
    "reason": "Compute explicit user read grants and pin sandbox handles before constructing any ABAP report; expose granting parameters and the opt-out in help. Native profiling: startup-only label selection in go/profiling. 2026-10-22: one import wires the host-only castdiag reporter at the existing uncaught boundary. ADR 0010 slice 2: the -db file is the report session's Database, kept for closeDB."
   },
   "go:cmd/osgo": {
-   "lines": 2424,
-   "reason": "ADR 0010 slice 5 (feat/osgo-work-processes): workprocesses.go: the logical internal sessions (statics, turn), the step kinds by request, the ADT state session outside the step's LUW, -wp/OSD_WPS, the drain's lock over the pool; step()/runAPCStep/refreshStatus/boot/promote run on work processes; the ZOSD_WP rows in the status snapshot."
+   "lines": 2441,
+   "reason": "ADR 0010 slice 5 (feat/osgo-work-processes): workprocesses.go: the logical internal sessions (statics, turn), the step kinds by request, the ADT state session outside the step's LUW, -wp/OSD_WPS, the drain's lock over the pool; step()/runAPCStep/refreshStatus/boot/promote run on work processes; the ZOSD_WP rows in the status snapshot. The in-memory fallback of the ADT state session (withADTState runs on the step session when there is no spare connection)."
   },
   "go:cmd/osgw": {
    "lines": 184,
