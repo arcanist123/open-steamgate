@@ -335,6 +335,75 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     await call(`${v2}/Note('${id}')`, {method: "DELETE", headers: write});
   });
 
+  // A group that unwinds by a dump (ASSERT) or an exception nobody catches
+  // never reaches its own reset of LUW_HELD, and the flag is a static that
+  // outlives the request. The next request must still start with no group
+  // holding the LUW: a plain Approve then ends its own LUW (IV_END_LUW = X).
+  // Its persisted status alone cannot tell, because the ICF bracket commits
+  // after it either way, so the test watches the runtime's COMMIT.
+  it("does not carry a dumped group's LUW hold into the next request", async () => {
+    const C = globalThis.abap.Classes;
+    const runtime = C.ZCL_OSD_RAP_RUNTIME.prototype;
+    const handler = C["CLAS-ZBP_RAP_NOTE-LHC_NOTE"].prototype;
+    const held = async () => (await C.ZCL_STG_BATCH.luw_held()).get().trim();
+    const endLuw = [];
+    const commit = runtime.commit;
+    const construct = handler.constructor_;
+    let fail;
+    runtime.commit = async function (input) {
+      endLuw.push(input?.iv_end_luw?.get?.().trim() ?? "default");
+      return commit.call(this, input);
+    };
+    handler.constructor_ = async function (input) {
+      const result = await construct.call(this, input);
+      const approve = this.FRIENDS_ACCESS_INSTANCE.approve;
+      this.FRIENDS_ACCESS_INSTANCE.approve = async (i) => fail ? fail(i, approve) : approve(i);
+      return result;
+    };
+    const v2Note = async (text) => (await create(text)).body.d.NoteId;
+    const groups = {
+      "V4 JSON": (a, b) => call(`${v4}/$batch`, {method: "POST", headers: write, body: JSON.stringify({requests: [
+        {id: "a", atomicityGroup: "g", method: "POST", url: `Note('${a}')/ZUI_RAP_NOTE.Approve`, body: {}},
+        {id: "b", atomicityGroup: "g", method: "POST", url: `Note('${b}')/ZUI_RAP_NOTE.Approve`, body: {}},
+      ]})}),
+      "V4 multipart": (a, b) => multipart(v4, {"odata-version": "4.0"}, [
+        httpPart("POST", `Note('${a}')/ZUI_RAP_NOTE.Approve`, "{}"), httpPart("POST", `Note('${b}')/ZUI_RAP_NOTE.Approve`, "{}")]),
+      "V2 changeset": (a, b) => multipart(v2, {}, [
+        httpPart("POST", `Approve?NoteId='${a}'`), httpPart("POST", `Approve?NoteId='${b}'`)]),
+    };
+    const created = [];
+    try {
+      for (const [name, group] of Object.entries(groups)) {
+        for (const mode of ["dump", "exception"]) {
+          const [a, b, plain] = [await v2Note(`${name} ${mode} a`), await v2Note(`${name} ${mode} b`), await v2Note(`${name} ${mode} plain`)];
+          created.push(a, b, plain);
+          let count = 0;
+          fail = async (input, approve) => {
+            if (++count < 2) return approve(input);
+            if (mode === "dump") abap.statements.assert(false);
+            throw await new C.CX_SY_NO_HANDLER().constructor_();
+          };
+          await group(a, b).catch(() => undefined);
+          fail = undefined;
+          // the very next request, with nothing in between
+          endLuw.length = 0;
+          const res = await call(`${v4}/Note('${plain}')/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+          assert.equal(res.status, 200, JSON.stringify(res.body));
+          assert.deepEqual(endLuw, ["X"], `${name} ${mode}: a plain Approve ends its own LUW`);
+          assert.equal(await held(), "", `${name} ${mode}: no group holds the LUW after it`);
+          assert.equal(await statusOf(plain), "A");
+          assert.equal(await statusOf(a), "N", `${name} ${mode}: the group is undone`);
+        }
+      }
+    } finally {
+      fail = undefined;
+      runtime.commit = commit;
+      handler.constructor_ = construct;
+      await C.ZCL_STG_BATCH.hold_luw({iv_held: abap.builtin.abap_false});
+      for (const n of created) await call(`${v4}/Note('${n}')`, {method: "DELETE", headers: write});
+    }
+  });
+
   it("checks If-Match on a V4 bound action as a PATCH does", async () => {
     const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "if-match over v4"})})).body.NoteId;
     const key = `${v4}/Note('${id}')`;

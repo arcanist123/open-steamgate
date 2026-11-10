@@ -41,6 +41,11 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_body TYPE string.
     DATA lv_writes TYPE abap_bool.
     DATA lt_headers TYPE tihttpnvp.
+* A request starts with no group holding the LUW. The flag is a static and a
+* static outlives the request here (on a system each request is a session of
+* its own); a batch that dumped never reached its reset, and the next RAP save
+* would leave its COMMIT to a group that is gone (ZCL_STG_BATCH=>LUW_HELD).
+    zcl_stg_batch=>hold_luw( abap_false ).
 * ANORMALIES: posted-form-has-no-fields, V4 GET addendum. Decode once
 * from the raw query: names, form spaces and literal encoded plus signs.
     lv_query = server->request->get_header_field( '~query_string' ).
