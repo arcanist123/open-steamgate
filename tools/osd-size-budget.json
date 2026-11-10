@@ -15,8 +15,8 @@
  ],
  "budgets": {
   "go:abap": {
-   "lines": 12721,
-   "reason": "ADR 0010 slice 5 (feat/osgo-work-processes): the step on a lent work-process connection (stepconn.go: DialogStepOn, the kind's BEGIN, pooledEnd), Session.Yield/stepConn/stepOpen fields, Database.OpenPool and the pooled relaxations of usable/begin/stmtFor, and Statics slots shared instance-wide (RegisterSharedStatics, Session.Shared) for the runtime's own caches. The LUW bracket is the kernel's rule (docs/luw-buffer.md), and this is that rule on the pool's connection: a package of its own could not reach begin/end or the kernel's exceptions. The failed-commit half of pooledEnd (a best-effort rollback keeps the work process's connection clean) and the proof tests beside stepconn.go."
+   "lines": 12729,
+   "reason": "ADR 0010 slice 5: the kernel's lent step (stepconn.go) and InWriteStep"
   },
   "go:abaperr": {
    "lines": 19,
