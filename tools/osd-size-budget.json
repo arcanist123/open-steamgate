@@ -343,8 +343,8 @@
    "reason": "baseline 2026-10-01"
   },
   "go:workpool": {
-   "lines": 528,
-   "reason": "recorded by --update"
+   "lines": 531,
+   "reason": "ADR 0010 slice 5: the pool, its drain locker and Close after the drain"
   },
   "go:xbuf": {
    "lines": 75,
