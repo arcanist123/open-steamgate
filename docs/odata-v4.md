@@ -443,7 +443,19 @@ name private.
 The demo's Travel asks for it (`sticky: true`) and has an ETag for it: `etag: true` on Description,
 Status and Seats in `src/demo/zstg_demo.stg.yaml` (SEGW's ETag flag,
 `set_as_etag`). Its V2 `$metadata` says `ConcurrencyMode="Fixed"` on those
-properties since; the V2 path does not check `If-Match`.
+properties since, and the V2 path honours what that promises: a
+MERGE/PUT/DELETE of a type that declares an ETag takes `If-Match` (428
+without it, 412 with a tag that is no longer the row's, `*` always passes),
+and a single read answers the tag as the `ETag` header and as
+`__metadata.etag`. The tag is the V4 computation above, byte for byte — the
+V2 gateway calls `ZCL_OSD_V4_JSON=>ETAG` and `ZCL_OSD_V4_WRITE=>PRECONDITION`
+rather than keeping a second one — so a row has one tag whatever the client
+asked for. A guarded MERGE/PUT/PATCH answers the row's new tag with its
+204, read back through the DPC, and a function import that returns such an
+entity returns it with `__metadata.etag` like any read. A type without ETag
+properties writes without the header, as before, and its PUT and DELETE
+read nothing first even in a service where another type declares one: the
+requirement follows the type, not the service and not the protocol.
 
 ## Fiori Elements V4
 

@@ -14,6 +14,15 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       IMPORTING
         it_sets TYPE zcl_stg_model_info=>ty_entity_sets.
 
+* The ETag of a row, for the entries of a type that declares one: the same
+* ZCL_OSD_V4_MODEL the V4 facade builds, so both protocols answer the same
+* tag for the same row byte for byte (one implementation, not a V2 copy).
+* Unbound hands the tag back to nobody: entries of a type without an ETag,
+* or of a service whose request carried no model, carry no etag member.
+    CLASS-METHODS register_etag_model
+      IMPORTING
+        io_model TYPE REF TO zcl_osd_v4_model OPTIONAL.
+
     CLASS-METHODS feed_of
       IMPORTING
         it_entities    TYPE string_table
@@ -102,6 +111,7 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         zcx_stg_error.
   PRIVATE SECTION.
     CLASS-DATA gt_sets TYPE zcl_stg_model_info=>ty_entity_sets.
+    CLASS-DATA go_etag_model TYPE REF TO zcl_osd_v4_model.
 
     CLASS-METHODS nested
       IMPORTING
@@ -202,6 +212,10 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD register_sets.
     gt_sets = it_sets.
+  ENDMETHOD.
+
+  METHOD register_etag_model.
+    go_etag_model = io_model.
   ENDMETHOD.
 
   METHOD skip_blanks.
@@ -736,6 +750,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
     DATA ls_property LIKE LINE OF is_set-properties.
     DATA lv_uri      TYPE string.
     DATA lv_media   TYPE string.
+    DATA lv_etag    TYPE string.
     DATA lv_fields   TYPE string.
     DATA ls_nav      LIKE LINE OF is_set-navs.
     DATA ls_nav_json LIKE LINE OF it_nav_json.
@@ -743,6 +758,15 @@ CLASS zcl_stg_json IMPLEMENTATION.
     FIELD-SYMBOLS <lv_field> TYPE any.
 
     lv_uri = |{ iv_base_url }/{ is_set-name }({ key_predicate( is_data = is_data is_set = is_set ) })|.
+
+* the entity's ETag, when the type declares one and the request handed the
+* model over: a v2 client (UI5 among them) sends it back as If-Match on
+* MERGE/PUT/DELETE, which is the lost-update protection the metadata promises
+    IF go_etag_model IS BOUND.
+      lv_etag = zcl_osd_v4_json=>etag( is_data  = is_data
+                                       is_set   = is_set
+                                       io_model = go_etag_model ).
+    ENDIF.
 
     LOOP AT is_set-properties INTO ls_property.
       ASSIGN COMPONENT ls_property-fieldname OF STRUCTURE is_data TO <lv_field>.
@@ -785,7 +809,10 @@ CLASS zcl_stg_json IMPLEMENTATION.
     IF is_set-is_media = abap_true.
       lv_media = |,"media_src":"{ lv_uri }/$value","edit_media":"{ lv_uri }/$value"|.
     ENDIF.
-    rv_json = |\{"__metadata":\{"id":"{ lv_uri }","uri":"{ lv_uri }","type":"{ iv_namespace }.{ is_set-entity_type }"{ lv_media }\}{ lv_fields }\}|.
+    IF lv_etag IS NOT INITIAL.
+      lv_etag = |,"etag":"{ escape( lv_etag ) }"|.
+    ENDIF.
+    rv_json = |\{"__metadata":\{"id":"{ lv_uri }","uri":"{ lv_uri }","type":"{ iv_namespace }.{ is_set-entity_type }"{ lv_etag }{ lv_media }\}{ lv_fields }\}|.
   ENDMETHOD.
 
   METHOD entry.

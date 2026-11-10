@@ -530,8 +530,10 @@ export const cases = [
 
   // -------------------------------------------------------------------- writes
   //
-  // Off by default, and ordered: these six are one round trip through the
-  // DPC, and the last of them puts the tree back as it was.
+  // Off by default, and ordered: these are one round trip through the DPC
+  // (a create, the ETag contract its metadata promises, the writes that
+  // honour it, a deep insert and a $batch), and the last of them puts the
+  // tree back as it was.
 
   {
     id: "write-create",
@@ -549,16 +551,46 @@ export const cases = [
   },
   {
     id: "write-read-back",
-    name: "the created entity is there",
+    name: "the created entity is there, carrying the ETag its metadata promises",
+    request: {method: "GET", path: `${DEMO}/TravelSet('T0800')`, headers: json},
+    expect: {status: 200, headers: {etag: {matches: '^W/"'}},
+      jsonPath: [{path: "d.Seats", equals: 1}, {path: "d.__metadata.etag", matches: '^W/"'}]},
+    tags: ["mutating", "odata"],
+  },
+  {
+    id: "write-etag-required",
+    name: "a write of an entity the model gives an ETag takes If-Match: without it, 428",
+    request: {
+      method: "MERGE", path: `${DEMO}/TravelSet('T0800')`, csrf: true, headers: writeHeaders,
+      body: {Seats: 9},
+    },
+    expect: {status: 428, jsonPath: [{path: "error.code", equals: "STG/PRECONDITION_REQUIRED"}]},
+    tags: ["mutating", "error"],
+  },
+  {
+    id: "write-etag-stale",
+    name: "and with a tag that is no longer the row's, 412 and nothing written",
+    request: {
+      method: "MERGE", path: `${DEMO}/TravelSet('T0800')`, csrf: true,
+      headers: {...writeHeaders, "if-match": 'W/"gone"'},
+      body: {Seats: 9},
+    },
+    expect: {status: 412, jsonPath: [{path: "error.code", equals: "STG/ETAG_MISMATCH"}]},
+    tags: ["mutating", "error"],
+  },
+  {
+    id: "write-etag-unchanged",
+    name: "so the refused write left the row as it was",
     request: {method: "GET", path: `${DEMO}/TravelSet('T0800')`, headers: json},
     expect: {status: 200, jsonPath: [{path: "d.Seats", equals: 1}]},
     tags: ["mutating", "odata"],
   },
   {
     id: "write-update",
-    name: "PUT changes it, and answers 204",
+    name: "PUT with If-Match changes it, and answers 204",
     request: {
-      method: "PUT", path: `${DEMO}/TravelSet('T0800')`, csrf: true, headers: writeHeaders,
+      method: "PUT", path: `${DEMO}/TravelSet('T0800')`, csrf: true,
+      headers: {...writeHeaders, "if-match": "*"},
       body: {d: {Description: "Conformance updated", Status: "X", Seats: 2}},
     },
     expect: {status: 204},
@@ -583,8 +615,8 @@ export const cases = [
   },
   {
     id: "write-delete",
-    name: "DELETE removes it, and the read after is a 404",
-    request: {method: "DELETE", path: `${DEMO}/TravelSet('T0800')`, csrf: true},
+    name: "DELETE with If-Match removes it, and the read after is a 404",
+    request: {method: "DELETE", path: `${DEMO}/TravelSet('T0800')`, csrf: true, headers: {"if-match": "*"}},
     expect: {status: 204},
     tags: ["mutating", "odata"],
   },
@@ -618,7 +650,7 @@ export const cases = [
   {
     id: "write-deep-insert-cleanup",
     name: "the deep insert is taken back out",
-    request: {method: "DELETE", path: `${DEMO}/TravelSet('T0801')`, csrf: true},
+    request: {method: "DELETE", path: `${DEMO}/TravelSet('T0801')`, csrf: true, headers: {"if-match": "*"}},
     expect: {status: 204},
     tags: ["mutating", "nav"],
   },
@@ -636,7 +668,7 @@ export const cases = [
         "POST TravelSet HTTP/1.1", "Content-Type: application/json", "",
         JSON.stringify({TravelId: "T0802", Description: "via batch", Seats: 1}),
         "--cs", "Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
-        "DELETE TravelSet('T0802') HTTP/1.1", "", "",
+        "DELETE TravelSet('T0802') HTTP/1.1", "If-Match: *", "", "",
         "--cs--", "", "--b--", "",
       ].join("\r\n"),
     },

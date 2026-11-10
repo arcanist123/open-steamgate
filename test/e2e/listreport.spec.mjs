@@ -95,6 +95,10 @@ test("object page: navigation reads to_Bookings, Edit + Save sends MERGE with th
   expect(merge, requests.join("\n")).toBeDefined();
   expect(merge).toContain('"Seats":3');
   expect(merge).not.toContain('"Description"');
+  // the model sends the ETag of the entry back (the metadata says
+  // ConcurrencyMode Fixed and the entries carry __metadata.etag), and the
+  // write is only answered because it matches
+  expect(merge).toMatch(/If-Match: W\/"/);
 
   // the gateway laid the request over the entity: the rest survived
   const travel = await page.evaluate(async () => (await fetch("../sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0001')?$format=json")).json());
@@ -194,6 +198,9 @@ test("Delete in the list report goes through a $batch changeset to the DPC", asy
   await expect(page.locator("tr.sapMListTblRow", {hasText: "Aarhus to Odense"})).toHaveCount(0);
   await expect(page.locator("table tbody tr.sapMListTblRow")).toHaveCount(3);
   expect(deletes.some((t) => /DELETE TravelSet\('T0003'\)/.test(t)), deletes.join("\n")).toBe(true);
+  // the delete names an If-Match too (measured: `*` here, the entry's own
+  // tag on the Save above), so it is answered rather than refused with 428
+  expect(deletes.some((t) => /DELETE TravelSet\('T0003'\)[\s\S]*If-Match: /.test(t)), deletes.join("\n")).toBe(true);
 
   const res = await fetch(`http://localhost:${PORT}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0003')`);
   expect(res.status).toBe(404);
