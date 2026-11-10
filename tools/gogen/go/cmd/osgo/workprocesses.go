@@ -221,7 +221,11 @@ func stepKindOf(method, base string) abap.StepKind {
 	if method != "GET" && method != "HEAD" {
 		return abap.WriteStep
 	}
-	if base == odataBase+"/" || base == statusODataPath || (base == "/sap/bc/adt" && adtReadSteps) {
+	// base is what icfHandler was mounted with: odataBase for the OData
+	// front and the status service alike (no trailing slash; the first
+	// version compared odataBase+"/", so every OData read ran as a
+	// modifying step and queued on the write lock -- found by the bench)
+	if base == odataBase || base == statusODataPath || (base == "/sap/bc/adt" && adtReadSteps) {
 		return abap.ReadStep
 	}
 	return abap.WriteStep

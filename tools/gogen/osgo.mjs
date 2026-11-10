@@ -276,6 +276,19 @@ func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RESOLVE(s *abap.Session, cookies
  })
  return a.resolved
 }
+// END, ENQ_CONTEXT_ENDED and RELEASE_OBJECT delete the same rows (a plain
+// GET that opened a session and asks nothing of it ends it in the same
+// step): on the state session too, or a read step's query_only connection
+// refuses them (every ADT source read of the slice-5 bench answered 500)
+func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__END(s *abap.Session, id string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__END(state, id) })
+}
+func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__ENQ_CONTEXT_ENDED(s *abap.Session, id string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__ENQ_CONTEXT_ENDED(state, id) })
+}
+func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RELEASE_OBJECT(s *abap.Session, id, typ, name string) {
+ withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__RELEASE_OBJECT(state, id, typ, name) })
+}
 func (a *adtSystemSession) View() (string, bool) { return a.resolved.${field("id")}, a.resolved.${field("stateful")} == "X" }
 func (a *adtSystemSession) Alive(id string) bool {
  alive := false

@@ -40,8 +40,8 @@ func TestStepKindOf(t *testing.T) {
 	adtReadSteps = true
 	defer func() { adtReadSteps = false }()
 	read := []struct{ method, base string }{
-		{"GET", odataBase + "/"},
-		{"HEAD", odataBase + "/"},
+		{"GET", odataBase}, // the base icfHandler is mounted with
+		{"HEAD", odataBase},
 		{"GET", statusODataPath},
 		{"GET", "/sap/bc/adt"},
 	}
@@ -51,10 +51,10 @@ func TestStepKindOf(t *testing.T) {
 		}
 	}
 	write := []struct{ method, base string }{
-		{"POST", odataBase + "/"},
-		{"PUT", odataBase + "/"},
-		{"MERGE", odataBase + "/"},
-		{"DELETE", odataBase + "/"},
+		{"POST", odataBase},
+		{"PUT", odataBase},
+		{"MERGE", odataBase},
+		{"DELETE", odataBase},
 		{"GET", "/sap/bc/gui/sap/its/webgui"}, // the webgui writes session rows
 	}
 	for _, tc := range write {
