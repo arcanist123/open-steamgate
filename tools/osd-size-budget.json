@@ -131,8 +131,8 @@
    "reason": "Compute explicit user read grants and pin sandbox handles before constructing any ABAP report; expose granting parameters and the opt-out in help. Native profiling: startup-only label selection in go/profiling. 2026-10-22: one import wires the host-only castdiag reporter at the existing uncaught boundary. ADR 0010 slice 2: the -db file is the report session's Database, kept for closeDB."
   },
   "go:cmd/osgo": {
-   "lines": 2694,
-   "reason": "ADR 0010 slice 5: the dispatcher, ZOSD_WP, the ADT state work process and the stateless stores PR #900 review: the logical-session turn is taken before the pool's write token and work process (a cancellable channel), and keyed sessions are reclaimed on END, on a cookie the class did not accept and after the ADT TTL; host session policy, with the NORMAL loss envelope documented."
+   "lines": 2707,
+   "reason": "ADR 0010 slice 5: the dispatcher, ZOSD_WP, the ADT state work process and the stateless stores PR #900 review: the logical-session turn is taken before the pool's write token and work process (a cancellable channel), and keyed sessions are reclaimed on END, on a cookie the class did not accept and after the ADT TTL; host session policy, with the NORMAL loss envelope documented. PR #900 review round 2: the pool logs a stopped work process and /osd/serving says how many are out of service."
   },
   "go:cmd/osgw": {
    "lines": 184,
@@ -295,8 +295,8 @@
    "reason": "Critic round 2: retain checked handles and DATASET base; identity-check case-variant file opens with parent identity and unambiguous entry names to refuse sibling hard links, and inspect single-file grants for GUI_UPLOAD without directory browsing."
   },
   "go:serving": {
-   "lines": 382,
-   "reason": "ADR 0010 slice 1: the supervised-host contract of a one-process host (/osd/serving, X-OSD-Generation, SIGTERM drain under the work process), standard library only, no go/abap import; the Go half of tools/osd-serve.mjs and the facade in front of it. Critic of #874: the wake-up takes the mutex before it broadcasts, the database close is bounded by the grace like the rest of the stop, a test hook into the check-to-wait instant, a no-op lock for a host without a work process. ADR 0010 slice 3: SetGeneration under the mutex, so a gateway (go/osgw) says the generation of the sidecar that serves."
+   "lines": 393,
+   "reason": "ADR 0010 slice 1: the supervised-host contract of a one-process host (/osd/serving, X-OSD-Generation, SIGTERM drain under the work process), standard library only, no go/abap import; the Go half of tools/osd-serve.mjs and the facade in front of it. Critic of #874: the wake-up takes the mutex before it broadcasts, the database close is bounded by the grace like the rest of the stop, a test hook into the check-to-wait instant, a no-op lock for a host without a work process. ADR 0010 slice 3: SetGeneration under the mutex, so a gateway (go/osgw) says the generation of the sidecar that serves. PR #900 review round 2: Options.Extra, the host's own fields on GET /osd/serving (the work processes out of service), never over a contract field."
   },
   "go:session": {
    "lines": 54,
@@ -343,8 +343,8 @@
    "reason": "baseline 2026-10-01"
   },
   "go:workpool": {
-   "lines": 698,
-   "reason": "ADR 0010 slice 5: the pool, the write token, a dump or a fenced WAIT returns its work process once PR #900 review: Step.Cleanup (rollback on its own context) and the scrub/replace of a fenced or failed step's connection before the write token goes."
+   "lines": 847,
+   "reason": "ADR 0010 slice 5: the pool, the write token, a dump or a fenced WAIT returns its work process once PR #900 review: Step.Cleanup (rollback on its own context) and the scrub/replace of a fenced or failed step's connection before the write token goes. PR #900 review round 2: a work process is never lent or parked without a connection -- the reconnect retried within the grace, else stopped (counted, logged, the row says Stopped), the drain waiting only for the ones in service; the replacement lives in replace.go beside the pool."
   },
   "go:xbuf": {
    "lines": 75,
