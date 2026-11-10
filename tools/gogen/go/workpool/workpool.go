@@ -93,6 +93,16 @@ type Pool struct {
 	o       Options
 	workers []*worker
 	tokens  chan *worker
+	// writer is SQLite's one write lock as a token: a modifying step takes
+	// it before its work process and holds it until it ends (or WAITs).
+	// Without it M writers each ran BEGIN IMMEDIATE and queued inside
+	// SQLite's busy handler, which sleeps 1, 2, 5 ... 100 ms between tries
+	// instead of waking the next writer: on i10 the write mix through M work
+	// processes lost 44 % at 4 clients with a p99 of 34 ms. A channel wakes
+	// the next writer when the lock is free, and a writer waiting here holds
+	// no work process the readers could use. busy_timeout is left for what
+	// writes beside the pool (the state session, another generation).
+	writer  chan struct{}
 	mu      sync.Mutex // the registry rows and the lending state below
 	live    int        // steps running statements now (a Held WAIT is not)
 	running map[int]*Step
@@ -130,6 +140,7 @@ func New(o Options) (*Pool, error) {
 	}
 	p := &Pool{o: o, running: map[int]*Step{}, stop: make(chan struct{})}
 	p.tokens = make(chan *worker, o.Workers)
+	p.writer = make(chan struct{}, 1)
 	ctx := context.Background()
 	for i := 0; i < o.Workers; i++ {
 		conn, err := o.DB.Conn(ctx)
@@ -184,11 +195,23 @@ var ErrNotServing = errors.New("workpool: the pool lends no work process (drain 
 // bracket re-panics it). ctx cancelled or expired cancels the step's
 // statements, which is the fence.
 func (p *Pool) Step(ctx context.Context, kind Kind, work func(*Step)) error {
+	if p.o.ReadOnly {
+		kind = Read
+	}
+	gated := kind == Write
+	if gated {
+		if err := p.acquireWriter(ctx); err != nil {
+			return err
+		}
+	}
 	w, err := p.acquire(ctx)
 	if err != nil {
+		if gated {
+			<-p.writer
+		}
 		return err
 	}
-	step := &Step{p: p, w: w, held: true}
+	step := &Step{p: p, w: w, held: true, gated: gated}
 	step.ctx, step.cancel = context.WithCancel(ctx)
 	defer step.cancel()
 	if err := p.lend(step, kind); err != nil {
@@ -227,6 +250,26 @@ func (p *Pool) acquire(ctx context.Context) (*worker, error) {
 			return nil, ctx.Err()
 		case <-p.stopNow():
 			// the drain began while this waited: the check above decides
+		}
+	}
+}
+
+// acquireWriter is the write token for a new step, refused once the drain
+// holds the pool, as acquire is.
+func (p *Pool) acquireWriter(ctx context.Context) error {
+	for {
+		p.mu.Lock()
+		stopped := p.stopped || p.closed
+		p.mu.Unlock()
+		if stopped {
+			return ErrNotServing
+		}
+		select {
+		case p.writer <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.stopNow():
 		}
 	}
 }
@@ -273,6 +316,10 @@ func (p *Pool) lend(s *Step, kind Kind) error {
 // -- unless a WAIT already gave it back and the fence kept the step from
 // taking another (held false), when there is nothing to return.
 func (p *Pool) unlend(s *Step) {
+	if s.gated {
+		s.gated = false
+		<-p.writer
+	}
 	if !s.held {
 		return
 	}
@@ -299,6 +346,9 @@ type Step struct {
 	// and after a WAIT the fence ended: the step's statements are refused
 	// then rather than run on a connection another step may hold.
 	held bool
+	// gated: the step holds the write token (a modifying step, between its
+	// start or a WAIT's return and its end or the WAIT)
+	gated bool
 }
 
 // errNotHeld is a statement of a step that holds no work process: one
@@ -408,8 +458,17 @@ func (s *Step) stmtFor(q string) *sql.Stmt {
 // run on it, and the row says Idle in the meantime.
 func (s *Step) Yield(d time.Duration) {
 	p := s.p
-	p.unlend(s) // the row says Idle; Interrupt no longer finds the step there
+	wasGated := s.gated
+	p.unlend(s) // the row says Idle, the write token goes; Interrupt no longer finds the step there
 	time.Sleep(d)
+	if wasGated {
+		select {
+		case p.writer <- struct{}{}:
+			s.gated = true
+		case <-s.ctx.Done():
+			return // fenced in the WAIT, as below
+		}
+	}
 	w := p.take(s.ctx)
 	if w == nil {
 		return // fenced in the WAIT: held stays false, the kernel's reopen fails next

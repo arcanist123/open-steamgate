@@ -55,6 +55,9 @@ func closeDatabase() {
 			log.Printf("work processes close: %v", err)
 		}
 	}
+	if adtState.pool != nil {
+		adtState.pool.Close()
+	}
 	if instance == nil || instance.DB == nil {
 		return
 	}

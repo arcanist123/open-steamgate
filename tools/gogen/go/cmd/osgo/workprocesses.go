@@ -60,15 +60,16 @@ func workProcesses(count string, getenv func(string) (string, bool), cores int) 
 // openWorkProcesses makes the pool over the database the instance opened.
 // An in-memory database gets the one connection it can have and no spare
 // (one database per connection: a spare would see an empty private
-// database, and M would be M databases); a file gets one spare for what
-// runs outside a step -- the ADT session rows below, a tool.
+// database, and M would be M databases); a file gets two spares: the ADT
+// state work process below holds one, the other is for what runs outside
+// a step (a tool reading the file).
 func openWorkProcesses(dbFile string, count int) {
 	workProcessCount = count
 	if count < 1 {
 		count = 1 // workProcesses answers at least one; a zero is a caller's
 	}
 	memory := dbFile == ""
-	workers, spare := count, 1
+	workers, spare := count, 2
 	if memory {
 		workers, spare = 1, 0
 	}
@@ -102,16 +103,26 @@ var adtReadSteps bool
 var adtStateSpare bool
 
 // adtState is where the ADT session class keeps its rows: a session of its
-// own on the spare connection, outside the step's LUW. A system's session
-// context is kernel state, not business data -- it must survive a dumped
-// request (the user's session does), and it must not make every ADT read a
-// writer of the business database, which would serialise the very reads the
-// work processes exist to parallelise (ZCL_OSD_ADT_SESSION touches its row
-// on every resolve: the sweep, the open, the touched UPDATE). One session,
-// one turn at a time; the calls are microseconds.
+// own on a work process of its own (a one-worker pool over a spare
+// connection), outside the step's LUW. A system's session context is
+// kernel state, not business data -- it must survive a dumped request (the
+// user's session does), and it must not make every ADT read a writer of
+// the business database, which would serialise the very reads the work
+// processes exist to parallelise (ZCL_OSD_ADT_SESSION touches its row on
+// every resolve: the sweep, the open, the touched UPDATE). One call at a
+// time, each one transaction (BEGIN IMMEDIATE: no snapshot to lose at the
+// upgrade) on a connection with synchronous = NORMAL: the first version
+// ran every statement in autocommit with a full fsync, under a mutex, and
+// the ADT source read through 12 work processes on i10 went from 15 to 21
+// rps instead of scaling -- the goroutine dumps were all on that mutex,
+// its holder in fsync. NORMAL in WAL mode keeps the file consistent and
+// loses at most the last session touches on a power cut (they are made
+// durable by the next business commit's fsync of the same WAL): a lost
+// session row is a logon again, which is what a system restart is too.
 var adtState struct {
-	mu sync.Mutex
-	s  *abap.Session
+	pool  *workpool.Pool
+	s     *abap.Session
+	tuned bool // the state connection's synchronous pragma, set once
 }
 
 // withADTState runs the ADT session class's persistence on that session,
@@ -129,22 +140,45 @@ var adtState struct {
 // stay in the step's LUW, as before slice 5: a dump there rolls the touch
 // back with the rest of the step.
 func withADTState(step *abap.Session, run func(*abap.Session)) {
-	if adtState.s == nil || step.InWriteStep() {
+	if adtState.pool == nil || step.InWriteStep() {
 		run(step)
 		return
 	}
-	adtState.mu.Lock()
-	defer adtState.mu.Unlock()
-	run(adtState.s)
+	kind := abap.WriteStep
+	if candidate.Load() {
+		kind = abap.ReadStep // a candidate writes nothing until promoted
+	}
+	err := adtState.pool.Step(context.Background(), workpool.Kind(kind), func(st *workpool.Step) {
+		if !adtState.tuned { // one worker: the steps here are serial
+			if _, err := st.Exec("PRAGMA synchronous = NORMAL"); err != nil {
+				panic(abap.ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
+			}
+			adtState.tuned = true
+		}
+		abap.DialogStepOn(adtState.s, kind, st, func() { run(adtState.s) })
+	})
+	if err != nil { // the state work process is closed: the host is stopping
+		panic(abap.ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
+	}
 }
 
 // mintADTState makes the state session once the instance has its database:
 // on the spare connection, when there is one (a file); an in-memory
 // database has none, and the rows stay in the step.
 func mintADTState() {
+	if adtState.pool != nil {
+		adtState.pool.Close()
+		adtState.pool, adtState.tuned = nil, false
+	}
 	if !adtStateSpare {
 		return
 	}
+	p, err := workpool.New(workpool.Options{DB: instance.DB.SQL(), Workers: 1,
+		ReadOnly: candidate.Load(), Generation: buildGeneration})
+	if err != nil {
+		log.Fatalf("ADT state work process: %v", err)
+	}
+	adtState.pool = p
 	adtState.s = &abap.Session{DB: instance.DB, Shared: instance.Statics}
 }
 
@@ -158,10 +192,25 @@ type logicalSession struct {
 
 // sessionTable is the sidecar's logical internal sessions, keyed by what
 // identifies one: an ADT session's cookie (a stateful session), a push
-// channel, or nothing -- a stateless request, a fresh session every step.
+// channel, or nothing -- a stateless request.
+//
+// A stateless request borrows one of the stateless stores: a free list,
+// one store per stateless step running at the moment (at most the work
+// processes plus the steps parked in a WAIT), each kept across requests.
+// The ADR's first choice, a fresh store per stateless request (what a
+// system does), cost the OData read a third of its rate at one client and
+// half at sixteen on i10 (class constructors and lazy caches rebuilt per
+// request; ADR 0010 slice 5 row); the ADR left exactly this to that number.
+// A list and not a store per work process: a step that WAITs moves to
+// another work process and keeps its store, so a store tied to the work
+// process would be shared by two steps. A stateless request so sees the
+// CLASS-DATA a previous stateless request left in its store -- what both
+// hosts did before this slice with one store per process (ANORMALIES), now
+// one per concurrent step.
 type sessionTable struct {
-	mu    sync.Mutex
-	byKey map[string]*logicalSession
+	mu        sync.Mutex
+	byKey     map[string]*logicalSession
+	stateless []*logicalSession
 }
 
 var sessions = &sessionTable{byKey: map[string]*logicalSession{}}
@@ -171,9 +220,21 @@ var sessions = &sessionTable{byKey: map[string]*logicalSession{}}
 // the turn when the step has run.
 func (t *sessionTable) stepSession(key string) (s *logicalSession, done func()) {
 	if key == "" {
-		fresh := &logicalSession{}
-		fresh.mu.Lock()
-		return fresh, fresh.mu.Unlock
+		t.mu.Lock()
+		var free *logicalSession
+		if n := len(t.stateless); n > 0 {
+			free, t.stateless = t.stateless[n-1], t.stateless[:n-1]
+		} else {
+			free = &logicalSession{}
+		}
+		t.mu.Unlock()
+		free.mu.Lock()
+		return free, func() {
+			free.mu.Unlock()
+			t.mu.Lock()
+			t.stateless = append(t.stateless, free)
+			t.mu.Unlock()
+		}
 	}
 	t.mu.Lock()
 	s, ok := t.byKey[key]

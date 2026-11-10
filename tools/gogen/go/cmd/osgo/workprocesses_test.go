@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"osg/gogen/abap"
+	"osg/gogen/workpool"
 )
 
 // The dispatcher's own rules (ADR 0010 slice 5), the half the kernel cannot
@@ -113,17 +115,20 @@ func TestSessionTableOneStepAtATime(t *testing.T) {
 	close(release)
 	<-done
 	<-waited
-	// a stateless request is a session of its own, twice
+	// two stateless requests at the same time never share a store; one
+	// after the other reuse it (the stateless stores, sessionTable)
 	a, doneA := table.stepSession("")
-	if a == nil {
-		t.Fatal("no session")
+	b, doneB := table.stepSession("")
+	if a == nil || b == nil || a == b {
+		t.Fatalf("two concurrent stateless requests: %p %p", a, b)
 	}
 	doneA()
-	b, doneB := table.stepSession("")
-	if a == b {
-		t.Error("two stateless requests share one logical session")
-	}
 	doneB()
+	c, doneC := table.stepSession("")
+	if c != a && c != b {
+		t.Error("a stateless request after two ended made a third store instead of reusing one")
+	}
+	doneC()
 }
 
 func TestSessionTableForget(t *testing.T) {
@@ -188,21 +193,34 @@ func (fakeConn) Prepare(string) (*sql.Stmt, error)       { return nil, nil }
 
 // The ADT session rows leave the step only in a read step: a modifying
 // step holds the file's one write lock, and the state session writing on
-// the spare connection inside it waited for that very lock (every ADT POST
-// through the gateway answered SQLITE_BUSY after the busy timeout).
+// its own connection inside it waited for that very lock (every ADT POST
+// through the gateway answered SQLITE_BUSY after the busy timeout). In a
+// read step they run on the state work process, one transaction a call.
 func TestADTStateOnlyOutsideWriteSteps(t *testing.T) {
+	d, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "state.sqlite")+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	p, err := workpool.New(workpool.Options{DB: d, Workers: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
 	state := &abap.Session{}
-	adtState.s = state
-	defer func() { adtState.s = nil }()
+	adtState.pool, adtState.s, adtState.tuned = p, state, false
+	defer func() { adtState.pool, adtState.s, adtState.tuned = nil, nil, false }()
 	on := func(kind abap.StepKind) *abap.Session {
 		step := &abap.Session{}
 		var got *abap.Session
 		abap.DialogStepOn(step, kind, fakeConn{}, func() {
-			withADTState(step, func(s *abap.Session) { got = s })
+			withADTState(step, func(s *abap.Session) {
+				got = s
+				if s == state && !s.InWriteStep() {
+					t.Error("the state session ran outside its own transaction")
+				}
+			})
 		})
-		if got == step {
-			return step
-		}
 		return got
 	}
 	if got := on(abap.ReadStep); got != state {
@@ -210,5 +228,8 @@ func TestADTStateOnlyOutsideWriteSteps(t *testing.T) {
 	}
 	if got := on(abap.WriteStep); got == state {
 		t.Fatal("a modifying step's ADT rows ran on the state session: it would wait for the step's own write lock")
+	}
+	if !adtState.tuned {
+		t.Error("the state connection's synchronous pragma was not set")
 	}
 }

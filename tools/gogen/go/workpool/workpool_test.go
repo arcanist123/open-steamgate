@@ -617,3 +617,69 @@ func TestFencedWaitReturnsNothingTwice(t *testing.T) {
 		t.Fatal("a second step ran beside the first on a one-work-process pool: the fenced WAIT returned its work process twice")
 	}
 }
+
+// Writers queue on the pool's write token, not in SQLite's busy handler: a
+// second modifying step waits without a work process (a read runs beside
+// the first writer meanwhile), starts as soon as the first ends, and a
+// WAIT in a writer gives the token up with the work process.
+func TestWritersQueueOnTheToken(t *testing.T) {
+	d := openWAL(t, 4, 5*time.Second)
+	defer d.Close()
+	p, err := New(Options{DB: d, Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	inFirst := make(chan struct{})
+	release := make(chan struct{})
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		p.Step(context.Background(), Write, func(s *Step) {
+			close(inFirst)
+			<-release
+		})
+	}()
+	<-inFirst
+	secondIn := make(chan time.Time, 1)
+	go p.Step(context.Background(), Write, func(s *Step) { secondIn <- time.Now() })
+	// the second writer holds no work process while it waits: a read runs
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := p.Step(ctx, Read, func(*Step) {}); err != nil {
+		t.Fatalf("a read beside a writer and a waiting writer: %v", err)
+	}
+	select {
+	case <-secondIn:
+		t.Fatal("the second writer ran while the first held the token")
+	case <-time.After(50 * time.Millisecond):
+	}
+	released := time.Now()
+	close(release)
+	<-firstDone
+	select {
+	case at := <-secondIn:
+		if waited := at.Sub(released); waited > 20*time.Millisecond {
+			t.Errorf("the second writer started %v after the first ended", waited)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second writer never ran")
+	}
+	// a WAIT gives the token up: another writer runs during the sleep
+	inWait := make(chan struct{})
+	waitDone := make(chan struct{})
+	go func() {
+		defer close(waitDone)
+		p.Step(context.Background(), Write, func(s *Step) {
+			close(inWait)
+			s.Yield(300 * time.Millisecond)
+		})
+	}()
+	<-inWait
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel2()
+	if err := p.Step(ctx2, Write, func(*Step) {}); err != nil {
+		t.Fatalf("a writer during another writer's WAIT: %v", err)
+	}
+	<-waitDone
+}
