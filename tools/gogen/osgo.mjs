@@ -282,6 +282,7 @@ func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__RESOLVE(s *abap.Session, cookies
 // refuses them (every ADT source read of the slice-5 bench answered 500)
 func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__END(s *abap.Session, id string) {
  withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__END(state, id) })
+ adtSessionEnded(id) // the logical internal session ends with it (workprocesses.go)
 }
 func (a *adtSystemSession) ZIF_OSD_ADT_SESSION__ENQ_CONTEXT_ENDED(s *abap.Session, id string) {
  withADTState(a.step, func(state *abap.Session) { a.ZCL_OSD_ADT_SESSION.ZIF_OSD_ADT_SESSION__ENQ_CONTEXT_ENDED(state, id) })

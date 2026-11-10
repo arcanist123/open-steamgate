@@ -73,14 +73,24 @@ func TestStepKindOf(t *testing.T) {
 	}
 }
 
+// take is stepSession with no deadline, as the tests below wait.
+func take(t *testing.T, table *sessionTable, key string) (*logicalSession, func()) {
+	t.Helper()
+	s, done, err := table.stepSession(context.Background(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, done
+}
+
 func TestSessionTableOneStepAtATime(t *testing.T) {
-	table := &sessionTable{byKey: map[string]*logicalSession{}}
+	table := newSessionTable()
 	inStep := make(chan struct{})
 	release := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s, finished := table.stepSession("stateful-1")
+		s, finished := take(t, table, "stateful-1")
 		if s == nil {
 			t.Error("no session")
 		}
@@ -93,7 +103,7 @@ func TestSessionTableOneStepAtATime(t *testing.T) {
 	waited := make(chan struct{})
 	go func() {
 		defer close(waited)
-		_, finished := table.stepSession("stateful-1")
+		_, finished := take(t, table, "stateful-1")
 		finished()
 	}()
 	select {
@@ -105,7 +115,7 @@ func TestSessionTableOneStepAtATime(t *testing.T) {
 	other := make(chan struct{})
 	go func() {
 		defer close(other)
-		_, finished := table.stepSession("stateful-2")
+		_, finished := take(t, table, "stateful-2")
 		finished()
 	}()
 	select {
@@ -118,14 +128,14 @@ func TestSessionTableOneStepAtATime(t *testing.T) {
 	<-waited
 	// two stateless requests at the same time never share a store; one
 	// after the other reuse it (the stateless stores, sessionTable)
-	a, doneA := table.stepSession("")
-	b, doneB := table.stepSession("")
+	a, doneA := take(t, table, "")
+	b, doneB := take(t, table, "")
 	if a == nil || b == nil || a == b {
 		t.Fatalf("two concurrent stateless requests: %p %p", a, b)
 	}
 	doneA()
 	doneB()
-	c, doneC := table.stepSession("")
+	c, doneC := take(t, table, "")
 	if c != a && c != b {
 		t.Error("a stateless request after two ended made a third store instead of reusing one")
 	}
@@ -133,8 +143,8 @@ func TestSessionTableOneStepAtATime(t *testing.T) {
 }
 
 func TestSessionTableForget(t *testing.T) {
-	table := &sessionTable{byKey: map[string]*logicalSession{}}
-	s, finished := table.stepSession("cookie-1")
+	table := newSessionTable()
+	s, finished := take(t, table, "cookie-1")
 	finished()
 	if got := len(table.byKey); got != 1 {
 		t.Fatalf("%d rows", got)
@@ -145,7 +155,7 @@ func TestSessionTableForget(t *testing.T) {
 	}
 	// a forgotten session's statics are nobody's: the next step of the key
 	// is a new session, which is what a logoff means
-	again, finishedAgain := table.stepSession("cookie-1")
+	again, finishedAgain := take(t, table, "cookie-1")
 	if again == s {
 		t.Error("the session after the logoff is the one before it")
 	}
@@ -259,5 +269,176 @@ func TestStepKindFollowsAReadOnlyPool(t *testing.T) {
 		abap.DialogStepOn(&abap.Session{}, stepKindOn(st), st, func() {})
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Regression (PR #900 review, MUST 3): a step of a session in a WAIT holds
+// the session's turn and gives up its work process and, a modifying one,
+// the write token. A second step of the same session took the token and a
+// work process first and only then waited for the turn: the first, back
+// from the WAIT, waited for the token the second held -- both hung, and
+// every writer behind them. The turn comes first now. Two work processes
+// with writers, and one work process with readers (where the second step
+// held the only work process).
+func TestSameSessionStepDuringWaitDoesNotDeadlock(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		workers int
+		kind    abap.StepKind
+	}{
+		{"writers on two work processes", 2, abap.WriteStep},
+		{"readers on one work process", 1, abap.ReadStep},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "s.sqlite")+"?_pragma=journal_mode(WAL)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			d.SetMaxOpenConns(tc.workers + 1)
+			p, err := workpool.New(workpool.Options{DB: d, Workers: tc.workers})
+			if err != nil {
+				t.Fatal(err)
+			}
+			savedWP, savedSessions := wp, sessions
+			wp, sessions = p, newSessionTable()
+			defer func() { p.Close(); wp, sessions = savedWP, savedSessions }()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel() // breaks the cycle if there is one, so the test ends
+			req := httptest.NewRequest("POST", "/", nil).WithContext(ctx)
+			waiting := make(chan struct{})
+			aDone, bDone := make(chan struct{}), make(chan struct{})
+			go func() {
+				defer close(aDone)
+				runWorkStep(req, tc.kind, "same-session", "A", func(s *abap.Session) {
+					close(waiting)
+					s.YieldSleep(300 * time.Millisecond)
+				})
+			}()
+			<-waiting
+			for p.InFlight() != 0 {
+				time.Sleep(time.Millisecond)
+			}
+			go func() {
+				defer close(bDone)
+				runWorkStep(req, tc.kind, "same-session", "B", func(s *abap.Session) {})
+			}()
+			for _, c := range []struct {
+				name string
+				done chan struct{}
+			}{{"A, back from its WAIT", aDone}, {"B, after A's turn", bDone}} {
+				select {
+				case <-c.done:
+					continue
+				case <-time.After(3 * time.Second):
+					t.Errorf("%s never finished: the session's turn and the pool's resources wait for each other", c.name)
+				}
+				break
+			}
+			cancel() // the cycle, if any, is broken here; both end before the globals go back
+			<-aDone
+			<-bDone
+		})
+	}
+}
+
+// PR #900 review (SHOULD): the keyed sessions are reclaimed -- on the ABAP
+// session's END while a step holds the turn and another waits (the waiter
+// keeps its one-at-a-time and starts without the ended session's statics),
+// after a step whose cookie the session class did not accept, after the
+// idle time, and a wait for the turn ends with its context.
+func TestSessionTableReclaims(t *testing.T) {
+	table := newSessionTable()
+	saved := sessions
+	sessions = table // keyResolved and adtSessionEnded forget on the global table
+	defer func() { sessions = saved }()
+	clock := time.Unix(1_000_000, 0)
+	table.now = func() time.Time { return clock }
+
+	// END during a step, with a second step of the session queued
+	held, doneHeld := take(t, table, "ended")
+	held.statics = &abap.Statics{}
+	queued := make(chan *logicalSession)
+	go func() {
+		s, done := take(t, table, "ended")
+		queued <- s
+		<-queued
+		done()
+	}()
+	for {
+		table.mu.Lock()
+		refs := held.refs
+		table.mu.Unlock()
+		if refs == 2 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	adtSessionEnded("ended") // the generated adapter's END
+	select {
+	case <-queued:
+		t.Fatal("the queued step ran beside the step that ended the session")
+	case <-time.After(30 * time.Millisecond):
+	}
+	doneHeld()
+	next := <-queued
+	if next != held || next.statics != nil {
+		t.Errorf("the queued step after the END: same entry %v, statics %p", next == held, next.statics)
+	}
+	queued <- nil
+	for {
+		table.mu.Lock()
+		n := len(table.byKey)
+		table.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// a cookie the class did not accept: the step resolved another session
+	_, done := take(t, table, "unknown-cookie")
+	s := &abap.Session{}
+	adtResolved.Store(s, "fresh-id")
+	keyResolved(s, "unknown-cookie")
+	done()
+	if _, ok := table.byKey["unknown-cookie"]; ok {
+		t.Error("a cookie that named no session stayed in the table")
+	}
+	// one it did accept stays
+	_, done = take(t, table, "live")
+	s = &abap.Session{}
+	adtResolved.Store(s, "live")
+	keyResolved(s, "live")
+	done()
+	if _, ok := table.byKey["live"]; !ok {
+		t.Error("a live session was dropped")
+	}
+
+	// idle: swept once the ADT session's lifetime has passed; the
+	// instance's own session never is
+	_, done = take(t, table, systemSessionKey)
+	done()
+	clock = clock.Add(sessionIdleTTL + sessionSweepEvery + time.Second)
+	_, done = take(t, table, "other")
+	done()
+	if _, ok := table.byKey["live"]; ok {
+		t.Error("an idle session outlived the ADT session's lifetime")
+	}
+	if _, ok := table.byKey[systemSessionKey]; !ok {
+		t.Error("the instance's own session was swept")
+	}
+
+	// a wait for the turn ends with its context
+	_, done = take(t, table, "busy")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, _, err := table.stepSession(ctx, "busy"); err == nil {
+		t.Error("a cancelled wait for the turn took it")
+	}
+	done()
+	if table.byKey["busy"].refs != 0 {
+		t.Error("the cancelled wait left its reference")
 	}
 }

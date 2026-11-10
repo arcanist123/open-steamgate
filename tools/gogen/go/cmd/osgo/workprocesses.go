@@ -115,10 +115,24 @@ var adtStateSpare bool
 // ran every statement in autocommit with a full fsync, under a mutex, and
 // the ADT source read through 12 work processes on i10 went from 15 to 21
 // rps instead of scaling -- the goroutine dumps were all on that mutex,
-// its holder in fsync. NORMAL in WAL mode keeps the file consistent and
-// loses at most the last session touches on a power cut (they are made
-// durable by the next business commit's fsync of the same WAL): a lost
-// session row is a logon again, which is what a system restart is too.
+// its holder in fsync.
+//
+// What NORMAL gives up, in full (https://www.sqlite.org/pragma.html#pragma_synchronous):
+// a process crash loses nothing -- a committed transaction is in the WAL
+// file, and the next open replays it. An OS crash or a power cut can roll
+// back every transaction of this connection committed since the WAL was
+// last synced (the next fsync of the same WAL -- a business commit, a
+// checkpoint -- makes them durable). Those are all of the session class's
+// writes, not only the touches: a session opened (its row and token gone:
+// the client's next request is refused and logs on again, as after a
+// system restart), a session ended or swept (its row back: it is expired
+// by its TOUCHED time on sight, or alive again until the TTL if the cut
+// came within it -- an ended session's cookie can work again), a handle
+// adopted (gone: the editor's lock handle is unknown, it locks again) or
+// released (back: a stale handle row, which HOLDS still checks against the
+// enqueue server, empty after a restart). The file stays consistent in
+// every case; no business row is on this connection, and the modifying
+// steps' own connections keep the database's synchronous setting.
 var adtState struct {
 	pool  *workpool.Pool
 	s     *abap.Session
@@ -184,10 +198,20 @@ func mintADTState() {
 
 // logicalSession is one logical internal session: its turn (one step of a
 // session at a time) and its statics, which every work process that runs
-// one of its steps borrows.
+// one of its steps borrows. The turn is a channel so a step waiting for it
+// can be cancelled (its client went away) -- a sync.Mutex cannot.
 type logicalSession struct {
-	mu      sync.Mutex
-	statics *abap.Statics
+	turn    chan struct{} // holding a value is holding the turn
+	statics *abap.Statics // read and written only by the turn's holder
+	// guarded by sessionTable.mu:
+	refs  int       // steps holding the turn or waiting for it
+	last  time.Time // when a step last gave the turn back
+	ended bool      // ended (logoff) while a step held the turn: its statics go at the release
+	gone  bool      // ended: the entry goes when no step holds or waits for it
+}
+
+func newLogicalSession() *logicalSession {
+	return &logicalSession{turn: make(chan struct{}, 1)}
 }
 
 // sessionTable is the sidecar's logical internal sessions, keyed by what
@@ -207,52 +231,180 @@ type logicalSession struct {
 // CLASS-DATA a previous stateless request left in its store -- what both
 // hosts did before this slice with one store per process (ANORMALIES), now
 // one per concurrent step.
+//
+// A keyed session is reclaimed (PR #900 review) when the ABAP session it
+// stands for ends -- a logoff (adtSessionEnded), a cookie the session
+// class did not accept (the step resolved another session, so the key
+// named none: dropped after its step, which bounds what unknown cookie
+// values can leave behind to the steps in flight) -- or when nobody used
+// it for the ADT session's own lifetime (an expiry the class sweeps by
+// itself, without the host hearing of it). A session ended while steps
+// still hold or wait for its turn stays in the table until the last of
+// them gives it back, so they keep their one-at-a-time; its statics are
+// gone for the steps after the end, as a system's internal session is.
 type sessionTable struct {
 	mu        sync.Mutex
 	byKey     map[string]*logicalSession
 	stateless []*logicalSession
+	idle      time.Duration    // a keyed session unused this long is reclaimed
+	swept     time.Time        // the last idle sweep
+	now       func() time.Time // the clock (a test's)
 }
 
-var sessions = &sessionTable{byKey: map[string]*logicalSession{}}
+// sessionIdleTTL is the ADT session class's own lifetime (the 1800 s the
+// adapter constructs ZCL_OSD_ADT_SESSION with): a session idle that long
+// has expired in ABAP too, and its next request opens a new one.
+const sessionIdleTTL = 30 * time.Minute
+
+// sessionSweepEvery bounds the cost of the idle sweep: one pass over the
+// table at most this often, on the way into a keyed step.
+const sessionSweepEvery = 30 * time.Second
+
+// systemSessionKey is the instance's own logical session (runSystemStep):
+// the boot's statics live there for the process's life, never swept.
+const systemSessionKey = "osgo-system"
+
+func newSessionTable() *sessionTable {
+	return &sessionTable{byKey: map[string]*logicalSession{}, idle: sessionIdleTTL, now: time.Now}
+}
+
+var sessions = newSessionTable()
 
 // stepSession is the session the step runs in, with its turn taken: the
-// key's session, or a fresh one when the key is empty. The caller returns
-// the turn when the step has run.
-func (t *sessionTable) stepSession(key string) (s *logicalSession, done func()) {
+// key's session, or a stateless store when the key is empty. The caller
+// takes it before the pool's write token and work process (runWorkStep):
+// a step of the session parked in a WAIT holds the turn and gives those
+// up, and must find them free again when it wakes -- a second step of the
+// session that took them first and then waited for the turn deadlocked
+// with it (PR #900 review). A cancelled ctx ends the wait; done returns
+// the turn, with the statics the step leaves behind.
+func (t *sessionTable) stepSession(ctx context.Context, key string) (s *logicalSession, done func(), err error) {
 	if key == "" {
 		t.mu.Lock()
 		var free *logicalSession
 		if n := len(t.stateless); n > 0 {
 			free, t.stateless = t.stateless[n-1], t.stateless[:n-1]
 		} else {
-			free = &logicalSession{}
+			free = newLogicalSession()
 		}
 		t.mu.Unlock()
-		free.mu.Lock()
+		// taken off the list, the store is this step's alone: no turn to wait for
 		return free, func() {
-			free.mu.Unlock()
 			t.mu.Lock()
 			t.stateless = append(t.stateless, free)
 			t.mu.Unlock()
-		}
+		}, nil
 	}
 	t.mu.Lock()
+	t.sweepLocked()
 	s, ok := t.byKey[key]
 	if !ok {
-		s = &logicalSession{}
+		s = newLogicalSession()
 		t.byKey[key] = s
 	}
+	s.refs++
 	t.mu.Unlock()
-	s.mu.Lock()
-	return s, s.mu.Unlock
+	select {
+	case s.turn <- struct{}{}:
+	case <-ctx.Done():
+		t.mu.Lock()
+		s.refs--
+		t.dropIfDoneLocked(key, s)
+		t.mu.Unlock()
+		return nil, nil, ctx.Err()
+	}
+	return s, func() { t.release(key, s) }, nil
 }
 
-// forget ends a logical session (a logoff): its statics die with it, as a
-// system's internal session does.
+// release gives the turn back. The statics of a session that ended during
+// the step go with it; the entry goes when no step holds or waits for it.
+func (t *sessionTable) release(key string, s *logicalSession) {
+	t.mu.Lock()
+	s.refs--
+	s.last = t.now()
+	if s.ended {
+		// the steps after the end start a new internal session; the entry
+		// stays for them (their one-at-a-time) and goes with the last
+		s.statics, s.ended = nil, false
+	}
+	t.dropIfDoneLocked(key, s)
+	t.mu.Unlock()
+	<-s.turn
+}
+
+// dropIfDoneLocked removes an ended session nobody holds or waits for.
+func (t *sessionTable) dropIfDoneLocked(key string, s *logicalSession) {
+	if s.refs == 0 && s.gone && t.byKey[key] == s {
+		delete(t.byKey, key)
+	}
+}
+
+// sweepLocked reclaims the keyed sessions nobody used for the idle time.
+func (t *sessionTable) sweepLocked() {
+	now := t.now()
+	if now.Sub(t.swept) < sessionSweepEvery {
+		return
+	}
+	t.swept = now
+	for key, s := range t.byKey {
+		if key != systemSessionKey && s.refs == 0 && now.Sub(s.last) > t.idle {
+			delete(t.byKey, key)
+		}
+	}
+}
+
+// forget ends a logical session (a logoff, a key the ABAP session class
+// did not accept): its statics die with it, as a system's internal session
+// does. Steps that hold or wait for its turn keep it until they are done.
 func (t *sessionTable) forget(key string) {
 	t.mu.Lock()
-	delete(t.byKey, key)
-	t.mu.Unlock()
+	defer t.mu.Unlock()
+	s, ok := t.byKey[key]
+	if !ok {
+		return
+	}
+	if s.refs == 0 {
+		delete(t.byKey, key)
+		return
+	}
+	s.ended, s.gone = true, true
+}
+
+// adtSessionEnded is the ADT session class's END as the generated adapter
+// reports it (osgo.mjs adtSessionAdapter): the session's id is the value of
+// the cookie the host keys the logical session by.
+func adtSessionEnded(id string) { sessions.forget(id) }
+
+// adtResolved is the ADT session a step resolved, by the step's session
+// (noteADTSession), for runWorkStep to compare with the key it ran under.
+var adtResolved sync.Map
+
+// noteADTSession records the ADT session the step resolved, if it did.
+func noteADTSession(s *abap.Session) {
+	v, ok := adtWriteSessions.Load(s)
+	if !ok {
+		return
+	}
+	view, ok := v.(interface{ View() (string, bool) })
+	if !ok {
+		return
+	}
+	if id, _ := view.View(); id != "" {
+		adtResolved.Store(s, id)
+	}
+}
+
+// keyResolved drops a keyed logical session whose step resolved another
+// ADT session: the cookie named no live session (an unknown, ended or
+// expired value), so nothing stateful will come back under it.
+func keyResolved(s *abap.Session, key string) {
+	v, ok := adtResolved.LoadAndDelete(s)
+	if !ok || key == "" {
+		return
+	}
+	if id, _ := v.(string); id != key {
+		sessions.forget(key)
+	}
 }
 
 // adtSessionKey is the logical internal session of a request: the ADT
@@ -305,20 +457,29 @@ func runWorkStep(r *http.Request, kind abap.StepKind, key, report string, work f
 					dump, frames = rec, abapStack(rec)
 				}
 			}()
-			work(&abap.Session{})
+			s := &abap.Session{}
+			defer adtResolved.Delete(s)
+			work(s)
 		}()
 		return dump, frames, nil
 	}
-	err = wp.Step(requestContext(r), workpool.Kind(kind), func(st *workpool.Step) {
+	// the session's turn first, then the pool's write token and work
+	// process (stepSession): never the other way round
+	ctx := requestContext(r)
+	sess, done, err := sessions.stepSession(ctx, key)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer done()
+	err = wp.Step(ctx, workpool.Kind(kind), func(st *workpool.Step) {
 		st.SetReport(report)
 		defer func() {
 			if rec := recover(); rec != nil {
 				dump, frames = rec, abapStack(rec)
 			}
 		}()
-		sess, done := sessions.stepSession(key)
-		defer done()
 		s := &abap.Session{DB: instance.DB, Statics: sess.statics, Shared: instance.Statics}
+		defer keyResolved(s, key)
 		abap.DialogStepOn(s, stepKindOn(st), st, func() { work(s) })
 		sess.statics = s.Statics
 	})
@@ -349,10 +510,13 @@ func runSystemStep(kind abap.StepKind, report string, work func(s *abap.Session)
 		abap.DialogStep(s, func() { work(s) })
 		return nil
 	}
+	sess, done, err := sessions.stepSession(context.Background(), systemSessionKey)
+	if err != nil {
+		return err
+	}
+	defer done()
 	return wp.Step(context.Background(), workpool.Kind(kind), func(st *workpool.Step) {
 		st.SetReport(report)
-		sess, done := sessions.stepSession("osgo-system")
-		defer done()
 		s := &abap.Session{DB: instance.DB, Statics: sess.statics, Shared: instance.Statics}
 		abap.DialogStepOn(s, stepKindOn(st), st, func() { work(s) })
 		sess.statics = s.Statics

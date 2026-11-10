@@ -15,8 +15,8 @@
  ],
  "budgets": {
   "go:abap": {
-   "lines": 12729,
-   "reason": "ADR 0010 slice 5: the kernel's lent step (stepconn.go) and InWriteStep"
+   "lines": 12802,
+   "reason": "ADR 0010 slice 5: the kernel's lent step (stepconn.go) and InWriteStep PR #900 review: the WAIT closes the SELECT loop's open cursors (DBIF_RSQL_INVALID_CURSOR after) and the step's ROLLBACK runs on the connection's own context; kernel transaction glue for the lent step, beside DialogStepOn."
   },
   "go:abaperr": {
    "lines": 19,
@@ -131,8 +131,8 @@
    "reason": "Compute explicit user read grants and pin sandbox handles before constructing any ABAP report; expose granting parameters and the opt-out in help. Native profiling: startup-only label selection in go/profiling. 2026-10-22: one import wires the host-only castdiag reporter at the existing uncaught boundary. ADR 0010 slice 2: the -db file is the report session's Database, kept for closeDB."
   },
   "go:cmd/osgo": {
-   "lines": 2529,
-   "reason": "ADR 0010 slice 5: the dispatcher, ZOSD_WP, the ADT state work process and the stateless stores"
+   "lines": 2694,
+   "reason": "ADR 0010 slice 5: the dispatcher, ZOSD_WP, the ADT state work process and the stateless stores PR #900 review: the logical-session turn is taken before the pool's write token and work process (a cancellable channel), and keyed sessions are reclaimed on END, on a cookie the class did not accept and after the ADT TTL; host session policy, with the NORMAL loss envelope documented."
   },
   "go:cmd/osgw": {
    "lines": 184,
@@ -343,8 +343,8 @@
    "reason": "baseline 2026-10-01"
   },
   "go:workpool": {
-   "lines": 605,
-   "reason": "ADR 0010 slice 5: the pool, the write token, a dump or a fenced WAIT returns its work process once"
+   "lines": 698,
+   "reason": "ADR 0010 slice 5: the pool, the write token, a dump or a fenced WAIT returns its work process once PR #900 review: Step.Cleanup (rollback on its own context) and the scrub/replace of a fenced or failed step's connection before the write token goes."
   },
   "go:xbuf": {
    "lines": 75,
@@ -423,8 +423,8 @@
    "reason": "tscheck 2026-10-21: gogen type files back to origin/main text; their diagnostics carry abapiti-form-pending @ts-expect-error lines, executable text unchanged (execdiff clean). abapiti casts round 2 2026-10-21: every JSDoc cast the branch added over origin/main is gone (367 lines of abapiti-form-pending @ts-expect-error where tsc rejects main's expression text; Record-typed SY, CALC_CODE and STRING_FNS, TokenText kids and leaves() taking FrontendStmt[] again where a declaration type is enough); executable text unchanged (execdiff clean). abapiti casts 2026-10-21: 83 lines of abapiti-form-pending @ts-expect-error where casts abapiti checks at run time (bridges through unknown, Extract arms, probe shapes, tuple claims) gave way to main's text, and the SqlWhere typedef; executable text unchanged (execdiff clean). tscheck merge 2026-10-21: abapiti-form-pending @ts-expect-error lines where the frontend.mjs and frontend-small typings of frontend-sql and frontend-classes-native meet; executable text unchanged (execdiff clean). Frontend split E6a: 6,273 -> 6,059 lines; declarations moved byte for byte to frontend-expressions-calls.mjs. Frontend split Q1: 6,405 -> 6,273 lines; declarations moved byte for byte to frontend-sql.mjs. Frontend split T1: 6,621 -> 6,405 lines; declarations moved byte for byte to frontend-types-signatures.mjs. Frontend split K4a: 6,974 -> 6,621 lines; declarations moved byte for byte to frontend-classes-native.mjs. Frontend split (docs/frontend-split-plan.md): step 1 moved the base bindings to frontend-base.mjs (7,032 -> 6,974); the ceiling only shrinks with each move. Before: #34/#36: packed DEC comparisons and the host-replaced class signature registry on top of the merged frontend baseline. #36 round 2: shared omitted-argument lowering for host exception factories, including OPTIONAL, DEFAULT and IS SUPPLIED; no second emitter call path. #36 critic r2: a host-replaced method whose signature does not compile, or is untyped, is refused instead of dropped. abapiti 037: cl_http_utility=>decode_base64 beside its encode_base64 sibling (the @KERNEL text decode). #38/#39 add numeric-text/string calculation targets and the ENQUEUE/DEQUEUE lock-object registry; round 2: size all supported lock key kinds as Node request() does and refuse unsized keys by table and field. #43: read UPDATE_TASK presence per module from function group XML and mark compiled calls before execution. #43: update-task modules from the function group XML mark the LUW on module entry. ADT 10-08: DELETE TABLE itab FROM wa on a HASHED or SORTED table by its primary key fields, refused inside a LOOP over the same table (#688 critic). abapiti scale 10-09: the IS SUPPLIED scan cached per parsed file across closure rounds. abapiti 042: READ and DELETE TABLE by a hashed secondary key. abapiti 043: WHERE compares in int8. Generic loop fix round: retain concrete caller storage for untyped TABLES and adjust loop tokens after DELETE INDEX at or before the cursor. Inbox 046: carry PCRE through the existing FIND statement and count IR with the REGEX form restrictions. Self-hosting step 4: 38 net lines add explicit typed containers, checked AST/attribute boundaries and nominal Table/View admission from unknown. The class guards preserve registry object identity and effect order; the ceiling equals this reviewed candidate, with no spare allowance. 2026-10-21: restore origin/main JSDoc declarations and casts for abapiti narrowing; one ts-expect-error per diagnostic line replaces branch-only typing. Additional physical lines are suppression directives; executable code is unchanged."
   },
   "tools/gogen/go/abap/abap.go": {
-   "lines": 322,
-   "reason": "osgo 026/029 (#658, #659, 2026-10-08): UTF-16 units with the surrogate-half invariant and class statics per Session; carving utf16/statics out of go/abap is queued (stoker QUEUE #33); ADT batch 1 (adt-i5 cases 1-7): Keep sy-msgid/msgno/msgty/msgv1-4 in the session alongside existing system fields. Critic round 1: immediate caller MESSAGE RAISING assignments and scoped restoration, including calls without EXCEPTIONS. ADT batch 1 (round 5 finding 4): normalize zero session message-number storage on typed NUMC(3) reads. #39 adds the narrow Session methods behind which enqseam stays abap-free. #43: per-Session update-task marker for explicit LUW statements. #709 review round 2: request-local callback lets the actual ADT/OData dispatchers label matched templates/model names after validation; host labels accepted ICF and static routes without reading raw segments. gx2 critic round 3: retain the lazy caught-exception carrier across Go panic/rethrow and reuse it in CATCH; the object is materialised once regardless of widening order. This is binding glue for the existing compiled CX registry, not a second exception implementation. 2026-10-22: Exception carries host-only Detail, excludes JSON/XML, keeps default text semantic and exposes narrow diagnostic/unwrap seams; no report formatting. ADR 0010 slice 2: Session.DB, the step transaction and its statement copies on the Session.#881 critic: usable/begin refuse by name. ADR 0010 slice 5 (feat/osgo-work-processes): Session gains Yield (the host's WAIT on a lent connection) and the stepConn/stepKind/stepOpen LUW fields beside tx."
+   "lines": 326,
+   "reason": "osgo 026/029 (#658, #659, 2026-10-08): UTF-16 units with the surrogate-half invariant and class statics per Session; carving utf16/statics out of go/abap is queued (stoker QUEUE #33); ADT batch 1 (adt-i5 cases 1-7): Keep sy-msgid/msgno/msgty/msgv1-4 in the session alongside existing system fields. Critic round 1: immediate caller MESSAGE RAISING assignments and scoped restoration, including calls without EXCEPTIONS. ADT batch 1 (round 5 finding 4): normalize zero session message-number storage on typed NUMC(3) reads. #39 adds the narrow Session methods behind which enqseam stays abap-free. #43: per-Session update-task marker for explicit LUW statements. #709 review round 2: request-local callback lets the actual ADT/OData dispatchers label matched templates/model names after validation; host labels accepted ICF and static routes without reading raw segments. gx2 critic round 3: retain the lazy caught-exception carrier across Go panic/rethrow and reuse it in CATCH; the object is materialised once regardless of widening order. This is binding glue for the existing compiled CX registry, not a second exception implementation. 2026-10-22: Exception carries host-only Detail, excludes JSON/XML, keeps default text semantic and exposes narrow diagnostic/unwrap seams; no report formatting. ADR 0010 slice 2: Session.DB, the step transaction and its statement copies on the Session.#881 critic: usable/begin refuse by name. ADR 0010 slice 5 (feat/osgo-work-processes): Session gains Yield (the host's WAIT on a lent connection) and the stepConn/stepKind/stepOpen LUW fields beside tx. PR #900 review: the session's open cursors and their epoch."
   },
   "tools/gogen/go/abap/apc.go": {
    "lines": 42,
@@ -611,8 +611,8 @@
    "reason": "ADT batch 1 (adt-i5 cases 1-7): Unwrap caught exception objects for ABAP reference identity comparison. abapiti 042: READ and DELETE TABLE by a hashed secondary key."
   },
   "tools/gogen/go/abap/select.go": {
-   "lines": 55,
-   "reason": "baseline 2026-10-01"
+   "lines": 62,
+   "reason": "baseline 2026-10-01 PR #900 review: the SELECT loop registers its cursor on a lent step and checks it after each row."
   },
   "tools/gogen/go/abap/selectdyn.go": {
    "lines": 463,
@@ -727,8 +727,8 @@
    "reason": "baseline 2026-10-01"
   },
   "tools/gogen/go/abap/stepconn.go": {
-   "lines": 149,
-   "reason": "ADR 0010 slice 5: the kernel's lent step and InWriteStep"
+   "lines": 211,
+   "reason": "ADR 0010 slice 5: the kernel's lent step and InWriteStep PR #900 review: rollback on the connection's own context; the cursor registry a WAIT closes."
   },
   "tools/gogen/go/cmd/osgo/main.go": {
    "lines": 817,

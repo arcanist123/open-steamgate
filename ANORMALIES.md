@@ -30,6 +30,22 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-10-wait-in-select-loop -- A WAIT inside SELECT ... ENDSELECT reads on (Node, OSGo with one connection) where a system dumps DBIF_RSQL_INVALID_CURSOR
+
+- Status: `open` (OSGo's work-process steps behave as the system; the Node host and OSGo's classic one-connection path do not)
+- Discovery date: `2026-11-10` (PR #900 review: the open cursor kept its read snapshot on the work process the WAIT gave up)
+- Affected versions: `@abaplint/runtime` (pinned; a SELECT loop reads the whole result before the loop body runs), OSGo `go/abap` `DialogStep` (one connection)
+- Affected ABAP statement, runtime API or adapter: `WAIT UP TO n SECONDS` between `SELECT` and `ENDSELECT` (the same holds for `OPEN CURSOR` / `FETCH`, which this subset does not compile)
+- Minimal ABAP reproducer: `SELECT id FROM r INTO lv. WAIT UP TO 1 SECONDS. ENDSELECT.` over two rows; the Go form is `tools/gogen/go/abap/stepconn_test.go` `TestWaitInsideSelectLeavesNoSnapshotBehind`
+- Exact command used to run it: `cd tools/gogen/go && go test -race -run TestWaitInsideSelectLeavesNoSnapshotBehind ./abap/`
+- Expected SAP behaviour: WAIT UP TO triggers a database commit, a database commit closes the open cursors (except WITH HOLD), and the next row of the loop is the runtime error DBIF_RSQL_INVALID_CURSOR (ABAP keyword documentation, WAIT UP TO and database commit). Not measured on A4H.
+- Actual open-abap behaviour: the Node runtime has the whole result in memory and the loop goes on with the rows read before the commit; OSGo's one-connection step kept the cursor open across its COMMIT likewise.
+- Impact on open-steamgate: on OSGo's work processes (ADR 0010 slice 5) the WAIT gives the connection to another step, so the open cursor would have pinned its snapshot there (another request read stale rows); the WAIT now closes the step's cursors before it commits and the loop dumps with the system's runtime error. A program that relied on Node's buffered loop sees that dump only on OSGo with work processes. COMMIT WORK inside a loop keeps the cursor on every host (it does not move the connection).
+- Smallest safe workaround: none needed in programs (the system dumps too); in OSGo `Session.closeCursors` before the WAIT's commit and `cursorValid` after each row (`go/abap` `stepconn.go`, `select.go`)
+- Upstream issue: none; Node's buffering is the runtime's design, not a defect worth an issue for a construct the system refuses
+- Regression-test location: `tools/gogen/go/abap/stepconn_test.go` (`TestWaitInsideSelectLeavesNoSnapshotBehind`)
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-11-09-modify-in-loop-by-key -- `MODIFY itab FROM wa` inside a LOOP over itab no longer changes the row
 
 - Status: `workaround` (the L3 set template builds the dry report's rows into a new table instead of MODIFY in the loop; `recipes/l3-set/template.tpl`, `src/l2demo/zcl_l3_fleet2.clas.abap`)
