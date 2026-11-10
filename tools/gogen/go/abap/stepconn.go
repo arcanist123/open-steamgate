@@ -66,7 +66,12 @@ func DialogStepOn(s *Session, kind StepKind, c StepConn, work func()) {
 	if y, ok := c.(interface{ Yield(time.Duration) }); ok {
 		s.Yield = func(d time.Duration) {
 			// a WAIT ends the LUW, as on a system; the work process goes
-			// back for the sleep and another is lent on return
+			// back for the sleep and another is lent on return. A WAIT is
+			// a database commit, and a database commit closes the open
+			// cursors: a SELECT loop still reading would otherwise keep
+			// its read snapshot on the connection given up, and the next
+			// step there would read through it (PR #900 review)
+			s.closeCursors()
 			s.pooledEnd(true)
 			s.Sy.Subrc = 0
 			y.Yield(d)
@@ -113,30 +118,87 @@ func (s *Session) pooledBegin() {
 	s.stepOpen = true
 }
 
+// stepCleaner is the lent connection's way to end a transaction on a
+// context of its own (go/workpool Step.Cleanup). The step's context is the
+// fence: once it is cancelled every statement on it is refused before it
+// reaches the database -- the ROLLBACK that has to end the LUW included,
+// which left the work process with its transaction open and the file's
+// write lock held (PR #900 review). A connection without it (a test's
+// fake) ends the transaction with Exec.
+type stepCleaner interface{ Cleanup(query string) error }
+
+func (s *Session) rollbackStep() error {
+	if c, ok := s.stepConn.(stepCleaner); ok {
+		return c.Cleanup("ROLLBACK")
+	}
+	_, err := s.stepConn.Exec("ROLLBACK")
+	return err
+}
+
 // pooledEnd ends it; a step whose transaction a WAIT or a COMMIT WORK
 // already ended, or whose connection the fence broke, has nothing to end,
-// and the error that broke it is the step's own to report. A COMMIT that
-// fails leaves the transaction open on the connection, so the rollback
-// after it is best-effort: the step dumps either way, and the work process
-// lends a clean connection to the next step or one whose next BEGIN fails
-// loudly -- never one with a half-ended transaction nobody knows about.
+// and the error that broke it is the step's own to report. The COMMIT runs
+// on the step's context, so a fenced step does not commit; the ROLLBACK --
+// the dump's, or the one after a COMMIT that failed and left the
+// transaction open -- runs on the connection's own (stepCleaner), so the
+// fence cannot keep it from the database. A rollback that fails even so is
+// the pool's to find: it scrubs or replaces the connection of a step whose
+// statements failed before lending it again (go/workpool unlend).
 func (s *Session) pooledEnd(commit bool) {
 	if !s.stepOpen {
 		return
 	}
 	s.stepOpen = false
-	end := "ROLLBACK"
 	if commit {
-		end = "COMMIT"
-	}
-	if _, err := s.stepConn.Exec(end); err != nil {
-		if commit {
-			func() {
-				defer func() { recover() }()
-				_, _ = s.stepConn.Exec("ROLLBACK")
-			}()
+		_, err := s.stepConn.Exec("COMMIT")
+		if err == nil {
+			return
 		}
+		func() {
+			defer func() { recover() }()
+			_ = s.rollbackStep()
+		}()
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
+	}
+	if err := s.rollbackStep(); err != nil {
+		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
+	}
+}
+
+// The open cursors of a work-process step: each SELECT loop on the lent
+// connection while it reads (Select). A WAIT closes them before its COMMIT
+// and moves the epoch on, so the loop, back from its row, finds its cursor
+// gone and dumps as a system does; a COMMIT WORK keeps them, as the Node
+// host (which reads a SELECT whole before its loop) does.
+func (s *Session) openCursor(rows *sql.Rows) (epoch uint64, tracked bool) {
+	if s.stepConn == nil {
+		return 0, false
+	}
+	s.cursors = append(s.cursors, rows)
+	return s.cursorEpoch, true
+}
+
+func (s *Session) dropCursor(rows *sql.Rows) {
+	for i := len(s.cursors) - 1; i >= 0; i-- {
+		if s.cursors[i] == rows {
+			s.cursors = append(s.cursors[:i], s.cursors[i+1:]...)
+			return
+		}
+	}
+}
+
+func (s *Session) closeCursors() {
+	for _, rows := range s.cursors {
+		rows.Close()
+	}
+	s.cursors = nil
+	s.cursorEpoch++
+}
+
+// cursorValid is the check a SELECT loop makes after each row it handed out.
+func (s *Session) cursorValid(epoch uint64) {
+	if s.cursorEpoch != epoch {
+		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "DBIF_RSQL_INVALID_CURSOR: the SELECT loop's cursor was closed by the database commit of a WAIT inside it"})
 	}
 }
 

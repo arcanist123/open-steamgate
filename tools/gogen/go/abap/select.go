@@ -26,10 +26,17 @@ func Select(s *Session, text string, args []any, preds []HostPred, row func(scan
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}
 	defer rows.Close()
+	epoch, tracked := s.openCursor(rows)
+	if tracked {
+		defer s.dropCursor(rows)
+	}
 	n := 0
 	for rows.Next() {
 		row(rows.Scan)
 		n++
+		if tracked {
+			s.cursorValid(epoch)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})

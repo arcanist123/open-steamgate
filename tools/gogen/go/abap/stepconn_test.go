@@ -350,3 +350,149 @@ func (b breakingCommit) Exec(q string, args ...any) (sql.Result, error) {
 	}
 	return b.Step.Exec(q, args...)
 }
+
+// Regression (PR #900 review, MUST 1): a step whose context is cancelled
+// between two statements -- the client went away, or the fence fired --
+// must leave its work process clean. The COMMIT on the way out is refused
+// by the cancelled context; the ROLLBACK after it ran on that same context
+// and never reached the database, so the work process went back with its
+// transaction open: every later step on it dumped "cannot start a
+// transaction within a transaction", and its uncommitted UPDATE kept the
+// file's write lock from every other connection. One work process, so the
+// next steps must land on the one that was cancelled; the dump variant too.
+func TestCancelBetweenStatementsLeavesTheWorkProcessClean(t *testing.T) {
+	for _, dumps := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dump=%v", dumps), func(t *testing.T) {
+			db, p := openStepPool(t, 1)
+			if _, err := db.SQL().Exec("INSERT INTO r VALUES (1)"); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			var dump any
+			if err := p.Step(ctx, workpool.Write, func(st *workpool.Step) {
+				defer func() { dump = recover() }()
+				DialogStepOn(&Session{DB: db}, WriteStep, wpStepConn{st}, func() {
+					if _, err := st.Exec("UPDATE r SET id = 2"); err != nil {
+						t.Error(err)
+					}
+					cancel() // between this statement and the step's end
+					if dumps {
+						panic("the step dumps after the cancellation")
+					}
+				})
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if dump == nil {
+				t.Fatal("a cancelled step committed")
+			}
+			// the next read step on the same work process sees the row as it
+			// was, and the next modifying step writes
+			var store *Statics
+			var id int
+			if dumped, err := pooledStep(t, p, db, &store, ReadStep, func(s *Session, c wpStepConn) {
+				rows, err := c.Query("SELECT id FROM r")
+				Must(err)
+				defer rows.Close()
+				rows.Next()
+				Must(rows.Scan(&id))
+			}); dumped || err != nil {
+				t.Fatalf("the read step after the cancelled one: dumped=%v err=%v", dumped, err)
+			}
+			if id != 1 {
+				t.Fatalf("the cancelled step's UPDATE is visible: id=%d", id)
+			}
+			if dumped, err := pooledStep(t, p, db, &store, WriteStep, func(s *Session, c wpStepConn) {
+				_, err := c.Exec("UPDATE r SET id = 3")
+				Must(err)
+			}); dumped || err != nil {
+				t.Fatalf("the modifying step after the cancelled one: dumped=%v err=%v", dumped, err)
+			}
+			// and nothing holds the write lock: another connection writes at once
+			other, err := db.SQL().Conn(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer other.Close()
+			if _, err := other.ExecContext(context.Background(), "PRAGMA busy_timeout = 0"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := other.ExecContext(context.Background(), "UPDATE r SET id = 4"); err != nil {
+				t.Fatalf("a writer beside the pool after the cancelled step: %v", err)
+			}
+		})
+	}
+}
+
+// Regression (PR #900 review, MUST 2): a WAIT inside a SELECT loop must not
+// carry the open cursor -- and with it the connection's read snapshot --
+// past the COMMIT the WAIT runs and onto the work process it gives up. A
+// selects 1,2 and WAITs at its first row; B updates them to 11,12 on the
+// other work process and commits; C, a new read step after B's commit,
+// lands on A's old work process and must see 11,12, not the snapshot A's
+// cursor pinned there. A itself, back from the WAIT, cannot go on reading
+// a cursor the database commit closed: on a system that is the runtime
+// error DBIF_RSQL_INVALID_CURSOR (a WAIT is a database commit, and a
+// database commit closes the open cursors).
+func TestWaitInsideSelectLeavesNoSnapshotBehind(t *testing.T) {
+	db, p := openStepPool(t, 2)
+	if _, err := db.SQL().Exec("INSERT INTO r VALUES (1), (2)"); err != nil {
+		t.Fatal(err)
+	}
+	waiting := make(chan struct{})
+	aDone := make(chan any, 1)
+	var aWP int
+	go func() {
+		var store *Statics
+		var dump any
+		p.Step(context.Background(), workpool.Read, func(st *workpool.Step) {
+			defer func() { dump = recover() }()
+			s := &Session{DB: db, Statics: store}
+			aWP = st.WP()
+			DialogStepOn(s, ReadStep, wpStepConn{st}, func() {
+				Select(s, "SELECT id FROM r ORDER BY id", nil, nil, func(scan func(...any) error) {
+					var v int
+					Must(scan(&v))
+					if v == 1 {
+						close(waiting)
+						s.YieldSleep(400 * time.Millisecond)
+					}
+				})
+			})
+		})
+		aDone <- dump
+	}()
+	<-waiting
+	for p.InFlight() != 0 {
+		time.Sleep(time.Millisecond)
+	}
+	var store *Statics
+	if dumped, err := pooledStep(t, p, db, &store, WriteStep, func(s *Session, c wpStepConn) {
+		_, err := c.Exec("UPDATE r SET id = id + 10")
+		Must(err)
+	}); dumped || err != nil {
+		t.Fatalf("B: dumped=%v err=%v", dumped, err)
+	}
+	var got []int
+	var cWP int
+	if dumped, err := pooledStep(t, p, db, &store, ReadStep, func(s *Session, c wpStepConn) {
+		cWP = c.wp()
+		Select(s, "SELECT id FROM r ORDER BY id", nil, nil, func(scan func(...any) error) {
+			var v int
+			Must(scan(&v))
+			got = append(got, v)
+		})
+	}); dumped || err != nil {
+		t.Fatalf("C: dumped=%v err=%v", dumped, err)
+	}
+	if cWP != aWP {
+		t.Fatalf("C ran on work process %d, not A's %d: the schedule did not happen", cWP, aWP)
+	}
+	if fmt.Sprint(got) != "[11 12]" {
+		t.Errorf("C, a step begun after B's commit, read %v: A's cursor left its snapshot on the work process", got)
+	}
+	dump := <-aDone
+	if dump == nil || !strings.Contains(fmt.Sprint(dump), "DBIF_RSQL_INVALID_CURSOR") {
+		t.Errorf("A went on reading a cursor its WAIT closed: %v", dump)
+	}
+}

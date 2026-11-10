@@ -683,3 +683,45 @@ func TestWritersQueueOnTheToken(t *testing.T) {
 	}
 	<-waitDone
 }
+
+// The pool's own half of the cancellation fix (PR #900 review, MUST 1): a
+// step fenced with its transaction still open -- whatever ran on the
+// connection, the kernel's bracket or not -- goes back scrubbed, so the next
+// step on the one work process begins, and the file's write lock is free.
+func TestFencedStepWithOpenTransactionIsScrubbed(t *testing.T) {
+	d := openWAL(t, 2, 200*time.Millisecond)
+	p, err := New(Options{DB: d, Workers: 1, BusyTimeout: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := p.Step(ctx, Write, func(s *Step) {
+		if _, err := s.Exec("BEGIN IMMEDIATE"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Exec("UPDATE r SET v = 'fenced'"); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		if _, err := s.Exec("COMMIT"); err == nil {
+			t.Error("a fenced step committed")
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Step(context.Background(), Write, func(s *Step) {
+		if _, err := s.Exec("BEGIN IMMEDIATE"); err != nil {
+			t.Fatalf("the next step on the fenced work process: %v", err)
+		}
+		var v string
+		if err := scanOne(s, "SELECT v FROM r WHERE id = 1", &v); err != nil || v != "one" {
+			t.Errorf("the fenced UPDATE survived: %q %v", v, err)
+		}
+		if _, err := s.Exec("COMMIT"); err != nil {
+			t.Error(err)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

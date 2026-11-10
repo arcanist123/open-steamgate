@@ -38,6 +38,7 @@ package workpool
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strings"
@@ -295,10 +296,16 @@ func (p *Pool) take(ctx context.Context) *worker {
 	}
 }
 
-// lend gives the step its work process and records it in the row.
+// lend gives the step its work process and records it in the row. A work
+// process whose connection a failed scrub discarded takes a new one first.
 func (p *Pool) lend(s *Step, kind Kind) error {
 	if p.o.ReadOnly {
 		kind = Read
+	}
+	if s.w.conn == nil {
+		if err := p.reconnect(s.w); err != nil {
+			return fmt.Errorf("workpool: work process %d: %w", s.w.number, err)
+		}
 	}
 	if err := s.w.setQueryOnly(s.ctx, kind == Read); err != nil {
 		return fmt.Errorf("workpool: work process %d: %w", s.w.number, err)
@@ -314,8 +321,17 @@ func (p *Pool) lend(s *Step, kind Kind) error {
 
 // unlend is the step's end: the row says Idle, the work process goes back
 // -- unless a WAIT already gave it back and the fence kept the step from
-// taking another (held false), when there is nothing to return.
+// taking another (held false), when there is nothing to return. A step
+// that was fenced, or one a statement of which failed, may have left its
+// transaction open (the kernel's ROLLBACK is best-effort): the connection
+// is scrubbed first, and replaced when the scrub cannot prove it clean --
+// before the write token goes, so the next writer never finds the lock
+// still held by a work process nobody runs on (PR #900 review).
 func (p *Pool) unlend(s *Step) {
+	if s.held && (s.suspect || s.ctx.Err() != nil) {
+		p.scrub(s.w)
+	}
+	s.suspect = false
 	if s.gated {
 		s.gated = false
 		<-p.writer
@@ -330,6 +346,50 @@ func (p *Pool) unlend(s *Step) {
 	s.w.state = "Idle"
 	p.mu.Unlock()
 	p.tokens <- s.w
+}
+
+// scrub ends whatever transaction the connection still has, on a context
+// of its own (the step's may be the cancelled one). "no transaction is
+// active" is the clean answer; any other failure discards the connection
+// (driver.ErrBadConn through Raw closes it instead of pooling it) and the
+// work process takes a new one, now or at its next lend.
+func (p *Pool) scrub(w *worker) {
+	if w.conn == nil {
+		return
+	}
+	_, err := w.conn.ExecContext(context.Background(), "ROLLBACK")
+	if err == nil || strings.Contains(err.Error(), "no transaction is active") {
+		return
+	}
+	p.discard(w)
+	_ = p.reconnect(w) // a failure here is lend's to report
+}
+
+// discard closes the work process's connection for good.
+func (p *Pool) discard(w *worker) {
+	for q, st := range w.stmts {
+		st.Close()
+		delete(w.stmts, q)
+	}
+	_ = w.conn.Raw(func(any) error { return driver.ErrBadConn })
+	w.conn = nil
+	w.queryOnly = false
+}
+
+// reconnect gives a work process without a connection a new one, primed
+// as New primes them.
+func (p *Pool) reconnect(w *worker) error {
+	ctx := context.Background()
+	conn, err := p.o.DB.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	w.conn, w.queryOnly = conn, false
+	if err := w.prime(ctx, p.o.BusyTimeout); err != nil {
+		p.discard(w)
+		return err
+	}
+	return nil
 }
 
 // Step is what one dialog step runs on: a work process of its own.
@@ -349,6 +409,9 @@ type Step struct {
 	// gated: the step holds the write token (a modifying step, between its
 	// start or a WAIT's return and its end or the WAIT)
 	gated bool
+	// suspect: a statement of the step failed on this work process, so its
+	// connection may still have a transaction open (unlend scrubs it)
+	suspect bool
 }
 
 // errNotHeld is a statement of a step that holds no work process: one
@@ -383,10 +446,17 @@ func (s *Step) Query(q string, args ...any) (*sql.Rows, error) {
 	if !s.held {
 		return nil, errNotHeld
 	}
+	var rows *sql.Rows
+	var err error
 	if st := s.stmtFor(q); st != nil {
-		return st.QueryContext(s.ctx, args...)
+		rows, err = st.QueryContext(s.ctx, args...)
+	} else {
+		rows, err = s.w.conn.QueryContext(s.ctx, q, args...)
 	}
-	return s.w.conn.QueryContext(s.ctx, q, args...)
+	if err != nil {
+		s.suspect = true
+	}
+	return rows, err
 }
 
 // Exec is Query for what returns no rows.
@@ -394,10 +464,33 @@ func (s *Step) Exec(q string, args ...any) (sql.Result, error) {
 	if !s.held {
 		return nil, errNotHeld
 	}
+	var r sql.Result
+	var err error
 	if st := s.stmtFor(q); st != nil {
-		return st.ExecContext(s.ctx, args...)
+		r, err = st.ExecContext(s.ctx, args...)
+	} else {
+		r, err = s.w.conn.ExecContext(s.ctx, q, args...)
 	}
-	return s.w.conn.ExecContext(s.ctx, q, args...)
+	if err != nil {
+		s.suspect = true
+	}
+	return r, err
+}
+
+// Cleanup runs the end of the step's transaction (the kernel's ROLLBACK)
+// on a context of its own: the step's may be cancelled -- that is what the
+// fence is -- and a ROLLBACK refused for it would leave the transaction
+// open on a work process that goes back to the pool. A ROLLBACK waits for
+// no lock, so nothing here can hang the way the fenced work could.
+func (s *Step) Cleanup(q string) error {
+	if !s.held {
+		return errNotHeld
+	}
+	_, err := s.w.conn.ExecContext(context.Background(), q)
+	if err != nil {
+		s.suspect = true
+	}
+	return err
 }
 
 // Prepare hands out the statement prepared on this work process, cached

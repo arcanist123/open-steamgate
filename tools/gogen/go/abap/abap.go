@@ -119,11 +119,15 @@ type Session struct {
 	tx *sql.Tx
 	// the work-process step (stepconn.go): the lent connection, its kind
 	// and whether its transaction is open
-	stepConn  StepConn
-	stepKind  StepKind
-	stepOpen  bool
-	txStmts   map[string]*sql.Stmt
-	unitImage []byte
+	stepConn StepConn
+	stepKind StepKind
+	stepOpen bool
+	// the SELECT loops reading on the lent connection, and the epoch a
+	// WAIT moves on when it closes them (stepconn.go)
+	cursors     []*sql.Rows
+	cursorEpoch uint64
+	txStmts     map[string]*sql.Stmt
+	unitImage   []byte
 }
 
 // ArithmeticError retains the identity of errors from pure packages.
