@@ -762,6 +762,7 @@ CLASS ltcl_writes DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FIN
         iv_method          TYPE string
         iv_path            TYPE string
         iv_body            TYPE string OPTIONAL
+        iv_if_match        TYPE string OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
 ENDCLASS.
@@ -776,9 +777,20 @@ CLASS ltcl_writes IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD call.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method = iv_method
-                                                iv_path   = iv_path
-                                                iv_body   = iv_body ).
+    DATA lt_headers TYPE tihttpnvp.
+    DATA ls_header  TYPE ihttpnvp.
+
+* Travel declares an ETag, so its MERGE/PUT/DELETE take If-Match (the tests
+* send * : nothing here races with another writer)
+    IF iv_if_match IS NOT INITIAL.
+      ls_header-name  = 'if-match'.
+      ls_header-value = iv_if_match.
+      APPEND ls_header TO lt_headers.
+    ENDIF.
+    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = iv_method
+                                                iv_path    = iv_path
+                                                iv_body    = iv_body
+                                                it_headers = lt_headers ).
   ENDMETHOD.
 
   METHOD parse_body.
@@ -824,9 +836,10 @@ CLASS ltcl_writes IMPLEMENTATION.
                                         exp = 200 ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS `"Description":"Odense to Berlin"` ) ).
 
-    ls_response = call( iv_method = 'PUT'
-                        iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
-                        iv_body   = `{"d":{"TravelId":"T0100","Description":"Odense to Berlin, updated","Status":"X","Seats":"5"}}` ).
+    ls_response = call( iv_method   = 'PUT'
+                        iv_path     = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
+                        iv_body     = `{"d":{"TravelId":"T0100","Description":"Odense to Berlin, updated","Status":"X","Seats":"5"}}`
+                        iv_if_match = '*' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
     cl_abap_unit_assert=>assert_initial( ls_response-body ).
@@ -837,17 +850,19 @@ CLASS ltcl_writes IMPLEMENTATION.
 
 * MERGE (what Fiori Elements sends on Save) changes only the properties it
 * carries; the Gateway reads the entity first and lays the request over it
-    ls_response = call( iv_method = 'MERGE'
-                        iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
-                        iv_body   = `{"Seats":"7"}` ).
+    ls_response = call( iv_method   = 'MERGE'
+                        iv_path     = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
+                        iv_body     = `{"Seats":"7"}`
+                        iv_if_match = '*' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
     ls_response = call( iv_method = 'GET'
                         iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')` ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS `"Description":"Odense to Berlin, updated","Status":"X","Seats":7` ) ).
 
-    ls_response = call( iv_method = 'DELETE'
-                        iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')` ).
+    ls_response = call( iv_method   = 'DELETE'
+                        iv_path     = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
+                        iv_if_match = '*' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
 
@@ -1059,13 +1074,16 @@ CLASS ltcl_batch IMPLEMENTATION.
 
     lv_body = crlf( `--b|Content-Type: multipart/mixed; boundary=cs||--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||` &&
                     `POST TravelSet HTTP/1.1|Content-Type: application/json||{"TravelId":"T0301","Description":"batch","Seats":1}|` &&
-                    `--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||DELETE TravelSet('T0301') HTTP/1.1||--cs--||--b--|` ).
+* a part with request headers needs the blank line that ends them, and the
+* empty body line, before the boundary closes it (three line breaks in all)
+                    `--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||DELETE TravelSet('T0301') HTTP/1.1|If-Match: *|||--cs--||--b--|` ).
     ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
-                                        exp = 202 ).
+                                        exp = 202
+                                        msg  = ls_response-body ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'Content-Type: multipart/mixed; boundary=changesetresponse_stg_' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'HTTP/1.1 201 Created' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'HTTP/1.1 204 No Content' ) ).
@@ -1517,6 +1535,8 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
 
   METHOD travel_with_bookings.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_header   TYPE ihttpnvp.
 
     ls_response = zcl_stg_dispatcher=>dispatch(
       iv_method = 'POST'
@@ -1536,8 +1556,13 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_response-body
                                         exp = '2' ).
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'DELETE'
-                                                iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0600')` ).
+    CLEAR ls_header.
+    ls_header-name  = 'if-match'.
+    ls_header-value = '*'.
+    APPEND ls_header TO lt_headers.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'DELETE'
+                                                iv_path    = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0600')`
+                                                it_headers = lt_headers ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
   ENDMETHOD.
@@ -1576,6 +1601,8 @@ CLASS ltcl_function_import IMPLEMENTATION.
   METHOD entity_returning_action.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lt_options  TYPE tihttpnvp.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_header   TYPE ihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `TravelId='T0002'` ).
     ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'POST'
@@ -1588,9 +1615,13 @@ CLASS ltcl_function_import IMPLEMENTATION.
 
 * undo for the other tests
     lt_options = cl_http_utility=>string_to_fields( `x=1` ).
-    zcl_stg_dispatcher=>dispatch( iv_method = 'PUT'
-                                  iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0002')`
-                                  iv_body   = '{"Description":"Copenhagen to Aarhus","Status":"A","Seats":1}' ).
+    ls_header-name  = 'if-match'.
+    ls_header-value = '*'.
+    APPEND ls_header TO lt_headers.
+    zcl_stg_dispatcher=>dispatch( iv_method  = 'PUT'
+                                  iv_path    = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0002')`
+                                  iv_body    = '{"Description":"Copenhagen to Aarhus","Status":"A","Seats":1}'
+                                  it_headers = lt_headers ).
   ENDMETHOD.
 
   METHOD primitive_returning_action.

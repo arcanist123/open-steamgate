@@ -2,8 +2,9 @@
 // The service definition src/rap_demo/zui_rap_note.srvd.srvdsrv becomes the
 // service ZUI_RAP_NOTE (tools/rap/srvd-gen.mjs -> stg-compile); reads go
 // through the CDS view, writes and the action through ZCL_OSD_RAP_RUNTIME
-// (ZCL_OSD_RAP_SADL behind ZCL_STG_SADL_DPC). V2 is read-write, V4 read-only
-// until the V4 write slice lands. Needs a transpiled tree (npm run transpile).
+// (ZCL_OSD_RAP_SADL behind ZCL_STG_SADL_DPC). V2 and V4 are read-write, and
+// the action runs over both (V2 function import, V4 bound action). Needs a
+// transpiled tree (npm run transpile).
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {basename} from "node:path";
@@ -210,13 +211,218 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     const patch = await call(key, {method: "PATCH", headers: write, body: JSON.stringify({NoteText: "v4 edit"})});
     assert.ok([200, 204].includes(patch.status), `${patch.status} ${JSON.stringify(patch.body)}`);
     assert.equal((await call(key)).body.NoteText, "v4 edit");
-    const action = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
-    // the V4 facade knows a bound action path (#862) but serves only the
-    // draft actions of sticky editing; a BDEF action is named, not run
-    assert.equal(action.status, 501, JSON.stringify(action.body));
-    assert.match(JSON.stringify(action.body), /Approve is not implemented/);
     const del = await call(key, {method: "DELETE", headers: write});
     assert.equal(del.status, 204);
     assert.equal((await call(key)).status, 404);
+  });
+
+  it("runs the BDEF action as a V4 bound action and answers the entity", async () => {
+    const meta = await (await fetch(`${v4}/$metadata`)).text();
+    assert.match(meta, /<Action Name="Approve" IsBound="true" EntitySetPath="_it"><Parameter Name="_it" Type="ZUI_RAP_NOTE\.NoteType" Nullable="false"\/><ReturnType Type="ZUI_RAP_NOTE\.NoteType"\/><\/Action>/);
+    const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "approve over v4"})})).body.NoteId;
+    const key = `${v4}/Note('${id}')`;
+    assert.equal((await call(key)).body.Status, "N");
+    // the behavior's FOR MODIFY ... FOR ACTION handler sets the status
+    const res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.match(res.body["@odata.context"], /\$metadata#Note\/\$entity$/);
+    assert.deepEqual([res.body.NoteId, res.body.NoteText, res.body.Status], [id, "approve over v4", "A"]);
+    assert.equal((await call(key)).body.Status, "A");
+    // the same instances over V2
+    assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.Status, "A");
+    // an empty body is an empty parameter object
+    const again = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write});
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    await call(key, {method: "DELETE", headers: write});
+  });
+
+  it("refuses over V4 what the BDEF does not declare or the request gets wrong", async () => {
+    const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "refuse over v4"})})).body.NoteId;
+    const key = `${v4}/Note('${id}')`;
+    const status = async () => (await call(key)).body.Status;
+    // an action the BDEF does not declare is not an operation of the service
+    let res = await call(`${key}/ZUI_RAP_NOTE.Reject`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+    assert.match(res.body.error.message, /Unknown operation ZUI_RAP_NOTE\.Reject/);
+    // an action takes POST
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {headers: write});
+    assert.equal(res.status, 405, JSON.stringify(res.body));
+    assert.equal(res.headers.get("allow"), "POST");
+    // bound to an entity: the set alone is no binding
+    res = await call(`${v4}/Note/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    // a key nobody has
+    res = await call(`${v4}/Note('${"0".repeat(32)}')/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+    // a key or parameter longer than its MaxLength (NoteId is String(32))
+    res = await call(`${v4}/Note('${id}0')/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.match(res.body.error.code, /VALUE_TOO_LONG/);
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: JSON.stringify({NoteId: `${id}0`})});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.match(res.body.error.code, /VALUE_TOO_LONG/);
+    // an unknown parameter, a body that is no JSON object
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: JSON.stringify({Reason: "x"})});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "[]"});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(await status(), "N");
+    await call(key, {method: "DELETE", headers: write});
+  });
+
+  // A $batch changeset or atomicity group is one LUW, and a RAP action in it
+  // joins that LUW: its save writes but does not COMMIT, so a later failing
+  // member rolls it back with the group (ZCL_OSD_LUW_HOLD=>HELD).
+  const CRLF = "\r\n";
+  const httpPart = (method, url, body) => ["Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
+    `${method} ${url} HTTP/1.1`, "Content-Type: application/json", "Accept: application/json", "", body ?? ""].join(CRLF);
+  const multipart = (url, version, parts) => fetch(`${url}/$batch`, {method: "POST",
+    headers: {"content-type": "multipart/mixed; boundary=b", "x-csrf-token": "open-steamgate", ...version},
+    body: ["--b", "Content-Type: multipart/mixed; boundary=cs", "",
+      ...parts.map((p, i) => `--cs${CRLF}Content-ID: ${i}${CRLF}${p}`), "--cs--", "--b--", ""].join(CRLF)});
+  const statusOf = async (id) => (await call(`${v4}/Note('${id}')`)).body.Status;
+  const v4Note = async (text) => (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: text})})).body.NoteId;
+
+  it("rolls a V4 bound action back with its failing JSON atomicity group", async () => {
+    const id = await v4Note("atomic action target");
+    const group = (second) => call(`${v4}/$batch`, {method: "POST", headers: write, body: JSON.stringify({requests: [
+      {id: "approve", atomicityGroup: "g", method: "POST", url: `Note('${id}')/ZUI_RAP_NOTE.Approve`, body: {}},
+      {id: "second", atomicityGroup: "g", method: "POST", url: "Note", body: second},
+    ]})});
+    let res = await group({NoteText: "x"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.responses.map(r => r.status), [424, 400], JSON.stringify(res.body));
+    assert.equal(await statusOf(id), "N");
+    // a later successful write does not carry the action's change in with it
+    const other = await v4Note("after the failed group");
+    assert.equal(await statusOf(id), "N");
+    // the same group with a valid second member commits both
+    res = await group({NoteText: "valid second member"});
+    assert.deepEqual(res.body.responses.map(r => r.status), [200, 201], JSON.stringify(res.body));
+    assert.equal(await statusOf(id), "A");
+    const created = res.body.responses[1].body.NoteId;
+    assert.equal(await statusOf(created), "N");
+    for (const n of [id, other, created]) await call(`${v4}/Note('${n}')`, {method: "DELETE", headers: write});
+  });
+
+  it("rolls a V4 bound action back with its failing multipart change set", async () => {
+    const id = await v4Note("multipart action target");
+    const res = await multipart(v4, {"odata-version": "4.0"}, [
+      httpPart("POST", `Note('${id}')/ZUI_RAP_NOTE.Approve`, "{}"),
+      httpPart("POST", "Note", JSON.stringify({NoteText: "x"})),
+    ]);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.match(text, /HTTP\/1\.1 400/, text);
+    assert.doesNotMatch(text, /HTTP\/1\.1 200/, text);
+    assert.equal(await statusOf(id), "N");
+    await call(`${v4}/Note('${id}')`, {method: "DELETE", headers: write});
+  });
+
+  it("rolls a V2 function import back with its failing changeset", async () => {
+    const id = (await create("v2 changeset target")).body.d.NoteId;
+    const res = await multipart(v2, {}, [
+      httpPart("POST", `Approve?NoteId='${id}'`),
+      httpPart("POST", "Note", JSON.stringify({NoteText: "x"})),
+    ]);
+    assert.equal(res.status, 202);
+    const text = await res.text();
+    assert.match(text, /HTTP\/1\.1 400/, text);
+    assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.Status, "N");
+    // outside a changeset the action still commits on its own
+    assert.equal((await call(`${v2}/Approve?NoteId='${id}'`, {method: "POST", headers: write})).status, 200);
+    assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.Status, "A");
+    await call(`${v2}/Note('${id}')`, {method: "DELETE", headers: write});
+  });
+
+  // A group that unwinds by a dump (ASSERT) or an exception nobody catches
+  // never reaches its own reset of the LUW hold, and the flag is a static that
+  // outlives the request. The next request must still start with no group
+  // holding the LUW: a plain Approve then ends its own LUW (IV_END_LUW = X).
+  // Its persisted status alone cannot tell, because the ICF bracket commits
+  // after it either way, so the test watches the runtime's COMMIT.
+  it("does not carry a dumped group's LUW hold into the next request", async () => {
+    const C = globalThis.abap.Classes;
+    const runtime = C.ZCL_OSD_RAP_RUNTIME.prototype;
+    const handler = C["CLAS-ZBP_RAP_NOTE-LHC_NOTE"].prototype;
+    const held = async () => (await C.ZCL_OSD_LUW_HOLD.held()).get().trim();
+    const endLuw = [];
+    const commit = runtime.commit;
+    const construct = handler.constructor_;
+    let fail;
+    runtime.commit = async function (input) {
+      endLuw.push(input?.iv_end_luw?.get?.().trim() ?? "default");
+      return commit.call(this, input);
+    };
+    handler.constructor_ = async function (input) {
+      const result = await construct.call(this, input);
+      const approve = this.FRIENDS_ACCESS_INSTANCE.approve;
+      this.FRIENDS_ACCESS_INSTANCE.approve = async (i) => fail ? fail(i, approve) : approve(i);
+      return result;
+    };
+    const v2Note = async (text) => (await create(text)).body.d.NoteId;
+    const groups = {
+      "V4 JSON": (a, b) => call(`${v4}/$batch`, {method: "POST", headers: write, body: JSON.stringify({requests: [
+        {id: "a", atomicityGroup: "g", method: "POST", url: `Note('${a}')/ZUI_RAP_NOTE.Approve`, body: {}},
+        {id: "b", atomicityGroup: "g", method: "POST", url: `Note('${b}')/ZUI_RAP_NOTE.Approve`, body: {}},
+      ]})}),
+      "V4 multipart": (a, b) => multipart(v4, {"odata-version": "4.0"}, [
+        httpPart("POST", `Note('${a}')/ZUI_RAP_NOTE.Approve`, "{}"), httpPart("POST", `Note('${b}')/ZUI_RAP_NOTE.Approve`, "{}")]),
+      "V2 changeset": (a, b) => multipart(v2, {}, [
+        httpPart("POST", `Approve?NoteId='${a}'`), httpPart("POST", `Approve?NoteId='${b}'`)]),
+    };
+    const created = [];
+    try {
+      for (const [name, group] of Object.entries(groups)) {
+        for (const mode of ["dump", "exception"]) {
+          const [a, b, plain] = [await v2Note(`${name} ${mode} a`), await v2Note(`${name} ${mode} b`), await v2Note(`${name} ${mode} plain`)];
+          created.push(a, b, plain);
+          let count = 0;
+          fail = async (input, approve) => {
+            if (++count < 2) return approve(input);
+            if (mode === "dump") abap.statements.assert(false);
+            throw await new C.CX_SY_NO_HANDLER().constructor_();
+          };
+          await group(a, b).catch(() => undefined);
+          fail = undefined;
+          // the very next request, with nothing in between
+          endLuw.length = 0;
+          const res = await call(`${v4}/Note('${plain}')/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+          assert.equal(res.status, 200, JSON.stringify(res.body));
+          assert.deepEqual(endLuw, ["X"], `${name} ${mode}: a plain Approve ends its own LUW`);
+          assert.equal(await held(), "", `${name} ${mode}: no group holds the LUW after it`);
+          assert.equal(await statusOf(plain), "A");
+          assert.equal(await statusOf(a), "N", `${name} ${mode}: the group is undone`);
+        }
+      }
+    } finally {
+      fail = undefined;
+      runtime.commit = commit;
+      handler.constructor_ = construct;
+      await C.ZCL_OSD_LUW_HOLD.hold({iv_held: abap.builtin.abap_false});
+      for (const n of created) await call(`${v4}/Note('${n}')`, {method: "DELETE", headers: write});
+    }
+  });
+
+  it("checks If-Match on a V4 bound action as a PATCH does", async () => {
+    const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "if-match over v4"})})).body.NoteId;
+    const key = `${v4}/Note('${id}')`;
+    const action = `${key}/ZUI_RAP_NOTE.Approve`;
+    // NoteType has no ETag (the BDEF has no etag master): an If-Match names
+    // a tag the entity does not have, 412, and the behavior does not run
+    let res = await call(action, {method: "POST", headers: {...write, "if-match": "W/\"anything\""}, body: "{}"});
+    assert.equal(res.status, 412, JSON.stringify(res.body));
+    assert.equal((await call(key)).body.Status, "N");
+    // the same answer a PATCH gets
+    res = await call(key, {method: "PATCH", headers: {...write, "if-match": "W/\"anything\""}, body: JSON.stringify({NoteText: "never"})});
+    assert.equal(res.status, 412, JSON.stringify(res.body));
+    // without an ETag on the type no If-Match is required (no 428) ...
+    res = await call(action, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    // ... and If-Match: * matches any entity that exists
+    res = await call(action, {method: "POST", headers: {...write, "if-match": "*"}, body: "{}"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.Status, "A");
+    await call(key, {method: "DELETE", headers: write});
   });
 });

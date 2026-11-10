@@ -15,11 +15,17 @@ CLASS zcl_stg_http_handler IMPLEMENTATION.
     DATA lv_host     TYPE string.
     DATA lv_proto    TYPE string.
     DATA lt_options  TYPE tihttpnvp.
+    DATA lt_headers  TYPE tihttpnvp.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA ls_header   TYPE ihttpnvp.
     DATA lv_body     TYPE string.
     DATA lv_body_x   TYPE xstring.
 
+* A request starts with no group holding the LUW. The flag is a static and a
+* static outlives the request here (on a system each request is a session of
+* its own); a batch that dumped never reached its reset, and the next RAP save
+* would leave its COMMIT to a group that is gone (ZCL_OSD_LUW_HOLD=>HELD).
+    zcl_osd_luw_hold=>hold( abap_false ).
     lv_method = server->request->get_header_field( '~request_method' ).
     lv_path   = server->request->get_header_field( '~path' ).
     lv_host   = server->request->get_header_field( 'host' ).
@@ -34,6 +40,9 @@ CLASS zcl_stg_http_handler IMPLEMENTATION.
     ENDIF.
     lv_host = |{ lv_proto }://{ lv_host }{ server->request->get_header_field( 'x-forwarded-prefix' ) }|.
     server->request->get_form_fields_cs( CHANGING fields = lt_options ).
+* the whole header set travels with the request: If-Match of a write is
+* read from it (the ETag check of ZCL_STG_DISPATCHER), as the V4 front does
+    server->request->get_header_fields( CHANGING fields = lt_headers ).
     lv_body = server->request->get_cdata( ).
 * a media resource (PUT <entity>/$value) is bytes, not text
     lv_body_x = server->request->get_data( ).
@@ -61,7 +70,8 @@ CLASS zcl_stg_http_handler IMPLEMENTATION.
                                                 iv_host    = lv_host
                                                 iv_body    = lv_body
                                                 iv_body_x  = lv_body_x
-                                                iv_content_type = server->request->get_header_field( 'content-type' ) ).
+                                                iv_content_type = server->request->get_header_field( 'content-type' )
+                                                it_headers = lt_headers ).
 
     IF lv_method <> 'GET' AND lv_method <> 'HEAD' AND lv_path NP '*/$batch*'.
       IF ls_response-status >= 400.

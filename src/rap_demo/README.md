@@ -14,7 +14,7 @@ copied.
 - `lsc_note` records the saver phases in `ZBP_RAP_NOTE=>PHASES`.
 - `ZUI_RAP_NOTE` (service definition) exposes it as `Note`: the service
   `ZUI_RAP_NOTE` over V2 (read-write, `Approve` as a function import) and
-  V4 (read), `test/rap-serve.mjs`.
+  V4 (read-write, `Approve` as a bound action), `test/rap-serve.mjs`.
 
 `ZBP_RAP_NOTE`'s `lhc_note` uses explicit derived signatures (R1); its methods
 are bound to the BDEF by name.

@@ -493,6 +493,20 @@ CLASS zcl_osd_v4_action IMPLEMENTATION.
     CREATE OBJECT lo_context.
     lo_context->mv_entity_set = is_action-return_entity_set.
     lo_context->mv_entity_type = is_action-return_entity_type.
+* the context a V2 function import is given (ZCL_STG_DISPATCHER): the
+* operation's name and parameters, and for an action for an entity type,
+* which names no set of its own, the first set of that type. A DPC that
+* SADL serves is handed only the context (a RAP service finds the entity
+* and its BDEF action there); a code-based DPC reads the parameters.
+    lo_context->mv_function_import = is_action-name.
+    lo_context->mt_parameter = it_parameters.
+    IF lo_context->mv_entity_set IS INITIAL AND is_action-return_entity_type IS NOT INITIAL.
+      LOOP AT io_model->ms_service-entity_sets INTO ls_set WHERE entity_type = is_action-return_entity_type.
+        lo_context->mv_entity_set = ls_set-name.
+        EXIT.
+      ENDLOOP.
+      CLEAR ls_set.
+    ENDIF.
     io_dpc->execute_action( EXPORTING iv_action_name = is_action-name it_parameter = it_parameters
       io_tech_request_context = lo_context IMPORTING er_data = lr_data ).
     rs_response-status = 200.

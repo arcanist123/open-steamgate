@@ -6,10 +6,12 @@ CLASS zcl_osd_rap_sadl DEFINITION PUBLIC FINAL CREATE PUBLIC.
 * sequence -- and is still read through its view by the SADL data provider.
 *
 * One request is one RAP transaction: MODIFY (or the action), then the save
-* sequence. A FAILED row, from the interaction phase or from a validation
-* in the save, rolls the transaction back and becomes a business exception
-* carrying the RAP messages, which the gateway answers with 400; nothing has
-* been written then.
+* sequence. Inside a $batch changeset or atomicity group the save writes
+* without COMMIT WORK and the batch ends the LUW (ZCL_OSD_LUW_HOLD=>HELD),
+* so a later failing member undoes it. A FAILED row, from the interaction
+* phase or from a validation in the save, rolls the transaction back and
+* becomes a business exception carrying the RAP messages, which the gateway
+* answers with 400; nothing has been written then.
 *
 * The rows the SADL provider passes are the view's rows; the derived
 * tables are made by the BDEF's adapter (ZIF_OSD_RAP_BO=>NEW_TABLE) and
@@ -294,7 +296,10 @@ CLASS zcl_osd_rap_sadl IMPLEMENTATION.
     ENDIF.
 
     TRY.
-        io_runtime->commit( IMPORTING ev_saved    = lv_saved
+* inside a $batch changeset or atomicity group the batch owns the LUW: the
+* save writes, and the group commits it or rolls it back as a whole
+        io_runtime->commit( EXPORTING iv_end_luw  = boolc( zcl_osd_luw_hold=>held( ) = abap_false )
+                            IMPORTING ev_saved    = lv_saved
                             CHANGING  cs_failed   = cs_failed
                                       cs_reported = cs_reported ).
       CATCH zcx_osd_rap INTO lx_error.

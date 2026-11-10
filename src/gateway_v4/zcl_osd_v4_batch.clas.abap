@@ -510,128 +510,140 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     continuation( EXPORTING iv_prefer = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'prefer' )
       IMPORTING ev_applied = lv_applied RECEIVING rv_continue = lv_continue ).
     lv_prefix = iv_origin && iv_service_path && '/'.
+    zcl_osd_luw_hold=>hold( abap_false ).
 
-    LOOP AT lt_requests INTO ls_request.
-      lv_index = sy-tabix.
-      CLEAR ls_result.
-      ls_result-id = ls_request-id.
-      ls_result-group = ls_request-group.
-      ls_result-content_id = ls_request-content_id.
+    TRY.
+        LOOP AT lt_requests INTO ls_request.
+          lv_index = sy-tabix.
+          CLEAR ls_result.
+* a member of a group runs inside the group's LUW: a RAP save writes and
+* leaves the COMMIT or ROLLBACK to the group (ZCL_OSD_LUW_HOLD=>HELD)
+          zcl_osd_luw_hold=>hold( boolc( ls_request-group IS NOT INITIAL ) ).
+          ls_result-id = ls_request-id.
+          ls_result-group = ls_request-group.
+          ls_result-content_id = ls_request-content_id.
 
-      IF ls_request-group IS NOT INITIAL AND ls_request-group <> lv_group.
+          IF ls_request-group IS NOT INITIAL AND ls_request-group <> lv_group.
 * a new atomicity group: the COMMIT is the fence, so that the ROLLBACK of a
 * failing member reaches only what this group did
-        lv_group = ls_request-group.
-        lv_group_failed = abap_false.
-        lv_group_first = lines( lt_results ) + 1.
-        COMMIT WORK.
+            lv_group = ls_request-group.
+            lv_group_failed = abap_false.
+            lv_group_first = lines( lt_results ) + 1.
+            COMMIT WORK.
 * the sticky sessions' buffers are not in the database: a failing group
 * gives them back as they were, like the rows (ZCL_OSD_V4_STICKY)
-        lt_sticky = zcl_osd_v4_sticky=>snapshot( ).
-      ENDIF.
-
-      lv_blocked = abap_false.
-      LOOP AT ls_request-depends INTO lv_depend.
-        READ TABLE lt_failed WITH KEY table_line = lv_depend TRANSPORTING NO FIELDS.
-        IF sy-subrc = 0.
-          lv_blocked = abap_true.
-        ENDIF.
-      ENDLOOP.
-
-      lv_url = ls_request-url.
-      IF lv_url(1) = '$'.
-        FIND REGEX '^\$([^/?]+)(.*)$' IN lv_url SUBMATCHES lv_ref lv_rest.
-        READ TABLE lt_locations INTO ls_location WITH KEY name = lv_ref.
-        IF sy-subrc = 0.
-          lv_url = ls_location-value && lv_rest.
-        ELSE.
-          READ TABLE lt_failed WITH KEY table_line = lv_ref TRANSPORTING NO FIELDS.
-          IF sy-subrc = 0.
-            lv_blocked = abap_true.
-          ELSE.
-            CLEAR lv_url.
+            lt_sticky = zcl_osd_v4_sticky=>snapshot( ).
           ENDIF.
-        ENDIF.
-      ENDIF.
 
-      IF ls_request-group IS NOT INITIAL AND lv_group_failed = abap_true.
-        ls_result-response = error( iv_status = 424
-          iv_message = |Not executed: atomicity group { ls_request-group } failed| ).
-      ELSEIF lv_blocked = abap_true.
-        ls_result-response = error( iv_status = 424 iv_message = 'Not executed: a request it depends on failed' ).
-      ELSEIF lv_url IS INITIAL.
-        ls_result-response = error( iv_status = 400
-          iv_message = |{ ls_request-url } refers to no entity created earlier in this batch| ).
-      ELSE.
-        lv_writes = boolc( ls_request-method <> 'GET' AND ls_request-group IS INITIAL ).
-        IF lv_writes = abap_true.
-          COMMIT WORK.
-        ENDIF.
-        ls_result-response = run_one( is_request = ls_request iv_url = lv_url
-          iv_service_path = iv_service_path iv_origin = iv_origin ).
-        IF lv_writes = abap_true.
-          IF ls_result-response-status >= 400.
-            ROLLBACK WORK.
-          ELSE.
-            COMMIT WORK.
-          ENDIF.
-        ENDIF.
-        IF ls_result-response-status < 400.
-          lv_value = zcl_osd_v4_write=>header( it_headers = ls_result-response-headers iv_name = 'location' ).
-          IF lv_value IS NOT INITIAL.
-            lv_length = strlen( lv_prefix ).
-            IF strlen( lv_value ) > lv_length.
-              IF lv_value(lv_length) = lv_prefix.
-                lv_value = substring( val = lv_value off = lv_length ).
+          lv_blocked = abap_false.
+          LOOP AT ls_request-depends INTO lv_depend.
+            READ TABLE lt_failed WITH KEY table_line = lv_depend TRANSPORTING NO FIELDS.
+            IF sy-subrc = 0.
+              lv_blocked = abap_true.
+            ENDIF.
+          ENDLOOP.
+
+          lv_url = ls_request-url.
+          IF lv_url(1) = '$'.
+            FIND REGEX '^\$([^/?]+)(.*)$' IN lv_url SUBMATCHES lv_ref lv_rest.
+            READ TABLE lt_locations INTO ls_location WITH KEY name = lv_ref.
+            IF sy-subrc = 0.
+              lv_url = ls_location-value && lv_rest.
+            ELSE.
+              READ TABLE lt_failed WITH KEY table_line = lv_ref TRANSPORTING NO FIELDS.
+              IF sy-subrc = 0.
+                lv_blocked = abap_true.
+              ELSE.
+                CLEAR lv_url.
               ENDIF.
             ENDIF.
-            ls_location-name = ls_request-id.
-            ls_location-value = lv_value.
-            APPEND ls_location TO lt_locations.
           ENDIF.
-        ENDIF.
-      ENDIF.
 
-      IF ls_result-response-status >= 400.
-        APPEND ls_request-id TO lt_failed.
-        IF ls_request-group IS NOT INITIAL AND lv_group_failed = abap_false.
+          IF ls_request-group IS NOT INITIAL AND lv_group_failed = abap_true.
+            ls_result-response = error( iv_status = 424
+              iv_message = |Not executed: atomicity group { ls_request-group } failed| ).
+          ELSEIF lv_blocked = abap_true.
+            ls_result-response = error( iv_status = 424 iv_message = 'Not executed: a request it depends on failed' ).
+          ELSEIF lv_url IS INITIAL.
+            ls_result-response = error( iv_status = 400
+              iv_message = |{ ls_request-url } refers to no entity created earlier in this batch| ).
+          ELSE.
+            lv_writes = boolc( ls_request-method <> 'GET' AND ls_request-group IS INITIAL ).
+            IF lv_writes = abap_true.
+              COMMIT WORK.
+            ENDIF.
+            ls_result-response = run_one( is_request = ls_request iv_url = lv_url
+              iv_service_path = iv_service_path iv_origin = iv_origin ).
+            IF lv_writes = abap_true.
+              IF ls_result-response-status >= 400.
+                ROLLBACK WORK.
+              ELSE.
+                COMMIT WORK.
+              ENDIF.
+            ENDIF.
+            IF ls_result-response-status < 400.
+              lv_value = zcl_osd_v4_write=>header( it_headers = ls_result-response-headers iv_name = 'location' ).
+              IF lv_value IS NOT INITIAL.
+                lv_length = strlen( lv_prefix ).
+                IF strlen( lv_value ) > lv_length.
+                  IF lv_value(lv_length) = lv_prefix.
+                    lv_value = substring( val = lv_value off = lv_length ).
+                  ENDIF.
+                ENDIF.
+                ls_location-name = ls_request-id.
+                ls_location-value = lv_value.
+                APPEND ls_location TO lt_locations.
+              ENDIF.
+            ENDIF.
+          ENDIF.
+
+          IF ls_result-response-status >= 400.
+            APPEND ls_request-id TO lt_failed.
+            IF ls_request-group IS NOT INITIAL AND lv_group_failed = abap_false.
 * all or nothing: what the group already did is undone, and its members that
 * succeeded answer 424 rather than a success that did not last
-          lv_group_failed = abap_true.
-          ROLLBACK WORK.
-          zcl_osd_v4_sticky=>restore( lt_sticky ).
-          LOOP AT lt_results ASSIGNING <ls_result> FROM lv_group_first.
-            APPEND <ls_result>-id TO lt_failed.
-            DELETE lt_locations WHERE name = <ls_result>-id.
-            <ls_result>-response = error( iv_status = 424
-              iv_message = |Rolled back: atomicity group { ls_request-group } failed| ).
-          ENDLOOP.
-        ENDIF.
-      ENDIF.
-      APPEND ls_result TO lt_results.
+              lv_group_failed = abap_true.
+              ROLLBACK WORK.
+              zcl_osd_v4_sticky=>restore( lt_sticky ).
+              LOOP AT lt_results ASSIGNING <ls_result> FROM lv_group_first.
+                APPEND <ls_result>-id TO lt_failed.
+                DELETE lt_locations WHERE name = <ls_result>-id.
+                <ls_result>-response = error( iv_status = 424
+                  iv_message = |Rolled back: atomicity group { ls_request-group } failed| ).
+              ENDLOOP.
+            ENDIF.
+          ENDIF.
+          APPEND ls_result TO lt_results.
 
 * the end of a group: commit it, or record it as failed
-      lv_last = abap_true.
-      lv_next = lv_index + 1.
-      READ TABLE lt_requests INTO ls_next INDEX lv_next.
-      IF sy-subrc = 0 AND ls_next-group = ls_request-group AND ls_request-group IS NOT INITIAL.
-        lv_last = abap_false.
-      ENDIF.
-      IF ls_request-group IS NOT INITIAL AND lv_last = abap_true.
-        IF lv_group_failed = abap_true.
-          APPEND ls_request-group TO lt_failed.
-        ELSE.
-          COMMIT WORK.
-        ENDIF.
-        CLEAR lv_group.
-      ENDIF.
-      IF lv_continue = abap_false AND lv_last = abap_true.
-        IF ( ls_request-group IS NOT INITIAL AND lv_group_failed = abap_true )
-            OR ( ls_request-group IS INITIAL AND ls_result-response-status >= 400 ).
-          EXIT.
-        ENDIF.
-      ENDIF.
-    ENDLOOP.
+          lv_last = abap_true.
+          lv_next = lv_index + 1.
+          READ TABLE lt_requests INTO ls_next INDEX lv_next.
+          IF sy-subrc = 0 AND ls_next-group = ls_request-group AND ls_request-group IS NOT INITIAL.
+            lv_last = abap_false.
+          ENDIF.
+          IF ls_request-group IS NOT INITIAL AND lv_last = abap_true.
+            IF lv_group_failed = abap_true.
+              APPEND ls_request-group TO lt_failed.
+            ELSE.
+              COMMIT WORK.
+            ENDIF.
+            CLEAR lv_group.
+            zcl_osd_luw_hold=>hold( abap_false ).
+          ENDIF.
+          IF lv_continue = abap_false AND lv_last = abap_true.
+            IF ( ls_request-group IS NOT INITIAL AND lv_group_failed = abap_true )
+                OR ( ls_request-group IS INITIAL AND ls_result-response-status >= 400 ).
+              EXIT.
+            ENDIF.
+          ENDIF.
+        ENDLOOP.
+      CLEANUP.
+* a group member that raises leaves by the exception: the flag goes with
+* it (a dump does not get here; the request entry clears it, ZCL_OSD_V4_HTTP)
+        zcl_osd_luw_hold=>hold( abap_false ).
+    ENDTRY.
+    zcl_osd_luw_hold=>hold( abap_false ).
 
 * A sticky session a part opened (SAP-ContextId) is announced on the batch
 * itself: the client reads the header of the HTTP response, not of a part.
