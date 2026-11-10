@@ -270,6 +270,71 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     await call(key, {method: "DELETE", headers: write});
   });
 
+  // A $batch changeset or atomicity group is one LUW, and a RAP action in it
+  // joins that LUW: its save writes but does not COMMIT, so a later failing
+  // member rolls it back with the group (ZCL_STG_BATCH=>LUW_HELD).
+  const CRLF = "\r\n";
+  const httpPart = (method, url, body) => ["Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
+    `${method} ${url} HTTP/1.1`, "Content-Type: application/json", "Accept: application/json", "", body ?? ""].join(CRLF);
+  const multipart = (url, version, parts) => fetch(`${url}/$batch`, {method: "POST",
+    headers: {"content-type": "multipart/mixed; boundary=b", "x-csrf-token": "open-steamgate", ...version},
+    body: ["--b", "Content-Type: multipart/mixed; boundary=cs", "",
+      ...parts.map((p, i) => `--cs${CRLF}Content-ID: ${i}${CRLF}${p}`), "--cs--", "--b--", ""].join(CRLF)});
+  const statusOf = async (id) => (await call(`${v4}/Note('${id}')`)).body.Status;
+  const v4Note = async (text) => (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: text})})).body.NoteId;
+
+  it("rolls a V4 bound action back with its failing JSON atomicity group", async () => {
+    const id = await v4Note("atomic action target");
+    const group = (second) => call(`${v4}/$batch`, {method: "POST", headers: write, body: JSON.stringify({requests: [
+      {id: "approve", atomicityGroup: "g", method: "POST", url: `Note('${id}')/ZUI_RAP_NOTE.Approve`, body: {}},
+      {id: "second", atomicityGroup: "g", method: "POST", url: "Note", body: second},
+    ]})});
+    let res = await group({NoteText: "x"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.deepEqual(res.body.responses.map(r => r.status), [424, 400], JSON.stringify(res.body));
+    assert.equal(await statusOf(id), "N");
+    // a later successful write does not carry the action's change in with it
+    const other = await v4Note("after the failed group");
+    assert.equal(await statusOf(id), "N");
+    // the same group with a valid second member commits both
+    res = await group({NoteText: "valid second member"});
+    assert.deepEqual(res.body.responses.map(r => r.status), [200, 201], JSON.stringify(res.body));
+    assert.equal(await statusOf(id), "A");
+    const created = res.body.responses[1].body.NoteId;
+    assert.equal(await statusOf(created), "N");
+    for (const n of [id, other, created]) await call(`${v4}/Note('${n}')`, {method: "DELETE", headers: write});
+  });
+
+  it("rolls a V4 bound action back with its failing multipart change set", async () => {
+    const id = await v4Note("multipart action target");
+    const res = await multipart(v4, {"odata-version": "4.0"}, [
+      httpPart("POST", `Note('${id}')/ZUI_RAP_NOTE.Approve`, "{}"),
+      httpPart("POST", "Note", JSON.stringify({NoteText: "x"})),
+    ]);
+    assert.equal(res.status, 200);
+    const text = await res.text();
+    assert.match(text, /HTTP\/1\.1 400/, text);
+    assert.doesNotMatch(text, /HTTP\/1\.1 200/, text);
+    assert.equal(await statusOf(id), "N");
+    await call(`${v4}/Note('${id}')`, {method: "DELETE", headers: write});
+  });
+
+  it("rolls a V2 function import back with its failing changeset", async () => {
+    const id = (await create("v2 changeset target")).body.d.NoteId;
+    const res = await multipart(v2, {}, [
+      httpPart("POST", `Approve?NoteId='${id}'`),
+      httpPart("POST", "Note", JSON.stringify({NoteText: "x"})),
+    ]);
+    assert.equal(res.status, 202);
+    const text = await res.text();
+    assert.match(text, /HTTP\/1\.1 400/, text);
+    assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.Status, "N");
+    // outside a changeset the action still commits on its own
+    assert.equal((await call(`${v2}/Approve?NoteId='${id}'`, {method: "POST", headers: write})).status, 200);
+    assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.Status, "A");
+    await call(`${v2}/Note('${id}')`, {method: "DELETE", headers: write});
+  });
+
   it("checks If-Match on a V4 bound action as a PATCH does", async () => {
     const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "if-match over v4"})})).body.NoteId;
     const key = `${v4}/Note('${id}')`;

@@ -173,6 +173,13 @@ the save sequence); nothing measured on a system.
   ([luw-buffer.md](luw-buffer.md)), and an exception nobody catches is rolled
   back by `tools/osd-dialog-step.mjs` as for any request. A database write
   that fails in the save raises `ZCX_OSD_RAP` after a `ROLLBACK WORK`.
+  `commit( iv_end_luw = abap_false )` saves without ending the LUW: inside
+  a `$batch` changeset (V2) or atomicity group / change set (V4) the batch
+  holds the LUW (`ZCL_STG_BATCH=>LUW_HELD`), `ZCL_OSD_RAP_SADL` passes that
+  on, and the batch commits or rolls back the RAP save with the group, so
+  a later failing member undoes a create, update, delete or action that
+  had already run (`test/rap-serve.mjs`). Each operation is still its own
+  save sequence (validations run per operation, not once at the end).
 - **Locks, ETags, authorization, features** are parsed and ignored.
 
 ## Handler methods
@@ -332,8 +339,9 @@ behavior (FAILED, a validation) is 400 as over V2 (`test/rap-serve.mjs`).
 
 ### Not in R2c
 
-Service bindings, `Edm.Guid` for UUID keys, ETags and `If-Match`, V2
-`$batch` changesets as one RAP transaction (each operation is its own),
+Service bindings, `Edm.Guid` for UUID keys, ETags and `If-Match`, a
+`$batch` changeset as one RAP transaction (each operation is its own save
+sequence, committed or rolled back with the changeset),
 deep insert through compositions, action parameters, static and factory
 actions, messages as `sap-message` headers (only the error body), a Fiori
 Elements app over the service.

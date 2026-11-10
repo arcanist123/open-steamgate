@@ -514,6 +514,9 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     LOOP AT lt_requests INTO ls_request.
       lv_index = sy-tabix.
       CLEAR ls_result.
+* a member of a group runs inside the group's LUW: a RAP save writes and
+* leaves the COMMIT or ROLLBACK to the group (ZCL_STG_BATCH=>LUW_HELD)
+      zcl_stg_batch=>hold_luw( boolc( ls_request-group IS NOT INITIAL ) ).
       ls_result-id = ls_request-id.
       ls_result-group = ls_request-group.
       ls_result-content_id = ls_request-content_id.
@@ -624,6 +627,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
           COMMIT WORK.
         ENDIF.
         CLEAR lv_group.
+        zcl_stg_batch=>hold_luw( abap_false ).
       ENDIF.
       IF lv_continue = abap_false AND lv_last = abap_true.
         IF ( ls_request-group IS NOT INITIAL AND lv_group_failed = abap_true )
@@ -632,6 +636,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
         ENDIF.
       ENDIF.
     ENDLOOP.
+    zcl_stg_batch=>hold_luw( abap_false ).
 
 * A sticky session a part opened (SAP-ContextId) is announced on the batch
 * itself: the client reads the header of the HTTP response, not of a part.
