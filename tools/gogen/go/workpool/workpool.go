@@ -84,6 +84,13 @@ type Options struct {
 	ReadOnly bool
 	// Generation is what the work-process rows say (the sidecar's build).
 	Generation string
+	// ReconnectGrace bounds how long a work process whose connection was
+	// discarded (a scrub that could not prove it clean) tries for a new
+	// one before it is taken out of service; zero is BusyTimeout, the
+	// drain grace. The tries back off from 10 ms to 1 s.
+	ReconnectGrace time.Duration
+	// Logf reports a work process taken out of service; nil is silent.
+	Logf func(format string, args ...any)
 }
 
 // Pool is M work processes over one database. The free work processes live
@@ -110,6 +117,16 @@ type Pool struct {
 	stop    chan struct{} // closed while the drain holds the pool
 	stopped bool
 	closed  bool
+	// stopped work processes: out of service for good because no new
+	// connection could be had for them within ReconnectGrace. They are in
+	// no step and not in the channel; the pool lends M minus these, the
+	// drain waits for M minus these, and when it is all M nothing is lent.
+	outOfService int
+	// changed wakes a drain or a WAIT waiting for work processes when one
+	// leaves service (capacity 1, a send never blocks)
+	changed chan struct{}
+	// dead is closed when the last work process left service
+	dead chan struct{}
 }
 
 // worker is one work process: its connection, its statement cache, and the
@@ -120,7 +137,7 @@ type worker struct {
 	stmts     map[string]*sql.Stmt
 	queryOnly bool // the mode the connection is in
 	// the registry row, guarded by Pool.mu
-	state   string // Running, Held, Idle
+	state   string // Running, Idle, Reconnect (between a discard and a new connection), Stopped (out of service)
 	kind    Kind
 	started time.Time
 	report  string
@@ -139,7 +156,11 @@ func New(o Options) (*Pool, error) {
 	if o.BusyTimeout <= 0 {
 		o.BusyTimeout = DefaultBusyTimeout
 	}
-	p := &Pool{o: o, running: map[int]*Step{}, stop: make(chan struct{})}
+	if o.ReconnectGrace <= 0 {
+		o.ReconnectGrace = o.BusyTimeout
+	}
+	p := &Pool{o: o, running: map[int]*Step{}, stop: make(chan struct{}),
+		changed: make(chan struct{}, 1), dead: make(chan struct{})}
 	p.tokens = make(chan *worker, o.Workers)
 	p.writer = make(chan struct{}, 1)
 	ctx := context.Background()
@@ -191,6 +212,10 @@ func (w *worker) setQueryOnly(ctx context.Context, on bool) error {
 // ErrNotServing is what a step of a pool that no longer lends answers.
 var ErrNotServing = errors.New("workpool: the pool lends no work process (drain or close)")
 
+// ErrNoWorkProcess is what a step answers once every work process is out
+// of service (no connection could be had for any of them).
+var ErrNoWorkProcess = errors.New("workpool: every work process is out of service")
+
 // Step runs work as one dialog step on a borrowed work process. It returns
 // when work has; a dump inside work is work's to handle (the kernel's
 // bracket re-panics it). ctx cancelled or expired cancels the step's
@@ -216,7 +241,11 @@ func (p *Pool) Step(ctx context.Context, kind Kind, work func(*Step)) error {
 	step.ctx, step.cancel = context.WithCancel(ctx)
 	defer step.cancel()
 	if err := p.lend(step, kind); err != nil {
-		p.unlend(step)
+		// lend registered nothing: the work process goes back (or out of
+		// service) and the write token goes, but the running count is not
+		// the step's to decrement (PR #900 review round 2)
+		step.suspect = true
+		p.release(step, false)
 		return err
 	}
 	// deferred: a dump that leaves work unrecovered must not take the work
@@ -242,6 +271,8 @@ func (p *Pool) acquire(ctx context.Context) (*worker, error) {
 			return w, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		case <-p.dead:
+			return nil, ErrNoWorkProcess
 		default:
 		}
 		select {
@@ -249,6 +280,8 @@ func (p *Pool) acquire(ctx context.Context) (*worker, error) {
 			return w, nil
 		case <-ctx.Done():
 			return nil, ctx.Err()
+		case <-p.dead:
+			return nil, ErrNoWorkProcess
 		case <-p.stopNow():
 			// the drain began while this waited: the check above decides
 		}
@@ -286,26 +319,28 @@ func (p *Pool) stopNow() chan struct{} {
 // process back): the step must go on, so it waits for a work process even
 // while the drain holds the pool, until Unlock floods the channel again.
 // A cancelled context returns nil: the kernel's reopen on the old work
-// process fails there as the interrupted statement's own error.
+// process fails there as the interrupted statement's own error. So does a
+// pool with every work process out of service: there is none to wait for.
 func (p *Pool) take(ctx context.Context) *worker {
 	select {
 	case w := <-p.tokens:
 		return w
 	case <-ctx.Done():
 		return nil
+	case <-p.dead:
+		return nil
 	}
 }
 
 // lend gives the step its work process and records it in the row. A work
-// process whose connection a failed scrub discarded takes a new one first.
+// process in the channel always has its connection (giveBack keeps it so);
+// the check is the invariant's guard, not a path.
 func (p *Pool) lend(s *Step, kind Kind) error {
 	if p.o.ReadOnly {
 		kind = Read
 	}
 	if s.w.conn == nil {
-		if err := p.reconnect(s.w); err != nil {
-			return fmt.Errorf("workpool: work process %d: %w", s.w.number, err)
-		}
+		return fmt.Errorf("workpool: work process %d lent without a connection", s.w.number)
 	}
 	if err := s.w.setQueryOnly(s.ctx, kind == Read); err != nil {
 		return fmt.Errorf("workpool: work process %d: %w", s.w.number, err)
@@ -327,7 +362,12 @@ func (p *Pool) lend(s *Step, kind Kind) error {
 // is scrubbed first, and replaced when the scrub cannot prove it clean --
 // before the write token goes, so the next writer never finds the lock
 // still held by a work process nobody runs on (PR #900 review).
-func (p *Pool) unlend(s *Step) {
+func (p *Pool) unlend(s *Step) { p.release(s, true) }
+
+// release is unlend for a step that lend registered as running
+// (registered) or one whose lend failed before it did: only the first
+// decrements the running count.
+func (p *Pool) release(s *Step, registered bool) {
 	if s.held && (s.suspect || s.ctx.Err() != nil) {
 		p.scrub(s.w)
 	}
@@ -341,18 +381,21 @@ func (p *Pool) unlend(s *Step) {
 	}
 	s.held = false
 	p.mu.Lock()
-	p.live--
-	delete(p.running, s.w.number)
+	if registered {
+		p.live--
+		delete(p.running, s.w.number)
+	}
 	s.w.state = "Idle"
 	p.mu.Unlock()
-	p.tokens <- s.w
+	p.giveBack(s.w)
 }
 
 // scrub ends whatever transaction the connection still has, on a context
 // of its own (the step's may be the cancelled one). "no transaction is
 // active" is the clean answer; any other failure discards the connection
-// (driver.ErrBadConn through Raw closes it instead of pooling it) and the
-// work process takes a new one, now or at its next lend.
+// (driver.ErrBadConn through Raw closes it instead of pooling it), which
+// ends its transaction and with it the write lock; giveBack finds the
+// work process a new one.
 func (p *Pool) scrub(w *worker) {
 	if w.conn == nil {
 		return
@@ -362,7 +405,69 @@ func (p *Pool) scrub(w *worker) {
 		return
 	}
 	p.discard(w)
-	_ = p.reconnect(w) // a failure here is lend's to report
+}
+
+// giveBack returns a work process to the channel -- only ever with a
+// connection, so no lend and no WAIT's take ever gets one without. One whose
+// connection was discarded tries for a new one, backing off from 10 ms to
+// 1 s, for ReconnectGrace (the drain grace; it runs after the write token
+// went, so it holds up no writer, only the step's own answer). Still none
+// then, or the pool closed meanwhile: the work process is stopped -- out of
+// service for good, counted, logged, its row saying Stopped -- and the pool
+// goes on with one fewer rather than lend a work process that has nothing
+// to run statements on (PR #900 review round 2).
+func (p *Pool) giveBack(w *worker) {
+	if w.conn == nil {
+		p.mu.Lock()
+		w.state = "Reconnect"
+		p.mu.Unlock()
+		err := p.reconnectWithin(w, p.o.ReconnectGrace)
+		if err != nil {
+			p.mu.Lock()
+			w.state, w.report, w.started = "Stopped", "out of service: no connection", time.Time{}
+			p.outOfService++
+			all := p.outOfService == len(p.workers)
+			p.mu.Unlock()
+			if p.o.Logf != nil {
+				p.o.Logf("work process %d out of service (no new connection within %s): %v; %d of %d serve",
+					w.number, p.o.ReconnectGrace, err, len(p.workers)-p.OutOfService(), len(p.workers))
+			}
+			if all {
+				close(p.dead)
+			}
+			select {
+			case p.changed <- struct{}{}:
+			default:
+			}
+			return
+		}
+		p.mu.Lock()
+		w.state = "Idle"
+		p.mu.Unlock()
+	}
+	p.tokens <- w
+}
+
+// reconnectWithin is reconnect tried until it succeeds, grace passes or the
+// pool closes.
+func (p *Pool) reconnectWithin(w *worker, grace time.Duration) error {
+	deadline := time.Now().Add(grace)
+	backoff := 10 * time.Millisecond
+	for {
+		err := p.reconnect(w)
+		if err == nil {
+			return nil
+		}
+		p.mu.Lock()
+		closed := p.closed
+		p.mu.Unlock()
+		left := time.Until(deadline)
+		if closed || left <= 0 {
+			return err
+		}
+		time.Sleep(min(backoff, left))
+		backoff = min(2*backoff, time.Second)
+	}
 }
 
 // discard closes the work process's connection for good.
@@ -598,6 +703,14 @@ func (p *Pool) Interrupt(wp int) bool {
 // Workers is M.
 func (p *Pool) Workers() int { return len(p.workers) }
 
+// OutOfService is the number of work processes stopped for want of a
+// connection (the rows say Stopped); the pool serves with the rest.
+func (p *Pool) OutOfService() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.outOfService
+}
+
 // InFlight is the number of steps running statements now.
 func (p *Pool) InFlight() int {
 	p.mu.Lock()
@@ -609,7 +722,7 @@ func (p *Pool) InFlight() int {
 type WPRow struct {
 	Number     int
 	Kind       string // DIAL: a dialog work process (BTC is a later slice)
-	State      string // Running (a step holds it) or Idle
+	State      string // Running (a step holds it), Idle, Reconnect, or Stopped (out of service)
 	Generation string
 	Started    time.Time // the running step's start; zero when idle
 	Report     string
@@ -645,8 +758,26 @@ func (l Locker) Lock() {
 	p.stopped = true
 	p.mu.Unlock()
 	close(p.stop)
-	for i := 0; i < len(p.workers); i++ {
-		<-p.tokens
+	p.collect()
+}
+
+// collect takes every work process in service out of the channel: the
+// drain's wait. One that leaves service while this waits (giveBack found
+// it no connection) is one fewer to wait for.
+func (p *Pool) collect() {
+	got := 0
+	for {
+		p.mu.Lock()
+		need := len(p.workers) - p.outOfService
+		p.mu.Unlock()
+		if got >= need {
+			return
+		}
+		select {
+		case <-p.tokens:
+			got++
+		case <-p.changed:
+		}
 	}
 }
 
@@ -661,6 +792,9 @@ func (l Locker) Unlock() {
 	p.stop = make(chan struct{})
 	p.mu.Unlock()
 	for _, w := range p.workers {
+		if w.conn == nil { // stopped: out of service, never lent again
+			continue
+		}
 		select {
 		case p.tokens <- w:
 		default: // already in circulation
@@ -689,6 +823,9 @@ func (p *Pool) Close() error {
 	for _, w := range p.workers {
 		for _, st := range w.stmts {
 			st.Close()
+		}
+		if w.conn == nil { // stopped (out of service), or New failed before it
+			continue
 		}
 		if e := w.conn.Close(); e != nil {
 			err = e

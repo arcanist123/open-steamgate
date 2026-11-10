@@ -21,7 +21,8 @@ func newServingHost(root, dbFile string, started time.Time) *serving.Host {
 		root = abs
 	}
 	return serving.New(serving.Options{Generation: buildGeneration, Root: root, Database: dbFile,
-		LauncherIdentity: os.Getenv("OSD_LAUNCHER_IDENTITY"), Started: started, Logf: log.Printf})
+		LauncherIdentity: os.Getenv("OSD_LAUNCHER_IDENTITY"), Started: started, Logf: log.Printf,
+		Extra: wpServing})
 }
 
 func servingRoute(host *serving.Host) route {

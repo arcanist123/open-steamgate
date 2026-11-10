@@ -424,6 +424,54 @@ func TestCancelBetweenStatementsLeavesTheWorkProcessClean(t *testing.T) {
 	}
 }
 
+// The kernel's half of the cancellation cleanup, on its own (PR #900
+// review round 2, SHOULD 2): the test above passes with the kernel's
+// Cleanup removed, because the pool's scrub ends the transaction before the
+// next step looks. Here the look is before the pool gets the work process
+// back: still inside the pool's step, once DialogStepOn has unwound, a
+// writer beside the pool must find the write lock free -- which it is only
+// when the kernel's ROLLBACK reached the database past the cancelled
+// context. The pool's scrub has not run yet, so it masks nothing.
+func TestCancelledStepRollsBackBeforeThePoolScrubs(t *testing.T) {
+	for _, dumps := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dump=%v", dumps), func(t *testing.T) {
+			db, p := openStepPool(t, 1)
+			if _, err := db.SQL().Exec("INSERT INTO r VALUES (1)"); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if err := p.Step(ctx, workpool.Write, func(st *workpool.Step) {
+				func() {
+					defer func() { recover() }()
+					DialogStepOn(&Session{DB: db}, WriteStep, wpStepConn{st}, func() {
+						if _, err := st.Exec("UPDATE r SET id = 2"); err != nil {
+							t.Error(err)
+						}
+						cancel()
+						if dumps {
+							panic("the step dumps after the cancellation")
+						}
+					})
+				}()
+				other, err := db.SQL().Conn(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer other.Close()
+				if _, err := other.ExecContext(context.Background(), "PRAGMA busy_timeout = 0"); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := other.ExecContext(context.Background(), "UPDATE r SET id = 5 WHERE id = 1"); err != nil {
+					t.Errorf("the kernel left the cancelled step's transaction open: %v", err)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 // Regression (PR #900 review, MUST 2): a WAIT inside a SELECT loop must not
 // carry the open cursor -- and with it the connection's read snapshot --
 // past the COMMIT the WAIT runs and onto the work process it gives up. A

@@ -76,7 +76,7 @@ func openWorkProcesses(dbFile string, count int) {
 	instance.DB.OpenPool(workers, spare)
 	adtStateSpare = spare > 0
 	p, err := workpool.New(workpool.Options{DB: instance.DB.SQL(), Workers: workers,
-		ReadOnly: candidate.Load(), Generation: buildGeneration})
+		ReadOnly: candidate.Load(), Generation: buildGeneration, Logf: log.Printf})
 	if err != nil {
 		log.Fatalf("work processes: %v", err)
 	}
@@ -188,7 +188,7 @@ func mintADTState() {
 		return
 	}
 	p, err := workpool.New(workpool.Options{DB: instance.DB.SQL(), Workers: 1,
-		ReadOnly: candidate.Load(), Generation: buildGeneration})
+		ReadOnly: candidate.Load(), Generation: buildGeneration, Logf: log.Printf})
 	if err != nil {
 		log.Fatalf("ADT state work process: %v", err)
 	}
@@ -530,6 +530,18 @@ func stepLock() sync.Locker {
 		return workpool.Locker{P: wp}
 	}
 	return workProcess
+}
+
+// wpServing is the work processes as GET /osd/serving reports them: M, and
+// how many of them a connection that could not be replaced took out of
+// service (their ZOSD_WP rows say Stopped). Nil without a pool.
+func wpServing() map[string]any {
+	if wp == nil {
+		return nil
+	}
+	out := wp.OutOfService()
+	return map[string]any{"workProcesses": map[string]any{
+		"workers": wp.Workers(), "inService": wp.Workers() - out, "outOfService": out}}
 }
 
 // wpSnapshot is the work-process rows for the status tables (ZOSD_WP).

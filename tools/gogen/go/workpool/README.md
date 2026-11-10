@@ -42,6 +42,20 @@ What is here and what is not:
   (never run on a connection another step holds) and its end returns
   nothing. A dump that leaves the step's work unrecovered still gives the
   work process back.
+- **A connection that cannot be proven clean is replaced, never lent
+  broken.** A fenced step, or one a statement of which failed, has its
+  connection scrubbed (`ROLLBACK`) before the work process goes back; a
+  scrub that fails discards the connection. The work process then re-enters
+  the channel only with a new one: the open is retried with a backoff
+  (10 ms to 1 s) for `ReconnectGrace` (the drain grace by default), and when
+  no connection can be had it is **stopped** -- out of service for good,
+  logged through `Logf`, counted by `OutOfService()`, its row saying
+  `Stopped` (`ZOSD_WP`; `GET /osd/serving` carries `workProcesses`). The
+  pool then serves with M-1; the drain waits only for the work processes in
+  service; with every one stopped a new step answers `ErrNoWorkProcess` and
+  a WAIT's return holds none (its statements are refused). No lend, no
+  WAIT's return and no `Close` ever meets a work process without a
+  connection.
 - **The drain** (`Locker`): the pool as the `sync.Locker` of
   `go/serving`'s stop -- Lock stops the lending and takes every work
   process out of circulation, which waits for the steps in flight (they

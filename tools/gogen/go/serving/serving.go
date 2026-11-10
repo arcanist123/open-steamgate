@@ -48,6 +48,10 @@ type Options struct {
 	Started          time.Time
 	Grace            time.Duration // zero: DefaultGrace
 	Logf             func(string, ...any)
+	// Extra adds fields of the host's own to GET /osd/serving (cmd/osgo:
+	// the work processes in and out of service); nil adds none, and a
+	// field of the contract's is never overwritten.
+	Extra func() map[string]any
 }
 
 // Host carries the contract for one process.
@@ -187,6 +191,13 @@ func (h *Host) Serving(notFound http.Handler) http.HandlerFunc {
 		}
 		if h.o.LauncherIdentity != "" {
 			body["launcherIdentity"] = h.o.LauncherIdentity
+		}
+		if h.o.Extra != nil {
+			for k, v := range h.o.Extra() {
+				if _, taken := body[k]; !taken {
+					body[k] = v
+				}
+			}
 		}
 		writeJSON(w, 200, body, r.Method == http.MethodHead)
 	}
