@@ -21,6 +21,14 @@ What is here and what is not:
   (`go/abap` `DialogStepOn`), so this package lends the connection and owns
   what belongs to the connection: `query_only`, `busy_timeout` (the drain
   grace, `DefaultBusyTimeout`), the per-work-process statement cache.
+- **The write token**: a `Write` step takes the pool's one write token
+  before its work process and holds it to its end (a WAIT gives it up with
+  the work process). SQLite has one writer; without the token M writers
+  each waited inside SQLite's busy handler, which sleeps 1 to 100 ms
+  between tries rather than waking the next writer, and the write mix
+  through M work processes lost 44 % at 4 clients. A writer waiting for the
+  token holds no work process, so reads go on beside it. `busy_timeout`
+  stays for what writes beside the pool.
 - **The fence** is `sqlite3_interrupt`, which modernc.org/sqlite exposes as
   the cancellation of the running statement's context: every step's context
   is cancellable (`Interrupt(wp)`), and the step's next statement fails and
