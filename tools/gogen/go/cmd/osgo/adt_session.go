@@ -81,5 +81,6 @@ func withADTSession(s *abap.Session, work func()) {
 	}()
 	clear := bindADTSession(s)
 	defer clear()
+	defer noteADTSession(s) // before clear: the step's ADT session is still bound
 	work()
 }

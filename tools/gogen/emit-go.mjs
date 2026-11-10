@@ -123,6 +123,12 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
 /** @param {import("./emit-go-types.ts").Type | undefined} t @returns {boolean} */ const composite = (t) => t?.k === "table" || t?.k === "struct";
 /** @param {import("./emit-go-types.ts").Param} p @returns {boolean} */ const byRef = (p) => p.dir === "importing" && composite(p.type) && !p.byValue;
 /** @type {Map<string, import("./emit-go-types.ts").Descriptor>} */ let CLONES = new Map();
+// Classes whose CLASS-DATA is the runtime's own cache, shared by every
+// session of the process (ADR 0010 slice 5): the service registry the OData
+// front reads, which boot fills once and serving only reads. The host mints
+// its sessions with the instance's store as their Shared; classes not here
+// keep CLASS-DATA per logical internal session, as a system does.
+/** @type {Set<string>} */ const SHARED_STATICS = new Set(["ZCL_OAO_REGISTRY"]);
 // classes some compiled class inherits from: a reference to one is the Go
 // interface I_<class>, so it can hold any subclass; a leaf class stays *T
 /** @type {Set<string>} */ let POLY = new Set();
@@ -423,6 +429,14 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
         if (init !== undefined) out.push(`\t\t${ident(a.name)}: ${init},`);
       }
       out.push("\t}", "})", `func St_${name}(s *abap.Session) *statics_${name} {`, `\treturn s.Static(slot_${name}).(*statics_${name})`, "}", "");
+      if (SHARED_STATICS.has(cls.name)) {
+        // ADR 0010 slice 5: this class's statics are the runtime's own
+        // cache, one per process (a system keeps them in the shared program
+        // buffer, not per internal session). Only a class filled once and
+        // read afterwards may be here: a shared slot is written by the
+        // generated code directly, with no lock the kernel could take.
+        out.push(`func init() { abap.RegisterSharedStatics(slot_${name}) }`, "");
+      }
     }
     if (chainCctor(cls)) {
       // @ts-expect-error -- abapiti form pending

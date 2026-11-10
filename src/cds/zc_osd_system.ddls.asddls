@@ -13,6 +13,8 @@ define view ZC_OSD_SYSTEM
   association [0..*] to ZC_OSD_SERVICE as _Services  on  _Services.Path     <> ''
   association [0..*] to ZC_OSD_PACK    as _Packs     on  _Packs.Name        <> ''
   association [0..*] to ZC_OSD_DATABASE as _Database  on  _Database.Name      <> ''
+  association [0..*] to ZC_OSD_WP      as _WorkProcesses
+                                              on  _WorkProcesses.Wpno  >= 0
 {
       @EndUserText.label: 'System'
   key sid         as Sid,
@@ -38,5 +40,6 @@ define view ZC_OSD_SYSTEM
       _Ports,
       _Services,
       _Packs,
+      _WorkProcesses,
       _Database
 }

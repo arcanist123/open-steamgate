@@ -57,7 +57,10 @@ func runDemoData() {
 		}
 	}()
 	var report string
-	s := instance.NewSession()
-	abap.DialogStep(s, func() { report = demoData(s, os.Getenv("OSD_DEMO_ROWS")) })
+	if err := runSystemStep(abap.WriteStep, "demo data", func(s *abap.Session) {
+		report = demoData(s, os.Getenv("OSD_DEMO_ROWS"))
+	}); err != nil {
+		log.Printf("demo data: %v", err)
+	}
 	log.Printf("demo data: %s (%d ms)", report, time.Since(started).Milliseconds())
 }

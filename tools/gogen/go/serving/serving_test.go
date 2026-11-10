@@ -126,6 +126,25 @@ func TestServingAnswer(t *testing.T) {
 	}
 }
 
+// The host's own fields (the work processes out of service) ride along;
+// a contract field is never overwritten by one.
+func TestServingExtra(t *testing.T) {
+	notFound := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(404) })
+	h := New(Options{Generation: "go:1", Extra: func() map[string]any {
+		return map[string]any{"workProcesses": map[string]any{"outOfService": 1}, "ready": false}
+	}})
+	rec := httptest.NewRecorder()
+	h.Serving(notFound).ServeHTTP(rec, httptest.NewRequest("GET", "/osd/serving", nil))
+	var b map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &b)
+	if b["ready"] != true {
+		t.Fatalf("an extra field overwrote the contract's: %v", b)
+	}
+	if wp, ok := b["workProcesses"].(map[string]any); !ok || wp["outOfService"] != float64(1) {
+		t.Fatalf("workProcesses: %v", b)
+	}
+}
+
 func TestDrainWaitsForTheStepInFlightAndRefusesNewOnes(t *testing.T) {
 	h := newHost(t, 5*time.Second)
 	step := &blocking{release: make(chan struct{}), entered: make(chan struct{}, 1)}

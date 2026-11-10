@@ -11,13 +11,13 @@ import (
 
 // Weak keys let a table header and its version cell die together. No map value
 // retains the table. A binding retains its own table while it is in scope.
-var tableVersions sync.Map	// weak.Pointer[byte] -> *atomic.Uint64
+var tableVersions sync.Map // weak.Pointer[byte] -> *atomic.Uint64
 
 type versionCacheEntry struct {
-	key	uintptr
-	w	weak.Pointer[byte]
-	cell	*atomic.Uint64	// nil means no binding existed at gen
-	gen	uint64
+	key  uintptr
+	w    weak.Pointer[byte]
+	cell *atomic.Uint64 // nil means no binding existed at gen
+	gen  uint64
 }
 
 const versionCacheSize = 256
@@ -112,7 +112,7 @@ func versionCell(table any) *atomic.Uint64 {
 	return cell
 }
 
-func tableVersion(table any) uint64	{ return versionCell(table).Load() }
+func tableVersion(table any) uint64 { return versionCell(table).Load() }
 
 func BumpTable(table any) {
 	ptr := (*byte)(reflect.ValueOf(table).UnsafePointer())
@@ -150,11 +150,11 @@ func BumpTable(table any) {
 // RowBinding owns its validation token; binding another symbol to the same
 // slice slot cannot change this one. Access needs no global map lookup.
 type RowBinding[T any] struct {
-	row	*T
-	table	*[]T
-	version	*atomic.Uint64
-	at	uint64
-	index	int
+	row     *T
+	table   *[]T
+	version *atomic.Uint64
+	at      uint64
+	index   int
 }
 
 func BindRow[T any](table *[]T, index int) *RowBinding[T] {
@@ -162,7 +162,7 @@ func BindRow[T any](table *[]T, index int) *RowBinding[T] {
 	return &RowBinding[T]{row: &(*table)[index], table: table, version: cell, at: cell.Load(), index: index}
 }
 
-func DirectBinding[T any](row *T) *RowBinding[T]	{ return &RowBinding[T]{row: row} }
+func DirectBinding[T any](row *T) *RowBinding[T] { return &RowBinding[T]{row: row} }
 
 func CheckedRowPtr[T any](b *RowBinding[T]) *T {
 	if b == nil || b.row == nil {

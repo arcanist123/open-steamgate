@@ -76,7 +76,8 @@ func fakeSidecar() {
 			w.WriteHeader(404)
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ready": true, "generation": gen, "root": "/tree", "database": ":memory:", "pid": os.Getpid()})
+		writeJSON(w, 200, map[string]any{"ready": true, "generation": gen, "root": "/tree", "database": ":memory:", "pid": os.Getpid(),
+			"workProcesses": map[string]any{"workers": 4, "inService": 3, "outOfService": 1}})
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if os.Getenv("FAKE_SMOKE_FAIL") == "1" {
@@ -274,6 +275,7 @@ func TestServing(t *testing.T) {
 		Root, Database   string
 		Since            int64
 		Hot              struct{ Swaps int }
+		WorkProcesses    struct{ Workers, InService, OutOfService int }
 		Gateway          struct {
 			PID      int
 			Sidecars []Sidecar
@@ -291,6 +293,10 @@ func TestServing(t *testing.T) {
 	}
 	if resp.Header.Get("X-OSD-Generation") != fakeGeneration {
 		t.Fatal(resp.Header)
+	}
+	// the sidecar's work processes, live: one out of service shows here
+	if wp := s.WorkProcesses; wp.Workers != 4 || wp.InService != 3 || wp.OutOfService != 1 {
+		t.Fatalf("workProcesses not relayed: %s", body)
 	}
 	// another method is the sidecar's door, as on a lone osgo
 	req, _ := http.NewRequest("POST", front.URL+"/osd/serving", nil)

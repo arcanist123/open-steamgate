@@ -21,7 +21,8 @@ func newServingHost(root, dbFile string, started time.Time) *serving.Host {
 		root = abs
 	}
 	return serving.New(serving.Options{Generation: buildGeneration, Root: root, Database: dbFile,
-		LauncherIdentity: os.Getenv("OSD_LAUNCHER_IDENTITY"), Started: started, Logf: log.Printf})
+		LauncherIdentity: os.Getenv("OSD_LAUNCHER_IDENTITY"), Started: started, Logf: log.Printf,
+		Extra: wpServing})
 }
 
 func servingRoute(host *serving.Host) route {
@@ -38,7 +39,7 @@ func servingRoute(host *serving.Host) route {
 // within serving.DefaultGrace (55 s). Serve returns ErrServerClosed when the
 // listeners go; the process ends in the stop, not here.
 func serveUntilSignal(host *serving.Host, server *http.Server, ln net.Listener) {
-	go host.OnSignal(nil, serving.Stop{Shutdown: server.Shutdown, Lock: workProcess, Final: closeDatabase, Exit: os.Exit})
+	go host.OnSignal(nil, serving.Stop{Shutdown: server.Shutdown, Lock: stepLock(), Final: closeDatabase, Exit: os.Exit})
 	if err := server.Serve(ln); err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
@@ -46,8 +47,18 @@ func serveUntilSignal(host *serving.Host, server *http.Server, ln net.Listener) 
 }
 
 // closeDatabase commits nothing: every dialog step committed or rolled back
-// when it ended (abap.DialogStep). Closing a WAL file checkpoints it.
+// when it ended (abap.DialogStep). The pool's connections go first (a step
+// that still runs would fail on its own connection error, which the drain
+// has waited out); closing a WAL file checkpoints it.
 func closeDatabase() {
+	if wp != nil {
+		if err := wp.Close(); err != nil {
+			log.Printf("work processes close: %v", err)
+		}
+	}
+	if adtState.pool != nil {
+		adtState.pool.Close()
+	}
 	if instance == nil || instance.DB == nil {
 		return
 	}

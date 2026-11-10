@@ -13,6 +13,8 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"time"
+
 	"osg/gogen/abaperr"
 	"osg/gogen/inflate"
 	"strings"
@@ -81,6 +83,11 @@ type Session struct {
 	// Statics holds class attributes, constructor flags and event registrations. Nil creates a private
 	// store on first access. Shared stores require serialized access.
 	Statics *Statics
+	// Shared is the instance-wide store of the runtime's own caches
+	// (statics.go): the slots RegisterSharedStatics marks are read from it
+	// whatever this session's own store is, so every session of the process
+	// sees one value of them. Nil: no slot is shared.
+	Shared *Statics
 	// DB is the database this session's steps run on (db.go); the host sets
 	// it (Instance.NewSession). Nil: a session without a database, whose
 	// steps have no LUW and whose first statement is a host error.
@@ -96,7 +103,12 @@ type Session struct {
 	// headers and the answer of a SEND), by the object (httpc.go)
 	// HoldsWorkProcess says this session's current dialog step owns WorkProcess.
 	HoldsWorkProcess bool
-	httpc            map[any]*httpcClient
+	// Yield is the host's WAIT for a step that runs on a lent work-process
+	// connection (DialogStepOn): give the work process up for the sleep and
+	// take another. Nil outside such a step, where YieldSleep falls back to
+	// WorkProcess.
+	Yield func(time.Duration)
+	httpc map[any]*httpcClient
 	// inflate: the decoders of ZCL_OSD_INFLATE=>HOST_* by handle (inflate.go)
 	inflate           *inflate.Registry
 	localDestinations map[string]bool
@@ -104,9 +116,18 @@ type Session struct {
 	// the LUW (luw.go): the transaction of the open dialog step, the
 	// transaction-bound copies of the database's prepared statements, and a
 	// Unit class's seed image to open on first use (db.go)
-	tx        *sql.Tx
-	txStmts   map[string]*sql.Stmt
-	unitImage []byte
+	tx *sql.Tx
+	// the work-process step (stepconn.go): the lent connection, its kind
+	// and whether its transaction is open
+	stepConn StepConn
+	stepKind StepKind
+	stepOpen bool
+	// the SELECT loops reading on the lent connection, and the epoch a
+	// WAIT moves on when it closes them (stepconn.go)
+	cursors     []*sql.Rows
+	cursorEpoch uint64
+	txStmts     map[string]*sql.Stmt
+	unitImage   []byte
 }
 
 // ArithmeticError retains the identity of errors from pure packages.
