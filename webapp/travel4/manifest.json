@@ -4,7 +4,7 @@
     "id": "osd.travel4",
     "type": "application",
     "i18n": "i18n/i18n.properties",
-    "title": "Travels (OData V4)",
+    "title": "OData V4 Travels",
     "description": "open-steamgate demo list report over ZSTG_DEMO_SRV, OData V4",
     "applicationVersion": {
       "version": "0.0.1"

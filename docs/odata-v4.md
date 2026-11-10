@@ -468,7 +468,7 @@ requirement follows the type, not the service and not the protocol.
 
 ## Fiori Elements V4
 
-`webapp/travel4` (launchpad tile "Travels (OData V4)", intent
+`webapp/travel4` (launchpad tile "OData V4 Travels", intent
 `TravelV4-manage`, BSP application `ZOSD_TRAVEL4`) is a Fiori Elements V4
 list report and object page (`sap.fe.templates`, SAPUI5 1.120.50 from the
 CDN like the other apps) over `ZSTG_DEMO_SRV` at `/sap/opu/odata4/`. It has
