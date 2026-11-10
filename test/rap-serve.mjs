@@ -2,8 +2,9 @@
 // The service definition src/rap_demo/zui_rap_note.srvd.srvdsrv becomes the
 // service ZUI_RAP_NOTE (tools/rap/srvd-gen.mjs -> stg-compile); reads go
 // through the CDS view, writes and the action through ZCL_OSD_RAP_RUNTIME
-// (ZCL_OSD_RAP_SADL behind ZCL_STG_SADL_DPC). V2 is read-write, V4 read-only
-// until the V4 write slice lands. Needs a transpiled tree (npm run transpile).
+// (ZCL_OSD_RAP_SADL behind ZCL_STG_SADL_DPC). V2 and V4 are read-write, and
+// the action runs over both (V2 function import, V4 bound action). Needs a
+// transpiled tree (npm run transpile).
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {basename} from "node:path";
@@ -210,13 +211,84 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     const patch = await call(key, {method: "PATCH", headers: write, body: JSON.stringify({NoteText: "v4 edit"})});
     assert.ok([200, 204].includes(patch.status), `${patch.status} ${JSON.stringify(patch.body)}`);
     assert.equal((await call(key)).body.NoteText, "v4 edit");
-    const action = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
-    // the V4 facade knows a bound action path (#862) but serves only the
-    // draft actions of sticky editing; a BDEF action is named, not run
-    assert.equal(action.status, 501, JSON.stringify(action.body));
-    assert.match(JSON.stringify(action.body), /Approve is not implemented/);
     const del = await call(key, {method: "DELETE", headers: write});
     assert.equal(del.status, 204);
     assert.equal((await call(key)).status, 404);
+  });
+
+  it("runs the BDEF action as a V4 bound action and answers the entity", async () => {
+    const meta = await (await fetch(`${v4}/$metadata`)).text();
+    assert.match(meta, /<Action Name="Approve" IsBound="true" EntitySetPath="_it"><Parameter Name="_it" Type="ZUI_RAP_NOTE\.NoteType" Nullable="false"\/><ReturnType Type="ZUI_RAP_NOTE\.NoteType"\/><\/Action>/);
+    const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "approve over v4"})})).body.NoteId;
+    const key = `${v4}/Note('${id}')`;
+    assert.equal((await call(key)).body.Status, "N");
+    // the behavior's FOR MODIFY ... FOR ACTION handler sets the status
+    const res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.match(res.body["@odata.context"], /\$metadata#Note\/\$entity$/);
+    assert.deepEqual([res.body.NoteId, res.body.NoteText, res.body.Status], [id, "approve over v4", "A"]);
+    assert.equal((await call(key)).body.Status, "A");
+    // the same instances over V2
+    assert.equal((await call(`${v2}/Note('${id}')?$format=json`)).body.d.Status, "A");
+    // an empty body is an empty parameter object
+    const again = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write});
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    await call(key, {method: "DELETE", headers: write});
+  });
+
+  it("refuses over V4 what the BDEF does not declare or the request gets wrong", async () => {
+    const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "refuse over v4"})})).body.NoteId;
+    const key = `${v4}/Note('${id}')`;
+    const status = async () => (await call(key)).body.Status;
+    // an action the BDEF does not declare is not an operation of the service
+    let res = await call(`${key}/ZUI_RAP_NOTE.Reject`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+    assert.match(res.body.error.message, /Unknown operation ZUI_RAP_NOTE\.Reject/);
+    // an action takes POST
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {headers: write});
+    assert.equal(res.status, 405, JSON.stringify(res.body));
+    assert.equal(res.headers.get("allow"), "POST");
+    // bound to an entity: the set alone is no binding
+    res = await call(`${v4}/Note/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    // a key nobody has
+    res = await call(`${v4}/Note('${"0".repeat(32)}')/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 404, JSON.stringify(res.body));
+    // a key or parameter longer than its MaxLength (NoteId is String(32))
+    res = await call(`${v4}/Note('${id}0')/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.match(res.body.error.code, /VALUE_TOO_LONG/);
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: JSON.stringify({NoteId: `${id}0`})});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.match(res.body.error.code, /VALUE_TOO_LONG/);
+    // an unknown parameter, a body that is no JSON object
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: JSON.stringify({Reason: "x"})});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    res = await call(`${key}/ZUI_RAP_NOTE.Approve`, {method: "POST", headers: write, body: "[]"});
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(await status(), "N");
+    await call(key, {method: "DELETE", headers: write});
+  });
+
+  it("checks If-Match on a V4 bound action as a PATCH does", async () => {
+    const id = (await call(`${v4}/Note`, {method: "POST", headers: write, body: JSON.stringify({NoteText: "if-match over v4"})})).body.NoteId;
+    const key = `${v4}/Note('${id}')`;
+    const action = `${key}/ZUI_RAP_NOTE.Approve`;
+    // NoteType has no ETag (the BDEF has no etag master): an If-Match names
+    // a tag the entity does not have, 412, and the behavior does not run
+    let res = await call(action, {method: "POST", headers: {...write, "if-match": "W/\"anything\""}, body: "{}"});
+    assert.equal(res.status, 412, JSON.stringify(res.body));
+    assert.equal((await call(key)).body.Status, "N");
+    // the same answer a PATCH gets
+    res = await call(key, {method: "PATCH", headers: {...write, "if-match": "W/\"anything\""}, body: JSON.stringify({NoteText: "never"})});
+    assert.equal(res.status, 412, JSON.stringify(res.body));
+    // without an ETag on the type no If-Match is required (no 428) ...
+    res = await call(action, {method: "POST", headers: write, body: "{}"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    // ... and If-Match: * matches any entity that exists
+    res = await call(action, {method: "POST", headers: {...write, "if-match": "*"}, body: "{}"});
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(res.body.Status, "A");
+    await call(key, {method: "DELETE", headers: write});
   });
 });

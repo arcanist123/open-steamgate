@@ -4,7 +4,7 @@ R2 of [the RAP plan](oracle-rap.md): a managed behavior definition runs. Its
 behavior pool's determinations, validations and action are called, its
 instances live in a transactional buffer until the save sequence writes them
 into the persistent table, and the LUW ends in `COMMIT WORK` or
-`ROLLBACK WORK`. It is served over OData V2 and V4 (reads and writes; actions over V2) from a
+`ROLLBACK WORK`. It is served over OData V2 and V4 (reads, writes and actions) from a
 service definition: see [Serving (R2c)](#serving-r2c).
 
 ```
@@ -312,17 +312,31 @@ service of the registry ([odata-v4.md](odata-v4.md)), and so do V4 writes
 since the V4 write slice (#858): POST, PATCH and DELETE reach the same
 provider and so the same behavior (numbering, determination, validation),
 which needed no change for it (`test/rap-serve.mjs`, "reads and creates the
-same instances over V4"). Bound actions (`POST .../Note('...')/ZUI_RAP_NOTE.Approve`)
-are a path the V4 facade parses, but it runs only the draft actions of sticky
-editing, so a BDEF action answers 501 naming the action; over V2 they work.
+same instances over V4"). A BDEF action is a V4 bound action
+(`<Action Name="Approve" IsBound="true" EntitySetPath="_it">`):
+`POST .../Note('<32 hex>')/ZUI_RAP_NOTE.Approve` with `{}` (or no body) runs
+it through the behavior as the V2 function import does -- `ZCL_OSD_V4_ACTION`
+hands SADL's `execute_action` the context of a function import
+(`mv_function_import`, `mt_parameter`, the set of the action's type), and
+`ZCL_OSD_RAP_SADL` runs one RAP transaction with the action's `FOR MODIFY
+... FOR ACTION` handler -- and answers 200 with the entity
+(`$metadata#Note/$entity`). The V4 rules of a bound action apply
+([odata-v4.md](odata-v4.md)): a key nobody has is 404 before the behavior
+runs, the key and body parameters go through the MaxLength check (400), the
+entity lock is taken (409), and `If-Match` is checked as for a PATCH: 412 on
+a mismatch, 428 without it when the entity type has an ETag. `NoteType` has
+none (the generator does not map `etag master`), so the demo needs no
+`If-Match` and a tag it sends is 412. An action the BDEF does not declare is
+no operation of the service (404, `Unknown operation`); a refusal of the
+behavior (FAILED, a validation) is 400 as over V2 (`test/rap-serve.mjs`).
 
 ### Not in R2c
 
 Service bindings, `Edm.Guid` for UUID keys, ETags and `If-Match`, V2
 `$batch` changesets as one RAP transaction (each operation is its own),
 deep insert through compositions, action parameters, static and factory
-actions, messages as `sap-message` headers (only the error body), V4 bound
-actions, a Fiori Elements app over the service.
+actions, messages as `sap-message` headers (only the error body), a Fiori
+Elements app over the service.
 
 ## Not in R2
 
