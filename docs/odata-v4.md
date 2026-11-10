@@ -356,7 +356,7 @@ Each request runs through the same dispatch as a single request.
   adjacent (400 otherwise). A request outside any group is its own LUW.
   What runs inside a group does not end the LUW itself: a RAP save (CRUD
   or a bound action) writes without `COMMIT WORK` while
-  `ZCL_STG_BATCH=>LUW_HELD` says the batch holds it.
+  `ZCL_OSD_LUW_HOLD=>HELD` says the batch holds it.
 - `dependsOn` names earlier request ids or ended groups (a forward or
   unknown name is 400 for the whole batch). A request of another atomicity
   group can only be depended on together with its group (s19.1; 400

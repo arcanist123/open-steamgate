@@ -4355,7 +4355,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
   ended normally, by an exception nobody caught, or by a short dump.
 - Here: the JS hosts keep one process of class statics across requests
   (`tools/osd-dialog-step.mjs` rolls the database back after a dump, not
-  the statics). `ZCL_STG_BATCH=>LUW_HELD`, set while a changeset or V4
+  the statics). `ZCL_OSD_LUW_HOLD=>HELD`, set while a changeset or V4
   atomicity group holds the LUW, stayed `X` after a group member dumped,
   and the next RAP save outside any batch then left its COMMIT to a group
   that no longer existed (`IV_END_LUW = ' '`).

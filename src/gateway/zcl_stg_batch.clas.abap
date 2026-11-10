@@ -59,21 +59,9 @@ CLASS zcl_stg_batch DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_string) TYPE string.
 
-* True while a changeset (here) or an atomicity group (ZCL_OSD_V4_BATCH)
-* holds the LUW: the batch commits or rolls it back as a whole, so what runs
-* inside it writes but does not end the LUW itself (the RAP save in
-* ZCL_OSD_RAP_SADL asks). A real Gateway forbids COMMIT WORK in a changeset.
-    CLASS-METHODS luw_held
-      RETURNING
-        VALUE(rv_held) TYPE abap_bool.
-
-    CLASS-METHODS hold_luw
-      IMPORTING
-        iv_held TYPE abap_bool.
   PRIVATE SECTION.
     TYPES ty_xchunks TYPE STANDARD TABLE OF xstring WITH DEFAULT KEY.
     CLASS-DATA gv_counter TYPE i.
-    CLASS-DATA gv_luw_held TYPE abap_bool.
 
     CLASS-METHODS chunks
       IMPORTING
@@ -122,14 +110,6 @@ CLASS zcl_stg_batch DEFINITION PUBLIC CREATE PUBLIC.
 ENDCLASS.
 
 CLASS zcl_stg_batch IMPLEMENTATION.
-
-  METHOD luw_held.
-    rv_held = gv_luw_held.
-  ENDMETHOD.
-
-  METHOD hold_luw.
-    gv_luw_held = iv_held.
-  ENDMETHOD.
 
   METHOD boundary_of.
     DATA lv_off TYPE i.
@@ -550,7 +530,7 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     DATA lv_failed    TYPE abap_bool.
 
     lv_crlf = cl_abap_char_utilities=>cr_lf.
-    hold_luw( abap_false ).
+    zcl_osd_luw_hold=>hold( abap_false ).
     lt_parts = parse( iv_body     = iv_body
                       iv_body_x   = iv_body_x
                       iv_boundary = boundary_of( iv_content_type ) ).
@@ -572,7 +552,7 @@ CLASS zcl_stg_batch IMPLEMENTATION.
 * did. Without it a failing changeset would undo the whole process's
 * uncommitted history, because nothing else in this system ever commits.
             COMMIT WORK.
-            hold_luw( abap_true ).
+            zcl_osd_luw_hold=>hold( abap_true ).
             LOOP AT ls_part-requests INTO ls_request.
               ls_response = run_request( is_request      = ls_request
                                          iv_service_path = iv_service_path
@@ -587,7 +567,7 @@ CLASS zcl_stg_batch IMPLEMENTATION.
               ENDIF.
               lv_cs_out = lv_cs_out && |--{ lv_cs }{ lv_crlf }| && format_part( ls_response ).
             ENDLOOP.
-            hold_luw( abap_false ).
+            zcl_osd_luw_hold=>hold( abap_false ).
             IF lv_failed = abap_false.
               COMMIT WORK.
               lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }Content-Type: multipart/mixed; boundary={ lv_cs }{ lv_crlf }{ lv_crlf }| &&
@@ -604,7 +584,7 @@ CLASS zcl_stg_batch IMPLEMENTATION.
       CLEANUP.
 * a changeset member that raises leaves by the exception: the flag goes with
 * it (a dump does not get here; the request entry clears it, ZCL_STG_HTTP_HANDLER)
-        zcl_stg_batch=>hold_luw( abap_false ).
+        zcl_osd_luw_hold=>hold( abap_false ).
     ENDTRY.
     lv_out = lv_out && |--{ lv_boundary }--{ lv_crlf }|.
 

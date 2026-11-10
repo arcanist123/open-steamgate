@@ -95,6 +95,7 @@ compositions in R1/R2, the two refused handler forms, and the EML pin.
 | `gen/rap/zcl_osd_rap_registry` | BDEF name to adapter; the runtime creates it by name, so a tree without BDEFs still compiles |
 | `src/rap/cl_abap_behavior_handler`, `cl_abap_behavior_saver`, `cl_abap_behv`, `if_abap_behv`, `if_abap_behv_message` | clean-room bases a pool inherits |
 | `src/luw/zcl_osd_luw` | the delta (create/update/delete collapsed), reused |
+| `src/luw/zcl_osd_luw_hold` | whether an enclosing changeset or V4 group holds the LUW (set by both batches, read by the SADL bridge) |
 
 The model comes from the R0 JSON (`tools/rap/bdef-parse.mjs`) and the CDS
 fields R1 resolves. The adapter is generated because the pool's methods are
@@ -175,7 +176,7 @@ the save sequence); nothing measured on a system.
   that fails in the save raises `ZCX_OSD_RAP` after a `ROLLBACK WORK`.
   `commit( iv_end_luw = abap_false )` saves without ending the LUW: inside
   a `$batch` changeset (V2) or atomicity group / change set (V4) the batch
-  holds the LUW (`ZCL_STG_BATCH=>LUW_HELD`), `ZCL_OSD_RAP_SADL` passes that
+  holds the LUW (`ZCL_OSD_LUW_HOLD=>HELD`), `ZCL_OSD_RAP_SADL` passes that
   on, and the batch commits or rolls back the RAP save with the group, so
   a later failing member undoes a create, update, delete or action that
   had already run (`test/rap-serve.mjs`). Each operation is still its own

@@ -7,7 +7,7 @@ CLASS zcl_osd_rap_sadl DEFINITION PUBLIC FINAL CREATE PUBLIC.
 *
 * One request is one RAP transaction: MODIFY (or the action), then the save
 * sequence. Inside a $batch changeset or atomicity group the save writes
-* without COMMIT WORK and the batch ends the LUW (ZCL_STG_BATCH=>LUW_HELD),
+* without COMMIT WORK and the batch ends the LUW (ZCL_OSD_LUW_HOLD=>HELD),
 * so a later failing member undoes it. A FAILED row, from the interaction
 * phase or from a validation in the save, rolls the transaction back and
 * becomes a business exception carrying the RAP messages, which the gateway
@@ -298,7 +298,7 @@ CLASS zcl_osd_rap_sadl IMPLEMENTATION.
     TRY.
 * inside a $batch changeset or atomicity group the batch owns the LUW: the
 * save writes, and the group commits it or rolls it back as a whole
-        io_runtime->commit( EXPORTING iv_end_luw  = boolc( zcl_stg_batch=>luw_held( ) = abap_false )
+        io_runtime->commit( EXPORTING iv_end_luw  = boolc( zcl_osd_luw_hold=>held( ) = abap_false )
                             IMPORTING ev_saved    = lv_saved
                             CHANGING  cs_failed   = cs_failed
                                       cs_reported = cs_reported ).

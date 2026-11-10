@@ -26,7 +26,7 @@ the BDEF mapping, cleanup) inside one LUW.
   `if_abap_behv`, `if_abap_behv_message` - clean-room bases and constants a
   behavior pool writes against
 
-Uses `src/luw/` (the delta) and the generated table classes of `gen/cds/`.
+Uses `src/luw/` (the delta, and `ZCL_OSD_LUW_HOLD`: whether a batch holds the LUW) and the generated table classes of `gen/cds/`.
 Tests: `test/unit/zcl_osd_rap_test` (ABAP Unit, over `src/rap_demo/`),
 `test/unit/zcl_osd_rap_eml_test` (the EML facade), `test/rap-runtime-gen.mjs`, `test/rap-serve.mjs` (the OData wire). Contract and limits:
 [docs/rap-runtime.md](../../docs/rap-runtime.md).

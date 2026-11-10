@@ -272,7 +272,7 @@ describe("RAP managed BO over OData (R2c wire)", function () {
 
   // A $batch changeset or atomicity group is one LUW, and a RAP action in it
   // joins that LUW: its save writes but does not COMMIT, so a later failing
-  // member rolls it back with the group (ZCL_STG_BATCH=>LUW_HELD).
+  // member rolls it back with the group (ZCL_OSD_LUW_HOLD=>HELD).
   const CRLF = "\r\n";
   const httpPart = (method, url, body) => ["Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
     `${method} ${url} HTTP/1.1`, "Content-Type: application/json", "Accept: application/json", "", body ?? ""].join(CRLF);
@@ -336,7 +336,7 @@ describe("RAP managed BO over OData (R2c wire)", function () {
   });
 
   // A group that unwinds by a dump (ASSERT) or an exception nobody catches
-  // never reaches its own reset of LUW_HELD, and the flag is a static that
+  // never reaches its own reset of the LUW hold, and the flag is a static that
   // outlives the request. The next request must still start with no group
   // holding the LUW: a plain Approve then ends its own LUW (IV_END_LUW = X).
   // Its persisted status alone cannot tell, because the ICF bracket commits
@@ -345,7 +345,7 @@ describe("RAP managed BO over OData (R2c wire)", function () {
     const C = globalThis.abap.Classes;
     const runtime = C.ZCL_OSD_RAP_RUNTIME.prototype;
     const handler = C["CLAS-ZBP_RAP_NOTE-LHC_NOTE"].prototype;
-    const held = async () => (await C.ZCL_STG_BATCH.luw_held()).get().trim();
+    const held = async () => (await C.ZCL_OSD_LUW_HOLD.held()).get().trim();
     const endLuw = [];
     const commit = runtime.commit;
     const construct = handler.constructor_;
@@ -399,7 +399,7 @@ describe("RAP managed BO over OData (R2c wire)", function () {
       fail = undefined;
       runtime.commit = commit;
       handler.constructor_ = construct;
-      await C.ZCL_STG_BATCH.hold_luw({iv_held: abap.builtin.abap_false});
+      await C.ZCL_OSD_LUW_HOLD.hold({iv_held: abap.builtin.abap_false});
       for (const n of created) await call(`${v4}/Note('${n}')`, {method: "DELETE", headers: write});
     }
   });

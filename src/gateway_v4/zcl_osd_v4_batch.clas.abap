@@ -510,15 +510,15 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
     continuation( EXPORTING iv_prefer = zcl_osd_v4_write=>header( it_headers = it_headers iv_name = 'prefer' )
       IMPORTING ev_applied = lv_applied RECEIVING rv_continue = lv_continue ).
     lv_prefix = iv_origin && iv_service_path && '/'.
-    zcl_stg_batch=>hold_luw( abap_false ).
+    zcl_osd_luw_hold=>hold( abap_false ).
 
     TRY.
         LOOP AT lt_requests INTO ls_request.
           lv_index = sy-tabix.
           CLEAR ls_result.
 * a member of a group runs inside the group's LUW: a RAP save writes and
-* leaves the COMMIT or ROLLBACK to the group (ZCL_STG_BATCH=>LUW_HELD)
-          zcl_stg_batch=>hold_luw( boolc( ls_request-group IS NOT INITIAL ) ).
+* leaves the COMMIT or ROLLBACK to the group (ZCL_OSD_LUW_HOLD=>HELD)
+          zcl_osd_luw_hold=>hold( boolc( ls_request-group IS NOT INITIAL ) ).
           ls_result-id = ls_request-id.
           ls_result-group = ls_request-group.
           ls_result-content_id = ls_request-content_id.
@@ -629,7 +629,7 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
               COMMIT WORK.
             ENDIF.
             CLEAR lv_group.
-            zcl_stg_batch=>hold_luw( abap_false ).
+            zcl_osd_luw_hold=>hold( abap_false ).
           ENDIF.
           IF lv_continue = abap_false AND lv_last = abap_true.
             IF ( ls_request-group IS NOT INITIAL AND lv_group_failed = abap_true )
@@ -641,9 +641,9 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       CLEANUP.
 * a group member that raises leaves by the exception: the flag goes with
 * it (a dump does not get here; the request entry clears it, ZCL_OSD_V4_HTTP)
-        zcl_stg_batch=>hold_luw( abap_false ).
+        zcl_osd_luw_hold=>hold( abap_false ).
     ENDTRY.
-    zcl_stg_batch=>hold_luw( abap_false ).
+    zcl_osd_luw_hold=>hold( abap_false ).
 
 * A sticky session a part opened (SAP-ContextId) is announced on the batch
 * itself: the client reads the header of the HTTP response, not of a part.
