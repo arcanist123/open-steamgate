@@ -106,6 +106,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The frontend, the cache identity and the DatabaseSetup import all
+      # resolve @abaplint/transpiler (and its @abaplint/core) off node_modules,
+      # so measure the transpiler this tree is pinned to, not the published
+      # one: npm run transpiler:pin builds and links it through the same gate
+      # tests.yml uses.
+      - name: Build and link the pinned transpiler
+        run: npm run transpiler:pin
       - name: Types
         run: npx tsc -p tsconfig.gogen.json
       - uses: actions/setup-go@v5
@@ -127,13 +134,15 @@ jobs:
       - name: Go vet and tests
         working-directory: tools/gogen/go
         run: |
-          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./adtref/ ./adtactivate/ ./adtunit/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/ ./serving/
+          go vet ./profiling/ ./abap/ ./termgui/ ./filepick/ ./amc/ ./session/... ./enq/ ./sandbox/ ./adtwrite/ ./adtpreview/ ./adtread/ ./adtref/ ./adtactivate/ ./adtunit/ ./objstore/ ./lintinput/ ./storelint/ ./adtoutline/ ./cdscheck/ ./storecheck/ ./storecompiler/ ./osdbind/ ./serving/ ./enqnet/ ./osgw/ ./cmd/osgw/ ./genbuild/ ./dbschema/ ./adtenq/ ./adtlock/ ./adtsystem/
           go test ./profiling/ ./xbuf/... ./bytesection/... ./abap/... ./intpower/... ./termgui/... ./filepick/... ./session/... ./sandbox/... ./adtwrite/... ./adtpreview/... ./adtread/... ./adtref/... ./adtactivate/... ./adtunit/... ./objstore/... ./osdbind/...
           # the sandbox builds for the browser too (nofollow_other.go)
           GOOS=js GOARCH=wasm go build ./sandbox/ ./adtwrite/ ./objstore/
           # ABAP's process-global string memos, the AMC broker and the lock
           # server are concurrent: test them with the race detector (enq: E0).
-          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/... ./serving/...
+          go test -race ./abap/... ./amc/... ./enq/... ./lintinput/... ./storelint/... ./adtoutline/... ./cdscheck/... ./storecheck/... ./storecompiler/... ./serving/... ./enqnet/... ./osgw/... ./cmd/osgw/... ./genbuild/... ./dbschema/... ./adtenq/... ./adtlock/... ./adtsystem/...
+          # the gateway and its sidecar seam build for Windows too (no SIGTERM there: the stop kills)
+          GOOS=windows go vet ./osgw/ ./cmd/osgw/ ./enq/ ./enqnet/ ./genbuild/ ./dbschema/
       - name: ABAP lint bridge and CHECKRUN edit gates
         run: node --test tools/gogen/lint-engine.test.mjs tools/step3/checkrun-diff.test.mjs
       - name: Semantics, Go and IR-as-JS against the measured answers
@@ -189,6 +198,11 @@ jobs:
         run: go mod download
       - name: Load the tracked source pins
         run: node tools/osd-lock.mjs github-env >> "$GITHUB_ENV"
+      # The Node oracle inputs must be transpiled by the pinned transpiler,
+      # the same build and link tests.yml uses; the published npm one refuses
+      # the EML demo classes src/ now carries.
+      - name: Build and link the pinned transpiler
+        run: npm run transpiler:pin
       - name: Fetch source packs and libraries
         run: |
           node tools/osd-libs.mjs

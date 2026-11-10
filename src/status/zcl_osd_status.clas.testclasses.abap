@@ -6,6 +6,7 @@ CLASS ltcl_status DEFINITION FOR TESTING RISK LEVEL DANGEROUS DURATION SHORT FIN
     METHODS database_round_trip FOR TESTING RAISING cx_static_check.
     METHODS second_refresh_replaces FOR TESTING RAISING cx_static_check.
     METHODS malformed_json_keeps_rows FOR TESTING RAISING cx_static_check.
+    METHODS amdp_round_trip FOR TESTING RAISING cx_static_check.
 
     METHODS snapshot_json
       IMPORTING
@@ -30,6 +31,58 @@ CLASS ltcl_status IMPLEMENTATION.
     DELETE FROM zosd_svc WHERE path <> ''.
     DELETE FROM zosd_pack WHERE name <> ''.
     DELETE FROM zosd_db WHERE name <> ''.
+    DELETE FROM zosd_amdp WHERE class_name <> ''.
+  ENDMETHOD.
+
+  METHOD amdp_round_trip.
+    DATA lv_json TYPE string.
+    DATA lv_rows TYPE i.
+    DATA ls_amdp TYPE zosd_amdp.
+    DATA lv_count TYPE i.
+
+* the contract of tools/amdp-status.mjs: a DuckDB system, one method in the
+* portable subset and one the compiler refused
+    lv_json = '{"system":{"sid":"OSG"},"amdp":{"db":"duckdb","driver":true,"configured":false,' &&
+      '"session":"none","methods":[' &&
+      '{"clsname":"ZCL_OSD_AMDP_DEMO","mtdname":"SQUARES","kind":"procedure","portable":true,"refusal":""},' &&
+      '{"clsname":"ZCL_OSD_AMDP_DEMO","mtdname":"ODD_ONE","kind":"function","portable":false,' &&
+      '"refusal":"TO_NCLOB has no measured portable rendering"}]}}'.
+    lv_rows = zcl_osd_status=>refresh( lv_json ).
+    cl_abap_unit_assert=>assert_equals( act = lv_rows exp = 3 ).
+    SELECT COUNT(*) FROM zosd_amdp INTO lv_count.
+    cl_abap_unit_assert=>assert_equals( act = lv_count exp = 2 ).
+
+    SELECT SINGLE * FROM zosd_amdp INTO ls_amdp WHERE method_name = 'SQUARES'.
+    cl_abap_unit_assert=>assert_subrc( ).
+    cl_abap_unit_assert=>assert_equals( act = ls_amdp-class_name exp = 'ZCL_OSD_AMDP_DEMO' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_amdp-kind exp = 'procedure' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_amdp-portable exp = 'X' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_amdp-engine exp = 'portable-duckdb' ).
+
+    SELECT SINGLE * FROM zosd_amdp INTO ls_amdp WHERE method_name = 'ODD_ONE'.
+    cl_abap_unit_assert=>assert_subrc( ).
+    cl_abap_unit_assert=>assert_equals( act = ls_amdp-engine exp = 'unavailable' ).
+    cl_abap_unit_assert=>assert_char_cp( act = ls_amdp-reason exp = '*TO_NCLOB*' ).
+    cl_abap_unit_assert=>assert_char_cp( act = ls_amdp-refusal exp = 'TO_NCLOB*' ).
+
+    lv_json = zcl_osd_status=>snapshot( ).
+    cl_abap_unit_assert=>assert_char_cp( act = lv_json
+      exp = '*"amdp":*"methods":[*"mtdname":"ODD_ONE"*"engine":"unavailable"*' ).
+    cl_abap_unit_assert=>assert_char_cp( act = lv_json
+      exp = '*"mtdname":"SQUARES"*"portable":true*"engine":"portable-duckdb"*' ).
+
+* facts marked unknown (a work process that did not answer) are not facts:
+* the rows of the last snapshot that had them stay as they were
+    lv_rows = zcl_osd_status=>refresh( '{"system":{"sid":"OSG"},"amdp":{"unknown":true,"db":"unknown",' &&
+      '"driver":false,"configured":false,"session":"none","methods":[]}}' ).
+    SELECT COUNT(*) FROM zosd_amdp INTO lv_count.
+    cl_abap_unit_assert=>assert_equals( act = lv_count exp = 2 ).
+
+* a snapshot without the AMDP facts replaces the rows with none: a method
+* that is gone from the tree must not linger with a stale engine
+    zcl_osd_status=>refresh( snapshot_json( iv_sid = 'OSG' iv_pid = '4711' ) ).
+    SELECT COUNT(*) FROM zosd_amdp INTO lv_count.
+    cl_abap_unit_assert=>assert_equals( act = lv_count exp = 0 ).
   ENDMETHOD.
 
   METHOD snapshot_json.
@@ -66,6 +119,8 @@ CLASS ltcl_status IMPLEMENTATION.
     SELECT COUNT(*) FROM zosd_pack INTO lv_count.
     rv_rows = rv_rows + lv_count.
     SELECT COUNT(*) FROM zosd_db INTO lv_count.
+    rv_rows = rv_rows + lv_count.
+    SELECT COUNT(*) FROM zosd_amdp INTO lv_count.
     rv_rows = rv_rows + lv_count.
   ENDMETHOD.
 
@@ -172,6 +227,126 @@ CLASS ltcl_status IMPLEMENTATION.
     SELECT SINGLE sid FROM zosd_sys INTO lv_sid.
     cl_abap_unit_assert=>assert_equals( act = lv_sid
                                         exp = 'OSG' ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+
+CLASS ltcl_engine DEFINITION FOR TESTING RISK LEVEL HARMLESS DURATION SHORT FINAL.
+* ZCL_OSD_STATUS=>ENGINE on its own: the facts of one moment in, the label
+* a person sees out. No table is touched, so every row of the truth table
+* can be written down here and read against tools/amdp-destination.mjs.
+  PRIVATE SECTION.
+    METHODS duckdb_portable FOR TESTING RAISING cx_static_check.
+    METHODS duckdb_refused_no_fallback FOR TESTING RAISING cx_static_check.
+    METHODS duckdb_refused_at_call FOR TESTING RAISING cx_static_check.
+    METHODS sqlite_no_hana FOR TESTING RAISING cx_static_check.
+    METHODS no_driver FOR TESTING RAISING cx_static_check.
+    METHODS hana_live FOR TESTING RAISING cx_static_check.
+    METHODS hana_stale FOR TESTING RAISING cx_static_check.
+    METHODS hana_idle FOR TESTING RAISING cx_static_check.
+    METHODS hdb_system_still_destination FOR TESTING RAISING cx_static_check.
+
+    METHODS classify
+      IMPORTING
+        iv_db            TYPE string
+        iv_driver        TYPE abap_bool
+        iv_configured    TYPE abap_bool
+        iv_session       TYPE string
+        iv_portable      TYPE abap_bool
+        iv_refusal       TYPE string DEFAULT ''
+        iv_engine        TYPE string
+        iv_reason_cp     TYPE string.
+ENDCLASS.
+
+
+CLASS ltcl_engine IMPLEMENTATION.
+
+  METHOD classify.
+    DATA lv_engine TYPE string.
+    DATA lv_reason TYPE string.
+
+    zcl_osd_status=>engine( EXPORTING iv_db         = iv_db
+                                      iv_driver     = iv_driver
+                                      iv_configured = iv_configured
+                                      iv_session    = iv_session
+                                      iv_portable   = iv_portable
+                                      iv_refusal    = iv_refusal
+                            IMPORTING ev_engine     = lv_engine
+                                      ev_reason     = lv_reason ).
+    cl_abap_unit_assert=>assert_equals( act = lv_engine exp = iv_engine ).
+    cl_abap_unit_assert=>assert_char_cp( act = lv_reason exp = iv_reason_cp ).
+  ENDMETHOD.
+
+  METHOD duckdb_portable.
+*   a DuckDB system never dials HANA for a method in the subset, whatever
+*   the destination's session says
+    classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_true iv_session = 'connected'
+              iv_portable = abap_true iv_engine = 'portable-duckdb' iv_reason_cp = 'pAMDP:*DuckDB*' ).
+    classify( iv_db = 'duckdb' iv_driver = abap_false iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_true iv_engine = 'portable-duckdb' iv_reason_cp = 'pAMDP:*' ).
+  ENDMETHOD.
+
+  METHOD duckdb_refused_no_fallback.
+*   and a method outside the subset is refused there, even with a live HANA
+    classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_true iv_session = 'connected'
+              iv_portable = abap_false iv_refusal = 'FLOOR has no measured portable rendering'
+              iv_engine = 'unavailable' iv_reason_cp = '*no HANA fallback*FLOOR*' ).
+  ENDMETHOD.
+
+  METHOD duckdb_refused_at_call.
+*   compiled into the IR, but DuckDB's lowering refuses a construct of it
+*   (tools/amdp-gen.mjs writes the refusal down beside the IR): the call
+*   refuses, so the label must not say portable-duckdb
+    classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_true iv_refusal = 'the function FLOOR has no measured rendering on duckdb'
+              iv_engine = 'portable-refused' iv_reason_cp = 'pAMDP:*refuses*call*FLOOR*' ).
+*   on SQLite the call goes to HANA anyway; the note says what DuckDB would do
+    classify( iv_db = 'sqlite' iv_driver = abap_true iv_configured = abap_true iv_session = 'connected'
+              iv_portable = abap_true iv_refusal = 'the function FLOOR has no measured rendering on duckdb'
+              iv_engine = 'hdb' iv_reason_cp = 'eAMDP:*DuckDB would refuse*FLOOR*' ).
+*   a refusal without text still reads as a sentence
+    classify( iv_db = 'duckdb' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_false iv_engine = 'unavailable' iv_reason_cp = '*no HANA fallback' ).
+  ENDMETHOD.
+
+  METHOD sqlite_no_hana.
+*   the common case: SQLite, nothing configured; the portable flag is said
+*   but not used, because the destination runs the IR on DuckDB only
+    classify( iv_db = 'sqlite' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_true iv_engine = 'unavailable' iv_reason_cp = 'no HANA configured*portable subset: yes*DuckDB*' ).
+    classify( iv_db = 'sqlite' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_false iv_engine = 'unavailable' iv_reason_cp = 'no HANA configured*' ).
+  ENDMETHOD.
+
+  METHOD no_driver.
+    classify( iv_db = 'sqlite' iv_driver = abap_false iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_true iv_engine = 'unavailable' iv_reason_cp = '*no HANA driver*' ).
+  ENDMETHOD.
+
+  METHOD hana_live.
+    classify( iv_db = 'sqlite' iv_driver = abap_true iv_configured = abap_true iv_session = 'connected'
+              iv_portable = abap_false iv_engine = 'hdb' iv_reason_cp = 'eAMDP:*live*' ).
+  ENDMETHOD.
+
+  METHOD hana_stale.
+*   the backlog's lie: the system said HDB while this session was dead
+    classify( iv_db = 'sqlite' iv_driver = abap_true iv_configured = abap_true iv_session = 'closed'
+              iv_portable = abap_false iv_engine = 'hdb-stale' iv_reason_cp = 'eAMDP:*closed*reconnects*' ).
+  ENDMETHOD.
+
+  METHOD hana_idle.
+    classify( iv_db = 'postgres' iv_driver = abap_true iv_configured = abap_true iv_session = 'none'
+              iv_portable = abap_false iv_engine = 'hdb-idle' iv_reason_cp = 'eAMDP:*no session*' ).
+  ENDMETHOD.
+
+  METHOD hdb_system_still_destination.
+*   a HANA system database does not make the method run: the destination
+*   keeps its own session, and that one is what counts
+    classify( iv_db = 'HDB' iv_driver = abap_true iv_configured = abap_false iv_session = 'none'
+              iv_portable = abap_false iv_engine = 'unavailable' iv_reason_cp = 'no HANA configured*' ).
+    classify( iv_db = 'HDB' iv_driver = abap_true iv_configured = abap_true iv_session = 'closed'
+              iv_portable = abap_false iv_engine = 'hdb-stale' iv_reason_cp = 'eAMDP:*' ).
   ENDMETHOD.
 
 ENDCLASS.

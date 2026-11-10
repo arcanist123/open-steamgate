@@ -1,7 +1,7 @@
 # adtenq — ADT ENQ kernel bridge
 
 `New(server)` builds the host side of `ZCL_OSD_ENQ_KERNEL` over an
-`*enq.Server`, with no dependency on the generated ABAP runtime.
+`enq.Locks` (the in-process `*enq.Server` or an `*enq.Client` of the gateway's table), with no dependency on the generated ABAP runtime.
 All kernels use one process owner with a random `adt:<12 hex>:` prefix.
 `NewOwner` creates an independent host identity; `Owner.Prefix`, `Key`,
 `IDOf` and `Owns` mirror `tools/adt-enq-key.mjs` without trimming.

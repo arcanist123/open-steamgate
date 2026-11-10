@@ -20,6 +20,7 @@ import {previewFields} from "./generated/preview-fields.mjs";
 import {applyRows as applyXref} from "../tools/osd-xref-seed.mjs";
 import {servicesFromRows, serviceForPath} from "../tools/osd-icf-routing.mjs";
 import {currentRows} from "../tools/osd-icf-apply.mjs";
+import {amdpFactRows, amdpFacts, unknownAmdpFacts} from "../tools/amdp-status.mjs";
 import {readRequest} from "./preview-runtime.mjs";
 
 // test/setup.mjs looks for this before it touches the file system: the seed
@@ -324,8 +325,16 @@ const bootedAt = realNow();
 // a host that does not (a test importing this module directly)
 let identity = {stamp: buildId, rootHint: "preview", mount: ""};
 
-function statusSnapshot() {
+async function statusSnapshot() {
   const since = bootedAt.toISOString();
+  // where an AMDP body would run in this worker (tools/amdp-status.mjs): on
+  // sql.js nothing, on DuckDB-Wasm the portable IR; never HANA, there is no
+  // driver in the bundle, and the destination says so when asked
+  let amdp;
+  try { amdp = await amdpFacts(); } catch { amdp = undefined; }
+  // amdpFacts catches its own errors; should it ever throw, say "not known"
+  // rather than read the engine off the build setting
+  amdp ??= unknownAmdpFacts();
   // every path a person can click is written from outside this system's
   // root, because in the browser preview that root is not the origin's
   const outside = (path) => (path.startsWith("/") ? `${identity.mount}${path}` : path);
@@ -386,7 +395,9 @@ function statusSnapshot() {
         note: database === "duckdb" ? `DuckDB-Wasm in ${place}` : "browser SQLite-compatible backend"},
       {section: "Database", name: "Storage", value: "memory",
         note: database === "duckdb" ? `volatile; reseeded when ${place} restarts` : "service-worker database; rebuilt with the preview"},
+      ...amdpFactRows(amdp),
     ],
+    amdp,
   };
 }
 
@@ -395,7 +406,7 @@ function statusSnapshot() {
 // still there, and a status page a few seconds stale beats a 500.
 async function refreshStatus() {
   try {
-    await zcl_osd_status.refresh({iv_json: JSON.stringify(statusSnapshot())});
+    await zcl_osd_status.refresh({iv_json: JSON.stringify(await statusSnapshot())});
   } catch (error) {
     console.error(`status refresh: ${error?.message?.get?.() ?? error?.message ?? error}`);
   }

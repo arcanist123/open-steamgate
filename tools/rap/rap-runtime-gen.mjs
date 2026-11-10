@@ -9,15 +9,19 @@
 // The pool is read with abaplint's own parser, never with a pattern: its
 // local classes inheriting CL_ABAP_BEHAVIOR_HANDLER / _SAVER, their methods
 // and the names and directions of the parameters. A handler method is bound
-// to a determination, validation or action by name (SetStatus = set_status
-// = setstatus), until EML and the implicit FOR DETERMINE/FOR VALIDATE/FOR
-// MODIFY signatures arrive.
+// to a determination, validation or action by the FOR clause of its
+// declaration when it is written in the system's form (FOR DETERMINE ON ...
+// FOR ent~det, FOR VALIDATE ON SAVE, FOR MODIFY ... FOR ACTION ent~act; R3,
+// lower-derived.mjs), else by name (SetStatus = set_status = setstatus).
+// A parameter is passed by its role (keys, entities, result, the responses),
+// which the implicit form states and the explicit form names.
 import * as core from "@abaplint/core";
+import {implicitHandlers} from "./lower-derived.mjs";
 
 const upper = s => s.toUpperCase();
 const squash = s => s.toLowerCase().replaceAll("_", "");
 const lit = s => `'${String(s).replaceAll("'", "''")}'`;
-const PARAMS = new Set(["keys", "entities", "result", "failed", "reported"]);
+const PARAMS = new Set(["keys", "entities", "result", "failed", "reported", "mapped"]);
 
 /** local handler and saver classes of a pool, from the parse */
 export function poolClasses(name, files) {
@@ -27,6 +31,8 @@ export function poolClasses(name, files) {
   reg.addFiles(pool.map(f => new core.MemoryFile(f.filename, f.contents)));
   reg.parse();
   const obj = reg.getFirstObject();
+  // the parser gives an implicit declaration no parameters: they come from its form
+  const implicit = new Map(pool.flatMap(f => implicitHandlers(f.contents, f.filename)).map(h => [`${h.cls} ${h.method}`, h]));
   const classes = [];
   for (const file of obj.getABAPFiles()) {
     for (const c of file.getInfo().listClassDefinitions()) {
@@ -34,16 +40,17 @@ export function poolClasses(name, files) {
       const parent = (c.superClassName ?? "").toLowerCase();
       const kind = parent === "cl_abap_behavior_handler" ? "handler" : parent === "cl_abap_behavior_saver" ? "saver" : undefined;
       if (!kind) continue;
-      classes.push({name: c.name.toLowerCase(), kind, methods: c.methods.map(m => ({
-        name: m.name.toLowerCase(),
-        parameters: m.parameters.map(p => ({name: p.name.toLowerCase(), direction: String(p.direction).toLowerCase()})),
-      }))});
+      classes.push({name: c.name.toLowerCase(), kind, methods: c.methods.map(m => {
+        const h = implicit.get(`${c.name.toLowerCase()} ${m.name.toLowerCase()}`);
+        if (h) return {name: m.name.toLowerCase(), implicit: h, parameters: h.params.map(p => ({name: p.name, direction: p.direction, role: p.role}))};
+        return {name: m.name.toLowerCase(), parameters: m.parameters.map(p => ({name: p.name.toLowerCase(), direction: String(p.direction).toLowerCase(), role: p.name.toLowerCase()}))};
+      })});
     }
   }
   return classes;
 }
 
-function fieldControl(entity, fields) {
+export function fieldControl(entity, fields) {
   const control = new Map(fields.map(f => [upper(f.name), {readonly: "", mandatory: "", numbering: false}]));
   for (const group of entity.fields) {
     for (const name of group.fields) {
@@ -80,7 +87,7 @@ export function runtimeOutputs(plans, files) {
     const cls = iface.replace(/^zif_/, "zcl_");
     let model_ = `    rs_model-bdef = ${lit(upper(root))}.\n    rs_model-pool = ${lit(upper(pool))}.\n`;
     if (savers.length) model_ += `    rs_model-saver = ${lit(absolute(savers[0].name))}.\n`;
-    let rows = "", results = "", calls = "", methods = "", defs = "";
+    let rows = "", results = "", calls = "", methods = "", defs = "", tables = "";
     for (const e of plan.entities) {
       const {entity, prefix: p} = e;
       if (entity.numbering) throw new Error(`${entity.entity}: ${entity.numbering} numbering through the pool is outside R2`);
@@ -118,19 +125,30 @@ export function runtimeOutputs(plans, files) {
         if (c.kind === "A" && (c.use || c.modifiers.length || c.parameter || (c.result && c.result.type !== "$self"))) {
           throw new Error(`${entity.entity}~${c.name}: only instance actions without parameter and with no or a $self result run (R2)`);
         }
-        const found = handlers.flatMap(h => h.methods.filter(m => squash(m.name) === squash(c.name)).map(m => ({h, m})));
+        // the declaration's FOR clause binds first; a method named after it, written explicitly, second
+        const names = new Set([upper(entity.entity), upper(entity.alias ?? entity.entity)]);
+        const form = {D: "DETERMINE", V: "VALIDATE", A: "MODIFY"}[c.kind];
+        const declared = handlers.flatMap(h => h.methods.filter(m => m.implicit?.form === form
+          && m.implicit.clauses.some(x => (c.kind !== "A" || x.kind === "ACTION") && names.has(upper(x.entity)) && upper(x.name ?? "") === upper(c.name))).map(m => ({h, m})));
+        const found = declared.length ? declared
+          : handlers.flatMap(h => h.methods.filter(m => !m.implicit && squash(m.name) === squash(c.name)).map(m => ({h, m})));
         if (found.length !== 1) throw new Error(`${entity.entity}~${c.name}: ${found.length ? "more than one" : "no"} handler method named after it in ${pool}`);
         const {h, m} = found[0];
         if (handler && handler !== h.name) throw new Error(`${entity.entity}: handler methods in two classes (${handler}, ${h.name})`);
         handler = h.name;
-        const unknown = m.parameters.filter(x => !PARAMS.has(x.name));
-        if (unknown.length || !m.parameters.some(x => x.name === "keys")) {
-          throw new Error(`${h.name}->${m.name}: parameters must be keys and any of entities, result, failed, reported (got ${m.parameters.map(x => x.name).join(", ")})`);
+        const unknown = m.parameters.filter(x => !PARAMS.has(x.role));
+        if (unknown.length || !m.parameters.some(x => x.role === "keys")) {
+          throw new Error(`${h.name}->${m.name}: parameters must be keys and any of entities, result, failed, reported, mapped (got ${m.parameters.map(x => x.name).join(", ")})`);
+        }
+        if (m.implicit) {
+          if (m.implicit.clauses.length !== 1) throw new Error(`${h.name}->${m.name}: one handler method per determination, validation or action (R3)`);
+          if (c.kind === "D" && m.implicit.on !== (c.on === "modify" ? "MODIFY" : "SAVE")) throw new Error(`${h.name}->${m.name}: FOR DETERMINE ON ${m.implicit.on} for a determination on ${c.on}`);
         }
         const trig = c.triggers ?? [];
         if (trig.some(t => t.kind === "delete")) throw new Error(`${entity.entity}~${c.name}: a delete trigger is outside R2`);
         model_ += `    CLEAR ls_callable.\n    ls_callable-kind = '${c.kind}'.\n    ls_callable-name = ${lit(upper(c.name))}.\n`
           + `    ls_callable-method = ${lit(upper(m.name))}.\n`
+          + (m.parameters.some(x => x.role === "entities") ? "    ls_callable-entities = abap_true.\n" : "")
           + (c.on ? `    ls_callable-on = '${c.on === "modify" ? "M" : "S"}'.\n` : "")
           + (trig.some(t => t.kind === "create") ? "    ls_callable-on_create = abap_true.\n" : "")
           + (trig.some(t => t.kind === "update") ? "    ls_callable-on_update = abap_true.\n" : "")
@@ -146,7 +164,8 @@ export function runtimeOutputs(plans, files) {
         const keyType = c.kind === "A" ? `${iface}=>t_${p}_a${c.index}_import` : `${iface}=>t_${p}_${c.kind === "D" ? "determination" : "validation"}`;
         let body = `    DATA lt_keys TYPE ${keyType}.\n    DATA ls_key LIKE LINE OF lt_keys.\n`
           + `    FIELD-SYMBOLS <lt_rows> TYPE ${iface}=>t_${p}_read_result.\n    FIELD-SYMBOLS <ls_row> LIKE LINE OF <lt_rows>.\n`
-          + `    FIELD-SYMBOLS <ls_failed> TYPE ${iface}=>r_failed.\n    FIELD-SYMBOLS <ls_reported> TYPE ${iface}=>r_reported.\n`;
+          + `    FIELD-SYMBOLS <ls_failed> TYPE ${iface}=>r_failed.\n    FIELD-SYMBOLS <ls_reported> TYPE ${iface}=>r_reported.\n`
+          + (m.parameters.some(x => x.role === "mapped") ? `    DATA ls_mapped TYPE ${iface}=>r_mapped.\n` : "");
         if (c.kind === "A") body += `    FIELD-SYMBOLS <lt_keys> TYPE ${keyType}.\n`;
         if (c.kind === "A" && c.result) body += `    FIELD-SYMBOLS <lt_result> TYPE ${iface}=>t_${p}_a${c.index}_result.\n`;
         body += "\n    ASSIGN ir_rows->* TO <lt_rows>.\n    ASSIGN ir_failed->* TO <ls_failed>.\n    ASSIGN ir_reported->* TO <ls_reported>.\n";
@@ -158,14 +177,14 @@ export function runtimeOutputs(plans, files) {
             + e.fields.filter(f => f.key).map(f => `      ls_key-${f.name} = <ls_row>-${f.name}.\n`).join("")
             + "      APPEND ls_key TO lt_keys.\n    ENDLOOP.\n";
         }
-        const actual = {keys: "lt_keys", entities: "<lt_rows>", failed: "<ls_failed>", reported: "<ls_reported>", result: "<lt_result>"};
-        if (m.parameters.some(x => x.name === "result") && !(c.kind === "A" && c.result)) throw new Error(`${h.name}->${m.name}: a result parameter without a result`);
+        const actual = {keys: "lt_keys", entities: "<lt_rows>", failed: "<ls_failed>", reported: "<ls_reported>", result: "<lt_result>", mapped: "ls_mapped"};
+        if (m.parameters.some(x => x.role === "result") && !(c.kind === "A" && c.result)) throw new Error(`${h.name}->${m.name}: a result parameter without a result`);
         const groups = {importing: [], changing: [], exporting: []};
         for (const x of m.parameters) {
           // the caller's side of each direction
           const side = x.direction === "importing" ? "exporting" : x.direction === "exporting" ? "importing" : x.direction === "changing" ? "changing" : undefined;
           if (!side) throw new Error(`${h.name}->${m.name}: ${x.direction} parameter ${x.name}`);
-          groups[side === "exporting" ? "exporting" : side === "importing" ? "importing" : "changing"].push(`${x.name} = ${actual[x.name]}`);
+          groups[side === "exporting" ? "exporting" : side === "importing" ? "importing" : "changing"].push(`${x.name} = ${actual[x.role]}`);
         }
         body += `    CALL METHOD io_handler->(${lit(upper(m.name))})`
           + (groups.exporting.length ? `\n      EXPORTING\n        ${groups.exporting.join("\n        ")}` : "")
@@ -180,6 +199,14 @@ export function runtimeOutputs(plans, files) {
         // by the CDS name or the alias, as the runtime names an entity
         const names = [...new Set([upper(entity.entity), upper(entity.alias ?? entity.entity)])].map(e => lit(`${e}~${upper(c.name)}`)).join(" OR ");
         if (c.kind === "A" && c.result) results += `      WHEN ${names}.\n        CREATE DATA rr_result TYPE ${iface}=>t_${p}_a${c.index}_result.\n`;
+      }
+      // the derived tables a caller that knows only the model fills (R2c)
+      for (const op of ["create", "update", "delete"]) {
+        if (entity.operations.some(o => o.kind === op && !o.use)) tables += `      WHEN ${lit(`${upper(entity.entity)}~${upper(op)}~`)}.\n        CREATE DATA rr_table TYPE ${iface}=>t_${p}_${op}.\n`;
+      }
+      for (const [a, action] of entity.actions.entries()) {
+        tables += `      WHEN ${lit(`${upper(entity.entity)}~ACTION IMPORT~${upper(action.name)}`)}.\n        CREATE DATA rr_table TYPE ${iface}=>t_${p}_a${a}_import.\n`;
+        if (action.result) tables += `      WHEN ${lit(`${upper(entity.entity)}~ACTION RESULT~${upper(action.name)}`)}.\n        CREATE DATA rr_table TYPE ${iface}=>t_${p}_a${a}_result.\n`;
       }
     }
     const source = `CLASS ${cls} DEFINITION PUBLIC FINAL CREATE PUBLIC.
@@ -207,6 +234,13 @@ ${rows}    ENDCASE.
   METHOD zif_osd_rap_bo~new_result.
     CASE to_upper( iv_entity && '~' && iv_action ).
 ${results}    ENDCASE.
+  ENDMETHOD.
+
+  METHOD zif_osd_rap_bo~new_table.
+    DATA lv_name TYPE string.
+    lv_name = to_upper( iv_entity && '~' && iv_kind && '~' && iv_action ).
+    CASE lv_name.
+${tables}    ENDCASE.
   ENDMETHOD.
 
   METHOD zif_osd_rap_bo~new_response.

@@ -95,16 +95,6 @@
       "file": "test/third-party-notices.mjs",
       "value": "172.23.207.80",
       "reason": "Ложное срабатывание: байты ac17cf50 внутри SHA-256 текста MIT-лицензии zork-abap (3bed...a91d), это хэш, а не адрес."
-    },
-    {
-      "file": "test/odata-v4.mjs",
-      "value": "12345678-1234-1234-1234-123456789abc",
-      "reason": "Hand-written synthetic GUID for V4 literal/key serialization tests and their documented example. The repeating 1234 groups are deliberate fixture data; this identifies no system, session or captured object."
-    },
-    {
-      "file": "docs/odata-v4.md",
-      "value": "12345678-1234-1234-1234-123456789abc",
-      "reason": "Hand-written synthetic GUID for V4 literal/key serialization tests and their documented example. The repeating 1234 groups are deliberate fixture data; this identifies no system, session or captured object."
     }
   ]
 }

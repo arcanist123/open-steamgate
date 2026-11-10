@@ -20,8 +20,19 @@ cron are retired; release tags and manual dry runs now select Docker builds.
 The read-only `build` matrix handles PRs and dry runs. On a publishing run, the
 `publish` matrix pushes each build by untagged digest, pulls that exact digest
 for the same smoke checks, and uploads the digest only after they pass. Only
-this matrix has package write permission. It checks the published image ID and
-revision before exposing the digest to the manifest job.
+this matrix has package write permission. Before exposing the digest to the
+manifest job, `docker/image/verify-pushed.sh` checks that the tested local
+image is the pushed one, and the pushed platform and revision label. The image
+ID it compares depends on the daemon's image store: the classic store reports
+the config digest, Docker 29's containerd store (the `ubuntu-26.04` runner
+image behind `ubuntu-latest` since 2026-11) reports the manifest digest; either
+match is accepted, anything else fails with both digests in the log. The
+read-only `build` matrix runs the same push-by-digest, pull and check against
+a throwaway `registry:2` service on the runner, so a PR or a `publish=false`
+dry run exercises the publish legs' identity check on each runner image.
+The SBOM step (`anchore/sbom-action`, which downloads syft from GitHub
+releases) is tried up to three times, 60 s and 180 s apart; the SBOM stays
+required.
 On a `vscode-v*` or `vscode-stable-v*` tag push, each `manifest` job first verifies that the tag resolves
 to the commit used to build the images, then waits for the complete
 `tests.yml` push run of that exact tag commit using the same gate as the VS Code

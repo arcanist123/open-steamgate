@@ -17,11 +17,19 @@ CLASS zcl_osd_v4_http DEFINITION PUBLIC CREATE PUBLIC.
       it_options TYPE tihttpnvp iv_origin TYPE string iv_body TYPE string it_headers TYPE tihttpnvp
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
+* the expanded navigations of one row: each item read as a query of the
+* target set with the options inside its parentheses (nested $expand
+* recurses); it_nav_select are the parent's $select=nav/prop paths
     CLASS-METHODS expand IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
       io_model TYPE REF TO zcl_osd_v4_model is_set TYPE zcl_stg_model_info=>ty_entity_set
-      is_row TYPE any it_expand TYPE string_table
+      is_row TYPE any it_expand TYPE zcl_osd_v4_query=>ty_expands
+      it_nav_select TYPE zcl_osd_v4_query=>ty_nav_selects OPTIONAL
       RETURNING VALUE(rt_nav) TYPE zcl_stg_json=>ty_nav_jsons
       RAISING zcx_stg_error /iwbep/cx_mgw_base_exception.
+* a DPC whose operations SADL serves: the SEGW-generated shape
+* (IF_SADL_GW_DPC_UTIL) or the SADL data provider itself
+    CLASS-METHODS sadl_served IMPORTING io_dpc TYPE REF TO /iwbep/if_mgw_appl_srv_runtime
+      RETURNING VALUE(rv_sadl) TYPE abap_bool.
 ENDCLASS.
 
 CLASS zcl_osd_v4_http IMPLEMENTATION.
@@ -207,6 +215,9 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_source_type TYPE string.
     DATA lv_single TYPE abap_bool.
     DATA lr_buffer TYPE REF TO data.
+    DATA ls_action TYPE zcl_stg_model_info=>ty_action.
+    DATA lv_op TYPE string.
+    DATA lx_error TYPE REF TO zcx_stg_error.
     FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
     FIELD-SYMBOLS <ls_row> TYPE any.
 
@@ -251,16 +262,58 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       rs_response = zcl_osd_v4_sticky=>discard( it_headers ).
       RETURN.
     ENDIF.
+* an unbound operation at the service root: <FunctionImport>(p=v) or POST <ActionImport>
+    READ TABLE lo_model->ms_service-entity_sets WITH KEY name = lo_query->ms_request-entity_set TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0 AND lo_query->mv_navigation IS INITIAL AND lo_query->mv_action IS INITIAL.
+      ls_action = zcl_stg_model_info=>find_action( is_service = lo_model->ms_service iv_name = lo_query->ms_request-entity_set ).
+      IF ls_action-name IS NOT INITIAL.
+        IF lo_query->ms_request-is_count = abap_true.
+          zcl_osd_v4_query=>fail( iv_text = 'Unsupported V4 resource path' iv_status = 404 ).
+        ENDIF.
+        TRY.
+            rs_response = zcl_osd_v4_action=>unbound( iv_method = iv_method is_action = ls_action io_query = lo_query
+              io_model = lo_model io_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name )
+              iv_service_url = lv_service_url iv_body = iv_body ).
+          CATCH zcx_stg_error INTO lx_error.
+            gv_allow = zcl_osd_v4_action=>gv_allow.
+            RAISE EXCEPTION lx_error.
+        ENDTRY.
+        RETURN.
+      ENDIF.
+    ENDIF.
     ls_set = zcl_stg_model_info=>find_set( is_service = lo_model->ms_service iv_entity_set = lo_query->ms_request-entity_set ).
     IF lo_query->mv_action IS NOT INITIAL.
-      IF iv_method <> 'POST'.
-        gv_allow = 'POST'.
-        zcl_osd_v4_query=>fail( iv_text = 'An action takes POST' iv_status = 405 ).
-      ENDIF.
       lo_query->prepare( is_set = ls_set io_model = lo_model ).
-      rs_response = zcl_osd_v4_sticky=>action( iv_action = lo_query->mv_action io_query = lo_query io_model = lo_model
-        is_set = ls_set io_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name ) iv_service_url = lv_service_url
-        iv_body = iv_body it_headers = it_headers ).
+      lv_op = lo_query->mv_action.
+      IF lv_op CP |{ lo_model->ms_service-namespace }.*|.
+        lv_op = substring( val = lv_op off = strlen( lo_model->ms_service-namespace ) + 1 ).
+      ENDIF.
+      lo_dpc = zcl_oao_registry=>create_dpc( lo_model->ms_service-name ).
+* A DPC that hands its operations to SADL (SEGW's reference data source,
+* the RAP services) keeps the sticky facade's answer for every action:
+* SADL's EXECUTE_ACTION is the V2 function-import path and is not driven
+* from here, so a BDEF action stays a named 501 (docs/rap-runtime.md).
+* Only a code-based DPC is given ZCL_OSD_V4_ACTION.
+      IF lv_op = zcl_osd_v4_sticky=>gc_edit OR lv_op = zcl_osd_v4_sticky=>gc_save OR lv_op = zcl_osd_v4_sticky=>gc_new
+          OR sadl_served( lo_dpc ) = abap_true.
+        IF iv_method <> 'POST'.
+          gv_allow = 'POST'.
+          zcl_osd_v4_query=>fail( iv_text = 'An action takes POST' iv_status = 405 ).
+        ENDIF.
+        rs_response = zcl_osd_v4_sticky=>action( iv_action = lo_query->mv_action io_query = lo_query io_model = lo_model
+          is_set = ls_set io_dpc = lo_dpc iv_service_url = lv_service_url
+          iv_body = iv_body it_headers = it_headers ).
+        RETURN.
+      ENDIF.
+* a bound operation of the model (ZCL_OSD_V4_ACTION): Set(key)/<ns>.<op> or Set/<ns>.<op>
+      TRY.
+          rs_response = zcl_osd_v4_action=>bound( iv_method = iv_method iv_name = lo_query->mv_action io_query = lo_query
+            io_model = lo_model is_set = ls_set io_dpc = lo_dpc
+            iv_service_url = lv_service_url iv_body = iv_body it_headers = it_headers ).
+        CATCH zcx_stg_error INTO lx_error.
+          gv_allow = zcl_osd_v4_action=>gv_allow.
+          RAISE EXCEPTION lx_error.
+      ENDTRY.
       RETURN.
     ENDIF.
     IF lo_query->mv_navigation IS NOT INITIAL.
@@ -349,7 +402,8 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
         zcl_osd_v4_query=>fail( iv_text = 'Entity not found' iv_status = 404 ).
       ENDIF.
       ASSIGN lr_data->* TO <ls_row>.
-      lt_nav = expand( io_dpc = lo_dpc io_model = lo_model is_set = ls_set is_row = <ls_row> it_expand = lo_query->mt_expand ).
+      lt_nav = expand( io_dpc = lo_dpc io_model = lo_model is_set = ls_set is_row = <ls_row> it_expand = lo_query->mt_expand
+        it_nav_select = lo_query->mt_nav_select ).
       lv_row = zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_set io_model = lo_model
         it_select = lo_query->mt_select it_nav = lt_nav ).
       lv_context = lv_context && '/$entity'.
@@ -373,7 +427,7 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       iv_source_name = lv_source_type it_filter_select_options = lo_context->mt_filter is_paging = ls_paging
       it_key_tab = lo_context->mt_key_tab it_navigation_path = lo_context->mt_navigation_path
       it_order = lo_context->get_sorting_order( ) iv_filter_string = lo_context->mv_filter_string
-      iv_search_string = '' io_tech_request_context = lo_context IMPORTING er_entityset = lr_data ).
+      iv_search_string = lo_context->mv_search_string io_tech_request_context = lo_context IMPORTING er_entityset = lr_data ).
     IF lr_data IS BOUND.
       ASSIGN lr_data->* TO <lt_rows>.
       lv_count = lines( <lt_rows> ).
@@ -386,7 +440,8 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
           IF lo_query->mv_top >= 0 AND lv_taken >= lo_query->mv_top.
             EXIT.
           ENDIF.
-          lt_nav = expand( io_dpc = lo_dpc io_model = lo_model is_set = ls_set is_row = <ls_row> it_expand = lo_query->mt_expand ).
+          lt_nav = expand( io_dpc = lo_dpc io_model = lo_model is_set = ls_set is_row = <ls_row> it_expand = lo_query->mt_expand
+            it_nav_select = lo_query->mt_nav_select ).
           lv_row = zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_set io_model = lo_model
             it_select = lo_query->mt_select it_nav = lt_nav ).
           lv_rows = lv_rows && lv_sep && lv_row.
@@ -411,13 +466,23 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     DATA lv_projection TYPE string.
     DATA lv_name TYPE string.
     DATA lv_sep TYPE string.
+    DATA ls_item TYPE zcl_osd_v4_query=>ty_expand.
+    DATA ls_opt TYPE ihttpnvp.
+    DATA lv_inner TYPE string.
     rv_context = iv_base && '#' && is_set-name.
     LOOP AT io_query->mt_select INTO lv_name.
       lv_projection = lv_projection && lv_sep && lv_name.
       lv_sep = ','.
     ENDLOOP.
-    LOOP AT io_query->mt_expand INTO lv_name.
-      lv_projection = lv_projection && lv_sep && lv_name && '()'.
+* an expanded navigation with its own $select names it (OData JSON 4.01, 10.9)
+    LOOP AT io_query->mt_expand INTO ls_item.
+      CLEAR lv_inner.
+      READ TABLE ls_item-options INTO ls_opt WITH KEY name = '$select'.
+      IF sy-subrc = 0 AND ls_opt-value <> '*'.
+        lv_inner = ls_opt-value.
+        CONDENSE lv_inner NO-GAPS.
+      ENDIF.
+      lv_projection = lv_projection && lv_sep && ls_item-name && '(' && lv_inner && ')'.
       lv_sep = ','.
     ENDLOOP.
     IF lv_projection IS NOT INITIAL.
@@ -438,19 +503,42 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     rv_json = '{"@odata.context":' && zcl_osd_v4_json=>quote( iv_base ) && ',"value":[' && lv_rows && ']}'.
   ENDMETHOD.
 
+  METHOD sadl_served.
+    DATA li_util TYPE REF TO if_sadl_gw_dpc_util.
+    DATA li_sadl TYPE REF TO if_sadl_gw_dpc.
+    TRY.
+        li_util ?= io_dpc.
+        rv_sadl = abap_true.
+        RETURN.
+      CATCH cx_sy_move_cast_error.
+    ENDTRY.
+    TRY.
+        li_sadl ?= io_dpc.
+        rv_sadl = abap_true.
+      CATCH cx_sy_move_cast_error.
+    ENDTRY.
+  ENDMETHOD.
+
   METHOD expand.
-    DATA lv_name TYPE string.
+    DATA ls_item TYPE zcl_osd_v4_query=>ty_expand.
     DATA ls_nav TYPE zcl_stg_model_info=>ty_nav.
     DATA ls_target TYPE zcl_stg_model_info=>ty_entity_set.
     DATA ls_prop TYPE zcl_stg_model_info=>ty_property.
     DATA lt_keys TYPE /iwbep/t_mgw_name_value_pair.
     DATA ls_key TYPE /iwbep/s_mgw_name_value_pair.
     DATA ls_path TYPE /iwbep/s_mgw_navigation_path.
+    DATA lo_sub TYPE REF TO zcl_osd_v4_query.
     DATA lo_context TYPE REF TO zcl_stg_request_context.
     DATA lr_data TYPE REF TO data.
     DATA ls_json TYPE zcl_stg_json=>ty_nav_json.
+    DATA ls_count TYPE zcl_stg_json=>ty_nav_json.
     DATA ls_paging TYPE /iwbep/s_mgw_paging.
+    DATA lt_select TYPE string_table.
+    DATA ls_nav_select TYPE zcl_osd_v4_query=>ty_nav_select.
+    DATA lt_below TYPE zcl_stg_json=>ty_nav_jsons.
     DATA lv_sep TYPE string.
+    DATA lv_index TYPE i.
+    DATA lv_taken TYPE i.
     FIELD-SYMBOLS <lv_key> TYPE any.
     FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
     FIELD-SYMBOLS <ls_row> TYPE any.
@@ -462,13 +550,15 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
         APPEND ls_key TO lt_keys.
       ENDIF.
     ENDLOOP.
-    LOOP AT it_expand INTO lv_name.
-      ls_nav = zcl_stg_model_info=>find_nav( is_set = is_set iv_name = lv_name ).
+    LOOP AT it_expand INTO ls_item.
+      ls_nav = zcl_stg_model_info=>find_nav( is_set = is_set iv_name = ls_item-name ).
       ls_target = zcl_stg_model_info=>find_set( is_service = io_model->ms_service iv_entity_set = ls_nav-target_set ).
-      CREATE OBJECT lo_context.
-      lo_context->mv_entity_set = ls_target-name.
-      lo_context->mv_entity_type = ls_target-entity_type.
-      lo_context->ms_set = ls_target.
+* the options inside the parentheses are a query of the target set: the
+* same validation and the same select-options as a request to it
+      CREATE OBJECT lo_sub EXPORTING
+        iv_path = |/sap/opu/odata4/sap/{ io_model->ms_service-name }/{ ls_target-name }| it_options = ls_item-options.
+      lo_sub->prepare( is_set = ls_target io_model = io_model ).
+      lo_context = lo_sub->mo_context.
       lo_context->mt_key_tab = lt_keys.
       lo_context->mv_source_entity_set = is_set-name.
       CLEAR ls_path.
@@ -481,32 +571,73 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
         ls_path-multiplicity = '*'.
       ENDIF.
       APPEND ls_path TO lo_context->mt_navigation_path.
+* $select=nav/prop on the parent applies when the expansion has no $select of its own
+      lt_select = lo_sub->mt_select.
+      IF lt_select IS INITIAL.
+        LOOP AT it_nav_select INTO ls_nav_select WHERE nav = ls_nav-name.
+          ls_prop = zcl_stg_model_info=>find_property( is_set = ls_target iv_name = ls_nav_select-property ).
+          APPEND ls_prop-name TO lt_select.
+        ENDLOOP.
+      ENDIF.
       CLEAR lr_data.
       CLEAR ls_json.
-      ls_json-name = lv_name.
+      ls_json-name = ls_item-name.
       IF ls_nav-to_many = abap_true.
         io_dpc->get_entityset( EXPORTING iv_entity_name = ls_target-entity_type iv_entity_set_name = ls_target-name
           iv_source_name = is_set-entity_type it_filter_select_options = lo_context->mt_filter is_paging = ls_paging
           it_key_tab = lt_keys it_navigation_path = lo_context->mt_navigation_path it_order = lo_context->get_sorting_order( )
-          iv_filter_string = '' iv_search_string = '' io_tech_request_context = lo_context IMPORTING er_entityset = lr_data ).
+          iv_filter_string = lo_context->mv_filter_string iv_search_string = lo_context->mv_search_string
+          io_tech_request_context = lo_context IMPORTING er_entityset = lr_data ).
         ls_json-json = '['.
         CLEAR lv_sep.
+        lv_index = 0.
+        lv_taken = 0.
         IF lr_data IS BOUND.
           ASSIGN lr_data->* TO <lt_rows>.
+* counts precede paging, as on the collection itself
+          IF lo_sub->mv_count = abap_true.
+            ls_count-name = |{ ls_item-name }@odata.count|.
+            ls_count-json = |{ lines( <lt_rows> ) }|.
+            CONDENSE ls_count-json NO-GAPS.
+            APPEND ls_count TO rt_nav.
+          ENDIF.
           LOOP AT <lt_rows> ASSIGNING <ls_row>.
-            ls_json-json = ls_json-json && lv_sep && zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_target io_model = io_model ).
+            lv_index = lv_index + 1.
+            IF lv_index <= lo_sub->mv_skip.
+              CONTINUE.
+            ENDIF.
+            IF lo_sub->mv_top >= 0 AND lv_taken >= lo_sub->mv_top.
+              EXIT.
+            ENDIF.
+            lt_below = expand( io_dpc = io_dpc io_model = io_model is_set = ls_target is_row = <ls_row>
+              it_expand = lo_sub->mt_expand it_nav_select = lo_sub->mt_nav_select ).
+            ls_json-json = ls_json-json && lv_sep && zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_target
+              io_model = io_model it_select = lt_select it_nav = lt_below ).
             lv_sep = ','.
+            lv_taken = lv_taken + 1.
           ENDLOOP.
+        ELSEIF lo_sub->mv_count = abap_true.
+          ls_count-name = |{ ls_item-name }@odata.count|.
+          ls_count-json = '0'.
+          APPEND ls_count TO rt_nav.
         ENDIF.
         ls_json-json = ls_json-json && ']'.
       ELSE.
+        IF lo_sub->mv_count = abap_true OR lo_sub->mv_top >= 0 OR lo_sub->mv_skip > 0
+            OR lo_context->mt_orderby IS NOT INITIAL OR lo_context->mt_filter IS NOT INITIAL
+            OR lo_context->mv_search_string IS NOT INITIAL.
+          zcl_osd_v4_query=>fail( |{ ls_item-name } is a single entity: only $select and $expand apply to it| ).
+        ENDIF.
         io_dpc->get_entity( EXPORTING iv_entity_name = ls_target-entity_type iv_entity_set_name = ls_target-name
           iv_source_name = is_set-entity_type it_key_tab = lt_keys it_navigation_path = lo_context->mt_navigation_path
           io_tech_request_context = lo_context IMPORTING er_entity = lr_data ).
         ls_json-json = 'null'.
         IF lr_data IS BOUND.
           ASSIGN lr_data->* TO <ls_row>.
-          ls_json-json = zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_target io_model = io_model ).
+          lt_below = expand( io_dpc = io_dpc io_model = io_model is_set = ls_target is_row = <ls_row>
+            it_expand = lo_sub->mt_expand it_nav_select = lo_sub->mt_nav_select ).
+          ls_json-json = zcl_osd_v4_json=>entity( is_data = <ls_row> is_set = ls_target io_model = io_model
+            it_select = lt_select it_nav = lt_below ).
         ENDIF.
       ENDIF.
       APPEND ls_json TO rt_nav.

@@ -10,13 +10,13 @@ import {keepGeneratedSources} from "../tools/osd-source-snapshot.mjs";
 import {loadFiles, modulesOf} from "../tools/osd-transpile.mjs";
 import {libraryPath} from "../tools/osd-lib-path.mjs";
 
-// The build's exclude_filter entries for this folder hold here too:
-// abap_transpile.json leaves the real-EML demo out (_eml_demo) until the pin
-// lowers EML. (Its generic \.bdef\. / \.ddls\. entries are not taken: the
-// generators read those sources, and so does this test.)
-const excluded = f => (JSON.parse(readFileSync("abap_transpile.json", "utf8")).exclude_filter ?? [])
-  .filter(r => r.startsWith("/src/rap_demo/")).some(r => new RegExp(r).test("/" + f.replace(/\\/g, "/")));
-const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !excluded(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+// The pin lowers EML, so abap_transpile.json no longer leaves the real-EML
+// demo (_eml_demo) out of this folder. The original BO; its twin with
+// handlers in the system's form (_sf, R3) is read by systemForm() and has
+// tests of its own.
+const sf = f => /_sf\./.test(basename(f));
+const demo = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f) && !sf(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+const systemForm = () => walk("src/rap_demo").filter(f => /\.(abap|xml|asbdef|asddls)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
 // The pool inherits the clean-room bases of the R2 runtime (src/rap/), which
 // lean on the LUW buffer, the CDS source interface and open-abap-core; those
 // are dependencies here, checked but not the subject (`npm run lint` lints
@@ -207,6 +207,69 @@ describe("RAP derived type generator (R1)", () => {
     assert.ok(lowered.includes(bindings["TABLE FOR CREATE ZI_RAP_NOTE"]));
     assert.ok(lowered.includes(bindings["TABLE FOR ACTION IMPORT ZI_RAP_NOTE\\NOTE~APPROVE"]));
     assert.equal(lowerDerived(lowered, "zrap.prog.abap", bindings), lowered);
+  });
+
+  it("lowers the handler declarations of the system's form into explicit signatures (R3)", () => {
+    const {bindings} = generate(systemForm());
+    const pool = systemForm().find(f => f.filename === "zbp_rap_note_sf.clas.locals_imp.abap");
+    const lowered = lowerDerived(pool.contents, pool.filename, bindings);
+    assert.equal(lowered.split("\n").length, pool.contents.split("\n").length, "rows kept for the source map");
+    const t = k => bindings[`POOL ZBP_RAP_NOTE_SF FOR ${k}`];
+    assert.ok(lowered.includes(`METHODS default_status IMPORTING keys TYPE ${t("DETERMINATION NOTE")} CHANGING reported TYPE ${t("RESPONSE REPORTED")}`));
+    assert.ok(lowered.includes(`METHODS text_length IMPORTING keys TYPE ${t("VALIDATION NOTE")} CHANGING failed TYPE ${t("RESPONSE FAILED")} reported TYPE ${t("RESPONSE REPORTED")}`));
+    assert.ok(lowered.includes(`METHODS approve_note IMPORTING keys TYPE ${t("ACTION IMPORT NOTE~APPROVE")} CHANGING result TYPE ${t("ACTION RESULT NOTE~APPROVE")} mapped TYPE ${t("RESPONSE MAPPED")} failed TYPE`));
+    assert.ok(!/FOR (DETERMINE|VALIDATE|MODIFY)\b/.test(lowered.replace(/^\*.*$/gm, "")), "no implicit form is left");
+    assert.equal(lowerDerived(lowered, pool.filename, bindings), lowered, "idempotent");
+    // the other forms, by the CDS name or the alias, chained, namespaced pool name
+    const forms = [
+      "CLASS lhc DEFINITION INHERITING FROM cl_abap_behavior_handler.",
+      "  PRIVATE SECTION.",
+      "    METHODS: rd FOR READ IMPORTING k FOR READ zi_rap_note_sf RESULT r,",
+      "      lk FOR LOCK IMPORTING k FOR LOCK Note,",
+      "      cud FOR MODIFY IMPORTING c FOR CREATE Note u FOR UPDATE Note d FOR DELETE Note. \" a comment",
+      "    METHODS other IMPORTING x TYPE i.",
+      "    METHODS t FOR TESTING.",
+      "ENDCLASS."].join("\n");
+    const out = lowerDerived(forms, "zbp_rap_note_sf.clas.locals_imp.abap", bindings);
+    assert.ok(out.includes(`rd IMPORTING k TYPE ${t("READ IMPORT ZI_RAP_NOTE_SF")} CHANGING r TYPE ${t("READ RESULT ZI_RAP_NOTE_SF")} failed TYPE ${t("RESPONSE FAILED")} reported TYPE`));
+    assert.ok(out.includes(`lk IMPORTING k TYPE ${t("LOCK NOTE")} CHANGING failed TYPE`));
+    assert.ok(out.includes(`cud IMPORTING c TYPE ${t("CREATE NOTE")} u TYPE ${t("UPDATE NOTE")} d TYPE ${t("DELETE NOTE")} CHANGING mapped TYPE`));
+    assert.ok(out.includes("METHODS other IMPORTING x TYPE i.") && out.includes("METHODS t FOR TESTING.") && out.includes('" a comment'));
+    for (const [decl, error] of [
+      ["METHODS n FOR NUMBERING IMPORTING entities FOR CREATE Note.", /FOR NUMBERING is outside R3/],
+      ["METHODS f FOR INSTANCE FEATURES IMPORTING keys REQUEST r FOR Note RESULT result.", /INSTANCE FEATURES has no derived request\/result types/],
+      ["METHODS a FOR GLOBAL AUTHORIZATION IMPORTING REQUEST r FOR Note RESULT result.", /GLOBAL AUTHORIZATION has no derived/],
+      ["METHODS c FOR MODIFY IMPORTING e FOR CREATE Note\\_Items.", /create by association/],
+      ["METHODS d FOR DETERMINE ON MODIFY IMPORTING keys FOR Other~SetStatus.", /unresolved RAP handler type DETERMINATION Other/],
+      ["METHODS a FOR MODIFY IMPORTING keys FOR ACTION Note~Reject RESULT result.", /unresolved RAP handler type ACTION IMPORT Note~Reject/],
+    ]) assert.throws(() => lowerDerived(`CLASS l DEFINITION.\n PRIVATE SECTION.\n ${decl}\nENDCLASS.`, "zbp_rap_note_sf.clas.locals_imp.abap", bindings), error, decl);
+    // a pool no behavior definition names
+    assert.throws(() => lowerDerived("CLASS l DEFINITION.\n METHODS d FOR DETERMINE ON SAVE IMPORTING keys FOR Note~Normalize.\nENDCLASS.", "zbp_other.clas.locals_imp.abap", bindings), /implementation in class ZBP_OTHER/);
+  });
+
+  it("lints and transpiles the system-form pool through the real source loader (R3)", async function () {
+    this.timeout(60000);
+    const root = mkdtempSync(join(tmpdir(), "rap-r3-"));
+    try {
+      const {outputs, bindings} = generate(systemForm());
+      mkdirSync(join(root, "src")); mkdirSync(join(root, "gen/rap"), {recursive: true});
+      for (const f of systemForm()) writeFileSync(join(root, "src", f.filename), f.contents);
+      for (const [name, source] of Object.entries(outputs)) writeFileSync(join(root, "gen/rap", name), source);
+      writeFileSync(join(root, "gen/rap/bindings.json"), JSON.stringify(bindings));
+      const {Transpiler, core: selectedCore} = modulesOf(resolve("."));
+      const buildConfig = {...JSON.parse(readFileSync("abap_transpile.json")), input_folder: ["src", "gen/rap"], output_folder: "output"};
+      const {files} = await loadFiles(root, buildConfig, selectedCore);
+      const reg = new selectedCore.Registry(new selectedCore.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "open-abap", errorNamespace: "."}, rules: {check_syntax: true, unknown_types: true}})));
+      for (const f of files) reg.addFile(new selectedCore.MemoryFile(f.filename, f.contents));
+      dependencies(selectedCore, reg);
+      reg.parse();
+      assert.deepEqual(reg.findIssues().map(i => `${i.getFilename()}: ${i.getMessage()}`), []);
+      const output = await new Transpiler({unknownTypes: "compileError", ignoreSyntaxCheck: false, only: o => !reg.isDependency(o)}).run(reg, {set() {}, async tick() {}});
+      const code = output.objects.filter(o => o.object.name.toUpperCase() === "ZBP_RAP_NOTE_SF").map(o => o.chunk.getCode()).join("\n");
+      // the parameters exist in the emitted method: the implicit form had none for the parser
+      assert.match(code, /async #default_status\(INPUT\)[\s\S]*INPUT\.reported/);
+      assert.match(code, /async #approve_note\(INPUT\)[\s\S]*INPUT\.result/);
+    } finally { rmSync(root, {recursive: true, force: true}); }
   });
 
   it("lints and transpiles the original managed pool through the real source loader", async function () {

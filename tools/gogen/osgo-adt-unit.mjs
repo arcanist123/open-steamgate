@@ -38,7 +38,7 @@ export function unitClasses(program, owners) {
     for (const file of object.getABAPFiles()) {
       const include = INCLUDES[/\.clas\.([a-z_]+)\.abap$/.exec(file.getFilename())?.[1]] ?? "main";
       const bodies = new Map(file.getInfo().listClassImplementations().map((i) => [i.name.toUpperCase(),
-        new Map(i.methods.map((m) => [tokenText(m.token ?? m).toUpperCase(), m.token?.start ?? m.start]))]));
+        new Map(i.methods.map((m) => [tokenText(m.token ?? m).toUpperCase(), m.token?.getStart?.() ?? m.start]))]));
       for (const def of file.getInfo().listClassDefinitions()) {
         if (def.isForTesting !== true || def.isGlobal || def.isAbstract) continue;
         const name = def.name.toUpperCase();
@@ -46,7 +46,7 @@ export function unitClasses(program, owners) {
         const c = compiled.get(key);
         if (c === undefined) { missing.push(`${key}: not compiled`); continue; }
         const has = (m) => c.methods.some((x) => x.name === m);
-        const at = def.identifier?.token?.start;
+        const at = def.identifier?.token?.getStart?.();
         classes.push({
           owner, name, key, include,
           risk: RISK[String(def.riskLevel ?? "").toUpperCase()] ?? "harmless",
@@ -54,7 +54,7 @@ export function unitClasses(program, owners) {
           line: rowOf(at), column: colOf(at),
           setup: has("SETUP"), teardown: has("TEARDOWN"), classSetup: has("CLASS_SETUP"), classTeardown: has("CLASS_TEARDOWN"),
           methods: def.methods.filter((m) => m.isForTesting).map((m) => {
-            const where = bodies.get(name)?.get(m.name.toUpperCase()) ?? m.identifier?.token?.start;
+            const where = bodies.get(name)?.get(m.name.toUpperCase()) ?? m.identifier?.token?.getStart?.();
             const method = m.name.toUpperCase();
             return {name: method, line: rowOf(where), column: colOf(where), compiled: has(method)};
           }),

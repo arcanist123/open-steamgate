@@ -98,11 +98,51 @@ late numbering for compilation; this supplies no draft or numbering execution.
 
 `src/rap_demo/` is original source: a managed root over `ZRAP_NOTE`, CRUD,
 Approve, SetStatus, Normalize and CheckText. Its pool's `lhc_note` uses explicit
-derived method parameter declarations. Implicit `FOR MODIFY` /
-`FOR DETERMINE` / `FOR VALIDATE` handler signatures and implicit response
-parameters are not implemented. R1 proves compilation; the managed runtime
-(handler dispatch, buffer, save sequence, persistence) is R2,
-[docs/rap-runtime.md](rap-runtime.md).
+derived method parameter declarations; its twin `ZI_RAP_NOTE_SF` (same table,
+same behavior) has a pool written in the system's form, below. R1 proves
+compilation; the managed runtime (handler dispatch, buffer, save sequence,
+persistence) is R2, [docs/rap-runtime.md](rap-runtime.md).
+
+## Handler declarations (R3)
+
+A handler on a system declares no parameter types: the form of the
+declaration implies them.
+
+| Declaration | Becomes |
+| --- | --- |
+| `METHODS m FOR DETERMINE ON MODIFY\|SAVE IMPORTING keys FOR ent~det.` | `IMPORTING keys TYPE <determination keys> CHANGING reported` |
+| `METHODS m FOR VALIDATE ON SAVE IMPORTING keys FOR ent~val.` | `IMPORTING keys TYPE <validation keys> CHANGING failed reported` |
+| `METHODS m FOR MODIFY IMPORTING keys FOR ACTION ent~act [RESULT result].` | `IMPORTING keys TYPE <action import> CHANGING [result TYPE <action result>] mapped failed reported` |
+| `METHODS m FOR MODIFY IMPORTING c FOR CREATE ent u FOR UPDATE ent d FOR DELETE ent.` | one `IMPORTING` per clause, `CHANGING mapped failed reported` |
+| `METHODS m FOR READ IMPORTING keys FOR READ ent RESULT result.` | `IMPORTING keys TYPE <read import> CHANGING result TYPE <read result> failed reported` |
+| `METHODS m FOR LOCK IMPORTING keys FOR LOCK ent.` | `IMPORTING keys TYPE <lock keys> CHANGING failed reported` |
+
+`failed`, `reported` and `mapped` are the BDEF's `RESPONSE FOR ... EARLY`
+structures. Which form has which of them follows the public ABAP keyword
+documentation as read here, not a measurement: determinations `reported`,
+validations, reads and locks `failed` and `reported`, every `FOR MODIFY`
+all three. Parameter names are the author's (`IMPORTING lt_keys FOR ...`
+works); `ent` is the entity's alias or CDS name, resolved against the BDEF
+whose `implementation in class` is the pool the file belongs to
+(`zbp_x.clas.locals_imp.abap` is pool `ZBP_X`, `#dmo#bp_x...` is
+`/DMO/BP_X`). For that, `bdef-gen.mjs` writes pool-scoped bindings
+(`POOL ZBP_X FOR DETERMINATION NOTE`, `POOL ZBP_X FOR RESPONSE FAILED`, ...)
+into the same `bindings.json`, and the lowering runs in the same source
+loader step, before the derived-type lowering, keeping rows and comments.
+abaplint parses these declarations but gives them no parameters at all
+(ANORMALIES, `rap-implicit-handler-params`), which is why the lowering is
+needed.
+
+Refused with the file, the row and the form: `FOR INSTANCE FEATURES`,
+`FOR GLOBAL FEATURES`, `FOR INSTANCE|GLOBAL AUTHORIZATION` (no derived
+request/result types are generated yet), `FOR NUMBERING`, `FOR PRECHECK`,
+`FOR MODIFY ... FOR CREATE ent\_assoc` (create by association), and a
+reference no BDEF of that pool declares (an unknown entity, action or a
+`RESULT` on an action without one).
+
+The runtime binds a determination, validation or action to the method whose
+`FOR` clause names it (the explicit form is still bound by name) and passes
+each parameter by its role; see [rap-runtime.md](rap-runtime.md).
 
 Option b would require abaplint to resolve BDEF/CDS dependencies into concrete
 `StructureType`/`TableType` objects for explicit forms and implicit method

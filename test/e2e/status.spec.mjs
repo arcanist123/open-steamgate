@@ -72,5 +72,14 @@ test("system status: the object page over the running tree", async ({page}) => {
   await expect(architecture).toBeVisible();
   await expect(architecture).toContainText(/linux|darwin|win32/);
 
+  // AMDP methods: the demo's SQUARES with the engine a call would use now,
+  // which is one of the five labels ZCL_OSD_STATUS=>ENGINE gives and never
+  // the system database's name on its own
+  const amdp = section("Amdp");
+  await amdp.scrollIntoViewIfNeeded();
+  const squares = amdp.locator(".sapMListTblRow", {hasText: "SQUARES"}).first();
+  await expect(squares).toBeVisible();
+  await expect(squares).toContainText(/portable-duckdb|hdb-stale|hdb-idle|hdb|unavailable/);
+
   expect(failed).toEqual([]);
 });

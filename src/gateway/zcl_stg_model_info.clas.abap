@@ -10,6 +10,9 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
              nullable  TYPE abap_bool,
 * set_as_etag in the MPC: the property is (part of) the entity's ETag
              is_etag   TYPE abap_bool,
+* set_maxlength of an Edm.String property or parameter (0: none); a key or a
+* parameter value longer than it is refused, see check_length
+             max_length TYPE i,
            END OF ty_property.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
 
@@ -35,6 +38,8 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
              deletable   TYPE abap_bool,
 * set_is_media on the entity type: the content is a stream at <entity>/$value
              is_media    TYPE abap_bool,
+* set_has_ftxt_search (sap:searchable): the DPC's GET_ENTITYSET takes a search string
+             searchable  TYPE abap_bool,
            END OF ty_entity_set.
     TYPES ty_entity_sets TYPE STANDARD TABLE OF ty_entity_set WITH DEFAULT KEY.
 
@@ -59,6 +64,9 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
              return_complex_type TYPE string,
              return_many         TYPE abap_bool,
              parameters          TYPE ty_properties,
+* set_action_for: the entity type the function import belongs to (SEGW's
+* "Action for"); the V4 facade binds the operation to it
+             action_for          TYPE string,
            END OF ty_action.
     TYPES ty_actions TYPE STANDARD TABLE OF ty_action WITH DEFAULT KEY.
 
@@ -124,6 +132,30 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
         iv_name       TYPE string
       RETURNING
         VALUE(rs_nav) TYPE ty_nav
+      RAISING
+        zcx_stg_error.
+
+* A key predicate or a function import parameter longer than the MaxLength
+* of its property is a 400, the way the Gateway's URI parser checks a
+* literal against the facets of its property. Without the check the value
+* reaches a CHAR field of the DPC cut to the DDIC length, and
+* TravelSet('T0002    X') reads, changes or deletes T0002. The trailing
+* blanks of the value do not count: the length is CHAR semantics, so
+* 'T0001    ' is 5 against a MaxLength 8 and is T0001 in the DPC. A $filter
+* literal is not checked at all: what a comparison does with it is the
+* DPC's code, not the gateway's (docs/key-length.md).
+    CLASS-METHODS check_length
+      IMPORTING
+        is_property TYPE ty_property
+        iv_value    TYPE string
+        iv_what     TYPE string
+      RAISING
+        zcx_stg_error.
+
+    CLASS-METHODS check_keys
+      IMPORTING
+        is_set     TYPE ty_entity_set
+        it_key_tab TYPE /iwbep/t_mgw_name_value_pair
       RAISING
         zcx_stg_error.
 
@@ -235,6 +267,9 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         ls_info-is_key   = lo_property->mv_is_key.
         ls_info-nullable = lo_property->mv_nullable.
         ls_info-is_etag  = lo_property->mv_etag.
+        IF ls_info-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
+          ls_info-max_length = lo_property->mv_maxlength.
+        ENDIF.
         APPEND ls_info TO lt_info.
       ENDLOOP.
 
@@ -248,6 +283,7 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         ls_set-updatable   = ls_entity_set-entity_set->mv_updatable.
         ls_set-deletable   = ls_entity_set-entity_set->mv_deletable.
         ls_set-is_media    = lo_entity->mv_is_media.
+        ls_set-searchable  = ls_entity_set-entity_set->mv_fsearch.
         IF ls_entity_set-entity_set->mo_annotation IS BOUND.
           lt_annotations = ls_entity_set-entity_set->mo_annotation->get_all( ).
           READ TABLE lt_annotations INTO ls_annotation WITH KEY key = 'semantics'.
@@ -291,6 +327,7 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
       ls_action-return_entity_type  = lo_action->mv_return_entity_type.
       ls_action-return_entity_set   = lo_action->mv_return_entity_set.
       ls_action-return_complex_type = lo_action->mv_return_complex_type.
+      ls_action-action_for          = lo_action->mv_action_for.
       IF lo_action->mv_return_multiplicity <> '1' AND lo_action->mv_return_multiplicity <> '0'.
         ls_action-return_many = abap_true.
       ENDIF.
@@ -304,6 +341,9 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         ls_info-edm_type = lo_parameter->mv_edm_type.
         IF ls_info-edm_type IS INITIAL.
           ls_info-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
+        ENDIF.
+        IF ls_info-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
+          ls_info-max_length = lo_parameter->mv_maxlength.
         ENDIF.
         APPEND ls_info TO ls_action-parameters.
       ENDLOOP.
@@ -347,6 +387,54 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
           ENDLOOP.
         ENDIF.
         APPEND ls_nav TO <ls_set>-navs.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD check_length.
+* the length of the value is the position of its last non-blank character,
+* the way a CHAR field holds a value: the DPC's field drops trailing blanks
+* (or pads with them), so they can never address another entity, and a
+* system's parser measures the same way. Only a non-blank character beyond
+* the MaxLength is refused. SHIFT RIGHT DELETING TRAILING is no way to find
+* that position: it moves a trailing blank to the front (zcl_stg_json,
+* trim_blanks, measured there).
+    DATA lv_len  TYPE i.
+    DATA lv_last TYPE i.
+
+    lv_len = strlen( iv_value ).
+    WHILE lv_len > 0.
+      lv_last = lv_len - 1.
+* the blank is the backtick literal, not space: a substring of a string is a
+* string here, and a string never equals the Character constant space
+* (ANOMALY-2026-11-09-space-eq-string-substring)
+      IF iv_value+lv_last(1) <> ` `.
+        EXIT.
+      ENDIF.
+      lv_len = lv_len - 1.
+    ENDWHILE.
+
+    IF is_property-max_length <= 0 OR lv_len <= is_property-max_length.
+      RETURN.
+    ENDIF.
+    RAISE EXCEPTION TYPE zcx_stg_error
+      EXPORTING
+        status  = 400
+        code    = 'STG/VALUE_TOO_LONG'
+        message = |{ iv_what } { is_property-name } is longer than its MaxLength { is_property-max_length }|.
+  ENDMETHOD.
+
+  METHOD check_keys.
+    DATA ls_key      LIKE LINE OF it_key_tab.
+    DATA ls_property TYPE ty_property.
+
+    LOOP AT it_key_tab INTO ls_key.
+      LOOP AT is_set-properties INTO ls_property WHERE is_key = abap_true.
+        IF to_upper( ls_property-name ) = to_upper( ls_key-name ).
+          check_length( is_property = ls_property
+                        iv_value    = ls_key-value
+                        iv_what     = 'Key property' ).
+        ENDIF.
       ENDLOOP.
     ENDLOOP.
   ENDMETHOD.

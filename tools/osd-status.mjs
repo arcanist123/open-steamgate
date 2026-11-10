@@ -17,7 +17,9 @@ import {rootWebappOf} from "./osd-system.mjs";
 //    "ports":[{"port","protocol","purpose","state","note"}],
 //    "services":[{"path","kind","handler","text","pack"}],
 //    "packs":[{"name","order","objects","folders","description"}],
-//    "database":[{"section","name","value","note"}]}
+//    "database":[{"section","name","value","note"}],
+//    "amdp":{"db","driver","configured","session",
+//            "methods":[{"clsname","mtdname","kind","portable","refusal"}]}}
 //
 // Counts and coarse platform labels only. No host names, no user names, no addresses, no absolute
 // paths, no identity of whoever is connected: a status page that leaks the
@@ -38,6 +40,7 @@ import {generatorFoldersOf, folderOf, packsOf, webappsOf} from "./osd-packs.mjs"
 import {layers} from "./osd-inputs.mjs";
 import {identity} from "./osd-identity.mjs";
 import {databaseDescriptor} from "./osd-database-identity.mjs";
+import {acceptAmdpFacts, amdpFactRows, amdpFacts, unknownAmdpFacts} from "./amdp-status.mjs";
 
 const PAGE = 4096;
 
@@ -339,6 +342,27 @@ export async function childDatabaseFacts(runtime, {fetcher = fetch, timeoutMs = 
   }
 }
 
+// The AMDP facts of the serving child, from the same door, under the same
+// rules: the local child only, a bounded vocabulary, and a failure is an
+// observation rather than permission to invent a row.
+export async function childAmdpFacts(runtime, {fetcher = fetch, timeoutMs = 1000} = {}) {
+  if (!runtime?.url) return undefined;
+  try {
+    const url = new URL(runtime.url);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.username || url.password) return undefined;
+    url.pathname = "/osd/serving";
+    url.search = "";
+    url.hash = "";
+    const res = await fetcher(url, {signal: AbortSignal.timeout(timeoutMs), redirect: "error"});
+    if (!res.ok) return undefined;
+    const body = await res.json();
+    if (body.ready !== true || body.generation !== runtime.generation) return undefined;
+    return acceptAmdpFacts(body.amdp);
+  } catch {
+    return undefined;
+  }
+}
+
 // The ports this instance has, including the built-in JS protocol listeners.
 // They run beside the HTTP façade so the status probe observes their sockets;
 // an absent row means STG_PROTOCOLS=0 or startup has not completed.
@@ -400,6 +424,12 @@ export async function snapshot(root = process.cwd(), options = {}) {
   const registered = new Map((options.instances ?? instancesOf(root)).map((e) => [e.pid, e]));
   const rows = procTcp();
 
+  // where each AMDP body runs right now: the child's destination when there
+  // is a child (it holds the session), this process's otherwise; a child that
+  // does not answer leaves the facts at "nothing known", never at a guess
+  const amdp = options.amdp ?? await childAmdpFacts(runtime)
+    ?? (runtime === undefined ? await amdpFacts({client: options.client}) : unknownAmdpFacts());
+
   const facadePort = Number(options.listeners?.[0]?.port ?? 0);
   const processes = [{
     pid: process.pid,
@@ -460,7 +490,9 @@ export async function snapshot(root = process.cwd(), options = {}) {
     services: options.services ?? servicesOf(root, env),
     packs: options.packs ?? packsInfo(root, env),
     database: [...(options.database ?? await childDatabaseFacts(runtime) ?? databaseFacts({client: options.client, env})),
+      ...amdpFactRows(amdp),
       ...(options.platform ?? platformFacts())],
+    amdp,
   };
 }
 

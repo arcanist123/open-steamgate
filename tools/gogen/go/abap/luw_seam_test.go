@@ -7,6 +7,14 @@ import (
 	"osg/gogen/hostclass"
 )
 
+// The database commits before the host's lock hook runs (GeneratedCommitWork),
+// and the order is load-bearing: the hook hands the LUW's locks over
+// (adtlock.Host.Commit: Commit, then UpdateDone at once, the update being
+// inline), and the gateway's lock server releases a dead sidecar's locks on
+// the strength of it (go/enqnet, InlineUpdates). A crash before the commit
+// leaves no rows; a crash after it leaves durable rows whose locks go after
+// them. Turned round, a crash between the two would free the locks of rows
+// not yet written. Do not loosen this test.
 func TestGeneratedLUWDatabaseOrder(t *testing.T) {
 	_, s := openTestDB(t, `["CREATE TABLE t (id TEXT)"]`)
 	defer func() { hostclass.LUW.Commit = nil; hostclass.LUW.Rollback = nil }()

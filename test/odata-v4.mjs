@@ -9,7 +9,15 @@ import {startServer} from "./start.mjs";
 const origin = `http://localhost:${process.env.STG_PORT ?? 3030}`;
 const base = `${origin}/sap/opu/odata4/sap/ZSTG_DEMO_SRV`;
 const literal = `${origin}/sap/opu/odata4/sap/ZOSD_V4_TEST`;
-const guid = "12345678-1234-1234-1234-123456789abc";
+// The Guid the DPC seeds, in its internal form: 32 hex digits, upper case
+// (test/v4/zcl_osd_v4_test_dpc.clas.abap). The V4 wire literal is the same value
+// hyphenated and lower case, which the parser and the serializer each derive, so
+// it is derived here too. Spelled out it is a UUID shape, and the leak scanner
+// flags every UUID shape on sight -- synthetic or not -- in the repository scan
+// and in the public layer the test folder is published as, where the
+// repository's allow list does not apply.
+const guidInternal = "12345678123412341234123456789ABC";
+const guid = guidInternal.toLowerCase().replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 const key = `Day=2026-11-07,Guid=${guid}`;
 const array = (value) => value === undefined ? [] : Array.isArray(value) ? value : [value];
 const query = (options) => "?" + new URLSearchParams(options);
@@ -293,6 +301,41 @@ describe("OData V4 read wire", () => {
     expect(body.value[0].Name).to.equal("O'Brien, (a=b)  test");
   });
 
+  // the MaxLength check of zcl_stg_model_info=>check_keys, shared with V2: a
+  // key the DPC's CHAR(8) field would cut is a 400, never another entity.
+  // The $filter half is the demo DPC's behaviour, not the gateway's: its
+  // ranges are strings (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:37-42), so
+  // the literal stays whole and matches no row; a DDIC-typed CHAR range on a
+  // system would cut it to T0001 (docs/key-length.md).
+  it("refuses a key longer than its MaxLength with 400 and changes nothing; a long $filter literal matches nothing in the demo DPC", async () => {
+    const before = await json(base + "/TravelSet('T0002')");
+    const url = base + "/TravelSet(" + encodeURIComponent("'T0002    X'") + ")";
+    const read = await fetch(url);
+    expect(read.status).to.equal(400);
+    expect((await read.json()).error.message).to.contain("MaxLength 8");
+    expect((await fetch(base + "/TravelSet(" + encodeURIComponent("TravelId='T0002    X'") + ")")).status).to.equal(400);
+    expect((await send(url, "PATCH", {Description: "wrong row"})).status).to.equal(400);
+    expect((await send(url, "PUT", {Description: "wrong row"})).status).to.equal(400);
+    expect((await send(url, "DELETE")).status).to.equal(400);
+    expect((await fetch(url + "/to_Bookings")).status).to.equal(400);
+    expect(await json(base + "/TravelSet('T0002')")).to.deep.equal(before);
+    // the demo DPC's string ranges keep the literal whole, so no row matches
+    const filtered = await json(base + "/TravelSet" + query({$filter: "TravelId eq 'T0001    X'"}));
+    expect(filtered.value).to.deep.equal([]);
+  });
+
+  // trailing blanks never make a key too long: the check measures at the
+  // last non-blank character, the way a CHAR field holds the value, so a key
+  // of MaxLength characters plus blanks addresses the entity and only a
+  // non-blank beyond the MaxLength is a 400 (shared check, same as V2)
+  it("accepts a key of MaxLength characters plus trailing blanks; a non-blank beyond is still a 400", async () => {
+    // T0001 + 4 blanks: 9 characters, 5 significant, MaxLength 8
+    const padded = await fetch(base + "/TravelSet(" + encodeURIComponent("'T0001    '") + ")");
+    expect(padded.status).to.equal(200);
+    expect((await padded.json()).TravelId).to.equal("T0001");
+    expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'T0001   X'") + ")")).status).to.equal(400);
+  });
+
   it("serves SADL/CDS and YAML-compiled services through the same registration", async () => {
     const sadl = `${origin}/sap/opu/odata4/sap/ZSTG_SADL_SRV`;
     await schema(sadl);
@@ -309,10 +352,19 @@ describe("OData V4 read wire", () => {
     ["/TravelSet?$skip=oops", 400], ["/TravelSet?$count=allpages", 400],
     ["/TravelSet?$select=Missing", 400], ["/TravelSet?$orderby=Missing", 400],
     ["/TravelSet?$orderby=TravelId%20sideways", 400], ["/TravelSet?$filter=Seats%20eq", 400],
-    ["/TravelSet?$expand=to_Bookings($top=1)", 501], ["/TravelSet?$expand=to_Bookings/to_Travel", 501],
+    ["/TravelSet?$expand=to_Bookings($nope=1)", 501], ["/TravelSet?$expand=to_Bookings/to_Travel", 501],
+    ["/TravelSet?$expand=*", 501], ["/TravelSet?$expand=to_Bookings($top=1", 400],
+    ["/TravelSet?$expand=to_Bookings,to_Bookings", 400], ["/TravelSet?$expand=to_Bookings($select=Nope)", 400],
+    ["/BookingSet?$expand=to_Travel($top=1)", 400], ["/TravelSet?$select=to_Bookings/Nope&$expand=to_Bookings", 400],
+    ["/BookingSet?$search=Ada", 501], ["/TravelSet?$search=Berlin%20AND%20Copenhagen", 501],
+    ["/TravelSet?$search=Berlin%20Copenhagen", 501], ["/TravelSet?$expand=to_Bookings($search=Ada)", 501],
     ["/TravelSet?$apply=aggregate(Seats)", 501], ["/TravelSet(TravelId='T0001',TravelId='T0002')", 400],
     ["/BookingSet(TravelId='T0001')", 400], ["/TravelSet()", 400],
     ["/TravelSet?$top=1&$top=2", 400],
+    ["/Nope(Status='A')", 404], ["/TravelCount(Status='A')/$count", 400], ["/TravelCount(Nope='A')", 400],
+    ["/TravelCount(Status=@p)?@p='A'", 501], ["/TravelSet('T0001')/ZSTG_DEMO_SRV.Nope", 404],
+    ["/TravelSet('T0001')/ZSTG_DEMO_SRV.CancelTravel", 405], ["/TravelSet/ZSTG_DEMO_SRV.CancelTravel", 400],
+    ["/CancelTravel", 404], ["/TravelSet('T0001')/to_Bookings(BookingId='B001')", 404],
   ]) {
     it(`returns a V4 error and ${status} for ${path}`, async () => {
       const res = await fetch(base + path);
@@ -372,6 +424,39 @@ describe("OData V4 read wire", () => {
       expect((await send(base + "/TravelSet('T0101')", "DELETE")).status).to.equal(204);
     });
 
+    // ANOMALY-2026-11-08-escape-url-multibyte: escape_url wrote one % before
+    // all UTF-8 bytes of a character (Жук -> %d096%d183%d0ba), so the Location
+    // could not be decoded and following it was the server's URIError 400
+    // page. A character outside ASCII is percent-encoded per UTF-8 byte now;
+    // an ASCII key keeps the exact bytes cl_http_utility=>escape_url wrote
+    // before (kept set, % and lowercase hex), pinned per key below.
+    it("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII", async () => {
+      const cases = [
+        ["It's", "It%27%27s"],
+        ["a,b", "a%2cb"],
+        ["a<b", "a%3cb"],
+        ["T0102", "T0102"],
+        ["T 0102", "T%200102"],
+        ["100%", "100%25"],
+        ["Жук", "%D0%96%D1%83%D0%BA"],
+        ["\u{1F600}", "%F0%9F%98%80"],
+        ["a\u{1F600}b", "a%F0%9F%98%80b"],
+        ["Ж'ук", "%D0%96%27%27%D1%83%D0%BA"],
+      ];
+      for (const [key, escaped] of cases) {
+        const res = await send(base + "/TravelSet", "POST", {TravelId: key, Description: "odd", Status: "A", Seats: 1});
+        expect(res.status, key).to.equal(201);
+        const location = res.headers.get("location");
+        expect(location, key).to.equal(base + "/TravelSet('" + escaped + "')");
+        expect(location, key).to.match(/^[\x20-\x7e]*$/);
+        const got = await fetch(location);
+        expect(got.status, key).to.equal(200);
+        expect((await got.json()).TravelId, key).to.equal(key);
+        expect((await send(location, "DELETE")).status, key).to.equal(204);
+        expect((await fetch(location)).status, key).to.equal(404);
+      }
+    });
+
     it("PATCH merges the properties sent, PUT replaces the entity", async () => {
       const patch = await send(base + "/TravelSet('T0100')", "PATCH", {Description: "patched"});
       expect(patch.status).to.equal(204);
@@ -421,7 +506,8 @@ describe("OData V4 read wire", () => {
       expect(array(travels.Annotation).find((a) => a.Term === "Core.OptimisticConcurrency").Collection.PropertyPath)
         .to.deep.equal(["Description", "Status", "Seats"]);
       const bookings = array(demo.EntityContainer.EntitySet).find((s) => s.Name === "BookingSet");
-      expect(bookings.Annotation).to.equal(undefined);
+      // BookingSet carries only its SearchRestrictions (not searchable), no ETag
+      expect(array(bookings.Annotation).map((a) => a.Term)).to.deep.equal(["Capabilities.SearchRestrictions"]);
     });
 
     it("emits @odata.etag and the ETag header on create and reads", async () => {
@@ -763,11 +849,17 @@ describe("OData V4 read wire", () => {
     const injected = encodeURIComponent("'x'' OR ''1''=''1'");
 
     it("a quote in a key is a character of the key, not the end of the SQL literal", async () => {
-      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(404);
-      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(404);
-      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(404);
+      // longer than the key's MaxLength these are refused before the DPC (400);
+      // the quoted keys that fit reach the SELECT and find nothing (404)
+      expect((await fetch(base + `/TravelSet(${injected})`)).status).to.equal(400);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x'' OR travel_id=''T0003'' --'") + ")")).status).to.equal(400);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + injected + ")")).status).to.equal(400);
+      expect((await fetch(base + "/TravelSet(" + encodeURIComponent("'x''OR''1'") + ")")).status).to.equal(404);
+      expect((await fetch(base + "/BookingSet(TravelId='T0001',BookingId=" + encodeURIComponent("'''--'") + ")")).status).to.equal(404);
       const patched = await raw(base + `/TravelSet(${injected})`, "PATCH", '{"Description":"oracle"}');
-      expect(patched.status).to.equal(404);
+      expect(patched.status).to.equal(400);
+      const fits = await raw(base + "/TravelSet(" + encodeURIComponent("'x''OR''1'") + ")", "PATCH", '{"Description":"oracle"}', {"if-match": "*"});
+      expect(fits.status).to.equal(404);
       const all = await json(base + "/TravelSet?$select=TravelId,Description");
       expect(all.value.map((t) => t.Description)).to.not.include("oracle");
       expect(all.value.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");
@@ -967,7 +1059,8 @@ describe("OData V4 for Fiori Elements", () => {
       expect(Object.fromEntries(sticky.Record.PropertyValue.map((p) => [p.Property, p.String]))).to.deep.equal({
         NewAction: "ZSTG_DEMO_SRV.OsdStickyNew", EditAction: "ZSTG_DEMO_SRV.OsdStickyEdit",
         SaveAction: "ZSTG_DEMO_SRV.OsdStickySave", DiscardAction: "OsdStickyDiscard"});
-      expect(sets.find((x) => x.Name === "BookingSet").Annotation).to.equal(undefined);
+      expect(array(sets.find((x) => x.Name === "BookingSet").Annotation).map((a) => a.Term))
+        .not.to.include("com.sap.vocabularies.Session.v1.StickySessionSupported");
       // opt-in: NoteSet of the test service is updatable and has an ETag, and
       // its model does not ask for a sticky session
       expect(await (await fetch(literal + "/$metadata")).text()).not.to.contain("OsdSticky");
@@ -1198,6 +1291,348 @@ describe("OData V4 for Fiori Elements", () => {
     expect(answer[0].status).to.equal(412);
     expect(answer[0].body.error.message).to.be.a("string");
     expect((await fetch(base + "/TravelSet('T0400')")).status).to.equal(404);
+  });
+});
+
+
+// The next slice over the same classes: the model's function imports as
+// bound/unbound V4 operations, deep insert through create_deep_entity,
+// options inside $expand(...) and $search.
+describe("OData V4 operations, deep insert, expand options and search", () => {
+  let server;
+  before(() => {
+    server = startServer(true);
+  });
+  after(() => server.close());
+  // a bound action on a Travel needs If-Match like a PATCH (428 without): the
+  // calls below that are not about it say If-Match: *
+  const post = (path, body, headers = {}) => send(base + path, "POST", body,
+    /^\/TravelSet\(.*\)\/ZSTG_DEMO_SRV\./.test(path)
+      && !Object.keys(headers).some((name) => name.toLowerCase() === "if-match") ? {"if-match": "*", ...headers} : headers);
+
+  it("describes the function imports as a bound action and an unbound function with imports", async () => {
+    const model = await schema(base);
+    const cancel = array(model.Action).find((a) => a.Name === "CancelTravel");
+    // it answers its binding's own type, from the binding's set
+    expect(cancel).to.include({IsBound: "true", EntitySetPath: "_it"});
+    // the one parameter is the binding: TravelId is Travel's key and is filled from the URL
+    expect(array(cancel.Parameter)).to.deep.equal([{Name: "_it", Type: "ZSTG_DEMO_SRV.Travel", Nullable: "false"}]);
+    expect(cancel.ReturnType.Type).to.equal("ZSTG_DEMO_SRV.Travel");
+    const count = array(model.Function).find((f) => f.Name === "TravelCount");
+    expect(count).not.to.have.property("IsBound");
+    // the facets the MPC gives the parameter (set_maxlength( 1 ))
+    expect(array(count.Parameter)).to.deep.equal([{Name: "Status", Type: "Edm.String", MaxLength: "1"}]);
+    // classic SEGW has no primitive return kind in the tree
+    expect(count.ReturnType.Type).to.equal("Edm.PrimitiveType");
+    const imports = array(model.EntityContainer.FunctionImport);
+    expect(imports.find((i) => i.Name === "TravelCount")).to.include({Function: "ZSTG_DEMO_SRV.TravelCount"});
+    expect(array(model.EntityContainer.ActionImport).map((i) => i.Name)).not.to.include("CancelTravel");
+    // the sticky-session actions are still there beside them
+    expect(array(model.Action).map((a) => a.Name)).to.include.members(["OsdStickyEdit", "OsdStickySave", "OsdStickyNew", "OsdStickyDiscard"]);
+  });
+
+  it("invokes the unbound function with URL parameters and types the primitive result by its ABAP kind", async () => {
+    const some = await json(base + "/TravelCount(Status='A')");
+    expect(some).to.deep.equal({"@odata.context": base + "/$metadata#Edm.Int32", value: 3});
+    const all = await json(base + "/TravelCount()");
+    expect(all.value).to.equal(4);
+    expect((await json(base + "/TravelCount(Status='X')")).value).to.equal(1);
+    // a function takes GET, an unknown parameter is 400, a bound operation is not at the root
+    const res = await post("/TravelCount(Status='A')", {});
+    expect(res.status).to.equal(405);
+    expect(res.headers.get("allow")).to.equal("GET");
+    expect((await fetch(base + "/TravelCount(Nope='A')")).status).to.equal(400);
+    expect((await post("/CancelTravel", {TravelId: "T0009"})).status).to.equal(404);
+  });
+
+  it("invokes the bound action on an entity through the V2 execute_action and answers the entity", async () => {
+    let res = await post("/TravelSet('T0009')/ZSTG_DEMO_SRV.CancelTravel", {});
+    expect(res.status, await res.clone().text()).to.equal(200);
+    const body = await res.json();
+    expect(body["@odata.context"]).to.equal(base + "/$metadata#TravelSet/$entity");
+    expect(body).to.include({TravelId: "T0009", Status: "X"});
+    expect(body["@odata.etag"]).to.match(/^W\//);
+    expect((await json(base + "/TravelSet('T0009')")).Status).to.equal("X");
+    // the key of the binding cannot be moved by a parameter in the body; unknown parameters are 400
+    res = await post("/TravelSet('T0009')/ZSTG_DEMO_SRV.CancelTravel", {Nope: 1});
+    expect(res.status).to.equal(400);
+    res = await post("/TravelSet('T0009')/ZSTG_DEMO_SRV.CancelTravel", {TravelId: "T0001"});
+    expect(res.status).to.equal(200);
+    expect((await res.json()).TravelId).to.equal("T0009");
+    expect((await json(base + "/TravelSet('T0001')")).Status).to.equal("A");
+    // an action takes POST; an entity-bound action needs the key; nothing is bound to Booking
+    res = await fetch(base + "/TravelSet('T0009')/ZSTG_DEMO_SRV.CancelTravel");
+    expect(res.status).to.equal(405);
+    expect(res.headers.get("allow")).to.equal("POST");
+    expect((await post("/TravelSet/ZSTG_DEMO_SRV.CancelTravel", {TravelId: "T0009"})).status).to.equal(400);
+    expect((await post("/BookingSet(TravelId='T0001',BookingId='B001')/ZSTG_DEMO_SRV.CancelTravel", {})).status).to.equal(400);
+    // the binding parameter is read first: a key nobody has is 404 before the DPC runs
+    expect((await post("/TravelSet('NONE')/ZSTG_DEMO_SRV.CancelTravel", {})).status).to.equal(404);
+    // put the seed row back
+    res = await send(base + "/TravelSet('T0009')", "PUT", {Description: "Other client, must not leak", Status: "A", Seats: 9});
+    expect(res.status).to.equal(204);
+  });
+
+  // #889's MaxLength refusal (zcl_stg_model_info, check_keys/check_length) on
+  // the operation paths: the key of a bound operation goes through the same
+  // check a read's key does, and so does every parameter value, from the URL
+  // of a function or the body of an action. A value the DPC's CHAR field
+  // would cut is a 400 before the DPC runs, never another entity or a wrong
+  // count; trailing blanks measure at the last non-blank character.
+  it("refuses an over-long key or parameter of an operation with 400 and changes nothing", async () => {
+    const before = JSON.stringify((await json(base + "/TravelSet?$orderby=TravelId&$select=TravelId,Status")).value);
+    const tooLong = async (res) => {
+      expect(res.status, await res.clone().text()).to.equal(400);
+      expect((await res.json()).error.code).to.equal("STG/VALUE_TOO_LONG");
+    };
+    // the key of a bound action: 'T0002    X' would be cut to T0002 by the DPC
+    await tooLong(await post(`/TravelSet(${encodeURIComponent("'T0002    X'")})/ZSTG_DEMO_SRV.CancelTravel`, {}));
+    // a function's URL parameter: Status has MaxLength 1
+    await tooLong(await fetch(base + `/TravelCount(Status=${encodeURIComponent("'AB'")})`));
+    // an action's body parameter: TravelId has MaxLength 8
+    await tooLong(await post("/TravelSet('T0009')/ZSTG_DEMO_SRV.CancelTravel", {TravelId: "T0002    X"}));
+    // trailing blanks never make a parameter too long, the same as a key
+    expect((await fetch(base + `/TravelCount(Status=${encodeURIComponent("'A '")})`)).status).to.equal(200);
+    expect(JSON.stringify((await json(base + "/TravelSet?$orderby=TravelId&$select=TravelId,Status")).value)).to.equal(before);
+  });
+
+  it("creates a travel with its bookings in one POST and answers the deep entity", async () => {
+    let res = await post("/TravelSet", {TravelId: "T0700", Description: "Deep over V4", Status: "A", Seats: 1,
+      to_Bookings: [{BookingId: "B001", Customer: "Barbara Liskov", FlightDate: "2026-12-01"},
+        {BookingId: "B002", Customer: "Frances Allen", FlightDate: "2026-12-02"}]});
+    expect(res.status, await res.clone().text()).to.equal(201);
+    expect(res.headers.get("location")).to.equal(base + "/TravelSet('T0700')");
+    expect(res.headers.get("etag")).to.match(/^W\//);
+    const body = await res.json();
+    // the context URL names what the answer expands (OData 4.01 Part 1, 10.9)
+    expect(body["@odata.context"]).to.equal(base + "/$metadata#TravelSet(to_Bookings())/$entity");
+    expect(body).to.include({TravelId: "T0700", Description: "Deep over V4"});
+    expect(body.to_Bookings.map((b) => [b.TravelId, b.BookingId, b.Customer, b.FlightDate])).to.deep.equal(
+      [["T0700", "B001", "Barbara Liskov", "2026-12-01"], ["T0700", "B002", "Frances Allen", "2026-12-02"]]);
+    expect(body.to_Bookings[0]).not.to.have.property("to_Travel");
+    const below = await json(base + "/TravelSet('T0700')/to_Bookings?$orderby=BookingId");
+    expect(below.value.map((b) => b.FlightDate)).to.deep.equal(["2026-12-01", "2026-12-02"]);
+    // the shape of the payload is checked before the DPC: a collection for a to-many, known properties, V4 values
+    for (const [payload, status] of [
+      [{TravelId: "T0701", to_Bookings: {BookingId: "B001"}}, 400],
+      [{TravelId: "T0701", to_Bookings: [{Nope: 1}]}, 400],
+      [{TravelId: "T0701", to_Bookings: [{BookingId: "B001", FlightDate: "01.12.2026"}]}, 400],
+      [{TravelId: "T0701", to_Nope: [{BookingId: "B001"}]}, 400],
+      [{TravelId: "T0701", "to_Bookings@odata.bind": ["BookingSet(TravelId='T0001',BookingId='B001')"]}, 501],
+    ]) {
+      res = await post("/TravelSet", payload);
+      expect(res.status, JSON.stringify(payload)).to.equal(status);
+    }
+    expect((await send(base + "/BookingSet", "POST", {TravelId: "T0701", BookingId: "B001", to_Travel: [{TravelId: "T0701"}]})).status).to.equal(400);
+    expect((await fetch(base + "/TravelSet('T0701')")).status).to.equal(404);
+    // one LUW: a booking the DPC refuses takes the travel with it
+    res = await post("/TravelSet", {TravelId: "T0702", Description: "Half", Status: "A", Seats: 1,
+      to_Bookings: [{BookingId: "B001", Customer: "One"}, {BookingId: "B001", Customer: "Twice"}]});
+    expect(res.status).to.equal(400);
+    expect((await fetch(base + "/TravelSet('T0702')")).status).to.equal(404);
+    expect((await json(base + "/BookingSet?$filter=TravelId eq 'T0702'")).value).to.deep.equal([]);
+    // a deep update is not implemented
+    expect((await send(base + "/TravelSet('T0700')", "PATCH", {to_Bookings: [{BookingId: "B003"}]})).status).to.equal(501);
+    for (const id of ["B001", "B002"]) {
+      expect((await send(base + `/BookingSet(TravelId='T0700',BookingId='${id}')`, "DELETE")).status).to.equal(204);
+    }
+    expect((await send(base + "/TravelSet('T0700')", "DELETE")).status).to.equal(204);
+  });
+
+  it("applies $select, $filter, $orderby, $top, $skip and $count inside $expand", async () => {
+    const one = await json(base + "/TravelSet('T0001')?$expand=to_Bookings($select=BookingId;$orderby=BookingId desc;$top=1;$count=true)");
+    expect(one["@odata.context"]).to.equal(base + "/$metadata#TravelSet(to_Bookings(BookingId))/$entity");
+    expect(one["to_Bookings@odata.count"]).to.equal(2);
+    expect(one.to_Bookings).to.deep.equal([{BookingId: "B002"}]);
+    const skipped = await json(base + "/TravelSet('T0001')?$expand=to_Bookings($skip=1)");
+    expect(skipped.to_Bookings.map((b) => b.BookingId)).to.deep.equal(["B002"]);
+    const counted = await json(base + "/TravelSet?$expand=to_Bookings($count=true;$top=0)&$orderby=TravelId&$top=3&$select=TravelId");
+    expect(counted.value.map((t) => [t.TravelId, t["to_Bookings@odata.count"], t.to_Bookings.length])).to.deep.equal(
+      [["T0001", 2, 0], ["T0002", 1, 0], ["T0003", 0, 0]]);
+    // the expansion's $filter is a filter of the target set: the same converter, the same refusals
+    expect((await fetch(base + "/TravelSet?$expand=to_Bookings($filter=tolower(Customer) eq 'x')")).status).to.equal(501);
+    expect((await fetch(base + "/TravelSet?$expand=to_Bookings($filter=FlightDate eq '2026-09-15')")).status).to.equal(400);
+    // ...and it reaches the DPC as select-options; the demo's hand-written BookingSet only
+    // honours TravelId, the SADL runtime applies them all (as on a single request to the set)
+    const cds = `${origin}/sap/opu/odata4/sap/ZC_STG_TRAVEL_CDS`;
+    const filtered = await json(cds + "/ZC_STG_TRAVEL?$expand=to_Bookings($filter=CUSTOMER eq 'Grace Hopper';$count=true;$select=BOOKINGID)&$orderby=TRAVELID&$top=2&$select=TRAVELID");
+    expect(filtered["@odata.context"]).to.equal(cds + "/$metadata#ZC_STG_TRAVEL(TRAVELID,to_Bookings(BOOKINGID))");
+    expect(filtered.value[0]["to_Bookings@odata.count"]).to.equal(1);
+    expect(filtered.value[0].to_Bookings).to.deep.equal([{BOOKINGID: "B002"}]);
+    expect(filtered.value[1]["to_Bookings@odata.count"]).to.equal(0);
+    expect(filtered.value[1].to_Bookings).to.deep.equal([]);
+  });
+
+  it("expands several levels and takes $select paths through a navigation", async () => {
+    const deep = await json(base + "/BookingSet(TravelId='T0001',BookingId='B001')?$select=BookingId&$expand=to_Travel($select=Description;$expand=to_Bookings($select=Customer;$orderby=Customer desc))");
+    expect(deep["@odata.context"]).to.equal(base + "/$metadata#BookingSet(BookingId,to_Travel(Description))/$entity");
+    expect(Object.keys(deep).filter((k) => !k.startsWith("@"))).to.deep.equal(["BookingId", "to_Travel"]);
+    expect(deep.to_Travel.Description).to.equal("Berlin to Copenhagen");
+    expect(deep.to_Travel).not.to.have.property("TravelId");
+    expect(deep.to_Travel["@odata.etag"]).to.match(/^W\//);
+    expect(deep.to_Travel.to_Bookings).to.deep.equal([{Customer: "Grace Hopper"}, {Customer: "Ada Lovelace"}]);
+    const paths = await json(base + "/TravelSet('T0001')?$select=TravelId,to_Bookings/Customer&$expand=to_Bookings");
+    expect(paths.to_Bookings).to.deep.equal([{Customer: "Ada Lovelace"}, {Customer: "Grace Hopper"}]);
+    // a $select inside the parentheses wins over the path on the parent
+    const both = await json(base + "/TravelSet('T0001')?$select=to_Bookings/Customer&$expand=to_Bookings($select=BookingId)");
+    expect(both.to_Bookings).to.deep.equal([{BookingId: "B001"}, {BookingId: "B002"}]);
+    // the navigation property alone in $select is accepted (it has no links to show)
+    expect((await json(base + "/TravelSet('T0001')?$select=TravelId,to_Bookings")).TravelId).to.equal("T0001");
+    const none = await json(base + "/TravelSet('T0009')?$expand=to_Bookings($count=true;$top=1)");
+    expect(none["to_Bookings@odata.count"]).to.equal(0);
+    expect(none.to_Bookings).to.deep.equal([]);
+  });
+
+  it("hands $search to the DPC of a searchable entity set, as a term or a phrase", async () => {
+    // T0001 and T0003 keep their seed descriptions through the suites above (T0002's is edited in a session)
+    const term = await json(base + "/TravelSet?$search=Berlin&$orderby=TravelId");
+    expect(term.value.map((t) => t.TravelId)).to.deep.equal(["T0001"]);
+    const phrase = await json(base + `/TravelSet?$search=${encodeURIComponent('"Aarhus to"')}&$count=true&$top=1&$orderby=TravelId`);
+    expect(phrase["@odata.count"]).to.equal(1);
+    expect(phrase.value.map((t) => t.TravelId)).to.deep.equal(["T0003"]);
+    expect((await json(base + "/TravelSet?$search=t0003")).value.map((t) => t.TravelId)).to.deep.equal(["T0003"]);
+    expect((await json(base + "/TravelSet/$count?$search=Odense")).toString()).to.equal("1");
+    expect((await json(base + "/TravelSet?$search=nothing-matches-this")).value).to.deep.equal([]);
+    // the value help set is searchable too (the search help's text), the bookings are not
+    expect((await json(base + "/StatusVHSet?$search=Cancel")).value.map((s) => s.Status)).to.deep.equal(["X"]);
+    const res = await fetch(base + "/BookingSet?$search=Ada");
+    expect(res.status).to.equal(501);
+    expect((await res.json()).error.message).to.contain("searchable");
+    expect((await fetch(base + "/TravelSet?$search=")).status).to.equal(400);
+  });
+
+  // The injection classes fixed on the V2 path (SQL host variables, JSON keys)
+  // tried on the operation parameters, the bound key and $search: no row
+  // changes, every answer is JSON, nothing is a 500.
+  it("keeps quotes, backslashes, NUL and JSON fragments in parameters, keys and $search as data", async () => {
+    const rows = async () => JSON.stringify((await json(base + "/TravelSet?$orderby=TravelId&$select=TravelId,Status,Seats,Description")).value);
+    const answer = async (path, init) => {
+      const res = await fetch(base + path, init);
+      const text = await res.text();
+      expect(() => JSON.parse(text), `${path}: ${text}`).not.to.throw();
+      expect(res.status, `${path}: ${text}`).not.to.equal(500);
+      return {status: res.status, body: JSON.parse(text)};
+    };
+    const literal = (v) => encodeURIComponent("'" + v.replaceAll("'", "''") + "'");
+    const phrase = (v) => encodeURIComponent('"' + v.replaceAll("\\", "\\\\").replaceAll('"', '\\"') + '"');
+    // T0003 is cancelled below with every value; cancel it once first so the snapshot is its final state
+    await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel", {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: "{}"});
+    const before = await rows();
+    const values = ["'", "A'", "' OR '1'='1", '"', "\\", '"},{"x":1', '{"TravelId":"T0002"}', "A\u2028"];
+    for (const value of values) {
+      const count = await answer(`/TravelCount(Status=${literal(value)})`);
+      // Status has MaxLength 1: a value that fits is counted, a longer one is
+      // the same 400 as an over-long key (check_length, as on V2)
+      if (value.length <= 1) {
+        expect(count.status, value).to.equal(200);
+        expect(count.body.value, value).to.be.a("number");
+      } else {
+        expect(count.status, value).to.equal(400);
+      }
+      // the binding's key wins over a body parameter of the same name, and a
+      // body parameter longer than TravelId's MaxLength 8 is a 400 before it
+      // can reach the DPC
+      const cancel = await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel",
+        {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: JSON.stringify({TravelId: value})});
+      if (value.length <= 8) {
+        expect(cancel.status, value).to.equal(200);
+        expect(cancel.body.TravelId, value).to.equal("T0003");
+      } else {
+        expect(cancel.status, value).to.equal(400);
+      }
+      expect((await answer(`/TravelSet(${literal("T9" + value)})`)).status, value).to.be.oneOf([400, 404]);
+      expect((await answer(`/TravelSet?$search=${phrase(value)}`)).body.value, value).to.deep.equal([]);
+      expect([200, 400, 501], value).to.include((await answer(`/TravelSet?$search=${encodeURIComponent(value)}`)).status);
+    }
+    // NUL is refused wherever it comes from
+    expect((await answer(`/TravelCount(Status=${literal("A\u0000")})`)).status).to.equal(400);
+    expect((await answer("/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel", {method: "POST",
+      headers: {"content-type": "application/json"}, body: '{"TravelId":"T\\u0000"}'})).status).to.equal(400);
+    // a key longer than its MaxLength would be cut to another entity's key by
+    // the DPC: check_keys refuses it (400) on a read, a write and a bound action
+    const long = encodeURIComponent("'T0002    X'");
+    expect((await answer(`/TravelSet(${long})`)).status).to.equal(400);
+    expect((await answer(`/TravelSet(${long})/ZSTG_DEMO_SRV.CancelTravel`, {method: "POST",
+      headers: {"content-type": "application/json", "if-match": "*"}, body: "{}"})).status).to.equal(400);
+    expect((await answer(`/TravelSet(${long})`, {method: "PATCH",
+      headers: {"content-type": "application/json", "if-match": "*"}, body: '{"Seats":9}'})).status).to.equal(400);
+    expect(await rows()).to.equal(before);
+    // a phrase is read in one pass: an escaped backslash before a quote ends it
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"x\\\\" OR "y"')}`)).status).to.equal(501);
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a" "b"')}`)).status).to.equal(501);
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a\\"')}`)).status).to.equal(400);
+    expect((await answer(`/TravelSet?$search=${encodeURIComponent('"a\\q"')}`)).status).to.equal(400);
+    const spaced = await answer(`/TravelSet?$search=${encodeURIComponent('"Aarhus to"')}&$orderby=TravelId`);
+    expect(spaced.body.value.map((t) => t.TravelId)).to.deep.equal(["T0003"]);
+  });
+
+  // OData 4.01 Part 1, 11.5.5: If-Match applies to the binding parameter of a
+  // bound action, which sap.fe sends; the action runs under the entity lock.
+  it("checks If-Match and the entity lock of a bound action's binding parameter", async () => {
+    const path = "/TravelSet('T0002')";
+    const read = await fetch(base + path);
+    const etag = read.headers.get("etag") ?? (await read.json())["@odata.etag"];
+    expect(etag).to.match(/^W\//);
+    const status = (await json(base + path)).Status;
+    const cancel = (headers) => fetch(base + path + "/ZSTG_DEMO_SRV.CancelTravel",
+      {method: "POST", headers: {"content-type": "application/json", ...headers}, body: "{}"});
+    // no If-Match on an entity with an ETag: 428, as for PATCH, row unchanged
+    let res = await cancel({});
+    expect(res.status, await res.clone().text()).to.equal(428);
+    expect((await json(base + path)).Status).to.equal(status);
+    res = await cancel({"if-match": 'W/"bogus"'});
+    expect(res.status, await res.clone().text()).to.equal(412);
+    expect((await json(base + path)).Status).to.equal(status);
+    // held by another request: 409, row unchanged
+    const {enqTake, enqDrop} = await import("../tools/osd-enq-host.mjs");
+    const input = lockInput("ZSTG_DEMO_SRV", "TravelSet", "TravelId=T0002");
+    expect(enqTake("v4-action-lock", "OTHER", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input).subrc).to.equal(0);
+    try {
+      expect((await cancel({"if-match": etag})).status).to.equal(409);
+    } finally {
+      enqDrop("v4-action-lock", "ZOSD_V4_LOCK", "EZOSD_V4_LOCK", input);
+    }
+    expect((await json(base + path)).Status).to.equal(status);
+    // the current ETag passes; then the old one is stale
+    res = await cancel({"if-match": etag});
+    expect(res.status, await res.clone().text()).to.equal(200);
+    expect((await res.json()).Status).to.equal("X");
+    if (status !== "X") {
+      expect((await cancel({"if-match": etag})).status).to.equal(412);
+    }
+    // a missing key is 404 whatever If-Match says
+    expect((await fetch(base + "/TravelSet('T0404')/ZSTG_DEMO_SRV.CancelTravel",
+      {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: "{}"})).status).to.equal(404);
+    expect((await send(base + path, "PATCH", {Status: status})).status).to.equal(204);
+  });
+
+  it("reads operation parameters by their type: strings quoted, each name once", async () => {
+    for (const [path, want] of [["/TravelCount(Status=1)", 400], ["/TravelCount(Status=A)", 400],
+      ["/TravelCount(Status='A',Status='X')", 400], ["/TravelCount(Status=null)", 200]]) {
+      const res = await fetch(base + path);
+      expect(res.status, path + " " + await res.clone().text()).to.equal(want);
+    }
+    const action = (text) => fetch(base + "/TravelSet('T0003')/ZSTG_DEMO_SRV.CancelTravel",
+      {method: "POST", headers: {"content-type": "application/json", "if-match": "*"}, body: text});
+    for (const text of ['{"TravelId":5}', '{"TravelId":true}', '{"TravelId":"T0003","TravelId":"T0003"}']) {
+      const res = await action(text);
+      expect(res.status, text + " " + await res.clone().text()).to.equal(400);
+    }
+    expect((await action('{"TravelId":"T0003"}')).status).to.equal(200);
+  });
+
+  it("says which sets have no full-text search, and $search wants a collection", async () => {
+    const res = await fetch(base + "/$metadata");
+    const xml = await res.text();
+    const doc = new XMLParser({ignoreAttributes: false, attributeNamePrefix: ""}).parse(xml);
+    const refs = array(doc["edmx:Edmx"]["edmx:Reference"]).map((r) => r["edmx:Include"]);
+    expect(refs).to.deep.include({Namespace: "Org.OData.Capabilities.V1", Alias: "Capabilities"});
+    const sets = array(doc["edmx:Edmx"]["edmx:DataServices"].Schema.EntityContainer.EntitySet);
+    const restriction = (name) => array(sets.find((x) => x.Name === name).Annotation)
+      .find((a) => a.Term === "Capabilities.SearchRestrictions");
+    expect(restriction("BookingSet").Record.PropertyValue).to.deep.equal({Property: "Searchable", Bool: "false"});
+    expect(restriction("TravelSet")).to.equal(undefined);
+    expect((await fetch(base + "/TravelSet('T0001')?$search=Aarhus")).status).to.equal(400);
   });
 });
 

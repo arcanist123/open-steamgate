@@ -978,7 +978,8 @@ export function compileAll(root = "src", out = "gen/stg", libs = [], extraRoots 
 }
 
 export function compileConfiguredAll(root = process.env.OSD_ROOT ?? process.cwd(), out = "gen/stg", libs = [], env = process.env) {
-  return compileAll(generatorFoldersOf(root, env).map((f) => f === "gen" ? "gen/cds" : f), out, libs);
+  // gen/cds: views published with @OData.publish; gen/rap: service definitions
+  return compileAll(generatorFoldersOf(root, env).flatMap((f) => f === "gen" ? ["gen/cds", "gen/rap"] : [f]), out, libs);
 }
 
 /** Everything a compiled project puts in a folder. Lifted out of the CLI

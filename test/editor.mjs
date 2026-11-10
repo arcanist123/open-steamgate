@@ -1,5 +1,6 @@
 import {expect} from "chai";
 import {readFileSync} from "node:fs";
+import {snapshotTree, restoreTree} from "./helpers/tree-snapshot.mjs";
 import {startServer} from "./start.mjs";
 import {givenText, fill} from "../tools/osd-destination.mjs";
 
@@ -18,6 +19,7 @@ const PORT = process.env.STG_PORT ?? 3030;
 const BASE = `http://localhost:${PORT}/sap/bc/osd/edit/`;
 const OBJECT = "ZCL_OSD_ST05";
 const FILE = "src/webgui/zcl_osd_st05.clas.abap";
+const INACTIVE = "build/inactive";
 
 // HTML entities back to text, numeric ones included: the escaper on the
 // screen writes `&#39;` for an apostrophe, and ABAP source is full of them.
@@ -39,10 +41,19 @@ const post = (body) => fetch(BASE, {
 describe("the editor", function () {
   this.timeout(180000);
   let server;
+  let inactiveBefore;
   before(() => {
+    inactiveBefore = snapshotTree(INACTIVE);
     server = startServer(true);
   });
-  after(() => server?.close());
+  // A Save marks the object inactive and keeps its active copy under
+  // build/inactive/. Left there, the next host that builds a generation
+  // builds it over that overlay, and a later file's isolation check fails
+  // for a state this file made. Put the folder back as this file found it.
+  after(async () => {
+    await server?.close();
+    restoreTree(INACTIVE, inactiveBefore);
+  });
 
   it("lists the objects of the tree, with the file each one lives in", async () => {
     const page = await (await fetch(`${BASE}?q=OSD_ST05`)).text();
@@ -97,6 +108,28 @@ describe("the editor", function () {
     expect(page, "saved").to.contain("Saved.");
     expect(page, "and the box still holds it").to.contain("CLASS zcl_osd_st05 DEFINITION");
     expect(readFileSync(FILE, "utf8"), "and the file is what it was").to.equal(source);
+  });
+
+  it("activates what was saved, and the tree is left with nothing saved and not activated", async () => {
+    // the save above lands in THIS tree's store, and a save marks its object
+    // inactive: saved, not activated. The bytes are the file's own, so the
+    // tree looks exactly as it did -- but the next build of this tree takes
+    // the store's active view, which hashes the saved object's active copy
+    // under the inactive mark, and names another generation for it. A later
+    // suite that builds (the child host test/odata-v4.mjs starts) then moves
+    // the live link to that generation, and the isolation detector reports a
+    // generation change in a file that wrote nothing (CI 42645748220, shard
+    // 3: live ca39e8cbd30e6393 -> 541dddba055d366a over this save).
+    // Finishing the workflow is the repair: an activation of the same bytes
+    // publishes the tree's own generation again and clears the mark, so a
+    // save made through this screen costs the next builder nothing.
+    const source = readFileSync(FILE, "utf8");
+    const page = await (await post({type: "CLAS", name: OBJECT, do: "activate", change: "x", src: source})).text();
+    expect(page, "the screen says what it did").to.contain("activated, and the system still compiles");
+    expect(readFileSync(FILE, "utf8"), "and the file is still what it was").to.equal(source);
+    const {ObjectStore} = await import("../tools/osd-store.mjs");
+    expect(new ObjectStore({root: process.cwd()}).inactiveObjects(),
+      "nothing stays saved and not activated in this tree").to.deep.equal([]);
   });
 
   it("shows the source coloured by the keyword list, and the text is the text", async () => {

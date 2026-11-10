@@ -26,7 +26,9 @@ INTERFACE zif_osd_rap_bo PUBLIC.
 
 * a determination (D), validation (V) or action (A) and when it runs. ON is
 * M (on modify) or S (on save); the triggers are the create and update
-* operations and the CDS names in FIELDS. METHOD is the pool's method.
+* operations and the CDS names in FIELDS. METHOD is the pool's method;
+* ENTITIES is set when it takes the instances as a table it changes in
+* place (the explicit form), and not when it uses EML (the system's form).
   TYPES:
     BEGIN OF ty_callable,
       kind      TYPE ty_flag,
@@ -36,6 +38,7 @@ INTERFACE zif_osd_rap_bo PUBLIC.
       on_update TYPE abap_bool,
       fields    TYPE string_table,
       method    TYPE string,
+      entities  TYPE abap_bool,
     END OF ty_callable,
     tt_callable TYPE STANDARD TABLE OF ty_callable WITH DEFAULT KEY.
 
@@ -86,6 +89,18 @@ INTERFACE zif_osd_rap_bo PUBLIC.
       iv_action        TYPE csequence
     RETURNING
       VALUE(rr_result) TYPE REF TO data.
+
+* an empty derived table of the entity, for a caller that only knows the
+* model (the OData bridge of this package): IV_KIND is CREATE, UPDATE,
+* DELETE, ACTION IMPORT or ACTION RESULT, the last two of action IV_ACTION.
+* Unbound when the BDEF does not declare it.
+  METHODS new_table
+    IMPORTING
+      iv_entity       TYPE csequence
+      iv_kind         TYPE csequence
+      iv_action       TYPE csequence OPTIONAL
+    RETURNING
+      VALUE(rr_table) TYPE REF TO data.
 
 * an empty response structure: MAPPED, FAILED or REPORTED (EARLY)
   METHODS new_response

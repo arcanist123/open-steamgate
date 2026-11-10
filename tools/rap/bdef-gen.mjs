@@ -8,7 +8,8 @@ import {parseDDLS} from "../cds2ddic.mjs";
 import {contentFoldersOf, winningByLayer} from "../osd-packs.mjs";
 import {libraryPath} from "../osd-lib-path.mjs";
 import {runsAs} from "../osd-main.mjs";
-import {runtimeOutputs} from "./rap-runtime-gen.mjs";
+import {fieldControl, runtimeOutputs} from "./rap-runtime-gen.mjs";
+import {parseSrvd, serviceYaml} from "./srvd-gen.mjs";
 
 const upper = s => s.toUpperCase();
 const ident = s => /^[A-Z_%][A-Z0-9_%]*$/i.test(s);
@@ -29,7 +30,8 @@ const included = (name, type, group, fields = []) => `  TYPES BEGIN OF ${name}.\
 /** Input files are already selected by content layer, never test/ or libraries' BDEFs. */
 export function generate(files, dependencies = []) {
   const bdefs = files.filter(f => f.filename.endsWith(".bdef.asbdef"));
-  if (!bdefs.length) return {outputs: {}, bindings: {}};
+  const srvds = files.filter(f => f.filename.endsWith(".srvd.srvdsrv"));
+  if (!bdefs.length && !srvds.length) return {outputs: {}, bindings: {}};
   const reg = new core.Registry(new core.Config(JSON.stringify({global: {files: "/**/*.*"}, syntax: {version: "open-abap", errorNamespace: "."}, rules: {}})));
   const ddic = f => /\.(ddls\.(asddls|xml)|tabl\.xml|view\.xml|dtel\.xml|doma\.xml)$/.test(f.filename);
   reg.addFiles(files.filter(ddic).map(f => new core.MemoryFile(f.filename, f.contents)));
@@ -115,6 +117,11 @@ export function generate(files, dependencies = []) {
       }
       if (opFields.length) body += struct(`${p}_op`, opFields);
       const refs = new Set([entity.entity, `${root}\\${entity.alias ?? entity.entity}`, `${root}\\${entity.entity}`]);
+      // R3: the implicit handler forms name an entity by its alias or CDS name,
+      // resolved against the behavior definition of the pool they are in
+      const pool = upper(entity.implementationClass ?? model.implementationClass ?? "");
+      const local = [...new Set([entity.alias ?? entity.entity, entity.entity])];
+      const poolBind = (kind, ref, type) => { if (pool) bind(`POOL ${pool}`, kind, ref, type); };
       for (const kind of ["CREATE", "UPDATE", "DELETE", "READ IMPORT", "READ RESULT", "MAPPED", "FAILED", "REPORTED", "LOCK", "KEY OF", "DETERMINATION", "VALIDATION"]) {
         if (["CREATE", "UPDATE", "DELETE"].includes(kind) && !entity.operations.some(o => upper(o.kind) === kind)) continue;
         const name = `${p}_${kind.toLowerCase().replaceAll(" ", "_")}`;
@@ -127,6 +134,7 @@ export function generate(files, dependencies = []) {
         if (kind === "REPORTED") extra.push(["%msg", "REF TO object"], ["%element", `${p}_control`], ["%state_area", "c LENGTH 128"], ["%global", "x LENGTH 1"]);
         body += included(name, `${p}_${fullData ? "data" : "tky"}`, fullData ? "%data" : "%tky", extra);
         body += `  TYPES t_${name} TYPE STANDARD TABLE OF ${name} WITH DEFAULT KEY.\n`;
+        for (const ref of local) poolBind(kind, ref, `${iface}=>t_${name}`);
         for (const ref of refs) {
           bind("TABLE", kind, ref, `${iface}=>t_${name}`);
           bind("STRUCTURE", kind, ref, `${iface}=>${name}`);
@@ -157,6 +165,7 @@ export function generate(files, dependencies = []) {
           body += included(name, `${p}_tky`, "%tky", extra);
           body += `  TYPES t_${name} TYPE STANDARD TABLE OF ${name} WITH DEFAULT KEY.\n`;
           for (const ref of refs) for (const form of ["TABLE", "STRUCTURE"]) bind(form, `ACTION ${kind}`, `${ref}~${action.name}`, `${iface}=>${form === "TABLE" ? "t_" : ""}${name}`);
+          for (const ref of local) poolBind(`ACTION ${kind}`, `${ref}~${action.name}`, `${iface}=>t_${name}`);
         }
       }
     }
@@ -165,8 +174,29 @@ export function generate(files, dependencies = []) {
       const name = `r_${kind.toLowerCase()}`;
       body += struct(name, fields);
       for (const phase of ["", " EARLY"]) bind("RESPONSE", kind + phase, root, `${iface}=>${name}`);
+      for (const pool of new Set([model.implementationClass, ...model.entities.map(e => e.implementationClass)].filter(Boolean).map(upper))) {
+        bind(`POOL ${pool}`, "RESPONSE", kind, `${iface}=>${name}`);
+      }
     }
     outputs[`${iface}.intf.abap`] = body + "ENDINTERFACE.\n";
+  }
+  // R2c: a service definition becomes a stg-compile model in gen/rap/
+  const entityOf = name => {
+    const view = views.get(upper(name));
+    if (!view || view.skip) throw new Error(`Unresolved CDS entity ${name}${view?.skip ? `: ${view.skip}` : ""}`);
+    const fields = fieldsOf(name);
+    const owner = plans.flatMap(p => p.entities.map(e => ({p, e}))).find(({e}) => upper(e.entity.entity) === upper(name));
+    if (!owner) return {view, fields};
+    const {entity} = owner.e;
+    const has = op => entity.operations.some(o => o.kind === op && !o.use);
+    return {view, fields, behavior: {create: has("create"), update: has("update"), delete: has("delete"),
+      control: fieldControl(entity, fields), actions: entity.actions.map(a => a.name)}};
+  };
+  for (const file of srvds) {
+    const srvd = parseSrvd(file.contents, file.filename);
+    const stem = basename(file.filename).replace(/\.srvd\.srvdsrv$/, "");
+    if (upper(stem) !== srvd.name) throw new Error(`${file.filename}: defines ${srvd.name}`);
+    outputs[`${stem.toLowerCase()}.stg.yaml`] = serviceYaml(srvd, entityOf, file.filename);
   }
   return {outputs, bindings, plans};
 }
@@ -174,10 +204,10 @@ export function generate(files, dependencies = []) {
 export function main() {
   const root = process.env.OSD_ROOT ?? process.cwd();
   const paths = winningByLayer(contentFoldersOf(root).map(f => resolve(root, f)), walk, f => basename(f).toLowerCase());
-  const files = paths.filter(f => /\.(bdef\.asbdef|ddls\.(asddls|xml)|tabl\.xml|view\.xml|dtel\.xml|doma\.xml)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
+  const files = paths.filter(f => /\.(bdef\.asbdef|srvd\.srvdsrv|ddls\.(asddls|xml)|tabl\.xml|view\.xml|dtel\.xml|doma\.xml)$/.test(f)).map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
   const out = join(root, "gen/rap");
   // No dependencies or output when there are no BDEFs; remove stale generated types.
-  if (!files.some(f => f.filename.endsWith(".bdef.asbdef"))) { rmSync(out, {recursive: true, force: true}); return; }
+  if (!files.some(f => f.filename.endsWith(".bdef.asbdef") || f.filename.endsWith(".srvd.srvdsrv"))) { rmSync(out, {recursive: true, force: true}); return; }
   const deps = [];
   for (const name of ["open-abap-core", "open-abap-odata"]) {
     const dir = join(libraryPath(root, name), "src");
@@ -185,14 +215,14 @@ export function main() {
   }
   const {outputs, bindings, plans} = generate(files, deps);
   // the runtime adapters read the behavior pools named by the BDEFs (R2)
-  const pools = new Set(plans.map(p => (p.model.implementationClass ?? "").toLowerCase()).filter(Boolean));
+  const pools = new Set((plans ?? []).map(p => (p.model.implementationClass ?? "").toLowerCase()).filter(Boolean));
   const poolFiles = paths.filter(f => pools.has(basename(f).toLowerCase().split(".")[0]) && /\.clas\.(locals_imp\.|locals_def\.)?abap$/i.test(f))
     .map(f => ({filename: basename(f), contents: readFileSync(f, "utf8")}));
-  Object.assign(outputs, runtimeOutputs(plans, poolFiles));
+  Object.assign(outputs, runtimeOutputs(plans ?? [], poolFiles));
   mkdirSync(out, {recursive: true});
   outputs["bindings.json"] = JSON.stringify(bindings, null, 2) + "\n";
   for (const file of readdirSync(out)) if (!(file in outputs)) rmSync(join(out, file), {recursive: true, force: true});
   for (const [file, contents] of Object.entries(outputs)) writeFileSync(join(out, file), contents);
-  console.log(`bdef-gen: ${Object.keys(outputs).filter(f => f.endsWith(".intf.abap")).length} type interfaces, ${Object.keys(outputs).filter(f => f.endsWith(".clas.abap")).length} runtime classes`);
+  console.log(`bdef-gen: ${Object.keys(outputs).filter(f => f.endsWith(".intf.abap")).length} type interfaces, ${Object.keys(outputs).filter(f => f.endsWith(".clas.abap")).length} runtime classes, ${Object.keys(outputs).filter(f => f.endsWith(".stg.yaml")).length} service definitions`);
 }
 if (runsAs("bdef-gen.mjs")) main();

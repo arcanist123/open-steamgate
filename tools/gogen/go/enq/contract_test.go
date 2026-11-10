@@ -55,7 +55,7 @@ type event struct {
 
 type harness struct {
 	t       *testing.T
-	srv     *Server
+	srv     Locks
 	c       *contract
 	owners  map[string]int64
 	updated map[string]bool
@@ -333,6 +333,19 @@ func show(rows []Row) string {
 }
 
 func TestContract(t *testing.T) {
+	runContract(t, func(t *testing.T) Locks {
+		srv := New("osdhost_OSD_00")
+		t.Cleanup(srv.Close)
+		return srv
+	})
+}
+
+// RunContract runs every case against the table open gives -- exported
+// for the external test that runs them over the E3 socket (go/enqnet), which
+// imports this package and so cannot live inside it.
+func RunContract(t *testing.T, open func(*testing.T) Locks) { runContract(t, open) }
+
+func runContract(t *testing.T, open func(*testing.T) Locks) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "test", "fixtures", "enq", "contract.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -346,9 +359,7 @@ func TestContract(t *testing.T) {
 	}
 	for _, tc := range c.Cases {
 		t.Run(tc.ID, func(t *testing.T) {
-			srv := New("osdhost_OSD_00")
-			defer srv.Close()
-			h := &harness{t: t, srv: srv, c: &c, owners: map[string]int64{}, updated: map[string]bool{}, ended: map[string]string{}, renewed: map[string]bool{}, duration: map[string]int{}}
+			h := &harness{t: t, srv: open(t), c: &c, owners: map[string]int64{}, updated: map[string]bool{}, ended: map[string]string{}, renewed: map[string]bool{}, duration: map[string]int{}}
 			for i, st := range tc.Steps {
 				delay := -1
 				if st.Async != nil {
