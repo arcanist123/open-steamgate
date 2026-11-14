@@ -1562,6 +1562,27 @@ ENDCLASS.`,
     `ENDCLASS.`,
     ``,
   ].join("\n");
+  // the lift fixture (M3 B5.1): a method that calls the far class -- a
+  // code-kind miss, stubbed and deferred while the class is absent, whole
+  // again once a dump brings it (MID's superclass ask brings it)
+  const CLAS_LIFT_SOURCE = [
+    `CLASS zcl_h5c_lift DEFINITION PUBLIC FINAL CREATE PUBLIC.`,
+    `  PUBLIC SECTION.`,
+    `    METHODS keep_it.`,
+    `    METHODS call_far.`,
+    `ENDCLASS.`,
+    `CLASS zcl_h5c_lift IMPLEMENTATION.`,
+    `  METHOD keep_it.`,
+    `    RETURN.`,
+    `  ENDMETHOD.`,
+    `  METHOD call_far.`,
+    `    DATA lo_far TYPE REF TO zcl_h5c_far.`,
+    `    CREATE OBJECT lo_far.`,
+    `    lo_far->far_it( ).`,
+    `  ENDMETHOD.`,
+    `ENDCLASS.`,
+    ``,
+  ].join("\n");
   const CLAS_OTHER_SOURCE = [
     `CLASS zcl_h5c_other DEFINITION PUBLIC FINAL CREATE PUBLIC.`,
     `  PUBLIC SECTION.`,
@@ -3539,6 +3560,65 @@ process.exit(0);
     }
   });
 
+  it("M3 B5.1: a stub is lifted when its missing class arrives -- fresh and resumed walks end on the same stub set", async function () {
+    this.timeout(600000);
+    // the bed's fresh-vs-resumed split in miniature (fresh 111, resumed 37
+    // over the same island): iteration 1 stubs CALL_FAR (ZCL_H5C_FAR is
+    // absent, a code-kind miss, deferred); MID's superclass ask brings
+    // FAR with dump 2, the re-laid island compiles whole, and the stub of
+    // iteration 1 must be gone from the record, the line and the summary
+    const setUp = () => {
+      const root = scratch(CLAS_LIFT_SOURCE, "zcl_h5c_lift",
+        {island2Name: "zcl_h5c_mid.clas.abap", island2Source: CLAS_MID_SOURCE});
+      fixtureDump(join(root, "dump-001"));
+      writeFileSync(join(root, "island", "zcl_h5c_far.clas.abap"), CLAS_FAR_SOURCE);
+      const env = writeFakes(root, envFor(root, {island: "zcl_h5c_lift.clas.abap",
+        island2Name: "zcl_h5c_mid.clas.abap", convBFiles: ["zcl_h5c_far.clas.abap"]}));
+      return {root, env};
+    };
+    const stubSet = (root) => JSON.parse(readFileSync(outFile(root, "closure-stubs.json"), "utf8")).stubs
+      .map((s) => `${s.object}|${s.class}|${s.method}`).sort();
+    const fresh = setUp();
+    const capped = setUp();
+    try {
+      // fresh: one process, both iterations
+      const said = [];
+      const result = await run(["--dump", join(fresh.root, "dump-001"), "--system", "h5c", "--stub-unresolved"],
+        {root: fresh.root, env: fresh.env, say: (m) => said.push(m)});
+      expect(result.stopped).to.equal("fixed-point");
+      expect(result.iteration).to.equal(2);
+      const lines = said.filter((l) => /^iteration /.test(l));
+      expect(lines[0], "iteration 1 stubs the call").to.match(/ 1 stubbed method\(s\), 0 lifted,/);
+      expect(lines[1], "iteration 2 lifts it").to.match(/ 0 stubbed method\(s\), 1 lifted,/);
+      expect(said).to.include("lifted: ZCL_H5C_LIFT=>CALL_FAR (ZCL_H5C_LIFT) -- its reason no longer holds, the body is back");
+      expect(stubSet(fresh.root), "the stub of iteration 1 is gone").to.deep.equal([]);
+      expect(readFileSync(join(fresh.root, "gen", "hana-src", "000-h5c-main", "src", "zcl_h5c_lift.clas.abap"), "utf8"),
+        "the pristine body is back").to.equal(CLAS_LIFT_SOURCE);
+      const summary = JSON.parse(readFileSync(outFile(fresh.root, "closure-summary.json"), "utf8"));
+      expect(summary).to.include({stubs_unique: 0, lifted: 1, iterations: 2});
+      expect(summary.lifted_stubs).to.deep.equal([{class: "ZCL_H5C_LIFT", method: "CALL_FAR"}]);
+
+      // resumed: the cap stops after iteration 1 with the stub on disk, the
+      // next process picks the pending round up and lifts it the same way
+      const first = await run(["--dump", join(capped.root, "dump-001"), "--system", "h5c", "--stub-unresolved",
+        "--max-iterations", "0"], {root: capped.root, env: capped.env, say: () => {}});
+      expect(first.stopped).to.equal("cap");
+      expect(stubSet(capped.root), "iteration 1 recorded the stub").to.deep.equal(["ZCL_H5C_LIFT|ZCL_H5C_LIFT|CALL_FAR"]);
+      const resumed = await run(["--system", "h5c", "--stub-unresolved"], {root: capped.root, env: capped.env, say: () => {}});
+      expect(resumed.stopped).to.equal("fixed-point");
+      expect(stubSet(capped.root), "fresh and resumed agree").to.deep.equal(stubSet(fresh.root));
+      const resumedSummary = JSON.parse(readFileSync(outFile(capped.root, "closure-summary.json"), "utf8"));
+      expect(resumedSummary).to.include({stubs_unique: 0, lifted: 1});
+
+      // and a run resumed over the finished walk changes nothing
+      await run(["--system", "h5c", "--stub-unresolved"], {root: fresh.root, env: fresh.env, say: () => {}});
+      expect(stubSet(fresh.root)).to.deep.equal(stubSet(capped.root));
+    } finally {
+      rmSync(fresh.root, {recursive: true, force: true});
+      rmSync(capped.root, {recursive: true, force: true});
+    }
+  });
+
   it("H5x-4 B1: --require-unstubbed fails the fixed point on a stubbed seed method, after writing the summary", async function () {
     this.timeout(300000);
     const root = scratch(SVC_DPC_EXT_SOURCE, "zcl_h5c_svc_dpc_ext", {island2Name: "zcl_h5c_svc_dpc.clas.abap", island2Source: SVC_DPC_SOURCE});
@@ -3851,14 +3931,16 @@ process.exit(0);
         "the hold released at the blocked decision").to.equal(true);
       // the stub landed in iteration 2; iteration 3's merge lays the layer
       // sources again (the wipe-and-restub cycle every iteration runs) and
-      // the file is then EXCLUDED -- its plans are moot, the stub record is
-      // what carries it
+      // the file is then EXCLUDED -- its plans are moot, and since M3 B5.1
+      // the record is the current iteration's: an excluded object has no
+      // stub in it, and its iteration-2 stub is gone, not lifted
       const heldFile = readFileSync(join(root, "gen", "hana-src", "000-h5c-main", "src", "zcl_h5c_held.clas.abap"), "utf8");
       expect(heldFile, "the excluded file stands as its layer wrote it").to.equal(H5X2_HELD);
       const record = JSON.parse(readFileSync(outFile(root, "closure-stubs.json"), "utf8"));
       expect(record.roots.map((e) => e.object).sort(), "both roots excluded once the dumper answered").to.deep.equal(
         ["ZCL_H5C_BLOCK", "ZCL_H5C_HELD"]);
-      expect(record.stubs.some((s) => s.object === "ZCL_H5C_HELD" && s.method === "RUN_IT")).to.equal(true);
+      expect(record.stubs.some((s) => s.object === "ZCL_H5C_HELD"), "an excluded object carries no stub").to.equal(false);
+      expect(said.some((l) => l.startsWith("lifted: ")), "an exclusion is not a lift").to.equal(false);
     } finally {
       rmSync(root, {recursive: true, force: true});
     }

@@ -10,11 +10,13 @@
 // object, class and method: the latest round's finding wins, `rounds` counts
 // how often the method was stubbed, and every reader -- the
 // closure-stubs.json `stubs` section, the iteration line, the summary --
-// reads the unique pairs.
+// reads the unique pairs. Since M3 B5.1 the record is the CURRENT
+// iteration's (see "A stub exists only while its reason holds NOW" below).
 //
 // The summary (gen/hana-closure/closure-summary.json, written at the fixed
-// point): {fixed_point, iterations, island_objects, stubs_unique, excluded,
-// gaps, seed: {classes, stubbed_methods}, failures}. It is the false-green
+// point): {fixed_point, iterations, island_objects, stubs_unique, lifted,
+// lifted_stubs, excluded, gaps, seed: {classes, stubbed_methods},
+// failures}. It is the false-green
 // guard of the brief: a green transpile proves nothing when the service's
 // own classes were excluded or their reads stubbed away, so the run FAILS
 // (after writing the summary) when
@@ -68,17 +70,63 @@ export function has(args, flag) {
 const stubKey = (r) => `${r.object ?? ""}|${r.class ?? ""}|${String(r.method ?? "").toUpperCase()}`;
 
 /** one applied stub into the walk's record: a (class, method) already there
- *  takes the latest round's fields and counts one more round. Mutates and
- *  returns `record` (a Map). */
-export function recordStub(record, stub) {
+ *  takes the latest round's fields and counts one more round. `previous`
+ *  -- the record of the iteration before, when the record is rebuilt per
+ *  iteration -- only carries the round count over. Mutates and returns
+ *  `record` (a Map). */
+export function recordStub(record, stub, previous = undefined) {
   const key = stubKey(stub);
-  const before = record.get(key);
+  const before = record.get(key) ?? previous?.get(key);
   record.set(key, {...stub, rounds: (before?.rounds ?? 0) + 1});
   return record;
 }
 
 /** the record's unique entries, in first-stubbed order. Pure. */
 export const stubList = (record) => [...record.values()];
+
+// A stub exists only while its reason holds NOW (M3 B5.1, the bed's fresh
+// run: 111 unique stubs against 37 for the same island resumed). Every
+// iteration re-lays gen/hana-src pristine from the layers and its stub
+// rounds cut again whatever its findings still name, so the source was
+// never wrong -- the RECORD was: one Map for the whole walk, never pruned,
+// kept the stub of a method whose missing class arrived a dump later. The
+// record is now the current iteration's stubs; an entry of the iteration
+// before that this one did not cut again is LIFTED: its body is back and
+// its record goes. A resumed run starts from the record on disk, so it
+// lifts the same way a fresh run does, and both end on the same set.
+// Within one iteration the record still accumulates over the stub rounds
+// (H5x-2: a later round's decision must not drop an earlier round's stubs,
+// which stay in the source until the next re-lay).
+
+/** the record on disk as the iteration before a resumed run's first: the
+ *  `stubs` section of closure-stubs.json keyed like the walk's own. */
+export function loadStubRecord(out) {
+  const record = new Map();
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(join(out, "closure-stubs.json"), "utf8"));
+  } catch {
+    return record;
+  }
+  for (const stub of Array.isArray(parsed?.stubs) === true ? parsed.stubs : []) record.set(stubKey(stub), stub);
+  return record;
+}
+
+/** the entries of `previous` that `current` does not hold: the lifted
+ *  stubs, as {object, class, method}. An object `excluded` from this
+ *  iteration's build has no body back -- its stubs are gone, not lifted.
+ *  Pure. */
+export const liftedStubs = (previous, current, excluded = new Set()) => [...previous.entries()]
+  .filter(([key, s]) => current.has(key) === false && excluded.has(String(s.object ?? "").toUpperCase()) === false)
+  .map(([, s]) => ({object: s.object, class: s.class, method: String(s.method ?? "").toUpperCase()}));
+
+/** the run's lifted set, kept across its iterations: a lift is added, a
+ *  method stubbed again leaves it. Mutates and returns `lifted` (a Map). */
+export function trackLifted(lifted, previous, current, excluded = new Set()) {
+  for (const s of liftedStubs(previous, current, excluded)) lifted.set(stubKey(s), s);
+  for (const key of current.keys()) lifted.delete(key);
+  return lifted;
+}
 
 // ------------------------------------------------------------- summary ----
 
@@ -98,8 +146,10 @@ export function unstubbedGlob(glob) {
  *  name is checked only for exclusion; absent, the _EXT's own superclass
  *  ask covers it); `present(name)` -- an island object by file;
  *  `excluded` -- the excluded objects; `stubs` -- the unique stub list;
- *  `gaps` -- [{name, kind}]; `requireUnstubbed` -- the globs. Pure. */
-export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, gaps, requireUnstubbed = []}) {
+ *  `lifted` -- the stubs this run lifted ({object, class, method}, see
+ *  trackLifted); `gaps` -- [{name, kind}]; `requireUnstubbed` -- the
+ *  globs. Pure. */
+export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, lifted = [], gaps, requireUnstubbed = []}) {
   const seedList = [...(seeds ?? [])].map((s) => String(s).toUpperCase()).sort();
   const seedSet = new Set(seedList);
   const excludedList = [...(excluded ?? [])].map((s) => String(s).toUpperCase()).sort();
@@ -127,6 +177,9 @@ export function closureSummary({fixedPoint = true, iterations, islandObjects, se
     iterations,
     island_objects: islandObjects,
     stubs_unique: (stubs ?? []).length,
+    lifted: [...lifted].length,
+    lifted_stubs: [...lifted].map((s) => ({class: String(s.object ?? s.class).toUpperCase(), method: String(s.method).toUpperCase()}))
+      .sort((a, b) => (a.class + "|" + a.method < b.class + "|" + b.method ? -1 : 1)),
     excluded: excludedList,
     gaps: (gaps ?? []).map((g) => ({name: g.name, kind: g.kind})),
     seed: {classes: seedList, stubbed_methods: seedStubs},

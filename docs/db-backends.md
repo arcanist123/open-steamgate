@@ -1298,9 +1298,18 @@ object is never excluded: the walk's own seed classes, above.
 
 Every fixed point writes `closure-summary.json` beside the record
 (`tools/hana-closure-report.mjs`, H5x-4 B1): `{fixed_point, iterations,
-island_objects, stubs_unique, excluded, gaps, seed: {classes,
-stubbed_methods}, failures}` — the machine-readable answer to "does the
-island carry the service". It is the false-green guard: a green control
+island_objects, stubs_unique, lifted, lifted_stubs, excluded, gaps, seed:
+{classes, stubbed_methods}, failures}` — the machine-readable answer to
+"does the island carry the service". The stub record is the CURRENT
+iteration's (M3 B5.1): every iteration re-lays the island pristine and
+cuts only what its findings still name, so a stub of an earlier iteration
+whose missing name has since arrived is **lifted** — its record goes, the
+iteration line says `N lifted` and the summary lists it. Before, one record
+for the whole walk kept every stub ever cut: on the bed a fresh walk
+reported 111 unique stubs and the same island resumed 37. A resumed run
+starts from the record on disk, so fresh and resumed walks end on the
+same set; an object excluded in the meantime has no stub and is not
+counted as lifted. It is the false-green guard: a green control
 build proves nothing when the service's own classes were excluded or their
 reads stubbed away, so the run exits non-zero, the summary on disk, when a
 seed class (the guard's set above) is excluded, when one a registration or
