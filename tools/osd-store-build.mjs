@@ -82,7 +82,9 @@ export async function transpileStore(store, options, activating, built) {
         try {
           // Generators may have rewritten gen/ during cold compilation.
           if (updated.hash !== r.hash) throw new Error("inputs moved after cold publication");
-          await warmOperation(store, () => w.compiler.update(activating, updated));
+          // sized like a prime, and a timeout drops the registry to be primed
+          // again rather than turning warm off (osd-store-warm.mjs)
+          await warmOperation(store, () => w.compiler.update(activating, updated), {kind: "update", files: updated.digests?.length ?? 0});
         } catch (error) {
           if (error.code !== "NOT_WARM") console.log(`warm: re-prime: ${error.message}`);
           await w.compiler.drop();

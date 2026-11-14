@@ -1,6 +1,6 @@
 # Where the demo's time goes
 
-Current build pin: `local/osd-build-4i` at `28b6944ed3839afeb70f24ba9c3fb25075f72933` (`local/osd-build-4f` plus interface constants from other constants and two critic rounds, ANORMALIES `intf-const-from-const`, and class constructors whose targets load first, without an import cycle and in dependency order, ANORMALIES `cctor-load-order`; 4f = `local/osd-build-4e` plus the `[]` suffix fix and the class-pool load order, ANORMALIES `table-body-suffix-js` and `local-inherits-owner`; `local/osd-build-4c` plus the two SELECT loop commits below it; upstream main `8824945a` after 2.14.19, parser 2.120.94; [transpiler-pin-4.md](transpiler-pin-4.md)).
+Current build pin: `local/osd-build-4j` at `28a3c53a188b6978d4355c881103887069f18123` (`local/osd-build-4f` plus interface constants from other constants and two critic rounds, ANORMALIES `intf-const-from-const`, and class constructors whose targets load first, without an import cycle, in dependency order, wait-cycles said at load, ANORMALIES `cctor-load-order`; 4f = `local/osd-build-4e` plus the `[]` suffix fix and the class-pool load order, ANORMALIES `table-body-suffix-js` and `local-inherits-owner`; `local/osd-build-4c` plus the two SELECT loop commits below it; upstream main `8824945a` after 2.14.19, parser 2.120.94; [transpiler-pin-4.md](transpiler-pin-4.md)).
 The measurements below are historical snapshots; see [the pin move report](transpiler-pin-2.md).
 
 *Backlog E.7, measured 2026-09-17. A 16-core x86-64 workstation, Node 26,
