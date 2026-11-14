@@ -15,6 +15,11 @@ CLASS zcx_osd_not_activated DEFINITION PUBLIC INHERITING FROM cx_no_check FINAL 
         previous LIKE previous OPTIONAL
         missing  TYPE string DEFAULT ''.
     METHODS if_message~get_text REDEFINITION.
+* The signal alone, without the raise: a stubbed CLASS_CONSTRUCTOR calls
+* this. A class constructor runs when its module loads, and a raise there
+* would stop the whole generation from loading -- on a system it is a dump
+* on first use of the class, never a reason the system does not start.
+    CLASS-METHODS signal IMPORTING missing TYPE string.
 ENDCLASS.
 
 CLASS zcx_osd_not_activated IMPLEMENTATION.
@@ -28,6 +33,10 @@ CLASS zcx_osd_not_activated IMPLEMENTATION.
 * the exception. A handler the host installed on globalThis.osdNotActivated
 * receives the names; without one the console says what is missing. Form 2
 * (OSD_LAZY, later) will turn the handler into a JS throw of its own.
+    signal( missing ).
+  ENDMETHOD.
+
+  METHOD signal.
     WRITE '@KERNEL if (globalThis.osdNotActivated === undefined) { console.error("not activated: " + missing.get()); } else { globalThis.osdNotActivated(missing.get()); }'.
   ENDMETHOD.
 

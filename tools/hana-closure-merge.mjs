@@ -219,6 +219,25 @@ export function buildCheck({root, env, say}) {
   return buildVerdict(child.status === null ? -1 : child.status, [child.stdout, child.stderr].filter(Boolean).join("\n"));
 }
 
+/** whether the generation the positive control just built LOADS (B6): a
+ *  build can be green and its init.mjs still not import -- a class
+ *  constructor that raises, an import cycle -- and the island was reported
+ *  "builds" twice while it could not start. Runs
+ *  tools/osd-generation-check.mjs --json over output/ through toolCommandIn.
+ *  Returns {loads, error}. */
+export function loadCheckOf({root, env, say}) {
+  const [command, ...argv] = toolCommandIn(env, join(TOOLS, "osd-generation-check.mjs"), ["output", "--json"]);
+  say("load: osd-generation-check.mjs (does the built generation import)");
+  const child = spawnSync(command, argv, {cwd: root, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024});
+  const line = String(child.stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => l.startsWith("{")).at(-1);
+  if (line === undefined) {
+    const tail = String(child.stderr ?? "").trim().split("\n").at(-1) ?? "";
+    return {loads: false, error: `the load check gave no verdict (exit ${child.status}): ${tail}`};
+  }
+  const verdict = JSON.parse(line);
+  return verdict.loads === true ? {loads: true} : {loads: false, error: verdict.load_error ?? `exit ${child.status}`};
+}
+
 // ------------------------------------------------------------ the merge --
 
 // a generator's refusal of one object, H5a's TABCLASS guard speaking

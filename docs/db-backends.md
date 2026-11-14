@@ -1209,6 +1209,35 @@ DDIC name, that name is a gap and the stub records it; a code kind (CLAS,
 INTF, FUGR, PROG) remains deferred as before; `--defer-ddic` keeps the
 round-3 behaviour, every name of a stubbed method lazy.
 
+**The load path (B6, 2026-11-14).** A class constructor runs when its
+module loads: in this runtime every class constructor runs while
+`init.mjs` imports the generation, and on a system the first use of the
+class runs it. A stub raise anywhere on that path stopped the island's
+generation from loading at all. That happened two ways: a stubbed
+CLASS_CONSTRUCTOR, and a constructor calling a stubbed method of its own
+class. So:
+- a CLASS_CONSTRUCTOR is never stubbed with a raise. Its stub body is
+  `zcx_osd_not_activated=>signal( '<names>' ).`, the constructor's kernel
+  signal without the exception. The miss is recorded, and the load goes on;
+- `constructorPaths` (`tools/hana-closure-stubs.mjs`) reads which methods
+  of the same class a constructor reaches, transitively, from abaplint's
+  MethodName expressions. A method on that path holds its body while any
+  name it waits for is pending, and that name is asked **eagerly, code
+  kinds included**: the dumper may still bring what the constructor needs;
+- once nothing on the path is pending, a stub raise there, applied now or
+  already in the source from an earlier round, makes the constructor itself
+  the signal stub. It carries the names the path waits for, and the callee
+  keeps its raise for a call at run time.
+A call into another class is not followed. The fixed point's own load
+check catches what this rule misses: after the positive-control build,
+`tools/osd-generation-check.mjs output --json` runs through the host, and
+`closure-summary.json` says `loads: true|false` with `load_error`, the
+first thing that stopped the import. A green build whose generation does
+not load fails the fixed point; a build that did not complete says so
+itself and adds no second failure. The option that was not taken, stubs
+that raise only outside class construction, would need the runtime to know
+it is constructing a class.
+
 Before anything is requested, the island is checked by file name —
 abapGit naming, `/` to `#`, lower case; the XML present for the DDIC
 kinds — and a name whose object the island already holds is never

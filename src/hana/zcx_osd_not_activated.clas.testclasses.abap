@@ -13,6 +13,7 @@ CLASS ltcl_lazy DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
     METHODS handler_receives_the_names FOR TESTING RAISING cx_static_check.
     METHODS handler_fires_even_when_caught FOR TESTING RAISING cx_static_check.
     METHODS without_a_handler_it_logs FOR TESTING RAISING cx_static_check.
+    METHODS signal_alone_does_not_raise FOR TESTING RAISING cx_static_check.
 ENDCLASS.
 
 CLASS ltcl_lazy IMPLEMENTATION.
@@ -94,6 +95,18 @@ CLASS ltcl_lazy IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals(
       act = lv_logged
       exp = 'not activated: ZOSD_H5C_W' ).
+  ENDMETHOD.
+
+  METHOD signal_alone_does_not_raise.
+    DATA lv_seen TYPE string.
+    CLEAR lv_seen.
+* what a stubbed CLASS_CONSTRUCTOR calls: the host gets the names, and the
+* caller goes on -- nothing is raised at load
+    WRITE '@KERNEL globalThis.osdNotActivated = (m) => { globalThis.h5cSeen = m; };'.
+    zcx_osd_not_activated=>signal( 'ZOSD_H5C_CCTOR' ).
+    WRITE '@KERNEL lv_seen.set(globalThis.h5cSeen === undefined ? "<unset>" : globalThis.h5cSeen);'.
+    WRITE '@KERNEL delete globalThis.osdNotActivated; delete globalThis.h5cSeen;'.
+    cl_abap_unit_assert=>assert_equals( act = lv_seen exp = 'ZOSD_H5C_CCTOR' ).
   ENDMETHOD.
 
 ENDCLASS.

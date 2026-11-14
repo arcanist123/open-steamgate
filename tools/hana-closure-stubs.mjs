@@ -107,6 +107,59 @@ export function methodBlocks(source, filename = "zcl_stub.clas.abap") {
   return blocks;
 }
 
+/** the class-constructor paths of one class file (B6): per class, the
+ *  methods its CLASS_CONSTRUCTOR reaches through calls of the same class
+ *  (transitively, the constructor included), the stub raise text of every
+ *  method whose body already is a stub raise, and whether the constructor
+ *  already is the signal stub. A class constructor runs when its module
+ *  loads -- in this runtime and, as the first use of the class, on a system
+ *  -- so a raise anywhere on that path stops the generation from loading.
+ *  Calls are read off abaplint's MethodName expressions; a call into
+ *  another class is not followed (the load check in the summary catches
+ *  one). Pure. */
+export function constructorPaths(source, filename = "zcl_stub.clas.abap") {
+  const reg = new abaplint.Registry().addFile(new abaplint.MemoryFile(filename, source)).parse();
+  const calls = new Map();
+  const raised = new Map();
+  const signalled = new Set();
+  for (const file of reg.getFirstObject()?.getABAPFiles() ?? []) {
+    let impl = "";
+    let method;
+    for (const st of file.getStatements()) {
+      const kind = st.get().constructor.name;
+      if (kind === "ClassImplementation") impl = String(st.getTokens()[1]?.getStr() ?? "").toUpperCase();
+      else if (kind === "MethodImplementation") method = String(st.getTokens()[1]?.getStr() ?? "").toUpperCase();
+      else if (kind === "EndMethod") method = undefined;
+      else if (method !== undefined) {
+        const key = `${impl}|${method}`;
+        const list = calls.get(key) ?? new Set();
+        for (const m of st.findAllExpressions(abaplint.Expressions.MethodName)) list.add(m.getFirstToken().getStr().toUpperCase());
+        calls.set(key, list);
+        const tokens = st.getTokens().map((t) => t.getStr().toUpperCase());
+        if (kind === "Raise" && tokens.includes("ZCX_OSD_NOT_ACTIVATED")) {
+          const text = st.getTokens().map((t) => t.getStr()).find((t) => t.startsWith("'"));
+          raised.set(key, text === undefined ? "" : text.slice(1, -1));
+        }
+        if (method === "CLASS_CONSTRUCTOR" && tokens.join(" ").includes("ZCX_OSD_NOT_ACTIVATED => SIGNAL")) signalled.add(impl);
+      }
+    }
+  }
+  const reach = new Map();
+  for (const key of calls.keys()) {
+    const [cls, m] = key.split("|");
+    if (m !== "CLASS_CONSTRUCTOR") continue;
+    const seen = new Set(["CLASS_CONSTRUCTOR"]);
+    const queue = ["CLASS_CONSTRUCTOR"];
+    while (queue.length > 0) {
+      for (const next of calls.get(`${cls}|${queue.shift()}`) ?? []) {
+        if (seen.has(next) === false && calls.has(`${cls}|${next}`)) { seen.add(next); queue.push(next); }
+      }
+    }
+    reach.set(cls, seen);
+  }
+  return {reach, raised, signalled};
+}
+
 // the offsets of one parsed position over the source (the rewrite cuts all
 // work in character offsets)
 const offsetAt = (source, at) => {
@@ -207,7 +260,12 @@ const applyStubs = (source, stubs) => {
   for (const stub of [...stubs].sort((a, b) => offsetAt(source, b.headerEnd) - offsetAt(source, a.headerEnd))) {
     const indent = (/^[ \t]*/.exec(lines[stub.endStart.row - 1] ?? "") ?? [""])[0];
     const text = stub.missing.length > 0 ? stubNamesText(stub.missing) : stub.reason;
-    const body = `\n${indent}  RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = '${text}'.\n${indent}`;
+    // a class constructor runs when its module loads: its stub signals and
+    // returns, it never raises (constructorPaths below)
+    const statement = stub.method === "CLASS_CONSTRUCTOR"
+      ? `zcx_osd_not_activated=>signal( '${text}' ).`
+      : `RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = '${text}'.`;
+    const body = `\n${indent}  ${statement}\n${indent}`;
     const start = offsetAt(source, stub.headerEnd);
     const end = offsetAt(source, stub.endStart);
     out = out.slice(0, start) + body + out.slice(end);
@@ -436,6 +494,12 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
     // definition-level reference
     return {unparseable: true, source, stubs: [], unmatched: findings, eager: [], deferred: [], nameless: [], friendsStripped: []};
   }
+  // the class-constructor paths (B6): what a class constructor reaches runs
+  // at load, so a name it waits for is eager even when it names code, and
+  // once nothing is pending a raise on the path turns the constructor itself
+  // into the signal stub
+  const paths = constructorPaths(work, basename);
+  const onConstructorPath = (block) => paths.reach.get(block.className)?.has(block.method) === true;
   const presentFile = (name, kind) => objectFilePresent(name, kind, islandFiles) === true;
   const pending = (name, kind) => pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects});
   const present = (name, kind) => presentFile(name, kind) === true && excludedObjects.has(name) === false;
@@ -515,6 +579,16 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
     };
     const code = missingKinds.filter((nk) => isCodeKind(nk.kind) === true);
     const ddic = missingKinds.filter((nk) => isCodeKind(nk.kind) === false);
+    if (onConstructorPath(block) === true && missingKinds.some((nk) => pending(nk.name, nk.kind) === true)) {
+      // on a class constructor's path every pending name is asked now, code
+      // kinds included, and the body stays one more round: the dumper may
+      // still bring what the constructor needs at load
+      for (const nk of missingKinds) {
+        if (pending(nk.name, nk.kind) === true) eager.push(forName(nk));
+      }
+      dropped += 1;
+      continue;
+    }
     if (deferDdic === true) {
       // --defer-ddic: round 3's behaviour -- every name of a stubbed
       // method is lazy, even the dictionary's
@@ -560,6 +634,26 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   // (reading 'length')`, first iteration, right after the first build; a
   // single signature stub never even reaches applyStubs' sort comparator,
   // which is why the signature-cut scenario stayed green while the bed died).
+  // a class constructor whose path holds a stub raise -- one applied now or
+  // one already in the source -- becomes the signal stub itself, carrying
+  // the names the path waits for: the miss is recorded, the load goes on
+  for (const [cls, reach] of paths.reach) {
+    if (paths.signalled.has(cls) === true) continue;
+    const ctor = blocks.find((b) => b.className === cls && b.method === "CLASS_CONSTRUCTOR");
+    if (ctor === undefined) continue;
+    const now = [...stubs, ...sigStubs].filter((st) => st.className === cls && reach.has(st.method) === true);
+    if (now.some((st) => st.method === "CLASS_CONSTRUCTOR") === true) continue;
+    const before = [...reach].filter((m) => paths.raised.has(`${cls}|${m}`) === true && now.some((st) => st.method === m) === false);
+    if (now.length === 0 && before.length === 0) continue;
+    const missing = [...new Set(now.flatMap((st) => st.missing))];
+    const texts = [...now.filter((st) => st.missing.length === 0).map((st) => st.reason),
+      ...before.map((m) => paths.raised.get(`${cls}|${m}`))].filter((t) => t !== "");
+    const methods = [...now.map((st) => st.method), ...before].join(", ");
+    stubs.push({...ctor, missing, missingKinds: [], finding: `class constructor reaches stubbed ${methods}`,
+      // the texts are ABAP literal contents already (a stub's reason, a raise
+      // read off the source), quotes doubled: used as they are
+      reason: texts[0] ?? stubReasonText(`class constructor reaches stubbed ${methods}`), constructorPath: true});
+  }
   const allStubs = [...stubs, ...sigStubs];
   let outSource = work;
   if (allStubs.length > 0) outSource = applyStubs(outSource, allStubs);

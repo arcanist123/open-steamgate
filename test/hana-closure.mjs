@@ -537,6 +537,104 @@ describe("hana-closure: the dependency closure, by iteration", () => {
     expect(mixed.eager.map((e) => e.name)).to.deep.equal(["ZOSD_H5C_HEAD"]);
   });
 
+  // ------------------------------------------------ B6: load path ----
+  // A class constructor runs when its module loads: a raise on its path
+  // stopped the HANA island's generation from loading at all (2026-11-14).
+  const CTOR_CLASS = [
+    `CLASS zcl_h5c_ctor DEFINITION PUBLIC FINAL CREATE PUBLIC.`,
+    `  PUBLIC SECTION.`,
+    `    CLASS-METHODS class_constructor.`,
+    `    CLASS-METHODS info.`,
+    `    CLASS-METHODS other.`,
+    `ENDCLASS.`,
+    `CLASS zcl_h5c_ctor IMPLEMENTATION.`,
+    `  METHOD class_constructor.`,
+    `    info( ).`,
+    `  ENDMETHOD.`,
+    `  METHOD info.`,
+    `    DATA lo_far TYPE REF TO zcl_h5c_far.`,
+    `    CREATE OBJECT lo_far.`,
+    `  ENDMETHOD.`,
+    `  METHOD other.`,
+    `    DATA lo_far TYPE REF TO zcl_h5c_far.`,
+    `    CREATE OBJECT lo_far.`,
+    `  ENDMETHOD.`,
+    `ENDCLASS.`,
+    ``,
+  ].join("\n");
+  const ctorFinding = (line) => parseFindings(`check_syntax, Class zcl_h5c_far not found, zcl_h5c_ctor.clas.abap:${line}`);
+
+  it("constructorPaths: what a class constructor reaches in its own class, and the stubs already on it", async () => {
+    const {constructorPaths} = await import("../tools/hana-closure-stubs.mjs");
+    const paths = constructorPaths(CTOR_CLASS, "zcl_h5c_ctor.clas.abap");
+    expect([...paths.reach.get("ZCL_H5C_CTOR")].sort()).to.deep.equal(["CLASS_CONSTRUCTOR", "INFO"]);
+    const stubbed = CTOR_CLASS.replace("    DATA lo_far TYPE REF TO zcl_h5c_far.\n    CREATE OBJECT lo_far.\n  ENDMETHOD.\n  METHOD other.",
+      "    RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = 'ZCL_H5C_FAR'.\n  ENDMETHOD.\n  METHOD other.");
+    expect(constructorPaths(stubbed, "zcl_h5c_ctor.clas.abap").raised.get("ZCL_H5C_CTOR|INFO")).to.equal("ZCL_H5C_FAR");
+  });
+
+  it("planStubPass: a class constructor's path asks its code names eagerly and keeps the body one round", async () => {
+    const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
+    const base = {source: CTOR_CLASS, basename: "zcl_h5c_ctor.clas.abap", islandFiles: new Set(), excludedObjects: new Set()};
+    const pending = planStubPass({...base, findings: ctorFinding(12), asked: () => false, missingOf: () => false});
+    expect(pending.stubs, "the dumper may still bring it").to.deep.equal([]);
+    expect(pending.eager.map((e) => [e.name, e.kind])).to.deep.equal([["ZCL_H5C_FAR", "clas"]]);
+    expect(pending.deferred).to.deep.equal([]);
+    // off the constructor's path the same code name stays lazy, as before
+    const off = planStubPass({...base, findings: ctorFinding(16), asked: () => false, missingOf: () => false});
+    expect(off.stubs.map((st) => st.method)).to.deep.equal(["OTHER"]);
+    expect(off.deferred.map((d) => d.name)).to.deep.equal(["ZCL_H5C_FAR"]);
+    expect(off.eager).to.deep.equal([]);
+  });
+
+  it("planStubPass: once the name is answered missing, the callee raises and the class constructor only signals", async () => {
+    const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
+    const base = {source: CTOR_CLASS, basename: "zcl_h5c_ctor.clas.abap", islandFiles: new Set(), excludedObjects: new Set()};
+    const plan = planStubPass({...base, findings: ctorFinding(12), asked: () => true, missingOf: () => true});
+    expect(plan.stubs.map((st) => st.method).sort()).to.deep.equal(["CLASS_CONSTRUCTOR", "INFO"]);
+    expect(plan.source).to.contain("  METHOD class_constructor.\n    zcx_osd_not_activated=>signal( 'ZCL_H5C_FAR' ).\n  ENDMETHOD.");
+    expect(plan.source).to.contain("  METHOD info.\n    RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = 'ZCL_H5C_FAR'.\n  ENDMETHOD.");
+    // a later round: the callee is already a stub raise in the source, the
+    // constructor is not yet -- it becomes the signal; and once it is, the
+    // pass leaves it alone
+    const calleeOnly = CTOR_CLASS.replace("    DATA lo_far TYPE REF TO zcl_h5c_far.\n    CREATE OBJECT lo_far.\n  ENDMETHOD.\n  METHOD other.",
+      "    RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = 'ZCL_H5C_FAR'.\n  ENDMETHOD.\n  METHOD other.");
+    const later = planStubPass({...base, source: calleeOnly, findings: [], asked: () => true, missingOf: () => true});
+    expect(later.stubs.map((st) => st.method)).to.deep.equal(["CLASS_CONSTRUCTOR"]);
+    expect(later.source).to.contain("zcx_osd_not_activated=>signal( 'ZCL_H5C_FAR' ).");
+    expect(planStubPass({...base, source: later.source, findings: [], asked: () => true, missingOf: () => true}).stubs).to.deep.equal([]);
+  });
+
+  it("a class-constructor signal stub follows the lift rule: when the path's names arrive, the pristine constructor is back and the record lifts it", async () => {
+    const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
+    const {recordStub, liftedStubs} = await import("../tools/hana-closure-report.mjs");
+    const base = {source: CTOR_CLASS, basename: "zcl_h5c_ctor.clas.abap", islandFiles: new Set(), excludedObjects: new Set()};
+    const record = (plan) => {
+      const map = new Map();
+      for (const st of plan.stubs) recordStub(map, {object: "ZCL_H5C_CTOR", file: base.basename, class: st.className, method: st.method, missing: st.missing, finding: st.finding});
+      return map;
+    };
+    // iteration N: the name is missing -- the callee raises, the constructor signals
+    const missing = planStubPass({...base, findings: ctorFinding(12), asked: () => true, missingOf: () => true});
+    const before = record(missing);
+    expect([...before.values()].map((s) => s.method).sort()).to.deep.equal(["CLASS_CONSTRUCTOR", "INFO"]);
+    // iteration N+1: the island is re-laid pristine and the name arrived -- no finding, no stub
+    const arrived = planStubPass({...base, findings: [], asked: () => true, missingOf: () => false});
+    expect(arrived.stubs).to.deep.equal([]);
+    expect(arrived.source, "the pristine constructor is back").to.equal(CTOR_CLASS);
+    expect(liftedStubs(before, record(arrived)).map((s) => s.method).sort()).to.deep.equal(["CLASS_CONSTRUCTOR", "INFO"]);
+  });
+
+  it("planStubPass: a class constructor with findings of its own is stubbed with the signal, never a raise", async () => {
+    const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
+    const source = CTOR_CLASS.replace("    info( ).", "    DATA lo_far TYPE REF TO zcl_h5c_far.\n    CREATE OBJECT lo_far.");
+    const plan = planStubPass({source, basename: "zcl_h5c_ctor.clas.abap", islandFiles: new Set(), excludedObjects: new Set(),
+      findings: ctorFinding(9), asked: () => true, missingOf: () => true});
+    expect(plan.stubs.map((st) => st.method)).to.deep.equal(["CLASS_CONSTRUCTOR"]);
+    expect(plan.source).to.contain("  METHOD class_constructor.\n    zcx_osd_not_activated=>signal( 'ZCL_H5C_FAR' ).\n  ENDMETHOD.");
+    expect(plan.source).to.not.match(/METHOD class_constructor\.\n\s*RAISE/);
+  });
+
   it("planStubPass: --defer-ddic keeps round 3 -- every name of a stubbed method is lazy", async () => {
     const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
     const plan = planStubPass({source: STUB_CLASS, findings: findingAt(12), basename: "zcl_h5c_stub.clas.abap",
@@ -1906,6 +2004,16 @@ if (tool === "hana-src-gen.mjs") {
   }
   process.exit(0);
 }
+if (tool === "osd-generation-check.mjs") {
+  // B6: the fixed point asks whether the built generation loads; H5C_LOAD=fail
+  // is a green build whose init.mjs throws at import
+  if (process.env.H5C_LOAD === "fail") {
+    console.log(JSON.stringify({ok: false, loads: false, load_error: "the import failed (exit 1): TypeError: Cannot read properties of undefined: at zcl_h5c_x.clas.mjs:3"}));
+    process.exit(1);
+  }
+  console.log(JSON.stringify({ok: true, loads: true}));
+  process.exit(0);
+}
 if (tool === "osd-build.mjs") {
   const mode = process.env.H5C_BUILD ?? "ok";
   if (mode === "fail-quiet") {
@@ -2015,6 +2123,7 @@ process.exit(0);
       H5C_CONV_RECORD: join(root, "converter-log.jsonl"),
       ...(opts.shrink ? {H5C_SHRINK: "1"} : {}),
       ...(opts.build !== undefined ? {H5C_BUILD: opts.build} : {}),
+      ...(opts.load !== undefined ? {H5C_LOAD: opts.load} : {}),
       ...(opts.grow ? {H5C_GROW: "1"} : {}),
       ...(opts.noFromDump ? {H5C_NO_FROM_DUMP: "1"} : {}),
       ...(opts.missingKinds !== undefined ? {H5C_MISSING_KINDS: opts.missingKinds} : {}),
@@ -2115,7 +2224,7 @@ process.exit(0);
       // the fixed point's positive control ran the build through it too
       const merges = hostCalls(root);
       expect(merges.map((m) => m.tool)).to.deep.equal(
-        ["hana-ddic-gen.mjs", "hana-src-gen.mjs", "hana-ddic-gen.mjs", "hana-src-gen.mjs", "osd-build.mjs"]);
+        ["hana-ddic-gen.mjs", "hana-src-gen.mjs", "hana-ddic-gen.mjs", "hana-src-gen.mjs", "osd-build.mjs", "osd-generation-check.mjs"]);
       expect(merges[0].rest).to.deep.equal(["--from-dump", dump, "--out", join(root, "gen", "hana-ddic")]);
       expect(merges[1].rest, "the first pass lays the seed dump's layers").to.deep.equal(
         ["--layers", layersDirOf(root, 1), "--out", join(root, "gen", "hana-src")]);
@@ -2931,7 +3040,7 @@ process.exit(0);
       expect(existsSync(join(root, "dumper-log.jsonl")), "no dumper round ran").to.equal(false);
       const merges = hostCalls(root);
       expect(merges.map((m) => m.tool), "no hana-ddic-gen: the converter wrote the table").to.deep.equal(
-        ["hana-src-gen.mjs", "osd-build.mjs"]);
+        ["hana-src-gen.mjs", "osd-build.mjs", "osd-generation-check.mjs"]);
       expect(merges[0].rest).to.deep.equal(
         ["--layers", layersDirOf(root, 1), "--out", join(root, "gen", "hana-src")]);
       // the converter's argv is the real converter's contract, with the flag
@@ -3496,13 +3605,53 @@ process.exit(0);
       expect(said.some((l) => /excluded:/.test(l)), "nothing excluded").to.equal(false);
       expect(existsSync(join(root, "gen", "hana-src", "000-h5c-main", "src", "zif_h5c_inc_inner.intf.abap")), "the include is an island object").to.equal(true);
       const summary = JSON.parse(readFileSync(outFile(root, "closure-summary.json"), "utf8"));
-      expect(summary).to.include({fixed_point: true, iterations: 2, stubs_unique: 0});
+      expect(summary).to.include({fixed_point: true, loads: true, iterations: 2, stubs_unique: 0});
       expect(summary.island_objects, "both interfaces").to.equal(2);
       expect(summary.excluded).to.deep.equal([]);
       expect(summary.failures).to.deep.equal([]);
     } finally {
       rmSync(root, {recursive: true, force: true});
     }
+  });
+
+  it("B6: a green build whose generation does not load fails the fixed point; the summary says loads: false and why", async function () {
+    this.timeout(300000);
+    const OUTER = [
+      `INTERFACE zif_h5c_inc_outer PUBLIC.`,
+      `  TYPES ty_h5c TYPE i.`,
+      `ENDINTERFACE.`,
+      ``,
+    ].join("\n");
+    const root = scratch(OUTER, "zif_h5c_inc_outer", {islandExt: "intf"});
+    fixtureDump(join(root, "dump-001"));
+    const env = writeFakes(root, envFor(root, {island: "zif_h5c_inc_outer.intf.abap", load: "fail"}));
+    const said = [];
+    try {
+      let thrown;
+      try {
+        await run(["--dump", join(root, "dump-001"), "--system", "h5c", "--stub-unresolved"], {root, env, say: (m) => said.push(m)});
+      } catch (error) { thrown = error; }
+      expect(thrown?.message ?? "", "the run fails").to.match(/the island generation does not load: the import failed/);
+      const summary = JSON.parse(readFileSync(outFile(root, "closure-summary.json"), "utf8"));
+      expect(summary).to.include({fixed_point: true, loads: false});
+      expect(summary.load_error).to.match(/TypeError.*zcl_h5c_x\.clas\.mjs:3/);
+      expect(said.some((l) => /^load: osd-generation-check\.mjs/.test(l)), "the check ran after the build").to.equal(true);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("B6: closureSummary -- loads, the load error, and no second failure for a build that did not complete", async () => {
+    const {closureSummary} = await import("../tools/hana-closure-report.mjs");
+    const base = {iterations: 1, islandObjects: 1, seeds: [], present: () => true, excluded: [], stubs: [], gaps: []};
+    expect(closureSummary({...base, load: {loads: true}})).to.include({loads: true});
+    const red = closureSummary({...base, load: {loads: false, error: "cycle of awaited imports: a -> b -> a"}});
+    expect(red).to.include({loads: false, load_error: "cycle of awaited imports: a -> b -> a"});
+    expect(red.failures).to.deep.equal(["the island generation does not load: cycle of awaited imports: a -> b -> a"]);
+    const unbuilt = closureSummary({...base, load: {loads: false, built: false, error: "not built: osd-build exited 1 with 2 finding(s)"}});
+    expect(unbuilt).to.include({loads: false});
+    expect(unbuilt.failures, "the build's own verdict speaks for an unbuilt island").to.deep.equal([]);
+    expect(closureSummary(base), "no load verdict, no key").to.not.have.property("loads");
   });
 
   // the seed service's DPC_EXT at fixture scale: one entity-set read that

@@ -22,7 +22,7 @@
 //           (init.mjs); exit 13 is the unsettled top-level await.
 // The build runs syntax and cycles over a new generation before it is named
 // (tools/osd-build.mjs), hana-serve before it imports one; the CLI runs all
-// three: `node tools/osd-generation-check.mjs [output] [--no-load]`.
+// three: `node tools/osd-generation-check.mjs [output] [--no-load] [--json]`.
 //
 // A module already known not to parse is named in
 // tools/osd-generation-check.allow.json with its reason and its anomaly; an
@@ -207,6 +207,19 @@ export function reachable(edges, roots) {
 // neither root present every module counts.
 export const ROOTS = ["init.mjs", "index.mjs"];
 
+// The class-constructor wait-cycles the transpiler broke into a defined order (pin 4j,
+// cctor_plan.ts): init.mjs carries them as one data line and says them at load. They load, so
+// they are no failure -- but a reader of the build should know which pools run in an order ABAP
+// would not use (ANORMALIES cctor-load-order).
+const CCTOR_CYCLES = /^const __abapClassConstructorCycles = (\[.*\]);$/m;
+
+export function constructorCycles(dir, entry = "init.mjs") {
+  const file = join(dir, entry);
+  if (!existsSync(file)) return [];
+  const match = CCTOR_CYCLES.exec(readFileSync(file, "utf8"));
+  return match === null ? [] : JSON.parse(match[1]);
+}
+
 export function checkGeneration(dir, {load = false, allow = readAllow(), entry = "init.mjs", timeoutMs, env, execPath} = {}) {
   const modules = modulesOf(dir);
   const syntax = syntaxErrors(dir, modules, {execPath});
@@ -222,7 +235,8 @@ export function checkGeneration(dir, {load = false, allow = readAllow(), entry =
   const cycles = findCycles(edges);
   const loaded = load ? loadCheck(dir, {entry, timeoutMs, env, execPath}) : undefined;
   const ok = errors.length === 0 && cycles.length === 0 && (loaded === undefined || loaded.ok);
-  return {ok, modules: modules.length, syntax: errors, latent, syntaxSkipped: syntax.skipped, tolerated, stale, cycles, load: loaded};
+  return {ok, modules: modules.length, syntax: errors, latent, syntaxSkipped: syntax.skipped, tolerated, stale, cycles, load: loaded,
+    cctorCycles: constructorCycles(dir, entry)};
 }
 
 export function describe(result) {
@@ -237,6 +251,20 @@ export function describe(result) {
   return lines;
 }
 
+/** one line for a report: the first thing that stops the generation from
+ *  loading -- a module that does not parse, a cycle, or the import's first
+ *  error with the module and line it names; undefined when it loads */
+export function firstLoadError(result) {
+  if (result.ok === true) return undefined;
+  const statics = describe({...result, load: undefined});
+  if (statics.length > 0) return statics[0];
+  const load = result.load ?? {};
+  const lines = String(load.stderr ?? "").split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  const error = lines.find((l) => /^(?:[A-Za-z]*Error\b|Warning: Detected|not activated)/.test(l)) ?? lines[0];
+  const at = lines.find((l) => /^file:\/\/.+:\d+$/.test(l));
+  return [load.reason, error, at === undefined ? undefined : `at ${at.replace(/^.*\//, "")}`].filter((x) => x !== undefined).join(": ");
+}
+
 /** for a host about to import a generation, and for the build: throw rather
  *  than hang or serve half a system */
 export function assertLoadable(dir, {log = () => {}, ...options} = {}) {
@@ -244,6 +272,7 @@ export function assertLoadable(dir, {log = () => {}, ...options} = {}) {
   if (result.syntaxSkipped) log(`generation-check: syntax skipped (${result.syntaxSkipped})`);
   for (const t of result.tolerated) log(`generation-check: known not to parse (allow list): ${t.module}`);
   for (const l of result.latent) log(`generation-check: does not parse, not loaded at start (on demand only): ${l.module}: ${l.message}`);
+  for (const c of result.cctorCycles) log(`generation-check: class constructors in a wait-cycle run in a defined order ABAP would not use: ${c.join(" <-> ")}`);
   for (const s of result.stale) log(`generation-check: stale allow entry, ${s} parses now`);
   if (!result.ok) {
     const error = new Error(`the generation cannot load:\n  ${describe(result).join("\n  ")}`);
@@ -258,9 +287,16 @@ if (runsAs("osd-generation-check.mjs")) {
   const args = process.argv.slice(2);
   const dir = args.find((a) => !a.startsWith("--")) ?? "output";
   const result = checkGeneration(dir, {load: !args.includes("--no-load")});
+  if (args.includes("--json")) {
+    // the closure's fixed point reads this (tools/hana-closure-merge.mjs loadCheckOf)
+    console.log(JSON.stringify({ok: result.ok, modules: result.modules, cycles: result.cycles, syntax: result.syntax,
+      latent: result.latent, loads: result.ok, load_error: firstLoadError(result), cctor_cycles: result.cctorCycles}));
+    process.exit(result.ok ? 0 : 1);
+  }
   for (const line of describe(result)) console.log(line);
   for (const t of result.tolerated) console.log(`known not to parse (allow list): ${t.module}`);
   for (const l of result.latent) console.log(`does not parse, not loaded at start: ${l.module}: ${l.message}`);
+  for (const c of result.cctorCycles) console.log(`class constructors in a wait-cycle, defined order: ${c.join(" <-> ")}`);
   for (const s of result.stale) console.log(`stale allow entry: ${s} parses now`);
   if (result.syntaxSkipped) console.log(`syntax skipped: ${result.syntaxSkipped}`);
   const load = result.load === undefined ? "load not run" : result.load.ok ? "init.mjs loads" : "init.mjs does not load";
