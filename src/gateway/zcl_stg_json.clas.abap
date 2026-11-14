@@ -30,9 +30,9 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_json) TYPE string.
 
-* it_select: the $select of the request, applied to these rows only (the
-* caller passes it where the rows are the answer's own, not an expansion's);
-* empty is every property
+* it_select: the $select paths that apply to these rows (the answer's own
+* rows: the request's list; an expansion's rows: the paths below its
+* navigation); empty is every property
     CLASS-METHODS feed
       IMPORTING
         it_data        TYPE ANY TABLE
@@ -970,6 +970,12 @@ CLASS zcl_stg_json IMPLEMENTATION.
     DESCRIBE FIELD iv_value TYPE lv_kind.
     CASE iv_edm_type.
       WHEN 'Edm.DateTime'.
+* an initial timestamp is null on the wire, and its literal is null (not
+* measured on a system: no row of the oracle has an initial ETag value)
+        IF iv_value IS INITIAL.
+          rv_literal = 'null'.
+          RETURN.
+        ENDIF.
         IF lv_kind = 'D'.
           lv_string = iv_value.
           rv_literal = |datetime'{ lv_string(4) }-{ lv_string+4(2) }-{ lv_string+6(2) }T00:00:00'|.
@@ -981,9 +987,9 @@ CLASS zcl_stg_json IMPLEMENTATION.
         lv_seconds = iv_value.
         lv_string = |{ lv_seconds }|.
         CONDENSE lv_string NO-GAPS.
-        IF strlen( lv_string ) < 14.
-          lv_string = |{ lv_string }000000|.
-        ENDIF.
+        WHILE strlen( lv_string ) < 14.
+          lv_string = |{ lv_string }0|.
+        ENDWHILE.
         rv_literal = |{ lv_string(4) }-{ lv_string+4(2) }-{ lv_string+6(2) }T{ lv_string+8(2) }:{ lv_string+10(2) }:{ lv_string+12(2) }|.
         IF lv_kind = 'P'.
           DESCRIBE FIELD iv_value DECIMALS lv_dec.

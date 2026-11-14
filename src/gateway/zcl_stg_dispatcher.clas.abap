@@ -117,6 +117,26 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rt_list) TYPE string_table.
 
+* the $select paths below one navigation (ToItems/Note -> Note): what an
+* expanded navigation's rows are projected to; empty when the select names
+* the navigation alone or nothing below it (every property)
+    CLASS-METHODS select_below
+      IMPORTING
+        it_select      TYPE string_table
+        iv_nav         TYPE string
+      RETURNING
+        VALUE(rt_list) TYPE string_table.
+
+* every $select path names a property, a complex property or a navigation
+* of the set (a path below a navigation: its first step); otherwise 400,
+* as for any other unknown property
+    CLASS-METHODS check_select
+      IMPORTING
+        is_request TYPE zcl_stg_url=>ty_request
+        is_set     TYPE zcl_stg_model_info=>ty_entity_set
+      RAISING
+        zcx_stg_error.
+
 * If-None-Match of a GET against the entity's tag: any tag of the list,
 * weak or not, or *
     CLASS-METHODS none_match
@@ -197,6 +217,7 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         it_expand          TYPE string_table
         iv_base_url        TYPE string
         it_tech_clauses    TYPE string_table OPTIONAL
+        it_select          TYPE string_table OPTIONAL
       RETURNING
         VALUE(rt_nav_json) TYPE zcl_stg_json=>ty_nav_jsons
       RAISING
@@ -339,6 +360,21 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_langu) TYPE sy-langu.
 
+* the two ends of a request's language, the only places dispatch touches
+* it: enter answers the logon language to give back to leave. The seam a
+* shared session-language class takes over (PR #953) -- then these two
+* and request_language go
+    CLASS-METHODS enter_language
+      IMPORTING
+        it_options      TYPE tihttpnvp
+        it_headers      TYPE tihttpnvp
+      RETURNING
+        VALUE(rv_logon) TYPE sy-langu.
+
+    CLASS-METHODS leave_language
+      IMPORTING
+        iv_logon TYPE sy-langu.
+
     CLASS-METHODS t100_of
       IMPORTING
         ix_busi    TYPE REF TO /iwbep/cx_mgw_busi_exception
@@ -383,7 +419,6 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lo_msg     TYPE REF TO zcl_oao_msg_container.
     DATA lt_msg     TYPE bapirettab.
     DATA lv_logon   TYPE sy-langu.
-    DATA lv_langu   TYPE sy-langu.
 
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
@@ -391,12 +426,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * the request's language is the session language while it runs, so a
 * provider's sy-langu reads answer in it (M3 oracle 09-a0, sap-language=DE);
 * the logon language is back afterwards, also when the request fails
-    lv_logon = sy-langu.
-    lv_langu = request_language( it_options = it_options
-                                 it_headers = it_headers ).
-    IF lv_langu IS NOT INITIAL.
-      sy-langu = lv_langu.
-    ENDIF.
+    lv_logon = enter_language( it_options = it_options
+                               it_headers = it_headers ).
     TRY.
         rs_response = run( iv_method  = iv_method
                            iv_path    = iv_path
@@ -441,9 +472,24 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                      iv_body   = zcl_stg_json=>error( iv_code    = 'STG/TECHNICAL'
                                                                       iv_message = lx_gateway->get_text( ) ) ).
       CLEANUP.
-        sy-langu = lv_logon.
+        leave_language( lv_logon ).
     ENDTRY.
-    sy-langu = lv_logon.
+    leave_language( lv_logon ).
+  ENDMETHOD.
+
+  METHOD enter_language.
+    DATA lv_langu TYPE sy-langu.
+
+    rv_logon = sy-langu.
+    lv_langu = request_language( it_options = it_options
+                                 it_headers = it_headers ).
+    IF lv_langu IS NOT INITIAL.
+      sy-langu = lv_langu.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD leave_language.
+    sy-langu = iv_logon.
   ENDMETHOD.
 
   METHOD request_language.
@@ -1354,6 +1400,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ro_context->mv_aggregate   = is_set-aggregate.
     ro_context->mv_select      = zcl_stg_url=>option( is_request = is_request
                                                       iv_name    = '$select' ).
+    check_select( is_request = is_request
+                  is_set     = is_set ).
 
     lv_value = zcl_stg_url=>option( is_request = is_request
                                     iv_name    = '$top' ).
@@ -1613,7 +1661,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                 is_row          = <ls_data>
                                 it_expand       = lt_expand
                                 iv_base_url     = iv_base_url
-                                it_tech_clauses = lt_tech_clauses ).
+                                it_tech_clauses = lt_tech_clauses
+                                it_select       = select_list( is_request ) ).
     ENDIF.
 
     rs_response = json_response( iv_status = 200
@@ -1662,6 +1711,48 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
       IF lv_part IS NOT INITIAL.
         APPEND lv_part TO rt_list.
       ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD select_below.
+    DATA lv_item TYPE string.
+    DATA lv_head TYPE string.
+    DATA lv_rest TYPE string.
+
+    LOOP AT it_select INTO lv_item.
+      SPLIT lv_item AT '/' INTO lv_head lv_rest.
+      IF lv_head = iv_nav AND lv_rest IS NOT INITIAL.
+        APPEND lv_rest TO rt_list.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD check_select.
+    DATA lt_list TYPE string_table.
+    DATA lv_item TYPE string.
+    DATA lv_head TYPE string.
+    DATA lv_rest TYPE string.
+
+    lt_list = select_list( is_request ).
+    LOOP AT lt_list INTO lv_item.
+      SPLIT lv_item AT '/' INTO lv_head lv_rest.
+      READ TABLE is_set-navs TRANSPORTING NO FIELDS WITH KEY name = lv_head.
+      IF sy-subrc = 0.
+        CONTINUE.
+      ENDIF.
+      READ TABLE is_set-properties TRANSPORTING NO FIELDS WITH KEY name = lv_head.
+      IF sy-subrc = 0 AND lv_rest IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      READ TABLE is_set-components TRANSPORTING NO FIELDS WITH KEY name = lv_item.
+      IF sy-subrc = 0.
+        CONTINUE.
+      ENDIF.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING
+          status  = 400
+          code    = 'STG/PROPERTY_NOT_FOUND'
+          message = |$select names { lv_item }, which { is_set-entity_type } does not have|.
     ENDLOOP.
   ENDMETHOD.
 
@@ -1789,7 +1880,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                               is_row          = <ls_row>
                                                               it_expand       = it_expand
                                                               iv_base_url     = iv_base_url
-                                                              it_tech_clauses = it_tech_clauses ) ) TO rt_entities.
+                                                              it_tech_clauses = it_tech_clauses
+                                                              it_select       = it_select ) ) TO rt_entities.
     ENDLOOP.
   ENDMETHOD.
 
@@ -1810,6 +1902,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lt_order    TYPE /iwbep/t_mgw_sorting_order.
     DATA lr_data     TYPE REF TO data.
     DATA ls_nav_json TYPE zcl_stg_json=>ty_nav_json.
+    DATA lt_sub      TYPE string_table.
     FIELD-SYMBOLS <lt_rows> TYPE ANY TABLE.
     FIELD-SYMBOLS <ls_one>  TYPE any.
 
@@ -1821,6 +1914,9 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
       ls_nav    = zcl_stg_model_info=>find_nav( is_set  = is_set
                                                 iv_name = lv_nav ).
       lt_below  = expand_below( it_expand = it_expand
+                                iv_nav    = lv_nav ).
+* $select=A,ToItems/Note projects the expanded rows to Note
+      lt_sub    = select_below( it_select = it_select
                                 iv_nav    = lv_nav ).
 * the DPC already delivered this navigation inside the row (tech clause):
 * the serializer inlines the component, nothing to fetch here
@@ -1890,7 +1986,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
             ls_nav_json-json = zcl_stg_json=>feed( it_data      = <lt_rows>
                                                    is_set       = ls_target
                                                    iv_namespace = is_service-namespace
-                                                   iv_base_url  = iv_base_url ).
+                                                   iv_base_url  = iv_base_url
+                                                   it_select    = lt_sub ).
           ELSE.
 * deeper levels: expand each target row in turn
             ls_nav_json-json = zcl_stg_json=>feed_of( entities_with_expand( io_dpc      = io_dpc
@@ -1898,7 +1995,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                                             is_set      = ls_target
                                                                             it_rows     = <lt_rows>
                                                                             it_expand   = lt_below
-                                                                            iv_base_url = iv_base_url ) ).
+                                                                            iv_base_url = iv_base_url
+                                                                            it_select   = lt_sub ) ).
           ENDIF.
 * strip the {"d": ... } envelope: inside an entity the feed is {"results":[...]}
           ls_nav_json-json = substring( val = ls_nav_json-json
@@ -1924,12 +2022,14 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                    is_set       = ls_target
                                                    iv_namespace = is_service-namespace
                                                    iv_base_url  = iv_base_url
+                                                   it_select    = lt_sub
                                                    it_nav_json  = expand_row( io_dpc      = io_dpc
                                                                               is_service  = is_service
                                                                               is_set      = ls_target
                                                                               is_row      = <ls_one>
                                                                               it_expand   = lt_below
-                                                                              iv_base_url = iv_base_url ) ).
+                                                                              iv_base_url = iv_base_url
+                                                                              it_select   = lt_sub ) ).
         ELSE.
           ls_nav_json-json = 'null'.
         ENDIF.

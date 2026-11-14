@@ -41,7 +41,13 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
 * whether the provider asked for the filter in a form that carries all of
 * it (the OSQL condition or the string): a filter only the tree can carry,
 * given to a provider that read neither, would be dropped -- the
-* dispatcher refuses that answer instead of returning every row
+* dispatcher refuses that answer instead of returning every row.
+* "Applied" means ASKED for a whole form, nothing more: a provider that
+* reads the string (to log it, or to refuse part of it) passes, whatever it
+* then does with it; one that reads only iv_filter_string, the importing
+* parameter, is refused (the safe direction); and a provider that ignores
+* select-options the filter does have (a filter ranges can carry) is not
+* seen at all -- that is the provider's answer, as on a system
     DATA mv_filter_asked  TYPE abap_bool.
 * the "search" URL option (Gateway's full-text search, iv_search_string)
     DATA mv_search_string TYPE string.

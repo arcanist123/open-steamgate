@@ -48,6 +48,22 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
         iv_string        TYPE string
       RETURNING
         VALUE(rv_string) TYPE string.
+* a field name of the condition onto the join's alias, outside the quoted
+* literals only: Name eq 'ADDRESS-CITY' is a value, not the column. The
+* SEGW sample replaces over the whole text; the twin does not copy that
+* (a DPC written from it would inherit it)
+    CLASS-METHODS map_field
+      IMPORTING
+        iv_string        TYPE string
+        iv_from          TYPE string
+        iv_to            TYPE string
+      RETURNING
+        VALUE(rv_string) TYPE string.
+    CLASS-METHODS outside_literals
+      IMPORTING
+        iv_string        TYPE string
+      RETURNING
+        VALUE(rv_string) TYPE string.
     CLASS-METHODS orderby_of
       IMPORTING
         io_ctx          TYPE REF TO /iwbep/if_mgw_req_entityset
@@ -147,11 +163,63 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
   METHOD to_sql.
 * no name here is a part of another, so the order does not matter
     rv_string = iv_string.
-    REPLACE ALL OCCURRENCES OF 'PARTNER_ID' IN rv_string WITH 'b~PARTNER_ID'.
-    REPLACE ALL OCCURRENCES OF 'NAME' IN rv_string WITH 'b~NAME'.
-    REPLACE ALL OCCURRENCES OF 'CHANGED_AT' IN rv_string WITH 'b~CHANGED_AT'.
-    REPLACE ALL OCCURRENCES OF 'ADDRESS-CITY' IN rv_string WITH 'a~CITY'.
-    REPLACE ALL OCCURRENCES OF 'ADDRESS-COUNTRY' IN rv_string WITH 'a~COUNTRY'.
+    rv_string = map_field( iv_string = rv_string iv_from = 'PARTNER_ID' iv_to = 'b~PARTNER_ID' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'NAME' iv_to = 'b~NAME' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'CHANGED_AT' iv_to = 'b~CHANGED_AT' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'ADDRESS-CITY' iv_to = 'a~CITY' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'ADDRESS-COUNTRY' iv_to = 'a~COUNTRY' ).
+  ENDMETHOD.
+
+  METHOD map_field.
+* walk the text: a quote toggles "inside a literal" (a doubled quote toggles
+* twice); the name is replaced in each stretch outside one
+    DATA lv_len     TYPE i.
+    DATA lv_off     TYPE i.
+    DATA lv_char    TYPE string.
+    DATA lv_outside TYPE string.
+    DATA lv_inside  TYPE abap_bool.
+
+    lv_len = strlen( iv_string ).
+    WHILE lv_off < lv_len.
+      lv_char = substring( val = iv_string off = lv_off len = 1 ).
+      IF lv_char = |'|.
+        IF lv_inside = abap_false.
+          REPLACE ALL OCCURRENCES OF iv_from IN lv_outside WITH iv_to.
+          rv_string = rv_string && lv_outside.
+          CLEAR lv_outside.
+          lv_inside = abap_true.
+        ELSE.
+          lv_inside = abap_false.
+        ENDIF.
+        rv_string = rv_string && lv_char.
+      ELSEIF lv_inside = abap_true.
+        rv_string = rv_string && lv_char.
+      ELSE.
+        lv_outside = lv_outside && lv_char.
+      ENDIF.
+      lv_off = lv_off + 1.
+    ENDWHILE.
+    REPLACE ALL OCCURRENCES OF iv_from IN lv_outside WITH iv_to.
+    rv_string = rv_string && lv_outside.
+  ENDMETHOD.
+
+  METHOD outside_literals.
+    DATA lv_len    TYPE i.
+    DATA lv_off    TYPE i.
+    DATA lv_char   TYPE string.
+    DATA lv_inside TYPE abap_bool.
+
+    lv_len = strlen( iv_string ).
+    WHILE lv_off < lv_len.
+      lv_char = substring( val = iv_string off = lv_off len = 1 ).
+      IF lv_char = |'|.
+        lv_inside = boolc( lv_inside = abap_false ).
+        rv_string = rv_string && ` `.
+      ELSEIF lv_inside = abap_false.
+        rv_string = rv_string && lv_char.
+      ENDIF.
+      lv_off = lv_off + 1.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD orderby_of.
@@ -436,7 +504,7 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     DATA ls_t100      TYPE scx_t100key.
 
     lv_where = to_sql( io_ctx->get_osql_where_clause_convert( ) ).
-    IF lv_where CS 'CHANGED_AT'.
+    IF outside_literals( lv_where ) CS 'CHANGED_AT'.
       ls_t100-msgid = 'ZOSD_H5X'.
       ls_t100-msgno = '001'.
       ls_t100-attr1 = 'CHANGED_AT'.
@@ -499,11 +567,11 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
 
     IF io_ctx IS BOUND.
       lv_where = io_ctx->get_osql_where_clause_convert( ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_where WITH 's~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'BUYER_ID' IN lv_where WITH 's~BUYER_ID'.
+      lv_where = map_field( iv_string = lv_where iv_from = 'ORDER_ID' iv_to = 's~ORDER_ID' ).
+      lv_where = map_field( iv_string = lv_where iv_from = 'BUYER_ID' iv_to = 's~BUYER_ID' ).
       lv_orderby = orderby_of( io_ctx ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_orderby WITH 's~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'BUYER_ID' IN lv_orderby WITH 's~BUYER_ID'.
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'ORDER_ID' iv_to = 's~ORDER_ID' ).
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'BUYER_ID' iv_to = 's~BUYER_ID' ).
     ENDIF.
     lv_where = add_where( iv_where = lv_where
                           iv_add   = iv_add ).
@@ -547,13 +615,13 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
 
     IF io_ctx IS BOUND.
       lv_where = io_ctx->get_osql_where_clause_convert( ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_where WITH 'i~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'ITEM_POS' IN lv_where WITH 'i~ITEM_POS'.
-      REPLACE ALL OCCURRENCES OF 'NOTE' IN lv_where WITH 'i~NOTE'.
+      lv_where = map_field( iv_string = lv_where iv_from = 'ORDER_ID' iv_to = 'i~ORDER_ID' ).
+      lv_where = map_field( iv_string = lv_where iv_from = 'ITEM_POS' iv_to = 'i~ITEM_POS' ).
+      lv_where = map_field( iv_string = lv_where iv_from = 'NOTE' iv_to = 'i~NOTE' ).
       lv_orderby = orderby_of( io_ctx ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_orderby WITH 'i~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'ITEM_POS' IN lv_orderby WITH 'i~ITEM_POS'.
-      REPLACE ALL OCCURRENCES OF 'NOTE' IN lv_orderby WITH 'i~NOTE'.
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'ORDER_ID' iv_to = 'i~ORDER_ID' ).
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'ITEM_POS' iv_to = 'i~ITEM_POS' ).
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'NOTE' iv_to = 'i~NOTE' ).
       lv_top  = io_ctx->get_top( ).
       lv_skip = io_ctx->get_skip( ).
     ENDIF.

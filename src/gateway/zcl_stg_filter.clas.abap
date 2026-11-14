@@ -28,6 +28,8 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
              property TYPE string,
              op       TYPE string,
              value    TYPE string,
+* tolower( ) / toupper( ) around the property: LOWER / UPPER, or nothing
+             fold     TYPE string,
            END OF ty_node.
     TYPES ty_nodes TYPE STANDARD TABLE OF ty_node WITH DEFAULT KEY.
 
@@ -68,6 +70,14 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
       RAISING
         zcx_stg_error.
   PRIVATE SECTION.
+* what one request may ask the parser for: the text's length, the nesting
+* of ( ) and not, and the number of nodes. Past them the recursion below
+* ends in the host's stack, the condition in the database's expression
+* depth, and a long literal in whatever scans the statement after us
+    CONSTANTS c_max_length TYPE i VALUE 8192.
+    CONSTANTS c_max_depth  TYPE i VALUE 64.
+    CONSTANTS c_max_nodes  TYPE i VALUE 1000.
+
     TYPES: BEGIN OF ty_group,
              property TYPE string,
              options  TYPE /iwbep/t_cod_select_options,
@@ -76,6 +86,7 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
 
     DATA mt_tokens TYPE ty_tokens.
     DATA mv_pos    TYPE i.
+    DATA mv_depth  TYPE i.
     DATA mt_nodes  TYPE ty_nodes.
     DATA ms_set    TYPE zcl_stg_model_info=>ty_entity_set.
 
@@ -180,6 +191,19 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
         iv_message TYPE string
       RAISING
         zcx_stg_error.
+
+    METHODS deeper
+      RAISING
+        zcx_stg_error.
+
+    METHODS comparison_operator
+      IMPORTING
+        is_token     TYPE ty_token
+        iv_property  TYPE string
+      RETURNING
+        VALUE(rv_op) TYPE string
+      RAISING
+        zcx_stg_error.
 ENDCLASS.
 
 CLASS zcl_stg_filter IMPLEMENTATION.
@@ -255,6 +279,7 @@ CLASS zcl_stg_filter IMPLEMENTATION.
     DATA ls_node   TYPE ty_node.
     DATA ls_option TYPE /iwbep/s_cod_select_option.
     DATA lv_value  TYPE string.
+    DATA lv_field  TYPE string.
 
     READ TABLE mt_nodes INDEX iv_id INTO ls_node.
     IF sy-subrc <> 0.
@@ -265,7 +290,11 @@ CLASS zcl_stg_filter IMPLEMENTATION.
         ls_option-sign = 'I'.
         ls_option-option = to_upper( ls_node-op ).
         ls_option-low = ls_node-value.
-        rv_where = zcl_stg_request_context=>where_for_option( iv_field  = field_of( ls_node-property )
+        lv_field = field_of( ls_node-property ).
+        IF ls_node-fold IS NOT INITIAL.
+          lv_field = |{ ls_node-fold }( { lv_field } )|.
+        ENDIF.
+        rv_where = zcl_stg_request_context=>where_for_option( iv_field  = lv_field
                                                                is_option = ls_option ).
       WHEN 'fn'.
         lv_value = ls_node-value.
@@ -299,6 +328,20 @@ CLASS zcl_stg_filter IMPLEMENTATION.
         message = iv_message.
   ENDMETHOD.
 
+  METHOD deeper.
+    mv_depth = mv_depth + 1.
+    IF mv_depth > c_max_depth.
+      fail( |$filter is nested deeper than { c_max_depth } levels| ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD comparison_operator.
+    rv_op = to_lower( is_token-value ).
+    IF is_token-kind <> 'IDENT' OR NOT ( rv_op = 'eq' OR rv_op = 'ne' OR rv_op = 'gt' OR rv_op = 'ge' OR rv_op = 'lt' OR rv_op = 'le' ).
+      fail( |Expected a comparison operator after { iv_property } in $filter| ).
+    ENDIF.
+  ENDMETHOD.
+
   METHOD tokenize.
     DATA lv_len   TYPE i.
     DATA lv_off   TYPE i.
@@ -309,9 +352,17 @@ CLASS zcl_stg_filter IMPLEMENTATION.
     DATA lv_start TYPE i.
     DATA lv_count TYPE i.
     DATA lv_piece TYPE string.
+    DATA lv_closed TYPE abap_bool.
 
     lv_quote = |'|.
     lv_len   = strlen( iv_filter ).
+    IF lv_len > c_max_length.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING
+          status  = 400
+          code    = 'STG/BAD_FILTER'
+          message = |$filter is { lv_len } characters long, more than the { c_max_length } this gateway reads|.
+    ENDIF.
 
     WHILE lv_off < lv_len.
       lv_char = iv_filter+lv_off(1).
@@ -334,6 +385,7 @@ CLASS zcl_stg_filter IMPLEMENTATION.
       ELSEIF lv_char = lv_quote.
         ls_token-kind = 'STRING'.
         lv_off = lv_off + 1.
+        lv_closed = abap_false.
         WHILE lv_off < lv_len.
           lv_char = iv_filter+lv_off(1).
           IF lv_char = lv_quote.
@@ -347,6 +399,7 @@ CLASS zcl_stg_filter IMPLEMENTATION.
               ENDIF.
             ENDIF.
             lv_off = lv_off + 1.
+            lv_closed = abap_true.
             EXIT.
           ENDIF.
 * c LENGTH 1 loses a blank in &&, a one-character string keeps it
@@ -354,6 +407,14 @@ CLASS zcl_stg_filter IMPLEMENTATION.
           ls_token-value = ls_token-value && lv_piece.
           lv_off = lv_off + 1.
         ENDWHILE.
+* 'abc with no closing quote is not the literal abc: fail closed
+        IF lv_closed = abap_false.
+          RAISE EXCEPTION TYPE zcx_stg_error
+            EXPORTING
+              status  = 400
+              code    = 'STG/BAD_FILTER'
+              message = 'Unterminated string literal in $filter'.
+        ENDIF.
       ELSEIF lv_char CA '0123456789-'.
         ls_token-kind = 'NUMBER'.
         lv_start = lv_off.
@@ -378,6 +439,13 @@ CLASS zcl_stg_filter IMPLEMENTATION.
           WHILE lv_off < lv_len AND iv_filter+lv_off(1) <> lv_quote.
             lv_off = lv_off + 1.
           ENDWHILE.
+          IF lv_off >= lv_len.
+            RAISE EXCEPTION TYPE zcx_stg_error
+              EXPORTING
+                status  = 400
+                code    = 'STG/BAD_FILTER'
+                message = 'Unterminated typed literal in $filter'.
+          ENDIF.
           lv_count = lv_off - lv_start.
           ls_token-value = |{ to_lower( ls_token-value ) }:{ iv_filter+lv_start(lv_count) }|.
           lv_off = lv_off + 1.
@@ -495,8 +563,10 @@ CLASS zcl_stg_filter IMPLEMENTATION.
     ls_token = peek( ).
     IF ls_token-kind = 'IDENT' AND to_lower( ls_token-value ) = 'not'.
       take( ).
+      deeper( ).
       ls_node-kind = 'not'.
       ls_node-left = parse_unary( ).
+      mv_depth = mv_depth - 1.
       rv_id = add_node( ls_node ).
       RETURN.
     ENDIF.
@@ -509,10 +579,15 @@ CLASS zcl_stg_filter IMPLEMENTATION.
     DATA ls_node  TYPE ty_node.
     DATA lv_op    TYPE string.
 
+    IF lines( mt_nodes ) >= c_max_nodes.
+      fail( |$filter has more than { c_max_nodes } conditions and operators| ).
+    ENDIF.
     ls_token = take( ).
 
     IF ls_token-kind = 'LPAREN'.
+      deeper( ).
       rv_id = parse_or( ).
+      mv_depth = mv_depth - 1.
       expect( 'RPAREN' ).
       RETURN.
     ENDIF.
@@ -532,10 +607,8 @@ CLASS zcl_stg_filter IMPLEMENTATION.
     ls_node-kind     = 'cmp'.
     ls_node-property = property_name( ls_token-value ).
     ls_token = take( ).
-    lv_op = to_lower( ls_token-value ).
-    IF ls_token-kind <> 'IDENT' OR NOT ( lv_op = 'eq' OR lv_op = 'ne' OR lv_op = 'gt' OR lv_op = 'ge' OR lv_op = 'lt' OR lv_op = 'le' ).
-      fail( |Expected a comparison operator after { ls_node-property } in $filter| ).
-    ENDIF.
+    lv_op = comparison_operator( is_token    = ls_token
+                                 iv_property = ls_node-property ).
     ls_node-op = lv_op.
     ls_token = take( ).
     ls_node-value = literal_value( ls_token ).
@@ -566,13 +639,21 @@ CLASS zcl_stg_filter IMPLEMENTATION.
         ls_node-property = property_name( ls_token-value ).
         expect( 'RPAREN' ).
       WHEN 'tolower' OR 'toupper' OR 'trim'.
-* case folding is lost on the way to a range; the property is kept
+* a range has no case folding: the comparison keeps it (fold) and is a
+* condition only, LOWER( F ) / UPPER( F ); trim is not kept (a CHAR column
+* holds no trailing blank, a leading one is compared as it is)
         ls_token = take( ).
         expect( 'RPAREN' ).
         ls_node-kind     = 'cmp'.
         ls_node-property = property_name( ls_token-value ).
+        IF iv_name = 'tolower'.
+          ls_node-fold = 'LOWER'.
+        ELSEIF iv_name = 'toupper'.
+          ls_node-fold = 'UPPER'.
+        ENDIF.
         ls_token = take( ).
-        ls_node-op = to_lower( ls_token-value ).
+        ls_node-op = comparison_operator( is_token    = ls_token
+                                          iv_property = ls_node-property ).
         ls_token = take( ).
         ls_node-value = literal_value( ls_token ).
       WHEN OTHERS.
@@ -587,6 +668,11 @@ CLASS zcl_stg_filter IMPLEMENTATION.
 
     ls_property = zcl_stg_model_info=>find_property( is_set  = ms_set
                                                      iv_name = iv_name ).
+* a complex property is no column: Address eq 'x' compares one of its
+* members or nothing (before: ADDRESS = 'x', an SQL error past the 400s)
+    IF ls_property-complex_type IS NOT INITIAL.
+      fail( |{ ls_property-name } is a complex property: compare one of its members, as { ls_property-name }/<member>| ).
+    ENDIF.
     rv_name = ls_property-name.
   ENDMETHOD.
 
@@ -653,6 +739,10 @@ CLASS zcl_stg_filter IMPLEMENTATION.
 
     CASE ls_node-kind.
       WHEN 'cmp'.
+* a folded comparison is not a range
+        IF ls_node-fold IS NOT INITIAL.
+          RETURN.
+        ENDIF.
         ls_option-sign = 'I'.
         CASE ls_node-op.
           WHEN 'eq'.
@@ -703,7 +793,7 @@ CLASS zcl_stg_filter IMPLEMENTATION.
 
       WHEN 'not'.
         READ TABLE mt_nodes INDEX ls_node-left INTO ls_child.
-        IF sy-subrc <> 0 OR ls_child-kind <> 'cmp' OR ls_child-op <> 'eq'.
+        IF sy-subrc <> 0 OR ls_child-kind <> 'cmp' OR ls_child-op <> 'eq' OR ls_child-fold IS NOT INITIAL.
           RETURN.
         ENDIF.
         ls_option-sign   = 'E'.
@@ -760,6 +850,7 @@ CLASS zcl_stg_filter IMPLEMENTATION.
     DATA ls_option   TYPE /iwbep/s_cod_select_option.
     DATA ls_existing TYPE /iwbep/s_cod_select_option.
     DATA lv_merged   TYPE abap_bool.
+    DATA lv_inclusive TYPE i.
     FIELD-SYMBOLS <ls_group> TYPE ty_group.
     FIELD-SYMBOLS <ls_low>   TYPE /iwbep/s_cod_select_option.
 
@@ -779,7 +870,18 @@ CLASS zcl_stg_filter IMPLEMENTATION.
           APPEND ls_option TO <ls_group>-options.
           CONTINUE.
         ENDIF.
-* the one inclusive AND a range can hold: ge/gt X and le/lt Y -> BT
+* the one inclusive AND a range can hold: ge X and le Y -> BT. Only when
+* the left side is that one condition: folded into a group that already
+* ORs others, ( a <= 3 OR a = 1 ) AND a >= 2 became { BT 2..3, EQ 1 } and
+* answered a = 1, which the request excluded
+        lv_inclusive = 0.
+        LOOP AT <ls_group>-options TRANSPORTING NO FIELDS WHERE sign = 'I'.
+          lv_inclusive = lv_inclusive + 1.
+        ENDLOOP.
+        IF lv_inclusive > 1.
+          ev_ok = abap_false.
+          RETURN.
+        ENDIF.
         lv_merged = abap_false.
         LOOP AT <ls_group>-options ASSIGNING <ls_low> WHERE sign = 'I'.
           IF ( <ls_low>-option = 'GE' AND ls_option-option = 'LE' ).

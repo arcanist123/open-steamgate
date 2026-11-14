@@ -44,6 +44,8 @@ CLASS ltcl_read DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
     METHODS guid_wire_form FOR TESTING RAISING cx_static_check.
     METHODS inline_count_before_rows FOR TESTING RAISING cx_static_check.
     METHODS batch_part_length FOR TESTING RAISING cx_static_check.
+    METHODS select_unknown_property FOR TESTING RAISING cx_static_check.
+    METHODS select_below_expansion FOR TESTING RAISING cx_static_check.
 
     METHODS get
       IMPORTING
@@ -869,6 +871,45 @@ CLASS ltcl_read IMPLEMENTATION.
          iv_text = |Content-Type: application/http{ lv_crlf }Content-Length: 90{ lv_crlf }| ).
     has( iv_body = ls_response-body
          iv_text = |{ lv_crlf }{ lv_crlf }4{ lv_crlf }--| ).
+  ENDMETHOD.
+
+  METHOD select_unknown_property.
+* a $select path the type does not have is 400, as an unknown $orderby
+* property is (critic M1; before, 200 with an empty entity)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base && `('0000000001')`
+                       iv_query = `$select=NoSuchProperty` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `STG/PROPERTY_NOT_FOUND` ).
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$select=Name,Address/Nowhere` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+* a complex member path and a navigation path are known
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$select=Address/City,ToOrders&$top=1` ).
+    ok( ls_response ).
+  ENDMETHOD.
+
+  METHOD select_below_expansion.
+* $select=PartnerID,ToOrders/Note&$expand=ToOrders projects the expanded
+* rows to Note (critic S1; before, every member of each order)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base && `('0000000001')`
+                       iv_query = `$expand=ToOrders&$select=PartnerID,ToOrders/Note` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"Order one"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"BuyerID"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Name"` ).
   ENDMETHOD.
 
 ENDCLASS.
