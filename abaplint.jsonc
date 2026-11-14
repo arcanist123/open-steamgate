@@ -1,6 +1,6 @@
 {
   "global": {
-    "files": "/{src,packs/zvdb/src,test,gen/bsp,gen/cds,gen/segw,gen/rfc,gen/tran,gen/rap}/**/*.*",
+    "files": "/{src,packs/zvdb/src,test,gen/bsp,gen/cds,gen/segw,gen/textpool,gen/ddicinfo,gen/rfc,gen/tran,gen/rap}/**/*.*",
     "errorOnDuplicateFilenames": true,
     "exclude": ["/test/e2e/", "/src/.*/cockpit/", "/test/fixtures/", "\\.mjs$", "\\.cjs$", "\\.stg\\.yaml$", "\\.l2\\.yaml$", "\\.l3\\.yaml$", "\\.samc\\.model\\.json$", "\\.samc\\.decl\\.json$", "\\.trace(?:\\.meta)?\\.json$"]
   },
@@ -58,7 +58,7 @@
     {
       "url": "https://github.com/open-abap/open-abap-odata",
       "folder": "/.local/lars/open-abap-odata",
-      "files": "/src/{oo,ddic,exceptions,internal}/**/!(#iwbep#if_mgw_odata_action.intf.*|#iwbep#if_mgw_odata_parameter.intf.*|zcl_oao_action.clas.*|#iwbep#if_mgw_req_func_import.intf.*|#iwbep#if_mgw_req_entity.intf.*|#iwbep#if_mgw_req_entityset.intf.*|#iwbep#if_mgw_context.intf.*|#iwbep#if_message_container.intf.*|#iwbep#if_mgw_appl_srv_runtime.intf.*|zcl_oao_context.clas.*|zcl_oao_msg_container.clas.*|zcl_oao_request_context.clas.*|#iwbep#cl_mgw_request.clas.*|#iwbep#cl_sb_gen_read_aftr_crt.clas.*)"
+      "files": "/src/{oo,ddic,exceptions,internal}/**/!(#iwbep#if_mgw_odata_action.intf.*|#iwbep#if_mgw_odata_parameter.intf.*|zcl_oao_action.clas.*|#iwbep#if_mgw_req_func_import.intf.*|#iwbep#if_mgw_req_entity.intf.*|#iwbep#if_mgw_req_entityset.intf.*|#iwbep#if_mgw_context.intf.*|#iwbep#if_message_container.intf.*|#iwbep#if_mgw_appl_srv_runtime.intf.*|zcl_oao_context.clas.*|zcl_oao_msg_container.clas.*|zcl_oao_request_context.clas.*|#iwbep#cl_mgw_request.clas.*|#iwbep#cl_sb_gen_read_aftr_crt.clas.*|zcl_oao_property.clas.*|zcl_oao_entity_typ.clas.*|zcl_oao_cmplx_type.clas.*|zcl_oao_http_handler.clas.*)"
     },
     {
       // Portable, untyped JSON tree used behind OSG's own regression

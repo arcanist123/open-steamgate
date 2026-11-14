@@ -29,6 +29,13 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         iv_host          TYPE string
       RETURNING
         VALUE(rv_origin) TYPE string.
+* the language a request asks for (sap-language, ISO 'DE' or SAP 'D'),
+* '' when it asks for none or for one this system does not know
+    CLASS-METHODS request_language
+      IMPORTING
+        it_options      TYPE tihttpnvp
+      RETURNING
+        VALUE(rv_langu) TYPE sy-langu.
     CLASS-METHODS run
       IMPORTING
         iv_method          TYPE string
@@ -327,10 +334,20 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lv_message TYPE string.
     DATA lo_msg     TYPE REF TO zcl_oao_msg_container.
     DATA lt_msg     TYPE bapirettab.
+    DATA lv_logon   TYPE sy-langu.
+    DATA lv_langu   TYPE sy-langu.
 
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
+* sap-language: the request runs in that language (sy-langu) and the
+* session's own comes back after it. SET LOCALE is a no-op in the
+* transpiler's runtime (ANORMALIES.md), so the system field is set itself.
+    lv_logon = sy-langu.
+    lv_langu = request_language( it_options ).
+    IF lv_langu IS NOT INITIAL.
+      sy-langu = lv_langu.
+    ENDIF.
     TRY.
         rs_response = run( iv_method  = iv_method
                            iv_path    = iv_path
@@ -368,7 +385,38 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
         rs_response = json_response( iv_status = 500
                                      iv_body   = zcl_stg_json=>error( iv_code    = 'STG/TECHNICAL'
                                                                       iv_message = lx_gateway->get_text( ) ) ).
+      CLEANUP.
+        sy-langu = lv_logon.
     ENDTRY.
+    sy-langu = lv_logon.
+  ENDMETHOD.
+
+  METHOD request_language.
+    DATA ls_option LIKE LINE OF it_options.
+    DATA lv_value  TYPE string.
+    DATA lv_sap1   TYPE sy-langu.
+
+    LOOP AT it_options INTO ls_option.
+      IF to_lower( ls_option-name ) = 'sap-language'.
+        lv_value = to_upper( condense( ls_option-value ) ).
+      ENDIF.
+    ENDLOOP.
+    CASE strlen( lv_value ).
+      WHEN 1.
+        rv_langu = lv_value.
+      WHEN 2.
+        CALL FUNCTION 'CONVERSION_EXIT_ISOLA_INPUT'
+          EXPORTING
+            input            = lv_value
+          IMPORTING
+            output           = lv_sap1
+          EXCEPTIONS
+            unknown_language = 1
+            OTHERS           = 2.
+        IF sy-subrc = 0.
+          rv_langu = lv_sap1.
+        ENDIF.
+    ENDCASE.
   ENDMETHOD.
 
   METHOD json_response.

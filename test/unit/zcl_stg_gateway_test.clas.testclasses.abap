@@ -1412,7 +1412,10 @@ CLASS ltcl_navigation IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Annotation Term="com.sap.vocabularies.Common.v1.Text" Path="StatusText">' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<PropertyValue Property="CollectionPath" String="StatusVHSet"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Annotation Term="com.sap.vocabularies.UI.v1.SelectionFields">' ) ).
-    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Property Name="TravelId" Type="Edm.String" Nullable="false" MaxLength="8" sap:unicode="false" sap:label="Travel"' ) ).
+* no sap:unicode: the demo's model adds no unicode annotation, and a system
+* writes sap:unicode only where the model does (milestone 3 B4, measured;
+* the writer used to hard-code "false")
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Property Name="TravelId" Type="Edm.String" Nullable="false" MaxLength="8" sap:label="Travel"' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<NavigationProperty Name="to_Bookings" Relationship="ZSTG_DEMO_SRV.TravelToBookings" FromRole="FromRole_TravelToBookings" ToRole="ToRole_TravelToBookings"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<NavigationProperty Name="to_Travel" Relationship="ZSTG_DEMO_SRV.TravelToBookings" FromRole="ToRole_TravelToBookings" ToRole="FromRole_TravelToBookings"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Association Name="TravelToBookings"' ) ).
