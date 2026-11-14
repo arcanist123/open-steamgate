@@ -334,19 +334,17 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lv_message TYPE string.
     DATA lo_msg     TYPE REF TO zcl_oao_msg_container.
     DATA lt_msg     TYPE bapirettab.
-    DATA lv_logon   TYPE sy-langu.
-    DATA lv_langu   TYPE sy-langu.
+    DATA lv_logon   TYPE c LENGTH 1.
+    DATA lv_langu   TYPE c LENGTH 1.
 
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
-* sap-language: the request runs in that language (sy-langu) and the
-* session's own comes back after it. SET LOCALE is a no-op in the
-* transpiler's runtime (ANORMALIES.md), so the system field is set itself.
-    lv_logon = sy-langu.
+* sap-language: the request runs in that language and the session's own
+* comes back after it (ZCL_OSD_SESSION_LANGU)
     lv_langu = request_language( it_options ).
     IF lv_langu IS NOT INITIAL.
-      sy-langu = lv_langu.
+      lv_logon = zcl_osd_session_langu=>switch( lv_langu ).
     ENDIF.
     TRY.
         rs_response = run( iv_method  = iv_method
@@ -386,9 +384,13 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                      iv_body   = zcl_stg_json=>error( iv_code    = 'STG/TECHNICAL'
                                                                       iv_message = lx_gateway->get_text( ) ) ).
       CLEANUP.
-        sy-langu = lv_logon.
+        IF lv_logon IS NOT INITIAL.
+          zcl_osd_session_langu=>switch( lv_logon ).
+        ENDIF.
     ENDTRY.
-    sy-langu = lv_logon.
+    IF lv_logon IS NOT INITIAL.
+      zcl_osd_session_langu=>switch( lv_logon ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD request_language.

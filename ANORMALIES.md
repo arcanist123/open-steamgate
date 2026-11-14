@@ -4807,7 +4807,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: the request runs in the language the parameter names (ISO `DE` or SAP `D`); texts follow it
 - Actual open-abap behaviour: every request runs in the boot language
 - Impact on open-steamgate: labels (and every language-dependent read of a DPC) ignore `sap-language`
-- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception
+- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception, through `ZCL_OSD_SESSION_LANGU` -- only when the request names a language, because the Go host's compiler does not carry `sy-langu` (a request with `sap-language` dumps NOT_COMPILED there)
 - Upstream issue: needs an issue in abaplint/transpiler for `SET LOCALE LANGUAGE` (setting `sy-langu` is the visible half)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (labels_in_the_request_language)
 - Upstream version containing a fix: unknown
