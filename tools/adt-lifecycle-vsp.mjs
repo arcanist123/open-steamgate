@@ -28,10 +28,12 @@ export function ddlsCallTimeoutS(env = process.env) {
 // warmReady) is the same kind of cost: a cold baseline activation, the
 // verification comparisons queued before a prime may start, then the prime
 // itself. Green CI: ~54 s (baseline 29-37 s, prime 15-30 s). On the slow runner
-// that failed #942 (speed factor 1.19) the interface create overran the warm
-// deadline, the compiler re-primed behind two 29-36 s comparisons, and the
-// fixed 90 s ran out with no prime started. Same floor, factor and clamp as
-// the DDLS family.
+// that failed #942 (speed factor 1.19) the registry update after the
+// interface create overran a 30 s x factor deadline; that turned warm off for
+// good, so no prime ever started and no wait was long enough. The update is
+// now sized like the prime and its timeout re-primes (warm-deadline README);
+// a host that does turn warm off says `disabled`, and warmReady stops at once.
+// Same floor, factor and clamp as the DDLS family.
 export function warmReadyTimeoutS(env = process.env) {
   return ddlsCallTimeoutS(env);
 }

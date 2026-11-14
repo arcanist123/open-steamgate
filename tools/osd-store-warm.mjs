@@ -109,7 +109,15 @@ export async function warmOperation(store, work, {kind = "operation", files = 0}
     }
     return result;
   } catch (error) {
-    if (error.code === "WARM_UNAVAILABLE") {
+    // The update after a cold publication is a catch-up nobody saves into:
+    // its timeout drops the compiler (killed above all else) and the caller
+    // schedules a prime, whose own deadline turns warm off if the compiler is
+    // really silent. Turning warm off here left the host reporting "cold"
+    // for good while the log said "re-prime" (adt-lifecycle, 2026-11-14).
+    if (error.code === "WARM_UNAVAILABLE" && kind === "update") {
+      w.reason = error.message;
+      await w.compiler?.drop?.();
+    } else if (error.code === "WARM_UNAVAILABLE") {
       w.disabled = true;
       w.primeDue = false;
       w.reason = error.message;

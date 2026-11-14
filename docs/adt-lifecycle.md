@@ -145,6 +145,20 @@ own deadline; it re-primed behind two 29-36 s verification comparisons, and the
 fixed 90 s wait ran out with no prime started. On green runs the same wait is
 about 54 s (a 29-37 s baseline activation and a 15-30 s prime).
 
+That reading was wrong, and the longer wait did not help (2026-11-14, 7 red of
+24 runs, on main's transpiler pin and on the newer ones alike): the deadline
+the interface create overran was that of the **registry update after the cold
+publication**, a fixed 30 s x speed factor for a re-transpile of 209 objects
+that took 13-29 s on the green runs, and a timeout there turned warm off for
+the life of the host. The status then said `cold` forever, the log said
+`re-prime` for a prime that never came, and `warmReady` waited out its whole
+budget. Every red run had exactly one `warm compiler exceeded` on that update
+(speed factor 1.02-1.19, cut at 30.6-35.6 s); no green run had one. The update
+is now sized like the prime (`kind: "update"`, `tools/warm-deadline/README.md`),
+its timeout drops the compiler and re-primes instead, the warm status carries
+`disabled`, and `warmReady` fails at once with the reason when it is set
+(`test/warm-update-timeout.mjs`).
+
 `test/adt-lifecycle-report.mjs` transcribes the real #635/#633/#636 tables as
 JSON fixtures (all QUIET), injects one 2x operation slowdown (WARN), uniform
 1.6x runner slowdown (QUIET), isolated sample outliers, and five-run history

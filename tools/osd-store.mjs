@@ -1224,7 +1224,7 @@ export class ObjectStore {
     const state = w.on !== true ? "off" : w.priming !== undefined ? "priming" : c?.primed === true ? "primed" : "cold";
     return {
       state,
-      reason: state === "primed" || state === "priming" ? undefined : w.reason,
+      reason: state === "primed" || state === "priming" ? undefined : w.reason, disabled: w.disabled === true, // cold until restart
       generation: c?.primed === true ? c.hash : undefined,
       unverified: c === undefined ? [] : [...c.unverified],
       swaps: this.served?.swaps ?? 0,
