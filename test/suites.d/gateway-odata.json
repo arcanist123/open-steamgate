@@ -42,7 +42,8 @@
     "test/rap-r11.mjs",
     "test/rap-flight-travel.mjs",
     "test/gateway-metadata-diff.mjs",
-    "test/hana-serve.mjs"
+    "test/hana-serve.mjs",
+    "test/order-by.mjs"
   ],
   "_odata-v4": "Gateway ownership: V4 wire suite belongs beside V2 wire tests.",
   "_rap-serve": "Gateway ownership: the RAP R2c wire suite needs the transpiled gateway beside the V2 and V4 wire tests.",

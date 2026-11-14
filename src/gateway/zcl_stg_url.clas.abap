@@ -5,6 +5,13 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
 * is looked up by its external name either way; namespace and prefix say how
 * it was addressed, so the answer's own URLs repeat that address.
   PUBLIC SECTION.
+* a navigation segment after the first: A('k')/ToB('k2')/ToC is the first
+* segment ToB('k2') in nav_prop / nav_key_string and ToC here
+    TYPES: BEGIN OF ty_nav_segment,
+             nav_prop   TYPE string,
+             key_string TYPE string,
+           END OF ty_nav_segment.
+    TYPES ty_nav_segments TYPE STANDARD TABLE OF ty_nav_segment WITH DEFAULT KEY.
     TYPES: BEGIN OF ty_request,
              service         TYPE string,
              namespace       TYPE string,
@@ -13,6 +20,7 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
              key_string      TYPE string,
              nav_prop        TYPE string,
              nav_key_string  TYPE string,
+             nav_more        TYPE ty_nav_segments,
              is_service_root TYPE abap_bool,
              is_metadata     TYPE abap_bool,
              is_batch        TYPE abap_bool,
@@ -83,6 +91,7 @@ ENDCLASS.
 CLASS zcl_stg_url IMPLEMENTATION.
 
   METHOD parse.
+    DATA ls_more    TYPE ty_nav_segment.
     DATA lv_ns      TYPE string.
     DATA lv_rest    TYPE string.
     DATA lv_segment TYPE string.
@@ -140,16 +149,30 @@ CLASS zcl_stg_url IMPLEMENTATION.
           segment( EXPORTING iv_path = lv_rest
                    IMPORTING ev_name = rs_request-nav_prop ev_keys = rs_request-nav_key_string
                    CHANGING cv_off = lv_off ).
-          IF lv_off < strlen( lv_rest ) AND lv_rest+lv_off(1) = '/'.
+* further navigation segments (A('k')/ToB('k2')/ToC), then $count / $value
+          WHILE lv_off < strlen( lv_rest ) AND lv_rest+lv_off(1) = '/'.
             lv_off = lv_off + 1.
+            IF lv_off >= strlen( lv_rest ).
+              EXIT.
+            ENDIF.
             IF lv_rest+lv_off = '$count' OR lv_rest+lv_off = '$count/'.
               rs_request-is_count = abap_true.
               lv_off = strlen( lv_rest ).
             ELSEIF lv_rest+lv_off = '$value' OR lv_rest+lv_off = '$value/'.
               rs_request-is_value = abap_true.
               lv_off = strlen( lv_rest ).
+            ELSE.
+              CLEAR ls_more.
+              segment( EXPORTING iv_path = lv_rest
+                       IMPORTING ev_name = ls_more-nav_prop ev_keys = ls_more-key_string
+                       CHANGING cv_off = lv_off ).
+              IF ls_more-nav_prop IS INITIAL.
+                EXIT.
+              ENDIF.
+              ls_more-nav_prop = cl_http_utility=>unescape_url( ls_more-nav_prop ).
+              APPEND ls_more TO rs_request-nav_more.
             ENDIF.
-          ENDIF.
+          ENDWHILE.
         ENDIF.
       ENDIF.
     ENDIF.
@@ -247,10 +270,24 @@ CLASS zcl_stg_url IMPLEMENTATION.
   METHOD unquote.
     DATA lv_quote TYPE string.
     DATA lv_two   TYPE string.
+    DATA lv_p1    TYPE string.
+    DATA lv_p2    TYPE string.
+    DATA lv_p3    TYPE string.
+    DATA lv_p4    TYPE string.
+    DATA lv_p5    TYPE string.
 
     lv_quote = |'|.
     lv_two   = ''''''.
     rv_value = iv_value.
+* an Edm.Guid literal, guid'c0ffee00-0000-4000-8000-0000000000a1', is the
+* 32 hex digits a RAW 16 field takes; left as it came, the value reached the
+* provider with its prefix and dashes and found no row (M3-B0, W6)
+    FIND REGEX `^guid'([0-9A-Fa-f]{8})-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{12})'$`
+      IN rv_value IGNORING CASE SUBMATCHES lv_p1 lv_p2 lv_p3 lv_p4 lv_p5.
+    IF sy-subrc = 0.
+      rv_value = to_upper( lv_p1 && lv_p2 && lv_p3 && lv_p4 && lv_p5 ).
+      RETURN.
+    ENDIF.
     IF strlen( rv_value ) >= 2 AND rv_value(1) = lv_quote AND substring( val = rv_value
                                                                            off = strlen( rv_value ) - 1 ) = lv_quote.
       rv_value = substring( val = rv_value

@@ -2,6 +2,21 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
 * The io_tech_request_context a DPC receives: one object serving every
 * /iwbep/if_mgw_req_* facet plus the filter facet. Filled by the dispatcher.
   PUBLIC SECTION.
+* A navigation as the technical interface describes it, filled by the
+* dispatcher: the set the path starts from and its keys (the URL's, in
+* OData names: get_converted_source_keys converts them against that set,
+* not against the target), and the technical path, one row per step with
+* the step's TARGET keys in ABAP field names (SO_ID, SO_ITEM_POS) -- empty
+* for a step the URL gave no key, a to-many step read as a set or a to-one
+* step. That is the contract a SEGW sample's provider reads; the twin in
+* test/hana-m2 holds it (ZCL_OSD_H5X_TEST, M3-B2; measured on the bed in
+* M3-B0, RC2).
+    TYPES: BEGIN OF ty_navigation,
+             source_set  TYPE zcl_stg_model_info=>ty_entity_set,
+             source_keys TYPE /iwbep/t_mgw_name_value_pair,
+             tech_path   TYPE /iwbep/t_mgw_tech_navi,
+           END OF ty_navigation.
+
     INTERFACES /iwbep/if_mgw_req_entityset.
     INTERFACES /iwbep/if_mgw_req_entity.
     INTERFACES /iwbep/if_mgw_req_entity_c.
@@ -32,6 +47,7 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
 * the entity type of the set the URL addressed before its first navigation
 * step: the source of the first row of the technical navigation path
     DATA mv_source_entity_type TYPE string.
+    DATA ms_navigation    TYPE ty_navigation.
     DATA mv_select        TYPE string.
     DATA mv_aggregate     TYPE abap_bool.
 * R8: the Fiori Elements V4 draft list filter (IsActiveEntity eq false or
@@ -77,6 +93,13 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rt_path) TYPE /iwbep/t_mgw_tech_navi.
 
     METHODS keys_to_structure
+      IMPORTING
+        is_set        TYPE zcl_stg_model_info=>ty_entity_set
+        it_key_tab    TYPE /iwbep/t_mgw_name_value_pair
+      EXPORTING
+        es_key_values TYPE data.
+
+    METHODS source_keys_to_structure
       EXPORTING
         es_key_values TYPE data.
 ENDCLASS.
@@ -102,13 +125,15 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD keys_to_structure.
-    DATA ls_key      LIKE LINE OF mt_key_tab.
+* by the ABAP field name the set gives the property: the caller's structure
+* may be the set's own type or another one with the same field
+    DATA ls_key      LIKE LINE OF it_key_tab.
     DATA ls_property TYPE zcl_stg_model_info=>ty_property.
     FIELD-SYMBOLS <lv_target> TYPE any.
 
     CLEAR es_key_values.
-    LOOP AT mt_key_tab INTO ls_key.
-      READ TABLE ms_set-properties INTO ls_property WITH KEY name = ls_key-name.
+    LOOP AT it_key_tab INTO ls_key.
+      READ TABLE is_set-properties INTO ls_property WITH KEY name = ls_key-name.
       IF sy-subrc <> 0.
         CONTINUE.
       ENDIF.
@@ -117,6 +142,22 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
         <lv_target> = ls_key-value.
       ENDIF.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD source_keys_to_structure.
+* the keys of the set the navigation started from, converted against that
+* set; without a navigation the source is the addressed entity itself.
+* Converted against the target set, as before, a source key the target has
+* no property for was dropped: the provider read `bp_id = ' '` (M3-B0, RC2)
+    IF ms_navigation-source_set-name IS NOT INITIAL.
+      keys_to_structure( EXPORTING is_set        = ms_navigation-source_set
+                                   it_key_tab    = ms_navigation-source_keys
+                         IMPORTING es_key_values = es_key_values ).
+    ELSE.
+      keys_to_structure( EXPORTING is_set        = ms_set
+                                   it_key_tab    = mt_key_tab
+                         IMPORTING es_key_values = es_key_values ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD sql_literal.
@@ -269,7 +310,7 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entityset~get_converted_source_keys.
-    keys_to_structure( IMPORTING es_key_values = es_key_values ).
+    source_keys_to_structure( IMPORTING es_key_values = es_key_values ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entityset~get_osql_where_clause.
@@ -390,19 +431,22 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity~get_source_entity_set_name.
-    IF mv_source_entity_set IS NOT INITIAL.
-      rv_entity_set = mv_source_entity_set.
-    ELSE.
-      rv_entity_set = mv_entity_set.
-    ENDIF.
+* nothing for a direct read, as the entity-set facet: a SEGW sample's
+* *_get_entity reads "IS INITIAL" as "direct" and resolves a navigation
+* path otherwise -- with the set itself answered here every direct single
+* read took the navigation branch, found an empty path and answered 404
+* without a statement (M3-B0, RC1)
+    rv_entity_set = mv_source_entity_set.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity~get_converted_keys.
-    keys_to_structure( IMPORTING es_key_values = es_key_values ).
+    keys_to_structure( EXPORTING is_set        = ms_set
+                                 it_key_tab    = mt_key_tab
+                       IMPORTING es_key_values = es_key_values ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity~get_converted_source_keys.
-    keys_to_structure( IMPORTING es_key_values = es_key_values ).
+    source_keys_to_structure( IMPORTING es_key_values = es_key_values ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity_c~get_entity_set_name.
@@ -430,7 +474,9 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity_d~get_converted_keys.
-    keys_to_structure( IMPORTING es_key_values = es_key_values ).
+    keys_to_structure( EXPORTING is_set        = ms_set
+                                 it_key_tab    = mt_key_tab
+                       IMPORTING es_key_values = es_key_values ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity_u~get_entity_set_name.
@@ -438,7 +484,9 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity_u~get_converted_keys.
-    keys_to_structure( IMPORTING es_key_values = es_key_values ).
+    keys_to_structure( EXPORTING is_set        = ms_set
+                                 it_key_tab    = mt_key_tab
+                       IMPORTING es_key_values = es_key_values ).
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entity~get_navigation_path.
@@ -467,6 +515,13 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
     DATA ls_pair   TYPE /iwbep/s_mgw_tech_pair.
     DATA lv_source TYPE string.
 
+* the dispatcher's path, keys per step in ABAP names (ty_navigation); the
+* rows below are the fallback for a caller that filled only the classic
+* path, and they carry that path's keys as they are
+    IF ms_navigation-tech_path IS NOT INITIAL.
+      rt_path = ms_navigation-tech_path.
+      RETURN.
+    ENDIF.
     lv_source = mv_source_entity_type.
     LOOP AT mt_navigation_path INTO ls_step.
       CLEAR ls_row.
