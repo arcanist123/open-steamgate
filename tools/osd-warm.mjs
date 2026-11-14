@@ -83,7 +83,10 @@ export class NotWarm extends Error {
 //     _SAVER is cold;
 //   - cds2ddic, stg-compile, segw-*, osd-bsp-registry, osd-fm-registry:
 //     other object types (DDLS, TABL, IWSV, WAPA, FUGR, YAML), and which
-//     class files exist.
+//     class files exist;
+//   - osd-textpool-registry, osd-ddic-info-registry: the class and program
+//     XML (<TPOOL>) and TABL/DTEL/DOMA -- never a .abap source, so a source
+//     edit leaves both registries as they were.
 // So an edit is warm when it changes the content of a class or interface
 // that already exists, outside gen/, with no AMDP body before or after, the
 // same INTERFACES lines, and -- for an interface -- no AMDP class naming it.
@@ -94,6 +97,7 @@ export const GENERATORS_READ = [
   "osd-transpiler.mjs", "osd-inputs.mjs", "osd-ddic-binary.mjs", "cds2ddic.mjs", "rap/bdef-gen.mjs", "stg-compile.mjs",
   "segw-registry.mjs", "segw-shlp.mjs", "osd-bsp-registry.mjs", "amdp-gen.mjs", "amdp-tablefunc.mjs",
   "osd-fm-registry.mjs", "osd-gui-convert.mjs", "osd-tran-registry.mjs",
+  "osd-textpool-registry.mjs", "osd-ddic-info-registry.mjs",
 ];
 
 const SOURCE = /\.(clas(\.(locals_imp|locals_def|testclasses|macros))?\.abap|intf\.abap|prog\.abap)$/i;

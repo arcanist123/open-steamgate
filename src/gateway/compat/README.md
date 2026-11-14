@@ -41,3 +41,18 @@ do not travel to SAP.
   the Gateway builds itself, `<association>_AssocSet` cut to 40 characters,
   between the two types' first entity sets, unless the MPC created one
   (H5x-4 B4; the SEGW sample's `$metadata` had no AssociationSet at all).
+- `zcl_oao_property.clas`, `zcl_oao_entity_typ.clas`,
+  `zcl_oao_cmplx_type.clas`, `zcl_oao_http_handler.clas` -- the
+  `$metadata` annotations as a system writes them (milestone 3 B4,
+  `ANOMALY-2026-11-14-textpool-absent`,
+  `ANOMALY-2026-11-14-bind-structure-ddic`, docs/upstream.md items 15-16):
+  bind_structure fills the property's data element, dictionary type,
+  unit property and derived semantics through `ZCL_OSD_DDIC_INFO` (a
+  type of the class through RTTI); the writer takes the label from the
+  model's annotation, else the text pool (`ZCL_OSD_TEXTPOOL`, session
+  language only), else an explicit label, else the data element's medium
+  label -- never the ABAP field name; writes `sap:unicode` only from the
+  model's annotation, `sap:unit` from the reference field, the label of a
+  function import parameter; and no longer derives
+  `sap:display-format="Date"` (the date mark `mv_is_date` stays for the V4
+  facade; the SADL exposure sets the display format itself).

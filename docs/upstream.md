@@ -129,6 +129,42 @@ Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
     `ZCL_OSD_H5X_TEST` encoded_option_names. Needs an issue first: which of
     the two builds the fields decides where the fix goes.
 
+Three more from HANA milestone 3 (B4, the `$metadata` annotations of the
+SEGW sample; measured against the system's own `$metadata`, the EN and the
+DE capture). The overlays sit in `src/gateway/compat/` with their library
+copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
+
+15. **open-abap-odata: labels from the text pool** --
+    `ANOMALY-2026-11-14-textpool-absent`. `set_label_from_text_element`
+    stores the symbol and the writer prints the ABAP field name. The PR:
+    a small provider interface in the library (`get_text( container,
+    symbol, language )`), the writer asking it in `sy-langu` and writing
+    no label when it answers nothing, never the field name; this
+    repository's provider is `ZCL_OSD_TEXTPOOL` over the build-time
+    registry (tools/osd-textpool-registry.mjs), which stays here. Also a
+    parameter's label (SEGW calls the same method on it). Test here:
+    `ZCL_OSD_H5X_TEST` ltcl_annotations.
+
+16. **open-abap-odata: bind_structure from the dictionary, the writer as
+    the model says** -- `ANOMALY-2026-11-14-bind-structure-ddic`. Three
+    PRs, in this order: (a) `sap:unicode` only from the model's
+    annotation (no hard-coded `false`); (b) `sap:unit` and derived
+    `sap:semantics` from a field-information provider bind_structure
+    asks (data element, type, reference field per component; this
+    repository's is `ZCL_OSD_DDIC_INFO` over tools/osd-ddic-info-registry.mjs);
+    (c) the label of the data element through the same provider, and no
+    `sap:display-format="Date"` derived for a DATS component (the system
+    writes none; the date mark stays for a V4 facade). Consumer impact to
+    state in the PR: a model that set no label loses the field-name label,
+    and a Fiori V2 app shows a SEGW-path date with its time unless the
+    model annotates `display-format` itself.
+
+17. **abaplint/transpiler: SET LOCALE LANGUAGE** --
+    `ANOMALY-2026-11-14-set-locale-noop`. The runtime's `setLocale` is
+    empty; worked around in the dispatcher by setting `sy-langu` for the
+    request. Needs an issue first (what else the statement should switch
+    is the question).
+
 12. **transpiler: a class constructor's targets at load** --
     `ANOMALY-2026-11-14-cctor-load-order`. Fixed in the pin
     `local/osd-build-4j` (28a3c53a, #941), cycle-free; a branch inside

@@ -350,31 +350,6 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
 * -- or, where the key names no attribute, from the key's text itself,
 * which is how a SEGW sample's "key '&1' does not exist" reads its key on
 * a system (M3 oracle: 400, code class/number, the key in the text)
-* the session language a request names: sap-language (ISO DE or SAP D),
-* else the first tag of Accept-Language; empty when it names none or one
-* unknown here (then the logon language stays)
-    CLASS-METHODS request_language
-      IMPORTING
-        it_options      TYPE tihttpnvp
-        it_headers      TYPE tihttpnvp
-      RETURNING
-        VALUE(rv_langu) TYPE sy-langu.
-
-* the two ends of a request's language, the only places dispatch touches
-* it: enter answers the logon language to give back to leave. The seam a
-* shared session-language class takes over (PR #953) -- then these two
-* and request_language go
-    CLASS-METHODS enter_language
-      IMPORTING
-        it_options      TYPE tihttpnvp
-        it_headers      TYPE tihttpnvp
-      RETURNING
-        VALUE(rv_logon) TYPE sy-langu.
-
-    CLASS-METHODS leave_language
-      IMPORTING
-        iv_logon TYPE sy-langu.
-
     CLASS-METHODS t100_of
       IMPORTING
         ix_busi    TYPE REF TO /iwbep/cx_mgw_busi_exception
@@ -418,16 +393,19 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lv_code    TYPE string.
     DATA lo_msg     TYPE REF TO zcl_oao_msg_container.
     DATA lt_msg     TYPE bapirettab.
-    DATA lv_logon   TYPE sy-langu.
+    DATA lv_logon   TYPE c LENGTH 1.
+    DATA lv_langu   TYPE c LENGTH 1.
 
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
-* the request's language is the session language while it runs, so a
-* provider's sy-langu reads answer in it (M3 oracle 09-a0, sap-language=DE);
-* the logon language is back afterwards, also when the request fails
-    lv_logon = enter_language( it_options = it_options
-                               it_headers = it_headers ).
+* sap-language (else Accept-Language): the request runs in that language
+* and the session's own comes back after it (ZCL_OSD_SESSION_LANGU)
+    lv_langu = zcl_osd_session_langu=>requested( it_options = it_options
+                                                 it_headers = it_headers ).
+    IF lv_langu IS NOT INITIAL.
+      lv_logon = zcl_osd_session_langu=>switch( lv_langu ).
+    ENDIF.
     TRY.
         rs_response = run( iv_method  = iv_method
                            iv_path    = iv_path
@@ -472,66 +450,13 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                      iv_body   = zcl_stg_json=>error( iv_code    = 'STG/TECHNICAL'
                                                                       iv_message = lx_gateway->get_text( ) ) ).
       CLEANUP.
-        leave_language( lv_logon ).
+        IF lv_logon IS NOT INITIAL.
+          zcl_osd_session_langu=>switch( lv_logon ).
+        ENDIF.
     ENDTRY.
-    leave_language( lv_logon ).
-  ENDMETHOD.
-
-  METHOD enter_language.
-    DATA lv_langu TYPE sy-langu.
-
-    rv_logon = sy-langu.
-    lv_langu = request_language( it_options = it_options
-                                 it_headers = it_headers ).
-    IF lv_langu IS NOT INITIAL.
-      sy-langu = lv_langu.
+    IF lv_logon IS NOT INITIAL.
+      zcl_osd_session_langu=>switch( lv_logon ).
     ENDIF.
-  ENDMETHOD.
-
-  METHOD leave_language.
-    sy-langu = iv_logon.
-  ENDMETHOD.
-
-  METHOD request_language.
-    DATA ls_pair  TYPE ihttpnvp.
-    DATA lv_value TYPE string.
-    DATA lv_iso   TYPE c LENGTH 2.
-
-    LOOP AT it_options INTO ls_pair.
-      IF to_lower( ls_pair-name ) = 'sap-language'.
-        lv_value = ls_pair-value.
-      ENDIF.
-    ENDLOOP.
-    IF lv_value IS INITIAL.
-      LOOP AT it_headers INTO ls_pair.
-        IF to_lower( ls_pair-name ) = 'accept-language'.
-* de-DE,de;q=0.9 -> de
-          lv_value = ls_pair-value.
-          SPLIT lv_value AT ',' INTO lv_value ls_pair-value.
-          SPLIT lv_value AT ';' INTO lv_value ls_pair-value.
-          SPLIT lv_value AT '-' INTO lv_value ls_pair-value.
-          CONDENSE lv_value.
-        ENDIF.
-      ENDLOOP.
-    ENDIF.
-    CONDENSE lv_value.
-    CASE strlen( lv_value ).
-      WHEN 1.
-        rv_langu = to_upper( lv_value ).
-      WHEN 2.
-        lv_iso = to_upper( lv_value ).
-        CALL FUNCTION 'CONVERSION_EXIT_ISOLA_INPUT'
-          EXPORTING
-            input            = lv_iso
-          IMPORTING
-            output           = rv_langu
-          EXCEPTIONS
-            unknown_language = 1
-            OTHERS           = 2.
-        IF sy-subrc <> 0.
-          CLEAR rv_langu.
-        ENDIF.
-    ENDCASE.
   ENDMETHOD.
 
   METHOD t100_of.

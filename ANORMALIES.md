@@ -4780,6 +4780,53 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: the transpiler's unit tests above; `test/generation-check.mjs` (0 cycles)
 - Upstream version containing a fix: unknown
 
+### ANOMALY-2026-11-14-textpool-absent -- a class's text pool is not there at run time
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (READ TEXTPOOL transpiles to `throw new Error("ReadTextpool, transpiler todo")`); the pinned open-abap-odata (bd9f1fb) `zcl_oao_property`, whose `set_label_from_text_element` stores the symbol and nothing reads it
+- Affected ABAP statement, runtime API or adapter: `READ TEXTPOOL`; `/IWBEP/IF_MGW_ODATA_ITEM~SET_LABEL_FROM_TEXT_ELEMENT` (every SEGW-generated model provider labels its properties and parameters this way)
+- Minimal ABAP reproducer: the twin's `Item` type (`test/hana-m2/zcl_osd_h5x_mpc`, symbols 001/002 in the class XML's `<TPOOL>` and `<I18N_TPOOL>`)
+- Exact command used to run it: `$metadata` of the SEGW sample, diffed with tools/odata-metadata-diff.mjs against the system's
+- Expected SAP behaviour: `sap:label` is the text symbol in the session language; a symbol without a text in that language leaves the property without a label (measured: under `sap-language=DE` all 59 text-pool labels disappear, none falls back to the data element's German label)
+- Actual open-abap behaviour: the writer printed the ABAP field name (`BP_ID` for `Bus. Part. ID`), and under any language the same
+- Impact on open-steamgate: 59 property and 4 parameter labels of the sample; every stg-compile model's labels (those carry a `<TPOOL>`)
+- Smallest safe workaround: the build reads every `<TPOOL>` into `gen/textpool/zcl_osd_textpool_registry` (tools/osd-textpool-registry.mjs), `ZCL_OSD_TEXTPOOL` answers by container and symbol in `sy-langu`, the writer overlay `src/gateway/compat/zcl_oao_http_handler` asks it
+- Upstream issue: READ TEXTPOOL needs an issue in abaplint/transpiler (where the pool would come from is the question, not the statement); the label resolution is one small PR to open-abap-odata through a provider interface the runtime fills (docs/upstream.md, item 15)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: text_pool_labels, class_pool_container); `test/gateway-annotation-registries.mjs`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-bind-structure-ddic -- bind_structure takes nothing from the dictionary but a date
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_entity_typ`, `zcl_oao_cmplx_type`, `zcl_oao_http_handler`; RTTI of open-abap-core (no field labels, no reference fields)
+- Affected ABAP statement, runtime API or adapter: `/IWBEP/IF_MGW_ODATA_ENTITY_TYP~BIND_STRUCTURE`, `/IWBEP/IF_MGW_ODATA_CMPLX_TYPE~BIND_STRUCTURE`, the `$metadata` writer
+- Minimal ABAP reproducer: the twin's `Item` type bound to `ZOSD_H5X_S_ITEM` (an amount and a quantity with reference fields, a currency key, a unit, a date, an include) and `VH_Currency` bound to a type of the class
+- Exact command used to run it: as above
+- Expected SAP behaviour (measured on the SEGW sample against its system): a property with no label of its own gets the medium field label of its component's data element (44 of the sample's 103); an amount or quantity gets `sap:unit` = the property bound to its reference field (12, the model makes no unit call); a currency key gets `sap:semantics="currency-code"`, a unit `"unit-of-measure"` (11, also for a type of the class through its data elements); a DATS-bound `Edm.DateTime` gets **no** `sap:display-format`; `sap:unicode` only where the model adds the annotation (the sample's 7 complex-type properties get none); a property with no label anywhere gets none (not its ABAP field name)
+- Actual open-abap behaviour: bind_structure set `sap:display-format="Date"` and nothing else; the writer hard-coded `sap:unicode="false"`, fell back to the ABAP field name for the label, wrote no label on a parameter
+- Impact on open-steamgate: 44 labels, 12 units, 11 semantics, 7 unicode, 1 display format of the sample; on our own services, see docs/upstream.md item 13 (dates of SEGW-path models lose `sap:display-format`; services without labels lose the field-name label; SADL keeps both)
+- Smallest safe workaround: the overlays `src/gateway/compat/zcl_oao_{property,entity_typ,cmplx_type,http_handler}` and the build-time dictionary registry `gen/ddicinfo/zcl_osd_ddic_info_registry` (tools/osd-ddic-info-registry.mjs) read through `ZCL_OSD_DDIC_INFO`
+- Upstream issue: small PRs to open-abap-odata (docs/upstream.md, items 15-16)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: dictionary_labels, units_and_semantics, unicode_as_the_model_says); `test/gateway-annotation-registries.mjs`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-set-locale-noop -- SET LOCALE LANGUAGE does nothing, and sap-language was not read
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler's runtime (`setLocale` is an empty function, "todo"); this Gateway (no reader of `sap-language`)
+- Affected ABAP statement, runtime API or adapter: `SET LOCALE LANGUAGE`; the `sap-language` URL parameter
+- Minimal ABAP reproducer: `SET LOCALE LANGUAGE 'D'. WRITE sy-langu.` prints `E`
+- Exact command used to run it: `$metadata?sap-language=DE` of the twin
+- Expected SAP behaviour: the request runs in the language the parameter names (ISO `DE` or SAP `D`); texts follow it
+- Actual open-abap behaviour: every request runs in the boot language
+- Impact on open-steamgate: labels (and every language-dependent read of a DPC) ignore `sap-language`
+- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception, through `ZCL_OSD_SESSION_LANGU` (`REQUESTED`: sap-language, else the first tag of Accept-Language; `SWITCH`) -- only when the request names a language, because the Go host's compiler does not carry `sy-langu` (a request with a language dumps NOT_COMPILED there, in `SWITCH`; the ISO mapping goes through `CL_I18N_LANGUAGES` directly, since the compiler also refused `CONVERSION_EXIT_ISOLA_INPUT`'s untyped IMPORTING parameter). `xml:lang` of `$metadata` follows the session language (`ISO`). A language the system does not know is ignored, not refused: lenient on purpose, unmeasured
+- Upstream issue: needs an issue in abaplint/transpiler for `SET LOCALE LANGUAGE` (setting `sy-langu` is the visible half)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (labels_in_the_request_language)
+
 ### ANOMALY-2026-11-14-dynamic-order-by-blanks -- a dynamic ORDER BY whose columns are separated by blanks reaches SQL without commas
 
 - Status: `workaround` (and a local transpiler commit, not pushed: see Upstream issue)
@@ -4810,22 +4857,6 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: none taken; the text is right in the logon language E
 - Upstream issue: needs an issue in abaplint/transpiler after a critic pass (read `sprsl = sy-langu` first, then the master language)
 - Regression-test location: none yet
-- Upstream version containing a fix: unknown
-
-### ANOMALY-2026-11-14-set-locale-no-op -- `SET LOCALE LANGUAGE` does not change sy-langu
-
-- Status: `workaround`
-- Discovery date: `2026-11-14`
-- Affected versions: the pinned runtime (oisee/transpiler 28a3c53a), `packages/runtime/src/statements/set_locale.ts` (a `// todo` body); `GET LOCALE` answers E always (`get_locale.ts`)
-- Affected ABAP statement, runtime API or adapter: `SET LOCALE LANGUAGE lv_langu`, `GET LOCALE LANGUAGE lv_langu`
-- Minimal ABAP reproducer: `SET LOCALE LANGUAGE 'D'. ASSERT sy-langu = 'D'.` fails
-- Exact command used to run it: read off the source of the pinned runtime
-- Expected SAP behaviour: the text environment and sy-langu change to the language for the rest of the internal session
-- Actual open-abap behaviour: nothing changes
-- Impact on open-steamgate: the Gateway's session language per request (`sap-language`, M3 B3) cannot be set the way a system's ICF does it
-- Smallest safe workaround: the dispatcher assigns `sy-langu` itself for the request and puts the logon language back afterwards (`zcl_stg_dispatcher=>dispatch`, also on CLEANUP)
-- Upstream issue: needs an issue in abaplint/transpiler after a critic pass
-- Regression-test location: `ZCL_OSD_H5X_TEST` `session_language`
 - Upstream version containing a fix: unknown
 
 ### ANOMALY-2026-11-14-modify-itab-as-database -- `MODIFY itab FROM wa` (no INDEX) in a LOOP is transpiled as a database MODIFY

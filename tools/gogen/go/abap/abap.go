@@ -34,17 +34,6 @@ type Sy struct {
 	Fdpos                      int32
 	// Dbcnt: the rows the last Open SQL statement read or wrote
 	Dbcnt int32
-	// Langu: the session language; Language supplies the logon language E
-	// while nothing has set it
-	Langu string
-}
-
-// Language preserves the logon language as sy-langu's value on access.
-func (sy *Sy) Language() *string {
-	if sy.Langu == "" {
-		sy.Langu = "E"
-	}
-	return &sy.Langu
 }
 
 // MessageNumber preserves NUMC(3)'s initial value, including reference reads.
