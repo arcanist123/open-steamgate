@@ -271,6 +271,26 @@ export function learnFromFailure(state, {buildError, load} = {}) {
   return undefined;
 }
 
+/** the fixed point's positive control (the build, then the load check) with
+ *  what a failure teaches: {learned} when the walk learned a refused
+ *  statement or a failing class constructor (the caller saves the state and
+ *  repeats the pass), else {build, load}. A build failure that teaches
+ *  nothing is thrown as it was. `learn` -- --stub-unresolved. */
+export function fixedPointVerdict({root, env, say, state, learn, buildCheck, loadCheckOf}) {
+  let build;
+  try {
+    build = buildCheck({root, env, say});
+  } catch (error) {
+    const learned = learn === true ? learnFromFailure(state, {buildError: error}) : undefined;
+    if (learned === undefined) throw error;
+    return {learned};
+  }
+  const load = build.status === 0 ? loadCheckOf({root, env, say})
+    : {loads: false, built: false, error: `not built: osd-build exited ${build.status} with ${build.findings} finding(s)`};
+  const learned = learn === true ? learnFromFailure(state, {load}) : undefined;
+  return learned !== undefined ? {learned} : {build, load};
+}
+
 /** the statement kind of a transpiler refusal in a build's output, or
  *  undefined. Pure. */
 export function unsupportedStatementOf(text) {

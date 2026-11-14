@@ -130,10 +130,9 @@ Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
     the two builds the fields decides where the fix goes.
 
 12. **transpiler: a class constructor's targets at load** --
-    `ANOMALY-2026-11-14-class-constructor-targets`. Fixed in the pin
-    `local/osd-build-4h` (#941's head 7c59f51f), which supersedes the
-    builder's local branch `fix/class-constructor-requires`; a branch inside
-    abaplint/transpiler from that commit, after a critic pass.
+    `ANOMALY-2026-11-14-cctor-load-order`. Fixed in the pin
+    `local/osd-build-4j` (28a3c53a, #941), cycle-free; a branch inside
+    abaplint/transpiler from those commits, after a critic pass.
 
 13. **transpiler runtime: a DEC 21,7 value formats through a double** --
     `ANOMALY-2026-11-14-packed-21-format`. Needs an issue with the

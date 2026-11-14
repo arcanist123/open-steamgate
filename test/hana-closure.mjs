@@ -605,6 +605,26 @@ describe("hana-closure: the dependency closure, by iteration", () => {
     expect(planStubPass({...base, source: later.source, findings: [], asked: () => true, missingOf: () => true}).stubs).to.deep.equal([]);
   });
 
+  it("a class-constructor signal stub follows the lift rule: when the path's names arrive, the pristine constructor is back and the record lifts it", async () => {
+    const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
+    const {recordStub, liftedStubs} = await import("../tools/hana-closure-report.mjs");
+    const base = {source: CTOR_CLASS, basename: "zcl_h5c_ctor.clas.abap", islandFiles: new Set(), excludedObjects: new Set()};
+    const record = (plan) => {
+      const map = new Map();
+      for (const st of plan.stubs) recordStub(map, {object: "ZCL_H5C_CTOR", file: base.basename, class: st.className, method: st.method, missing: st.missing, finding: st.finding});
+      return map;
+    };
+    // iteration N: the name is missing -- the callee raises, the constructor signals
+    const missing = planStubPass({...base, findings: ctorFinding(12), asked: () => true, missingOf: () => true});
+    const before = record(missing);
+    expect([...before.values()].map((s) => s.method).sort()).to.deep.equal(["CLASS_CONSTRUCTOR", "INFO"]);
+    // iteration N+1: the island is re-laid pristine and the name arrived -- no finding, no stub
+    const arrived = planStubPass({...base, findings: [], asked: () => true, missingOf: () => false});
+    expect(arrived.stubs).to.deep.equal([]);
+    expect(arrived.source, "the pristine constructor is back").to.equal(CTOR_CLASS);
+    expect(liftedStubs(before, record(arrived)).map((s) => s.method).sort()).to.deep.equal(["CLASS_CONSTRUCTOR", "INFO"]);
+  });
+
   it("planStubPass: a class constructor with findings of its own is stubbed with the signal, never a raise", async () => {
     const {planStubPass} = await import("../tools/hana-closure-stubs.mjs");
     const source = CTOR_CLASS.replace("    info( ).", "    DATA lo_far TYPE REF TO zcl_h5c_far.\n    CREATE OBJECT lo_far.");

@@ -273,7 +273,7 @@ import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import {join, resolve} from "node:path";
 import {runsAs} from "./osd-main.mjs";
 import {validationMessage} from "./hana-ddic-gen.mjs";
-import {islandClassPaths, planStubPass, registeredServiceClasses, seedClasses, serviceGuardBySuffixOnly, dropPresentNames, frameworkGapList, objectFilePresent, islandPrePass, learnFromFailure} from "./hana-closure-stubs.mjs";
+import {islandClassPaths, planStubPass, registeredServiceClasses, seedClasses, serviceGuardBySuffixOnly, dropPresentNames, frameworkGapList, objectFilePresent, islandPrePass, fixedPointVerdict} from "./hana-closure-stubs.mjs";
 import {buildCheck, ddicWritten, ensureLayers, generationOf, islandBasenames, islandObjectCount, islandShrinkCheck, loadCheckOf, mergeInputs} from "./hana-closure-merge.mjs";
 import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana-closure-dumper.mjs";
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
@@ -980,21 +980,12 @@ export async function run(args = process.argv.slice(2), options = {}) {
       // the positive control (round 4): a validation with no findings and a
       // broken build was bed run 4's false fixed point -- the build's own
       // exit must agree before the declaration
-      let build;
-      try {
-        build = buildCheck({root, env, say});
-      } catch (error) {
-        // a refused statement (no finding): learned once per kind, the pass repeats (B4)
-        const learned = stubUnresolved === true ? learnFromFailure(state, {buildError: error}) : undefined;
-        if (learned === undefined) throw error;
-        saveState(out, state); say(learned); continue;
-      }
+      const verdict = fixedPointVerdict({root, env, say, state, learn: stubUnresolved, buildCheck, loadCheckOf}); // B4: learn, repeat
+      if (verdict.learned !== undefined) { saveState(out, state); say(verdict.learned); continue; }
+      const {build, load} = verdict;
       if (build.findings > 0) say(`build: exited ${build.status} with ${build.findings} finding(s) -- exit 1 with findings only, the fixed point stands`);
       say(`fixed point: every unresolved name has been asked and nothing new is named; ${gaps.length + refusedGaps.length} gap(s) -> ${join(out, "closure-gaps.json")}`);
       const seeds = seedClasses(root);
-      const load = build.status === 0 ? loadCheckOf({root, env, say}) : {loads: false, built: false, error: `not built: osd-build exited ${build.status} with ${build.findings} finding(s)`};
-      const learnedLoad = stubUnresolved === true ? learnFromFailure(state, {load}) : undefined;
-      if (learnedLoad !== undefined) { saveState(out, state); say(learnedLoad); continue; }
       writeClosureSummary(out, closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
         present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load}));
       return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps], cascades, unclassified, unscoped,
