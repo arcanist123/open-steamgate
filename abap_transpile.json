@@ -69,7 +69,9 @@
         "/src/zif_abapgit_version.*",
         "/deps/trobjtype.dtel.xml",
         "/deps/trnspace.tabl.xml",
-        "/deps/dokil.tabl.xml"
+        "/deps/dokil.tabl.xml",
+        "/deps/dd07v.tabl.xml",
+        "/deps/ddobjname.dtel.xml"
       ]
     },
     {
