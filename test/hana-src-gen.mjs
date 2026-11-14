@@ -89,11 +89,13 @@ describe("hana-src-gen: the tenant's sources as input layers", () => {
         ["zcl_h4_a_helper_test.clas.abap", "CLASS zcl_h4_a_helper_test DEFINITION PUBLIC FINAL. ENDCLASS.\n"],
         ["zcl_h4_a_keeper.clas.abap", "CLASS zcl_h4_a_keeper DEFINITION PUBLIC FINAL. ENDCLASS.\n"],
         ["zosd_h4_a_latest.clas.abap", "CLASS zcl_h4_a_latest DEFINITION PUBLIC FINAL. ENDCLASS.\n"],
+        // an exception class named *_TEST is raised, not run: it stays
+        ["zcx_h4_a_test.clas.abap", "CLASS zcx_h4_a_test DEFINITION PUBLIC INHERITING FROM cx_static_check. ENDCLASS.\n"],
       ]);
       f.plan();
       expect(await run(["--layers", f.root, "--out", out(f.root)])).to.equal(0);
       expect(readdirSync(join(out(f.root), "000-osd-tmp-zosd-h4-a", "src")).sort()).to.deep.equal(
-        ["zcl_h4_a_keeper.clas.abap", "zosd_h4_a.prog.abap", "zosd_h4_a_latest.clas.abap"]);
+        ["zcl_h4_a_keeper.clas.abap", "zcx_h4_a_test.clas.abap", "zosd_h4_a.prog.abap", "zosd_h4_a_latest.clas.abap"]);
       // the plan and the disk agree, so --check passes
       expect(await run(["--layers", f.root, "--check", "--out", out(f.root)])).to.equal(0);
     } finally {

@@ -265,6 +265,14 @@ export function firstLoadError(result) {
   return [load.reason, error, at === undefined ? undefined : `at ${at.replace(/^.*\//, "")}`].filter((x) => x !== undefined).join(": ");
 }
 
+/** the global class whose CLASS_CONSTRUCTOR a failed load came out of (the
+ *  innermost class_constructor frame of the import's stack), as its object
+ *  name, or undefined (H5x-4 B4: a closure walk stubs that constructor). */
+export function loadConstructorOf(result) {
+  const m = /at (?:async )?\S+\.class_constructor \(file:\/\/\S*\/([^/\s]+)\.clas\.mjs:\d+/.exec(String(result?.load?.stderr ?? ""));
+  return m === null ? undefined : decodeURIComponent(m[1]).replace(/#/g, "/").toUpperCase();
+}
+
 /** for a host about to import a generation, and for the build: throw rather
  *  than hang or serve half a system */
 export function assertLoadable(dir, {log = () => {}, ...options} = {}) {
@@ -290,7 +298,7 @@ if (runsAs("osd-generation-check.mjs")) {
   if (args.includes("--json")) {
     // the closure's fixed point reads this (tools/hana-closure-merge.mjs loadCheckOf)
     console.log(JSON.stringify({ok: result.ok, modules: result.modules, cycles: result.cycles, syntax: result.syntax,
-      latent: result.latent, loads: result.ok, load_error: firstLoadError(result), cctor_cycles: result.cctorCycles}));
+      latent: result.latent, loads: result.ok, load_error: firstLoadError(result), cctor_cycles: result.cctorCycles, load_constructor: loadConstructorOf(result)}));
     process.exit(result.ok ? 0 : 1);
   }
   for (const line of describe(result)) console.log(line);

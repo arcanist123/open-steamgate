@@ -1275,7 +1275,12 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ENDIF.
 
     IF is_request-is_count = abap_true.
-      IF <lt_data> IS ASSIGNED.
+* a DPC that asked has_count( ) counts itself and returns no rows (SELECT
+* COUNT( * ) into es_response_context-count): its count is the answer;
+* the rows' number only when it said nothing
+      IF ls_context-count IS NOT INITIAL.
+        lv_count = ls_context-count.
+      ELSEIF <lt_data> IS ASSIGNED.
         lv_count = |{ lines( <lt_data> ) }|.
       ELSE.
         lv_count = '0'.
@@ -1290,6 +1295,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 
     IF lo_context->mv_inlinecount = abap_true.
       lv_count = ls_context-inlinecount.
+* the context's count is a character field: "4 " is not the JSON "4"
+      CONDENSE lv_count NO-GAPS.
       IF lv_count IS INITIAL AND <lt_data> IS ASSIGNED.
 * the DPC did not count for us: count what it returned
         lv_count = |{ lines( <lt_data> ) }|.

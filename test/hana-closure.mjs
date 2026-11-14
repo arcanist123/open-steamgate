@@ -6,7 +6,7 @@ import {basename, join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {classifyFindings, islandBasenames, parseFindings, requestFor, run, tadirKinds} from "../tools/hana-closure.mjs";
 import {dumperCommand, parseEnvFile} from "../tools/hana-closure-dumper.mjs";
-import {methodBlocks, stubBodies, stubNamesText} from "../tools/hana-closure-stubs.mjs";
+import {methodBlocks, planStubPass, structureStubs, stubBodies, stubNamesText, unclosedBlocks, unsupportedStatementOf, unsupportedStubs, constructorStub, learnFromFailure} from "../tools/hana-closure-stubs.mjs";
 import {buildVerdict, islandObjectCount, islandShrinkCheck, layersDdicCount} from "../tools/hana-closure-merge.mjs";
 import {ddicFields, tablXml} from "../tools/hana-ddic-map.mjs";
 
@@ -1320,7 +1320,7 @@ ENDCLASS.`,
   });
 
   it("the seam reads the six-section record from OSD_HANA_CLOSURE_OUT -- the loop's --out -- not only the fixed path (S-1)", async () => {
-    const {closureStubs, closureStubsFile, definitionExclusions, excludedFiles} = await import("../tools/hana-closure-exclusions.mjs");
+    const {closureStubs, closureStubsFile, definitionExclusions, excludedFiles, excludedObjectFiles} = await import("../tools/hana-closure-exclusions.mjs");
     const root = mkdtempSync(join(tmpdir(), "hana-closure-seam-"));
     const saved = process.env.OSD_HANA_CLOSURE_OUT;
     try {
@@ -1343,6 +1343,12 @@ ENDCLASS.`,
         [{file: "gen/hana-src/000-x/src/zcl_h5c_badx.clas.abap", error: "boom"}]);
       expect(excludedFiles(root)).to.deep.equal(
         ["gen/hana-src/000-x/src/zcl_h5c_defx.clas.abap", "gen/hana-src/000-x/src/zcl_h5c_fall.clas.abap"]);
+      // the build keeps every file of an object out (H5x-4 B4): with the
+      // .clas.xml left in, init.mjs imported a module nobody wrote
+      expect(excludedObjectFiles(root).filter((f) => f.includes("zcl_h5c_defx"))).to.deep.equal([
+        "gen/hana-src/000-x/src/zcl_h5c_defx.clas.abap", "gen/hana-src/000-x/src/zcl_h5c_defx.clas.xml",
+        "gen/hana-src/000-x/src/zcl_h5c_defx.clas.locals_imp.abap", "gen/hana-src/000-x/src/zcl_h5c_defx.clas.locals_def.abap",
+        "gen/hana-src/000-x/src/zcl_h5c_defx.clas.macros.abap", "gen/hana-src/000-x/src/zcl_h5c_defx.clas.testclasses.abap"]);
       const other = join(root, "closure-out");
       mkdirSync(other, {recursive: true});
       writeFileSync(join(other, "closure-stubs.json"), JSON.stringify({roots: [], cascades: [], cycles: [], stubs: [], waits: [], excluded: {}}) + "\n");
@@ -2637,6 +2643,11 @@ process.exit(0);
       const config = JSON.parse(readFileSync(join(root, "abap_transpile.json"), "utf8"));
       const own = ownConfig(root, config, layers(root, config), join(root, "output"));
       expect(own.exclude_filter).to.include(`(^|/)gen/hana-src/000-h5c-main/src/zcl_h5c_defex\\.clas\\.abap$`);
+      expect(own.exclude_filter, "the object's XML leaves with it").to.include(`(^|/)gen/hana-src/000-h5c-main/src/zcl_h5c_defex\\.clas\\.xml$`);
+      // and the loop's own validation selects the same files the build does
+      const {validationListing} = await import("../tools/hana-ddic-gen.mjs");
+      const validation = validationListing(root, config, layers(root, config));
+      expect(validation.exclude_filter, "the validation keeps the object's XML out too").to.include(`(^|/)gen/hana-src/000-h5c-main/src/zcl_h5c_defex\\.clas\\.xml$`);
     } finally {
       rmSync(root, {recursive: true, force: true});
     }
@@ -4499,3 +4510,151 @@ process.exit(0);
   });
 });
 
+describe("hana-closure: a file abaplint cannot structure is stubbed where it breaks (H5x-4 B4)", () => {
+  // bed runs 21-22: `SELECT SINGLE f CONNECTION (c) FROM t ...` parses, but
+  // as a SELECT loop (abaplint's single-row grammar takes CONNECTION only
+  // after FROM), so the build's one finding was `structure ... :1` -- no
+  // method on line 1, the stub pass could not place it, and the island's
+  // control build stayed red for good with the finding "unclassified"
+  const source = [
+    "CLASS zcl_osd_b4_conn DEFINITION PUBLIC.",
+    "  PUBLIC SECTION.",
+    "    METHODS read RETURNING VALUE(rv) TYPE string.",
+    "    METHODS fine RETURNING VALUE(rv) TYPE i.",
+    "ENDCLASS.",
+    "CLASS zcl_osd_b4_conn IMPLEMENTATION.",
+    "  METHOD read.",
+    "    DATA lv_con TYPE string VALUE 'R/3*OSD'.",
+    "    SELECT SINGLE text",
+    "           CONNECTION (lv_con)",
+    "           FROM zosd_b4_t",
+    "           INTO rv",
+    "           WHERE id = 'A'.",
+    "    IF sy-subrc <> 0.",
+    "      CLEAR rv.",
+    "    ENDIF.",
+    "  ENDMETHOD.",
+    "  METHOD fine.",
+    "    rv = 1.",
+    "  ENDMETHOD.",
+    "ENDCLASS.",
+    ""].join("\n");
+  const finding = {rule: "structure", message: "Expected ENDMETHOD", file: "zcl_osd_b4_conn.clas.abap", line: 1,
+    raw: "structure, Expected ENDMETHOD, zcl_osd_b4_conn.clas.abap:1"};
+
+  it("locates the statement whose block its method never closes", () => {
+    expect(unclosedBlocks(source, "zcl_osd_b4_conn.clas.abap")).to.deep.equal([{method: "READ", line: 9, statement: "SelectLoop"}]);
+    // a balanced class locates nothing (a positive control for the scan)
+    const balanced = source.replace(/    SELECT SINGLE text\n[^]*?WHERE id = 'A'\.\n/, "    rv = 'A'.\n");
+    expect(unclosedBlocks(balanced, "zcl_osd_b4_conn.clas.abap")).to.deep.equal([]);
+  });
+
+  it("stubs that method only, says why, and files no framework gap", () => {
+    const plan = planStubPass({source, findings: [finding], basename: "zcl_osd_b4_conn.clas.abap"});
+    expect(plan.stubs.map((s) => s.method)).to.deep.equal(["READ"]);
+    expect(plan.unmatched).to.deep.equal([]);
+    expect(plan.nameless).to.deep.equal([]);
+    expect(plan.source).to.contain("RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = 'Expected ENDMETHOD: abaplint reads the SelectLoop statement at line 9 of READ");
+    expect(plan.source).to.not.contain("CONNECTION");
+    expect(plan.source).to.contain("    rv = 1.");
+  });
+
+  it("is stubbed before the structural pass, so the definition's names are seen", async () => {
+    const abaplint = await import("@abaplint/core");
+    // the pre-pass: without it the analysis read nothing of the file and a
+    // RAISING of a class nobody asked for stayed out of every request
+    const plan = structureStubs(source, "zcl_osd_b4_conn.clas.abap");
+    expect(plan.stubs.map((s) => s.method)).to.deep.equal(["READ"]);
+    expect(plan.source).to.not.contain("CONNECTION");
+    const reg = new abaplint.Registry().addFile(new abaplint.MemoryFile("zcl_osd_b4_conn.clas.abap", plan.source)).parse();
+    expect(reg.findIssues().filter((i) => i.getKey() === "structure")).to.deep.equal([]);
+    // a file that structures is left alone
+    const fine = source.replace(/    SELECT SINGLE text\n[^]*?WHERE id = 'A'\.\n/, "    rv = 'A'.\n");
+    expect(structureStubs(fine, "zcl_osd_b4_conn.clas.abap")).to.equal(undefined);
+  });
+
+  it("leaves a structure finding it cannot locate where it was", () => {
+    const fine = source.replace(/    SELECT SINGLE text\n[^]*?WHERE id = 'A'\.\n/, "    rv = 'A'.\n");
+    const plan = planStubPass({source: fine, findings: [finding], basename: "zcl_osd_b4_conn.clas.abap"});
+    expect(plan.stubs).to.deep.equal([]);
+    expect(plan.unmatched).to.deep.equal([finding]);
+  });
+});
+
+describe("hana-closure: a statement the transpiler refuses is stubbed where it stands (H5x-4 B4)", () => {
+  // bed, after the structure fix: the validation was clean and the build
+  // died in the transpiler on `LOAD REPORT ...` with no finding at all --
+  // the walk threw "the build failed with no findings"
+  const source = [
+    "CLASS zcl_osd_b4_load DEFINITION PUBLIC.",
+    "  PUBLIC SECTION.",
+    "    METHODS includes.",
+    "    METHODS fine RETURNING VALUE(rv) TYPE i.",
+    "ENDCLASS.",
+    "CLASS zcl_osd_b4_load IMPLEMENTATION.",
+    "  METHOD includes.",
+    "    DATA lt_includes TYPE STANDARD TABLE OF string WITH DEFAULT KEY.",
+    "    DATA lv_name TYPE string.",
+    "    LOAD REPORT lv_name PART 'INCL' INTO lt_includes.",
+    "  ENDMETHOD.",
+    "  METHOD fine.",
+    "    rv = 1.",
+    "  ENDMETHOD.",
+    "ENDCLASS.",
+    ""].join("\n");
+
+  it("reads the statement kind off the build's refusal", () => {
+    expect(unsupportedStatementOf("osd-build: FAILED: Statement LoadReport not supported, LOAD REPORT lv PART 'INCL' INTO lt[].")).to.equal("LoadReport");
+    expect(unsupportedStatementOf("osd-build: FAILED: something else")).to.equal(undefined);
+  });
+
+  it("stubs the methods holding a learned kind, and nothing without one", () => {
+    expect(unsupportedStubs(source, "zcl_osd_b4_load.clas.abap", [])).to.equal(undefined);
+    expect(unsupportedStubs(source, "zcl_osd_b4_load.clas.abap", ["Submit"])).to.equal(undefined);
+    const plan = unsupportedStubs(source, "zcl_osd_b4_load.clas.abap", ["LoadReport"]);
+    expect(plan.stubs.map((s) => s.method)).to.deep.equal(["INCLUDES"]);
+    expect(plan.source).to.not.contain("LOAD REPORT");
+    expect(plan.source).to.contain("the transpiler does not support the LoadReport statement");
+    expect(plan.source).to.contain("    rv = 1.");
+  });
+});
+
+describe("hana-closure: a class constructor that fails the load signals instead (H5x-4 B4)", () => {
+  // bed: a test-data class's class constructor ran RTTI over itself at load;
+  // a parameter type the island lacks raised a classic exception and the
+  // generation did not load, although the read path never uses that class
+  const source = [
+    "CLASS zcl_osd_b4_ctor DEFINITION PUBLIC.",
+    "  PUBLIC SECTION.",
+    "    CLASS-METHODS class_constructor.",
+    "    CLASS-DATA gv_names TYPE string.",
+    "ENDCLASS.",
+    "CLASS zcl_osd_b4_ctor IMPLEMENTATION.",
+    "  METHOD class_constructor.",
+    "    DATA lo_descr TYPE REF TO cl_abap_classdescr.",
+    "    lo_descr ?= cl_abap_typedescr=>describe_by_name( 'ZCL_OSD_B4_CTOR' ).",
+    "    gv_names = lo_descr->absolute_name.",
+    "  ENDMETHOD.",
+    "ENDCLASS.",
+    ""].join("\n");
+
+  it("learns the class from the load check once, and a refused statement once", () => {
+    const state = {};
+    const load = {loads: false, error: "the import failed (exit 1): ClassicError", constructor: "ZCL_OSD_B4_CTOR"};
+    expect(learnFromFailure(state, {load})).to.match(/ZCL_OSD_B4_CTOR's class constructor failed the load/);
+    expect(state.constructors).to.deep.equal(["ZCL_OSD_B4_CTOR"]);
+    expect(learnFromFailure(state, {load}), "a class met twice is not learned again: the walk stops").to.equal(undefined);
+    expect(learnFromFailure(state, {load: {loads: true}})).to.equal(undefined);
+    expect(learnFromFailure(state, {buildError: new Error("osd-build: FAILED: Statement LoadReport not supported, LOAD REPORT x")})).to.match(/LoadReport/);
+    expect(state.unsupported).to.deep.equal(["LoadReport"]);
+  });
+
+  it("gives that class constructor the signal stub, and no other class one", () => {
+    expect(constructorStub(source, "zcl_osd_b4_ctor.clas.abap", [])).to.equal(undefined);
+    expect(constructorStub(source, "zcl_osd_b4_ctor.clas.abap", ["ZCL_OSD_OTHER"])).to.equal(undefined);
+    const plan = constructorStub(source, "zcl_osd_b4_ctor.clas.abap", ["ZCL_OSD_B4_CTOR"]);
+    expect(plan.stubs.map((s) => s.method)).to.deep.equal(["CLASS_CONSTRUCTOR"]);
+    expect(plan.source).to.contain("zcx_osd_not_activated=>signal( 'the class constructor failed the generation''s load' ).");
+    expect(plan.source).to.not.contain("describe_by_name");
+  });
+});

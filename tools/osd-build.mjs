@@ -42,7 +42,7 @@ import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {buildIdentity, assertToolchain, describeBuild} from "./osd-transpiler.mjs";
 import {describeDuplicates, excludePatterns, layers} from "./osd-inputs.mjs";
-import {excludedFiles} from "./hana-closure-exclusions.mjs";
+import {excludedObjectFiles} from "./hana-closure-exclusions.mjs";
 import {transpile, selectedModules, isBinaryFilename, listFiles} from "./osd-transpile.mjs";
 import {makeReadRecord, markIncomplete, readEntry, readGeneratorLog, READS, sha256, withSeedReads} from "./osd-read-record.mjs";
 import {inputFoldersOf, packReadsOf, packsOf, seedsBuilt, userFoldersOf, webappsOf} from "./osd-packs.mjs";
@@ -672,7 +672,7 @@ export function ownConfig(root, config, stack, outputFolder, overlay = undefined
       // walk found unresolvable at the definition level, recorded in
       // gen/hana-closure/closure-stubs.json -- the file stays in its layer
       // on disk, the build is kept from it here, through the same seam
-      ...excludePatterns(excludedFiles(root)),
+      ...excludePatterns(excludedObjectFiles(root)),
       ...[...(kept?.exclude ?? [])].sort().map((file) => `^${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)],
   };
 }
@@ -711,7 +711,7 @@ export async function build(options = {}) {
   const loaded = selectedModules(root);
   const identity = assertToolchain(root, loaded);
   const named = new Map();
-  const hash = hashOf(root, inputs, {overlay: options.overlay, digests: named, transpiler: identity, exclusions: excludedFiles(root)});
+  const hash = hashOf(root, inputs, {overlay: options.overlay, digests: named, transpiler: identity, exclusions: excludedObjectFiles(root)});
   named.set(inputs.config, sha256(readFileSync(inputs.config)));
   // one spelling of a path for every comparison: a native one from the walk,
   // a forward-slash one from the transpiler's reads on Windows

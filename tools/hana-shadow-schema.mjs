@@ -176,6 +176,26 @@ async function clientColumnsOf(db, tenant, names) {
   return found;
 }
 
+/** the names among `names` the tenant's database catalog holds as a table
+ *  or a view. DD02L says what the dictionary knows; a name it knows can
+ *  still have no database object (a structure that shares the name of a
+ *  table of ours, a table never created in the database), and a synonym to
+ *  it is refused by HANA ("invalid synonym: target object does not exist")
+ *  -- which stopped the bed's first existing-schema boot (H5x-4 B4). */
+async function catalogObjectsOf(db, tenant, names) {
+  const found = new Set();
+  for (let at = 0; at < names.length; at += CHUNK) {
+    const list = names.slice(at, at + CHUNK).map((name) => `'${name}'`).join(",");
+    for (const row of await db.query(`SELECT TABLE_NAME FROM SYS.TABLES WHERE SCHEMA_NAME = '${tenant}' AND TABLE_NAME IN (${list})`)) {
+      found.add(String(row.table_name).toUpperCase());
+    }
+    for (const row of await db.query(`SELECT VIEW_NAME FROM SYS.VIEWS WHERE SCHEMA_NAME = '${tenant}' AND VIEW_NAME IN (${list})`)) {
+      found.add(String(row.view_name).toUpperCase());
+    }
+  }
+  return found;
+}
+
 /** what our own schema already holds: view definitions (for the drift check)
  *  and synonym names. */
 async function existingObjects(db, own) {
@@ -284,11 +304,14 @@ export async function ensureShadow(db, {own, tenant, tables}) {
   const report = {created: [], replaced: [], skipped: [], refused: []};
   if (names.length === 0) return report;
   const clidep = await clidepOf(db, tenant, names);
+  const catalog = await catalogObjectsOf(db, tenant, [...clidep.keys()]);
   const columns = await clientColumnsOf(db, tenant, clientDependentTables(names, clidep));
   const there = await existingObjects(db, own);
   for (const name of names) {
-    if (clidep.has(name) === false) {
-      report.skipped.push(name); // one of ours, not in the tenant: no shadow
+    if (clidep.has(name) === false || catalog.has(name) === false) {
+      // one of ours, not in the tenant -- or in its dictionary with no
+      // database object behind the name: no shadow
+      report.skipped.push(name);
       continue;
     }
     const done = await shadowOne(db, {own, tenant, name, kind: clidep.get(name), column: columns.get(name), there});
@@ -312,6 +335,7 @@ export async function ensureShadowFor(db, {own, tenant, name}) {
   if (NAME.test(table) === false) return false;
   const clidep = await clidepOf(db, tenant, [table]);
   if (clidep.has(table) === false) return false;
+  if ((await catalogObjectsOf(db, tenant, [table])).has(table) === false) return false;
   const columns = await clientColumnsOf(db, tenant, clientDependentTables([table], clidep));
   const there = await existingObjects(db, own);
   const done = await shadowOne(db, {own, tenant, name: table, kind: clidep.get(table), column: columns.get(table), there});

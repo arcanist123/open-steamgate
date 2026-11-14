@@ -224,9 +224,20 @@ CLASS zcl_stg_url IMPLEMENTATION.
 
   METHOD option.
     DATA ls_option LIKE LINE OF is_request-options.
+    DATA lv_name   TYPE string.
 
     LOOP AT is_request-options INTO ls_option.
-      IF to_lower( ls_option-name ) = to_lower( iv_name ).
+* a client may encode the $ of a system query option (%24top): the name
+* is the decoded one, as on a system -- read raw, the option was ignored
+* without a word and the whole set came back (H5x-4 B4)
+      lv_name = ls_option-name.
+* only a well-formed escape is decoded: the decoder throws on %zz or a bare
+* %, and a system ignores such an option rather than failing the request
+      FIND REGEX '^[A-Za-z0-9$_.+-]*(%[0-9A-Fa-f]{2}[A-Za-z0-9$_.+-]*)+$' IN lv_name.
+      IF sy-subrc = 0.
+        lv_name = cl_http_utility=>unescape_url( lv_name ).
+      ENDIF.
+      IF to_lower( lv_name ) = to_lower( iv_name ).
         rv_value = ls_option-value.
         RETURN.
       ENDIF.

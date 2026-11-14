@@ -2,7 +2,7 @@ import {expect} from "chai";
 import {existsSync, mkdtempSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {assertLoadable, checkGeneration, findCycles, importEdges, loadCheck, UNSETTLED_TLA} from "../tools/osd-generation-check.mjs";
+import {assertLoadable, checkGeneration, findCycles, importEdges, loadCheck, loadConstructorOf, UNSETTLED_TLA} from "../tools/osd-generation-check.mjs";
 
 // **A green transpile whose generation cannot load** was the HANA track's
 // latest false green (2026-11-14): a class pool whose locals subclass the
@@ -127,5 +127,20 @@ describe("generation check: a generation that cannot load is refused", function 
       expect(result.syntax, "modules that do not parse").to.deep.equal([]);
       expect(result.load, "init.mjs").to.deep.equal({ok: true});
     });
+  });
+});
+
+describe("generation check: the class constructor a load failed in (H5x-4 B4)", () => {
+  it("names the innermost class_constructor frame's class, namespace restored", () => {
+    const stderr = [
+      "ClassicError: TYPE_NOT_FOUND",
+      "    at zcl_osd_descr.describe_by_name (file:///x/output/zcl_osd_descr.clas.mjs:276:17)",
+      "    at async zcl_osd_b4_ctor.class_constructor (file:///x/output/zcl_osd_b4_ctor.clas.mjs:12:54)",
+      "    at async zcl_osd_outer.class_constructor (file:///x/output/zcl_osd_outer.clas.mjs:9:1)",
+    ].join("\n");
+    expect(loadConstructorOf({load: {stderr}})).to.equal("ZCL_OSD_B4_CTOR");
+    const ns = "    at async _zosd_b4_ctor.class_constructor (file:///x/output/%23zosd%23cl_b4.clas.mjs:3:1)";
+    expect(loadConstructorOf({load: {stderr: ns}})).to.equal("/ZOSD/CL_B4");
+    expect(loadConstructorOf({load: {stderr: "TypeError: x\n    at file:///x/output/init.mjs:5:1"}})).to.equal(undefined);
   });
 });

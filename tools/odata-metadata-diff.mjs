@@ -67,15 +67,29 @@ function kids(node, name) {
 
 const attrs = (node) => (node && typeof node === "object" && node["@"]) || {};
 
+// the third normalisation, reported: SAP's boolean annotations whose default
+// is "true" -- a system writes them only when false (measured on the SEGW
+// sample's $metadata); absent reads as "true" on the elements that carry one
+export const SAP_TRUE_BY_DEFAULT = ["sap:creatable", "sap:updatable", "sap:deletable", "sap:sortable", "sap:filterable", "sap:pageable", "sap:unicode"];
+const SAP_DEFAULT_CARRIERS = new Set(["Property", "EntitySet", "AssociationSet"]);
+let sapDefaults = 0;
+
 /** sap:* attributes apart from the rest: the first are annotations, the
  *  second structure */
-function split(node) {
+function split(node, tag = undefined) {
   const structure = {};
   const annotations = {};
   for (const [key, value] of Object.entries(attrs(node))) {
     if (key.startsWith("xmlns")) continue;
     if (key.startsWith("sap:")) annotations[key] = value;
     else structure[key] = value;
+  }
+  if (SAP_DEFAULT_CARRIERS.has(tag)) {
+    for (const key of SAP_TRUE_BY_DEFAULT) {
+      if (annotations[key] !== undefined) continue;
+      annotations[key] = "true";
+      sapDefaults += 1;
+    }
   }
   return {structure, annotations};
 }
@@ -107,15 +121,23 @@ export function model(xml) {
     for (const [k, v] of Object.entries(record)) out[k] = refAttrs.has(k) ? ref(v) : v;
     return out;
   };
-  const element = (node) => {
-    const {structure, annotations} = split(node);
+  const element = (node, tag) => {
+    const {structure, annotations} = split(node, tag);
     return {structure: norm(structure), annotations};
   };
-  const members = (node, name, key = "Name") => kids(node, name).map((child) => ({
-    name: attrs(child)[key] ?? "",
-    ...element(child),
-    node: child,
-  }));
+  // the second normalisation, reported too: CSDL's default for Nullable is
+  // true, and a system writes the attribute only when it is false -- an
+  // absent Nullable on a Property or Parameter reads as "true"
+  let nullableDefaults = 0;
+  sapDefaults = 0;
+  const members = (node, name, key = "Name") => kids(node, name).map((child) => {
+    const one = {name: attrs(child)[key] ?? "", ...element(child, name), node: child};
+    if ((name === "Property" || name === "Parameter") && one.structure.Nullable === undefined) {
+      one.structure.Nullable = "true";
+      nullableDefaults += 1;
+    }
+    return one;
+  });
 
   const types = [];
   const associations = [];
@@ -177,7 +199,7 @@ export function model(xml) {
     const name = local(key);
     if (name === "DataServiceVersion" || name === "MaxDataServiceVersion") versions[`DataServices ${name}`] = value;
   }
-  return {namespaces, versions, types, associations, containers, vocab};
+  return {namespaces, versions, types, associations, containers, vocab, nullableDefaults, sapDefaults};
 }
 
 function canonical(node) {
@@ -286,7 +308,7 @@ export function compare(oursXml, theirsXml) {
     diff("annotations", "Annotations", `Target ${target}: ${!va.has(target) ? "only theirs" : !vb.has(target) ? "only ours" : "content differs"}`);
   }
   const counts = Object.fromEntries(CLASSES.map((c) => [c, differences.filter((d) => d.class === c).length]));
-  return {differences, counts};
+  return {differences, counts, normalised: {nullableDefaults: {ours: ours.nullableDefaults, theirs: theirs.nullableDefaults}, sapDefaults: {ours: ours.sapDefaults, theirs: theirs.sapDefaults}}};
 }
 
 /** the verdict: ok when every class that differs is accepted */
@@ -331,6 +353,10 @@ if (runsAs("odata-metadata-diff.mjs")) {
     console.log(`${cls}${accept.includes(cls) ? " (accepted)" : ""}: ${list.length}`);
     for (const d of list) console.log(`  ${d.where ? d.where + ": " : ""}${d.text}`);
   }
+  const nd = result.normalised.nullableDefaults;
+  if (nd.ours + nd.theirs > 0) console.log(`normalised: Nullable absent read as "true" (the CSDL default) -- ours ${nd.ours}, theirs ${nd.theirs}`);
+  const sd = result.normalised.sapDefaults;
+  if (sd.ours + sd.theirs > 0) console.log(`normalised: ${SAP_TRUE_BY_DEFAULT.join("/")} absent read as "true" (SAP's default) -- ours ${sd.ours}, theirs ${sd.theirs}`);
   const v = verdict(result, accept);
   console.log(`odata-metadata-diff: ${CLASSES.map((c) => `${c} ${result.counts[c]}`).join(", ")}; ${v.ok ? "OK" : `differs in ${v.refused.join(", ")}`}`);
   process.exit(v.ok ? 0 : 1);

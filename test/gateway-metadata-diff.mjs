@@ -102,6 +102,27 @@ describe("odata-metadata-diff: two $metadata documents, parsed and classed", () 
     expect(r.differences.map((d) => d.text.split(":")[0]).sort()).to.deep.equal(["MaxLength", "Nullable", "Precision", "Scale"]);
   });
 
+  it("reads an absent Nullable as \"true\" (the CSDL default), says so, and still sees false", () => {
+    // a system writes Nullable only when it is false; our writer writes
+    // Nullable="true" -- the same model, and the count says it was read so
+    const absent = `<Property Name="Amount" Type="Edm.Decimal" Precision="15" Scale="2" sap:label="Amount"/>`;
+    const writtenTrue = `<Property Name="Amount" Type="Edm.Decimal" Nullable="true" Precision="15" Scale="2" sap:label="Amount"/>`;
+    const same = compare(base({amountProp: writtenTrue}), base({amountProp: absent}));
+    expect(same.differences).to.deep.equal([]);
+    expect(same.normalised.nullableDefaults.theirs).to.be.greaterThan(0);
+    const writtenFalse = `<Property Name="Amount" Type="Edm.Decimal" Nullable="false" Precision="15" Scale="2" sap:label="Amount"/>`;
+    const other = compare(base({amountProp: writtenFalse}), base({amountProp: absent}));
+    expect(other.differences.map((d) => d.text.split(":")[0])).to.deep.equal(["Nullable"]);
+  });
+
+  it("reads an absent sap:creatable/sortable/... as \"true\" (SAP's default), and still sees false", () => {
+    const same = compare(base({setAttrs: `sap:creatable="true" sap:addressable="true"`}), base({setAttrs: `sap:addressable="true"`}));
+    expect(same.differences).to.deep.equal([]);
+    expect(same.normalised.sapDefaults.theirs).to.be.greaterThan(same.normalised.sapDefaults.ours);
+    const other = compare(base(), base({setAttrs: `sap:addressable="true"`}));
+    expect(other.differences.map((d) => d.text.split(":").slice(0, 2).join(":"))).to.deep.equal(["sap:creatable"]);
+  });
+
   it("puts keys, multiplicity, navigation, sets and function import parameters into structure", () => {
     const r = compare(base(), base({multiplicity: "0..1"}));
     expect(r.differences).to.have.length(1);
@@ -160,7 +181,8 @@ describe("odata-metadata-diff: two $metadata documents, parsed and classed", () 
     expect(classes(method)).to.deep.equal(["structure"]);
     expect(method.differences[0].text).to.equal(`m:HttpMethod: ours "POST", theirs "GET"`);
     const nullable = compare(base(), base({nameProp: `<Property Name="Name" Type="Edm.String" MaxLength="40" sap:label="Name" sap:creatable="false"/>`}));
-    expect(nullable.differences).to.deep.equal([{class: "structure", where: "Type Parent Property Name", text: `Nullable: ours "false", theirs (absent)`}]);
+    // absent is CSDL's default, "true": false against it is still a difference
+    expect(nullable.differences).to.deep.equal([{class: "structure", where: "Type Parent Property Name", text: `Nullable: ours "false", theirs "true"`}]);
   });
 
   it("refuses what is not EDMX, and an unknown class to accept", () => {

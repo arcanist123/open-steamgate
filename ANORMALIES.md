@@ -4627,6 +4627,40 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Upstream: open-abap-odata, one small PR per member group; the dossier with the branch and commits is in `docs/upstream.md`.
 - Regression-test location: the three reproducers above, plus the island rule's own tests in `test/hana-closure.mjs` (H5x-3).
 
+## The SEGW sample's read over the bed (H5x-4 B4)
+
+### ANOMALY-2026-11-14-packed-21-format -- a DEC 21,7 value formats through a double
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned `@abaplint/runtime` (libs.lock.json)
+- Affected ABAP statement, runtime API or adapter: `lv_string = iv_packed` / `|{ iv_packed }|` for `TYPE p LENGTH 11 DECIMALS 7` (a long timestamp, `TIMESTAMPL`)
+- Minimal ABAP reproducer: `DATA lv_p TYPE p LENGTH 11 DECIMALS 7 VALUE '20210102030405.0000000'. DATA lv_s TYPE string. lv_s = lv_p.`
+- Exact command used to run it: a node probe over the runtime's `abap.types.Packed({length: 11, decimals: 7})`, set from the string, read back as a String
+- Expected SAP behaviour: `20210102030405.0000000`
+- Actual open-abap behaviour: `20210102030404.9995776` -- 21 digits do not fit a double
+- Impact on open-steamgate: every Edm.DateTime over a long timestamp (a SEGW sample's created/changed fields) serialised one second early
+- Smallest safe workaround: `ZCL_STG_JSON=>VALUE` takes a packed timestamp's whole seconds by a rounding move to `p LENGTH 8 DECIMALS 0` before formatting (fractions of a second are not written either way)
+- Upstream issue: needs an issue (abaplint/transpiler runtime) after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ordered_page_with_address)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-select-single-connection -- SELECT SINGLE with CONNECTION before FROM parses as a SELECT loop
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: `@abaplint/core` 2.120.94
+- Affected ABAP statement, runtime API or adapter: `SELECT SINGLE f CONNECTION (lv_con) FROM t INTO v WHERE ...` (accepted by a system; the single-row grammar takes CONNECTION only after FROM)
+- Minimal ABAP reproducer: the class in test/hana-closure.mjs "a file abaplint cannot structure ..." (`ZCL_OSD_B4_CONN`)
+- Exact command used to run it: the island's control build (`npm run transpile`): `structure, Expected ENDMETHOD, <file>:1`
+- Expected SAP behaviour: one row read, no loop
+- Actual open-abap behaviour: the statement is a SelectLoop with no ENDSELECT; the class does not structure at all
+- Impact on open-steamgate: an island class pulled by the closure kept every bed control build red ("unclassified")
+- Smallest safe workaround: the closure's structure pre-pass stubs the methods whose blocks do not close (tools/hana-closure-stubs.mjs structureStubs), before the structural analysis
+- Upstream issue: needs an issue (abaplint/abaplint) after a critic pass
+- Regression-test location: test/hana-closure.mjs
+- Upstream version containing a fix: unknown
+
 ### ANOMALY-2026-11-14-table-body-suffix-js -- `it_x[] IS SUPPLIED` and `RESULT (lt_x[])` reach JavaScript with the `[]`
 
 - Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4f` `d2e9f22c`, the commit `84015656` there; not upstream)
@@ -4677,6 +4711,38 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: none needed with the 4h pin
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass
 - Regression-test location: the ABAP unit class above, the transpiler's unit and requires tests
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-form-field-names-encoded -- a form field's name arrives undecoded
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned express-icf-shim / open-abap-core `get_form_fields_cs`
+- Affected ABAP statement, runtime API or adapter: `server->request->get_form_fields_cs( )` for `?%24top=2`
+- Minimal ABAP reproducer: `GET .../PartnerSet?%24top=1` against the gateway (ZCL_OSD_H5X_TEST encoded_option_names builds the options table by hand)
+- Exact command used to run it: curl against tools/hana-serve.mjs: `$top=2` answered 2 rows, `%24top=2` answered 21
+- Expected SAP behaviour: the name is decoded; `%24top` is `$top`
+- Actual open-abap behaviour: the name stays `%24top`; the option is ignored without a word and the whole set comes back
+- Impact on open-steamgate: a client that encodes `$` (URLSearchParams does) silently loses every system query option
+- Smallest safe workaround: `ZCL_STG_URL=>OPTION` decodes a name that is a well-formed escape (`%zz` is left alone and ignored)
+- Upstream issue: needs an issue (express-icf-shim or open-abap-core) after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` (encoded_option_names)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-default-association-set -- create_association ignores iv_def_assoc_set
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_model`
+- Affected ABAP statement, runtime API or adapter: `model->create_association( ... iv_def_assoc_set = abap_true )` (the interface's default), and a function import with only `set_return_entity_type`
+- Minimal ABAP reproducer: a SEGW-generated MPC that creates no association set of its own
+- Exact command used to run it: `$metadata` of the SEGW sample over the bed, diffed with tools/odata-metadata-diff.mjs against a system's
+- Expected SAP behaviour: one `<association>_AssocSet` (cut to 40 characters) per such association, between the types' entity sets; a function import's EntitySet is the return type's set
+- Actual open-abap behaviour: no AssociationSet at all (20 missing), no EntitySet on 4 function imports
+- Impact on open-steamgate: 24 structure differences in the sample's `$metadata`
+- Smallest safe workaround: the overlay `src/gateway/compat/zcl_oao_model.clas.abap` (compat README)
+- Upstream issue: one small PR to open-abap-odata after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` (default_sets_in_metadata); the `$metadata` diff on the bed (structure 0)
 - Upstream version containing a fix: unknown
 
 ### ANOMALY-2026-11-14-cctor-load-order -- a class constructor ran at load before the class it creates existed

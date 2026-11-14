@@ -235,7 +235,8 @@ export function loadCheckOf({root, env, say}) {
     return {loads: false, error: `the load check gave no verdict (exit ${child.status}): ${tail}`};
   }
   const verdict = JSON.parse(line);
-  return verdict.loads === true ? {loads: true} : {loads: false, error: verdict.load_error ?? `exit ${child.status}`};
+  return verdict.loads === true ? {loads: true} : {loads: false, error: verdict.load_error ?? `exit ${child.status}`,
+    ...(verdict.load_constructor !== undefined ? {constructor: verdict.load_constructor} : {})};
 }
 
 // ------------------------------------------------------------ the merge --

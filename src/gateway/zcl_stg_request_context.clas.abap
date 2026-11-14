@@ -213,12 +213,12 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entityset~get_source_entity_set_name.
-    " the set a navigation started from; the set itself for a direct call
-    IF mv_source_entity_set IS NOT INITIAL.
-      rv_entity_set = mv_source_entity_set.
-    ELSE.
-      rv_entity_set = mv_entity_set.
-    ENDIF.
+* the set a navigation started from, and nothing for a direct call: a
+* SEGW sample's DPC reads "IS INITIAL" as "no navigation" and resolves a
+* navigation path otherwise -- with the set itself answered here, a direct
+* GET of its business set returned no rows (H5x-4 B4; the system answers
+* that GET with rows, so it answers no source set)
+    rv_entity_set = mv_source_entity_set.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entityset~get_top.
@@ -238,7 +238,30 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entityset~get_orderby.
-    rt_orderby = mt_orderby.
+* the technical order: ABAP names, the way get_osql_where_clause speaks. A
+* DPC turns them into its SELECT's columns (PARTNER_ID -> b~PARTNER_ID), so an OData
+* name here sorts by a column that does not exist. The non-technical
+* it_order (get_sorting_order) keeps the OData names. A path into a complex
+* property is its ABAP path in property_path (ADDRESS-CITY) with property
+* left empty -- the form a caller reading "property, else property_path"
+* expects; not measured on a system for a path.
+    DATA ls_order    LIKE LINE OF mt_orderby.
+    DATA ls_property TYPE zcl_stg_model_info=>ty_property.
+
+    LOOP AT mt_orderby INTO ls_order.
+      READ TABLE ms_set-properties INTO ls_property WITH KEY name = ls_order-property.
+      IF sy-subrc = 0 AND ls_property-fieldname IS NOT INITIAL.
+        ls_order-property      = ls_property-fieldname.
+        ls_order-property_path = ls_property-fieldname.
+      ELSE.
+        READ TABLE ms_set-components INTO ls_property WITH KEY name = ls_order-property.
+        IF sy-subrc = 0.
+          CLEAR ls_order-property.
+          ls_order-property_path = ls_property-fieldname.
+        ENDIF.
+      ENDIF.
+      APPEND ls_order TO rt_orderby.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_entityset~get_filter.
@@ -261,6 +284,11 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
 
     LOOP AT mt_filter INTO ls_filter.
       READ TABLE ms_set-properties INTO ls_property WITH KEY name = ls_filter-property.
+      IF sy-subrc <> 0.
+* a path into a complex property (Address/City) is its ABAP path,
+* ADDRESS-CITY, which is what a DPC maps onto its join's columns
+        READ TABLE ms_set-components INTO ls_property WITH KEY name = ls_filter-property.
+      ENDIF.
       IF sy-subrc = 0.
         lv_field = ls_property-fieldname.
       ELSE.

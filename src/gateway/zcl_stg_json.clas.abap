@@ -124,6 +124,17 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_json) TYPE string.
 
+* a complex property: an object of its members with the type in __metadata,
+* the way a v2 Gateway writes it ({"__metadata":{"type":"NS.CT"},"City":..})
+    CLASS-METHODS complex
+      IMPORTING
+        is_data        TYPE any
+        is_property    TYPE zcl_stg_model_info=>ty_property
+        is_set         TYPE zcl_stg_model_info=>ty_entity_set
+        iv_namespace   TYPE string
+      RETURNING
+        VALUE(rv_json) TYPE string.
+
     CLASS-METHODS read_string
       IMPORTING
         iv_json         TYPE string
@@ -246,6 +257,30 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD register_sets.
     gt_sets = it_sets.
+  ENDMETHOD.
+
+  METHOD complex.
+    DATA ls_member TYPE zcl_stg_model_info=>ty_property.
+    DATA lv_parent TYPE string.
+    DATA lv_field  TYPE string.
+    DATA lv_name   TYPE string.
+    DATA lv_value  TYPE string.
+    FIELD-SYMBOLS <lv_member> TYPE any.
+
+    rv_json = |\{"__metadata":\{"type":"{ iv_namespace }.{ is_property-complex_type }"\}|.
+    LOOP AT is_set-components INTO ls_member WHERE parent = is_property-name.
+* the member's own field: ADDRESS-CITY is CITY of the ADDRESS structure
+      SPLIT ls_member-fieldname AT '-' INTO lv_parent lv_field.
+      ASSIGN COMPONENT lv_field OF STRUCTURE is_data TO <lv_member>.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      lv_name  = substring_after( val = ls_member-name sub = '/' ).
+      lv_value = value( iv_value    = <lv_member>
+                        iv_edm_type = ls_member-edm_type ).
+      rv_json = |{ rv_json },"{ lv_name }":{ lv_value }|.
+    ENDLOOP.
+    rv_json = rv_json && '}'.
   ENDMETHOD.
 
   METHOD register_etag_model.
@@ -690,6 +725,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
     DATA lv_kind   TYPE c LENGTH 1.
     DATA lv_date   TYPE d.
     DATA lv_time   TYPE t.
+    DATA lv_seconds TYPE p LENGTH 8 DECIMALS 0.
 
     DESCRIBE FIELD iv_value TYPE lv_kind.
 
@@ -716,6 +752,19 @@ CLASS zcl_stg_json IMPLEMENTATION.
           rv_json = 'null'.
         ELSEIF lv_kind = 'D'.
           lv_date = iv_value.
+          rv_json = |"\\/Date({ epoch_ms( iv_date = lv_date iv_time = lv_time ) })\\/"|.
+        ELSEIF lv_kind = 'P'.
+* a packed timestamp, short (DEC 15) or long (DEC 21,7): whole seconds by a
+* rounding move to 15 digits. Formatted as it is, a DEC 21,7 reads one
+* second early in the open-abap runtime (20210102030405.0000000 ->
+* "20210102030404.9995776", ANOMALY-2026-11-14-packed-21-format)
+          lv_seconds = iv_value.
+          lv_string = |{ lv_seconds }|.
+          CONDENSE lv_string NO-GAPS.
+          lv_date = lv_string(8).
+          IF strlen( lv_string ) >= 14.
+            lv_time = lv_string+8(6).
+          ENDIF.
           rv_json = |"\\/Date({ epoch_ms( iv_date = lv_date iv_time = lv_time ) })\\/"|.
         ELSE.
 * timestamp YYYYMMDDHHMMSS, possibly with fraction
@@ -805,6 +854,13 @@ CLASS zcl_stg_json IMPLEMENTATION.
     LOOP AT is_set-properties INTO ls_property.
       ASSIGN COMPONENT ls_property-fieldname OF STRUCTURE is_data TO <lv_field>.
       IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      IF ls_property-complex_type IS NOT INITIAL.
+        lv_fields = |{ lv_fields },"{ ls_property-name }":{ complex( is_data      = <lv_field>
+                                                                     is_property  = ls_property
+                                                                     is_set       = is_set
+                                                                     iv_namespace = iv_namespace ) }|.
         CONTINUE.
       ENDIF.
       lv_fields = |{ lv_fields },"{ ls_property-name }":{ value( iv_value    = <lv_field>

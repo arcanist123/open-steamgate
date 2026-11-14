@@ -114,6 +114,24 @@ if [ -f "$root/tools/gogen/abapiti-lint.mjs" ] && [ -f "$root/tools/gogen/abapit
   node "$root/tools/gogen/abapiti-lint.mjs" --check --changed origin/main || abapiti=1
 fi
 
+# The rest of CI's `scan` job (.github/workflows/leak-scan.yml), here so a red
+# `scan` is seen before the push rather than on the runner: the naming rule,
+# comments outside methods, reserved words as field names. Measured
+# 2026-11-14: 0.2 s, 6.9 s and 0.2 s on the working tree. #942 learned it the
+# slow way -- five fixture descriptions passed every local hook and failed
+# the naming rule in CI, where a red `scan` read like a leak.
+rules=0
+for rule in osd-naming-scan osd-oo-comments osd-ddic-reserved; do
+  if [ -f "$root/tools/$rule.mjs" ]; then
+    node "$root/tools/$rule.mjs" >/tmp/osd-pre-push-$$.log 2>&1 || {
+      cat /tmp/osd-pre-push-$$.log >&2
+      echo "$rule: refused (CI's scan job runs it too)" >&2
+      rules=1
+    }
+  fi
+done
+rm -f /tmp/osd-pre-push-$$.log
+
 if [ $status -ne 0 ]; then
   echo ""
   echo "Пуш остановлен. Это уйдёт в публичный репозиторий."
@@ -128,6 +146,10 @@ fi
 if [ $abapiti -ne 0 ]; then
   printf '\033[31m%s\033[0m\n' "Push refused: abapiti type-form budget (tools/gogen/abapiti-lint.json)." >&2
   printf '\033[31m%s\033[0m\n' "Use the safe forms in tools/gogen/abapiti-lint.md." >&2
+  status=1
+fi
+if [ $rules -ne 0 ]; then
+  printf '\033[31m%s\033[0m\n' "Push refused: a rule of CI's scan job (naming, comments outside methods, reserved field names)." >&2
   status=1
 fi
 exit $status

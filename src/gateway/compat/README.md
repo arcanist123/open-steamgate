@@ -36,3 +36,8 @@ data the dispatcher fills, the runtime context serves the per-request
 container, and the dispatcher resets the container per request and reads it
 into the error response. They are local runtime compatibility objects and
 do not travel to SAP.
+- `zcl_oao_model.clas` -- the default association set: `create_association`
+  with `iv_def_assoc_set = abap_true` (the interface's default) gets the set
+  the Gateway builds itself, `<association>_AssocSet` cut to 40 characters,
+  between the two types' first entity sets, unless the MPC created one
+  (H5x-4 B4; the SEGW sample's `$metadata` had no AssociationSet at all).

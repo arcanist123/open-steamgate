@@ -104,7 +104,33 @@ export function definitionExclusions(root, file = undefined) {
   ];
 }
 
-/** the root-relative file paths kept from the transpiler. */
+// the files of one object beside the record's main file: an object is all
+// of them or none -- with the .clas.xml left in, the transpiler registers
+// the class, lists it in init.mjs and writes no module for it, so the
+// generation does not load (H5x-4 B4, the first island build that
+// finished: `Cannot find module .../cl_..._test_base.clas.mjs`)
+const COMPANIONS = {
+  clas: ["clas.abap", "clas.xml", "clas.locals_imp.abap", "clas.locals_def.abap", "clas.macros.abap", "clas.testclasses.abap"],
+  intf: ["intf.abap", "intf.xml"],
+};
+
+/** the root-relative file paths of the excluded objects' main files (what
+ *  a report prints). The build keeps every file of each object from the
+ *  transpiler: excludedObjectFiles. */
 export function excludedFiles(root, file = undefined) {
   return definitionExclusions(root, file).map((e) => e.file);
+}
+
+/** every file of each excluded object, for the build's exclude_filter. */
+export function excludedObjectFiles(root, file = undefined) {
+  const out = [];
+  for (const main of excludedFiles(root, file)) {
+    const m = /^(.*)\.(clas|intf)\.[^/]*$/.exec(main);
+    if (m === null) {
+      out.push(main);
+      continue;
+    }
+    for (const suffix of COMPANIONS[m[2]]) out.push(`${m[1]}.${suffix}`);
+  }
+  return out;
 }

@@ -183,6 +183,8 @@ describe("hana-serve: the driver channel of the HANA client", () => {
       exec: (sql, cb) => {
         sent.push(sql);
         if (/^\s*SELECT/i.test(sql) === false) return cb(undefined, 1);
+        // the tenant's catalog holds the one table; our own schema is empty
+        if (/FROM SYS\.TABLES/i.test(sql)) return cb(undefined, /'ZOSD_B3_T'/.test(sql) ? [{TABLE_NAME: "ZOSD_B3_T"}] : []);
         if (/SYS\.(VIEWS|SYNONYMS)/i.test(sql)) return cb(undefined, []);
         // the client column is the table's own key field of type CLNT (DD03L)
         if (/"DD03L"/i.test(sql)) return cb(undefined, [{TABNAME: "ZOSD_B3_T", POSITION: "0001", FIELDNAME: "MANDT", KEYFLAG: "X", DATATYPE: "CLNT"}]);

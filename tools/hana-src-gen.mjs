@@ -80,8 +80,13 @@ function likeToRegExp(pattern) {
 // them are not island findings. One rule, exported from here since H5x-1
 // (S-7.2): the merge's object count and the loop test's fake host import
 // it, so the loop scenario proves the real predicate.
+// An exception class is not test code whatever its name ends in: it is
+// raised by the code that names it, and staging it out left the bed's test
+// utilities (RAISING cx_..._test) red for good while the closure asked for
+// it every round (H5x-4 B4).
 export const islandTestCode = (name) =>
-  /\.testclasses\.abap$/i.test(name) === true || /^[^.]*_test\.clas\./i.test(name) === true;
+  /\.testclasses\.abap$/i.test(name) === true ||
+  (/^[^.]*_test\.clas\./i.test(name) === true && /^(?:#[^#]+#)?[yz]?cx_/i.test(name) === false);
 const isTestCode = islandTestCode;
 
 /** the plan checks, said once: schema 1, a layers array, every layer named

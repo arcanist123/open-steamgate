@@ -109,6 +109,42 @@ branch. What is left:
    (`performance.now` and `Date.now`) fail without it. Sent as
    abaplint/transpiler#1990; next: record the containing release.
 
+The five below came out of HANA milestone 2 (#942, `docs/hana-milestone-2.md`).
+Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
+
+10. **open-abap-odata: the default association set** --
+    `ANOMALY-2026-11-14-default-association-set`. `create_association`
+    ignores `iv_def_assoc_set` (the interface's default is `abap_true`), so a
+    SEGW-generated MPC answers `$metadata` with no AssociationSet; and a
+    function import that names only its return entity type gets no
+    `EntitySet`. Carried here as the overlay
+    `src/gateway/compat/zcl_oao_model.clas.abap` (compat README); test
+    `ZCL_OSD_H5X_TEST` default_sets_in_metadata. One small PR to
+    open-abap-odata; then drop the overlay and its exclusion.
+
+11. **express-icf-shim / open-abap-core: an encoded form-field name** --
+    `ANOMALY-2026-11-14-form-field-names-encoded`. `get_form_fields_cs`
+    leaves `%24top` undecoded, so the option is ignored without a word.
+    Workaround: `ZCL_STG_URL=>OPTION` decodes a well-formed name; test
+    `ZCL_OSD_H5X_TEST` encoded_option_names. Needs an issue first: which of
+    the two builds the fields decides where the fix goes.
+
+12. **transpiler: a class constructor's targets at load** --
+    `ANOMALY-2026-11-14-cctor-load-order`. Fixed in the pin
+    `local/osd-build-4j` (28a3c53a, #941), cycle-free; a branch inside
+    abaplint/transpiler from those commits, after a critic pass.
+
+13. **transpiler runtime: a DEC 21,7 value formats through a double** --
+    `ANOMALY-2026-11-14-packed-21-format`. Needs an issue with the
+    one-line reproducer from the entry. Workaround: `ZCL_STG_JSON=>VALUE`
+    rounds a packed timestamp to whole seconds.
+
+14. **abaplint: SELECT SINGLE with CONNECTION before FROM** --
+    `ANOMALY-2026-11-14-select-single-connection`. Needs an issue in
+    abaplint/abaplint (no push rights there, see `npm run parked`).
+    Workaround: the closure's structure pre-pass
+    (`tools/hana-closure-stubs.mjs` structureStubs).
+
 ## What we carry, and what we wait for
 
 *Decided 2026-09-17, after the performance work made the question real.*

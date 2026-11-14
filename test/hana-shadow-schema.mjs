@@ -63,7 +63,7 @@ describe("the HANA shadow schema", () => {
     delete req.cache[req.resolve("hdb")];
   });
 
-  const fakeHdb = ({views = [], synonyms = [], failName, failTimes = 0, failDd02lTimes = 0} = {}) => {
+  const fakeHdb = ({views = [], synonyms = [], failName, failTimes = 0, failDd02lTimes = 0, notInCatalog = []} = {}) => {
     const sent = [];
     const options = [];
     let failed = 0;
@@ -94,6 +94,16 @@ describe("the HANA shadow schema", () => {
               const error = new Error("invalid table name:  Could not find table/view DD02L in schema ZOSD_H3_TENANT: line 1 col 15 (at pos 14)");
               error.code = 259;
               return cb(error);
+            }
+            // the tenant's database catalog: every DD02L name has its object
+            // unless the test says it is dictionary-only
+            if (/FROM\s+SYS\.(TABLES|VIEWS)\b.*SCHEMA_NAME = 'ZOSD_H3_TENANT'/i.test(sql)) {
+              const listed = [...(/_NAME IN \(([^)]*)\)/.exec(sql)?.[1] ?? "").matchAll(/'([^']+)'/g)].map((m) => m[1]);
+              const isView = /SYS\.VIEWS/i.test(sql);
+              return cb(undefined, DD02L_ROWS
+                .filter((row) => listed.includes(row.TABNAME) && notInCatalog.includes(row.TABNAME) === false)
+                .filter((row) => (row.TABCLASS === "VIEW") === isView)
+                .map((row) => (isView ? {VIEW_NAME: row.TABNAME} : {TABLE_NAME: row.TABNAME})));
             }
             if (/FROM\s+SYS\.VIEWS/i.test(sql)) return cb(undefined, views);
             if (/FROM\s+SYS\.SYNONYMS/i.test(sql)) return cb(undefined, synonyms);
@@ -126,6 +136,19 @@ describe("the HANA shadow schema", () => {
     await db.connect();
     return {db, ...hdb};
   };
+
+  it("a name the tenant's dictionary knows but its catalog does not gets no shadow (H5x-4 B4)", async () => {
+    // the bed's first boot: DD02L knew a name our tree has as a table, the
+    // database had no object for it, and CREATE SYNONYM was refused
+    const {db, sent} = await connect({shadowTables: ["ZOSD_H3_CLI", "ZOSD_H3_FREE"]}, {notInCatalog: ["ZOSD_H3_FREE"]});
+    try {
+      expect(sent.some((q) => /CREATE SYNONYM .*ZOSD_H3_FREE/.test(q)), "no synonym to nothing").to.equal(false);
+      expect(sent).to.include(
+        `CREATE VIEW "ZOSD_H3_OWN"."ZOSD_H3_CLI" AS SELECT * FROM "ZOSD_H3_TENANT"."ZOSD_H3_CLI" WHERE "MANDT" = SESSION_CONTEXT('CLIENT')`);
+    } finally {
+      await db.disconnect();
+    }
+  });
 
   it("a view with the CLIENT predicate for a client-dependent table, a synonym otherwise", async () => {
     const {db, sent} = await connect({shadowTables: ["ZOSD_H3_CLI", "ZOSD_H3_FREE"]});
@@ -502,7 +525,8 @@ describe("the HANA shadow schema", () => {
     try {
       expect(sent).to.include(
         `CREATE VIEW "ZOSD_H3_OWN"."ZOSD_H3_CLI" AS SELECT * FROM "ZOSD_H3_TENANT"."ZOSD_H3_CLI" WHERE "MANDT" = SESSION_CONTEXT('CLIENT')`);
-      const views = sent.find((s) => /SYS\.VIEWS/.test(s));
+      const views = sent.find((s) => /SYS\.VIEWS/.test(s) && /DEFINITION/.test(s));
+      expect(sent.find((s) => /SYS\.TABLES/.test(s)), "the tenant catalog literal is upper too").to.include(`SCHEMA_NAME = 'ZOSD_H3_TENANT'`);
       expect(views, "the catalog literal is upper").to.include(`SCHEMA_NAME = 'ZOSD_H3_OWN'`);
       const dd02l = sent.find((s) => /DD02L/.test(s));
       expect(dd02l, "the DD02L read is upper").to.include(`FROM "ZOSD_H3_TENANT"."DD02L"`);

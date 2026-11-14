@@ -13,6 +13,13 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
 * set_maxlength of an Edm.String property or parameter (0: none); a key or a
 * parameter value longer than it is refused, see check_length
              max_length TYPE i,
+* create_complex_property in the MPC: the property is a structure of the
+* named complex type, its members are listed in the set's components
+             complex_type TYPE string,
+* a member of a complex property (a row of ty_entity_set-components): the
+* name of the complex property it belongs to. Its own name is the OData
+* path (Address/City), its fieldname the ABAP path (ADDRESS-CITY)
+             parent     TYPE string,
            END OF ty_property.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
 
@@ -40,6 +47,10 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
              is_media    TYPE abap_bool,
 * set_has_ftxt_search (sap:searchable): the DPC's GET_ENTITYSET takes a search string
              searchable  TYPE abap_bool,
+* the members of the type's complex properties, one row per member, in the
+* order of the complex type: what a property path ($filter Address/City)
+* and the serializer's nested object are resolved against
+             components  TYPE ty_properties,
            END OF ty_entity_set.
     TYPES ty_entity_sets TYPE STANDARD TABLE OF ty_entity_set WITH DEFAULT KEY.
 
@@ -170,6 +181,15 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rs_service) TYPE ty_service
       RAISING
         zcx_stg_error.
+
+    CLASS-METHODS components
+      IMPORTING
+        io_model  TYPE REF TO zcl_oao_model
+        is_parent TYPE ty_property
+      CHANGING
+        ct_rows   TYPE ty_properties
+      RAISING
+        zcx_stg_error.
 ENDCLASS.
 
 CLASS zcl_stg_model_info IMPLEMENTATION.
@@ -200,6 +220,7 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
     DATA lo_property    TYPE REF TO zcl_oao_property.
     DATA ls_info        TYPE ty_property.
     DATA lt_info        TYPE ty_properties.
+    DATA lt_components  TYPE ty_properties.
     DATA lt_entity_sets TYPE zcl_oao_entity_typ=>ty_entity_sets.
     DATA ls_entity_set  LIKE LINE OF lt_entity_sets.
     DATA ls_set         TYPE ty_entity_set.
@@ -250,7 +271,7 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
               previous = lx_gateway.
       ENDTRY.
 
-      CLEAR lt_info.
+      CLEAR: lt_info, lt_components.
       lt_properties = lo_entity->/iwbep/if_mgw_odata_entity_typ~get_properties( ).
       LOOP AT lt_properties INTO ls_property.
         lo_property ?= ls_property-property.
@@ -270,7 +291,13 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         IF ls_info-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
           ls_info-max_length = lo_property->mv_maxlength.
         ENDIF.
+        ls_info-complex_type = lo_property->mv_complex_type.
         APPEND ls_info TO lt_info.
+        IF ls_info-complex_type IS NOT INITIAL.
+          components( EXPORTING io_model  = lo_model
+                                is_parent = ls_info
+                      CHANGING  ct_rows   = lt_components ).
+        ENDIF.
       ENDLOOP.
 
       lt_entity_sets = lo_entity->get_entity_sets( ).
@@ -279,6 +306,7 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         ls_set-name        = ls_entity_set-name.
         ls_set-entity_type = lv_type_name.
         ls_set-properties  = lt_info.
+        ls_set-components  = lt_components.
         ls_set-creatable   = ls_entity_set-entity_set->mv_creatable.
         ls_set-updatable   = ls_entity_set-entity_set->mv_updatable.
         ls_set-deletable   = ls_entity_set-entity_set->mv_deletable.
@@ -481,10 +509,65 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
     rv_etag = boolc( sy-subrc = 0 ).
   ENDMETHOD.
 
+  METHOD components.
+* the members of one complex property, as rows the serializer and a property
+* path read: name Address/City, fieldname ADDRESS-CITY, parent Address. A
+* complex type the model does not hold is a broken model, said as one
+    DATA lo_type       TYPE REF TO /iwbep/if_mgw_odata_cmplx_type.
+    DATA lt_properties TYPE /iwbep/if_mgw_med_odata_types=>ty_t_mgw_odata_properties.
+    DATA ls_property   LIKE LINE OF lt_properties.
+    DATA lo_property   TYPE REF TO zcl_oao_property.
+    DATA ls_row        TYPE ty_property.
+    DATA lv_field      TYPE string.
+    DATA lx_gateway    TYPE REF TO /iwbep/cx_mgw_base_exception.
+    DATA lv_type_name  TYPE /iwbep/if_mgw_med_odata_types=>ty_e_med_entity_name.
+
+    lv_type_name = is_parent-complex_type.
+    TRY.
+        lo_type = io_model->/iwbep/if_mgw_odata_model~get_complex_type( lv_type_name ).
+      CATCH /iwbep/cx_mgw_med_exception INTO lx_gateway.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING
+            status   = 500
+            code     = 'STG/MODEL'
+            message  = |Complex type { is_parent-complex_type } of property { is_parent-name } is not in the model|
+            previous = lx_gateway.
+    ENDTRY.
+
+    lt_properties = lo_type->get_properties( ).
+    LOOP AT lt_properties INTO ls_property.
+      lo_property ?= ls_property-property.
+      CLEAR ls_row.
+      lv_field = to_upper( lo_property->mv_abap_fieldname ).
+      IF lv_field IS INITIAL.
+        lv_field = to_upper( ls_property-name ).
+      ENDIF.
+      ls_row-name      = |{ is_parent-name }/{ ls_property-name }|.
+      ls_row-fieldname = |{ is_parent-fieldname }-{ lv_field }|.
+      ls_row-parent    = is_parent-name.
+      ls_row-edm_type  = lo_property->mv_edm_type.
+      IF ls_row-edm_type IS INITIAL.
+        ls_row-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
+      ENDIF.
+      ls_row-nullable = lo_property->mv_nullable.
+      IF ls_row-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
+        ls_row-max_length = lo_property->mv_maxlength.
+      ENDIF.
+      APPEND ls_row TO ct_rows.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD find_property.
     DATA ls_property LIKE LINE OF is_set-properties.
 
     LOOP AT is_set-properties INTO ls_property.
+      IF to_upper( ls_property-name ) = to_upper( iv_name ).
+        rs_property = ls_property.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+* a property path into a complex property: Address/City
+    LOOP AT is_set-components INTO ls_property.
       IF to_upper( ls_property-name ) = to_upper( iv_name ).
         rs_property = ls_property.
         RETURN.

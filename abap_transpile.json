@@ -94,7 +94,7 @@
         "/src/internal/**"
       ],
       "exclude_filter": [
-        "(#iwbep#if_mgw_(odata_(action|parameter)|req_func_import|req_entityset|req_entity|context|appl_srv_runtime)\\.intf|#iwbep#if_message_container\\.intf|#iwbep#(cl_mgw_request|cl_sb_gen_read_aftr_crt)\\.clas|zcl_oao_(action|context|msg_container|request_context)\\.clas)\\."
+        "(#iwbep#if_mgw_(odata_(action|parameter)|req_func_import|req_entityset|req_entity|context|appl_srv_runtime)\\.intf|#iwbep#if_message_container\\.intf|#iwbep#(cl_mgw_request|cl_sb_gen_read_aftr_crt)\\.clas|zcl_oao_(action|context|model|msg_container|request_context)\\.clas)\\."
       ]
     },
     {

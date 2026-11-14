@@ -170,6 +170,23 @@ describe("pre-push guards", function () {
   it("checks the destination when local main is pushed to a topic", () => {
     refused(`refs/heads/main ${main} refs/heads/topic ${zero}\n`, /no commits over origin\/main/);
   });
+  it("runs the rest of CI's scan job and refuses on any of its rules", () => {
+    // #942: five fixture descriptions passed every local hook and failed the
+    // naming rule in CI, where a red `scan` read like a leak
+    const rules = ["osd-naming-scan", "osd-oo-comments", "osd-ddic-reserved"];
+    for (const rule of rules) {
+      writeFileSync(join(repo, "tools", `${rule}.mjs`),
+        `if (process.env.FAIL_RULE === "${rule}") { console.log("${rule}: 1 finding"); process.exit(1); }\n`);
+    }
+    passes();
+    for (const rule of rules) {
+      const result = run(ref(), {FAIL_RULE: rule});
+      assert.equal(result.status, 1, rule + ": " + result.stdout + result.stderr);
+      assert.match(result.stderr, new RegExp(`${rule}: refused`));
+      assert.match(result.stderr, /a rule of CI's scan job/);
+    }
+  });
+
   it("allows an empty ref list without scanning", () => {
     assert.deepEqual(passes(""), []);
   });
