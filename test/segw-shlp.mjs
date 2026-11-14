@@ -180,6 +180,24 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
     }
   });
 
+  it("refuses a key field of a help view's base table that no view field names (MUST-2, round 2)", () => {
+    // the ORDER BY writes the base table's key fields whether or not DD27P
+    // names them; such a name used to reach the generated SELECT unchecked
+    for (const bad of ["CODE' OR '1'='1", "A. ENDMETHOD."]) {
+      const root = layer({
+        "zb.tabl.xml": tabl("ZB", [["MANDT", true, "CLNT"], ["CODE", true, "CHAR"], [bad, true, "CHAR"]]),
+        "zhv.view.xml": `<abapGit><asx:values><DD25V><VIEWNAME>ZHV</VIEWNAME><VIEWCLASS>H</VIEWCLASS></DD25V><DD26V_TABLE><DD26V><TABNAME>ZB</TABNAME><TABPOS>0001</TABPOS><FORTABNAME>ZB</FORTABNAME></DD26V></DD26V_TABLE><DD27P_TABLE><DD27P><VIEWFIELD>CODE</VIEWFIELD><TABNAME>ZB</TABNAME><FIELDNAME>CODE</FIELDNAME><OBJPOS>0001</OBJPOS></DD27P></DD27P_TABLE></asx:values></abapGit>`,
+        "zh.shlp.xml": shlp("ZH", "ZHV", ["CODE"], "<SELMTYPE>H</SELMTYPE>"),
+      });
+      try {
+        expect(registryOf(root), bad).to.contain(`* ZH: not registered, table field ${JSON.stringify(bad)} is not a dictionary name`);
+        expect(joinOf(root), bad).to.equal(undefined);
+      } finally {
+        rmSync(root, {recursive: true, force: true});
+      }
+    }
+  });
+
   it("pairs text table key fields by name, not by position, and refuses what pairs with nothing (MUST-3)", () => {
     const crossed = layer({
       "zb.tabl.xml": tabl("ZB", [["MANDT", true, "CLNT"], ["A", true, "CHAR"], ["B", true, "CHAR"]]),

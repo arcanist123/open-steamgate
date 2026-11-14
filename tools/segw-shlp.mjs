@@ -300,6 +300,9 @@ export function nameRefusal(help, plan) {
   if (plan && !plan.reason) {
     for (const t of plan.tables) {
       names.push(["table", t.table.name]);
+      // every DD03P field of a joined table: the ORDER BY writes the first
+      // table's key fields whether or not a view field names them
+      for (const f of t.table.fields) names.push(["table field", f.name]);
       for (const c of t.on ?? []) names.push(["join field", c.field], ...(c.parentField ? [["join field", c.parentField]] : []));
     }
     for (const [viewfield, f] of plan.fields) names.push(["field", viewfield], ["field", f.table], ["field", f.field]);
