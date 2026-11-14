@@ -298,7 +298,7 @@ if (runsAs("osd-generation-check.mjs")) {
   if (args.includes("--json")) {
     // the closure's fixed point reads this (tools/hana-closure-merge.mjs loadCheckOf)
     console.log(JSON.stringify({ok: result.ok, modules: result.modules, cycles: result.cycles, syntax: result.syntax,
-      latent: result.latent, loads: result.ok, load_error: firstLoadError(result), load_constructor: loadConstructorOf(result), cctor_cycles: result.cctorCycles}));
+      latent: result.latent, loads: result.ok, load_error: firstLoadError(result), cctor_cycles: result.cctorCycles, load_constructor: loadConstructorOf(result)}));
     process.exit(result.ok ? 0 : 1);
   }
   for (const line of describe(result)) console.log(line);

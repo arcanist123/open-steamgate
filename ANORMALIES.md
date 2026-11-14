@@ -4740,7 +4740,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: the name is decoded; `%24top` is `$top`
 - Actual open-abap behaviour: the name stays `%24top`; the option is ignored without a word and the whole set comes back
 - Impact on open-steamgate: a client that encodes `$` (URLSearchParams does) silently loses every system query option
-- Smallest safe workaround: `ZCL_STG_URL=>OPTION` decodes a name that carries `%`
+- Smallest safe workaround: `ZCL_STG_URL=>OPTION` decodes a name that is a well-formed escape (`%zz` is left alone and ignored)
 - Upstream issue: needs an issue (express-icf-shim or open-abap-core) after a critic pass
 - Regression-test location: `ZCL_OSD_H5X_TEST` (encoded_option_names)
 - Upstream version containing a fix: unknown
