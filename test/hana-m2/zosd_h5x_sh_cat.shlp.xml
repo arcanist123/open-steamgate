@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_SHLP" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <DD30V>
+    <SHLPNAME>ZOSD_H5X_SH_CAT</SHLPNAME>
+    <DDLANGUAGE>E</DDLANGUAGE>
+    <DDTEXT>OSD value help shape: categories</DDTEXT>
+    <ISSIMPLE>X</ISSIMPLE>
+    <SELMETHOD>ZOSD_H5X_CAT</SELMETHOD>
+    <SELMTYPE>T</SELMTYPE>
+    <DIALOGTYPE>D</DIALOGTYPE>
+   </DD30V>
+   <DD31V_TABLE>
+    <DD31V>
+     <SHLPNAME>ZOSD_H5X_SH_CAT</SHLPNAME>
+     <SUBSHLP>ZOSD_H5X_SH_CAT</SUBSHLP>
+     <SHPOSITION>0001</SHPOSITION>
+    </DD31V>
+   </DD31V_TABLE>
+   <DD32P_TABLE>
+    <DD32P>
+     <SHLPNAME>ZOSD_H5X_SH_CAT</SHLPNAME>
+     <FIELDNAME>CATEGORY</FIELDNAME>
+     <FLPOSITION>0001</FLPOSITION>
+     <SHLPINPUT>X</SHLPINPUT>
+     <SHLPOUTPUT>X</SHLPOUTPUT>
+     <SHLPSELPOS>01</SHLPSELPOS>
+     <SHLPLISPOS>01</SHLPLISPOS>
+    </DD32P>
+   </DD32P_TABLE>
+  </asx:values>
+ </asx:abap>
+</abapGit>

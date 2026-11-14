@@ -313,6 +313,7 @@ export function outputFiles(output, config, outputFolder, files) {
 
 const QUIET = {set() {}, async tick() {}};
 
+
 // the whole of it: files in, objects on disk, a count back
 export async function transpile(options = {}) {
   const root = resolve(options.root ?? process.cwd());
@@ -340,7 +341,9 @@ export async function transpile(options = {}) {
   for (const l of libs) {
     reg.addDependency(new core.MemoryFile(l.filename, l.contents));
   }
-  orderRegistry(reg, core, files, libs);
+  // orderRegistry also drops help views (osd-warm-order.mjs dropHelpViews),
+  // for this run, the warm compiler's kept registry and its verifier alike
+  for (const name of orderRegistry(reg, core, files, libs)) log(`help view ${name}: no database object (VIEWCLASS H), read by its search helps' generated join`);
   const output = await phase("transpile", () => t.run(reg, options.progress ?? QUIET));
   const outputFolder = resolve(root, config.output_folder);
   mkdirSync(outputFolder, {recursive: true});
