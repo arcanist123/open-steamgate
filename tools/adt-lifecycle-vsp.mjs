@@ -24,6 +24,18 @@ export function ddlsCallTimeoutS(env = process.env) {
   return Math.min(480, Math.max(240, Math.round(240 * speed(env).factor)));
 }
 
+// The wait for the warm compiler to be primed again (adt-lifecycle.mjs
+// warmReady) is the same kind of cost: a cold baseline activation, the
+// verification comparisons queued before a prime may start, then the prime
+// itself. Green CI: ~54 s (baseline 29-37 s, prime 15-30 s). On the slow runner
+// that failed #942 (speed factor 1.19) the interface create overran the warm
+// deadline, the compiler re-primed behind two 29-36 s comparisons, and the
+// fixed 90 s ran out with no prime started. Same floor, factor and clamp as
+// the DDLS family.
+export function warmReadyTimeoutS(env = process.env) {
+  return ddlsCallTimeoutS(env);
+}
+
 export async function vspClient(url) {
   // Empty cwd and an empty home prevent VSP from finding a workstation
   // connection/config; a developer's ~/.vsp.json pins a real system and its
