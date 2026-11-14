@@ -86,7 +86,10 @@ CLASS zcl_osd_ddic_info IMPLEMENTATION.
     ENDIF.
     lo_struct ?= lo_descr.
     lt_comp = lo_struct->get_components( ).
-    LOOP AT lt_comp INTO ls_comp WHERE type IS BOUND.
+    LOOP AT lt_comp INTO ls_comp.
+      IF ls_comp-type IS NOT BOUND.
+        CONTINUE.
+      ENDIF.
       IF ls_comp-type->kind <> cl_abap_typedescr=>kind_elem.
         CONTINUE.
       ENDIF.
