@@ -14,9 +14,9 @@
 // iteration's (see "A stub exists only while its reason holds NOW" below).
 //
 // The summary (gen/hana-closure/closure-summary.json, written at the fixed
-// point): {fixed_point, loads (+ load_error), iterations, island_objects, stubs_unique, lifted,
-// lifted_stubs, excluded, gaps, seed: {classes, stubbed_methods},
-// failures}. It is the false-green
+// point): {fixed_point, loads (+ load_error), iterations, island_objects,
+// stubs_unique, lifted, lifted_stubs, excluded, gaps, seed: {classes,
+// stubbed_methods}, failures}. It is the false-green
 // guard of the brief: a green transpile proves nothing when the service's
 // own classes were excluded or their reads stubbed away, so the run FAILS
 // (after writing the summary) when
@@ -148,7 +148,8 @@ export function unstubbedGlob(glob) {
  *  `excluded` -- the excluded objects; `stubs` -- the unique stub list;
  *  `lifted` -- the stubs this run lifted ({object, class, method}, see
  *  trackLifted); `gaps` -- [{name, kind}]; `requireUnstubbed` -- the
- *  globs. Pure. */
+ *  globs; `load` -- {loads, error, built?} from the load check (B6).
+ *  Pure. */
 export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, lifted = [], gaps, requireUnstubbed = [], load}) {
   const seedList = [...(seeds ?? [])].map((s) => String(s).toUpperCase()).sort();
   const seedSet = new Set(seedList);

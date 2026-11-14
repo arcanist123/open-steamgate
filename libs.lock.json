@@ -1,7 +1,7 @@
 {
   "transpiler": {
     "repo": "oisee/transpiler",
-    "ref": "28b6944ed3839afeb70f24ba9c3fb25075f72933"
+    "ref": "28a3c53a188b6978d4355c881103887069f18123"
   },
   "libraries": [
     { "folder": "open-abap-core", "repo": "oisee/open-abap-core", "ref": "84125c41c22e4c0d45e8037e8b60c691bb64de8d" },
