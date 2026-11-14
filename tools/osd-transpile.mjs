@@ -313,24 +313,6 @@ export function outputFiles(output, config, outputFolder, files) {
 
 const QUIET = {set() {}, async tick() {}};
 
-// A help view (DD25V VIEWCLASS H) has no database object on a system: its
-// search helps read it as a join (tools/segw-shlp.mjs). Given to the
-// transpiler it became a CREATE VIEW over its DD28J rows -- a help view
-// has none, its joins are foreign keys -- whose columns name tables its
-// FROM lacks: SQLite takes it and fails on a read, an engine that checks
-// at CREATE fails the schema (ANORMALIES 2026-11-14-help-view-schema). So
-// it leaves the registry before the run; the names go back.
-export function dropHelpViews(reg, core) {
-  const dropped = [];
-  for (const obj of [...reg.getObjects()]) {
-    if (!(obj instanceof core.Objects.View)) continue;
-    obj.parseXML?.();
-    if (obj.parsedData?.header?.VIEWCLASS !== "H") continue;
-    for (const file of obj.getFiles()) reg.removeFile(file);
-    dropped.push(obj.getName());
-  }
-  return dropped.sort();
-}
 
 // the whole of it: files in, objects on disk, a count back
 export async function transpile(options = {}) {
@@ -359,8 +341,9 @@ export async function transpile(options = {}) {
   for (const l of libs) {
     reg.addDependency(new core.MemoryFile(l.filename, l.contents));
   }
-  for (const name of dropHelpViews(reg, core)) log(`help view ${name}: no database object (VIEWCLASS H), read by its search helps' generated join`);
-  orderRegistry(reg, core, files, libs);
+  // orderRegistry also drops help views (osd-warm-order.mjs dropHelpViews),
+  // for this run, the warm compiler's kept registry and its verifier alike
+  for (const name of orderRegistry(reg, core, files, libs)) log(`help view ${name}: no database object (VIEWCLASS H), read by its search helps' generated join`);
   const output = await phase("transpile", () => t.run(reg, options.progress ?? QUIET));
   const outputFolder = resolve(root, config.output_folder);
   mkdirSync(outputFolder, {recursive: true});

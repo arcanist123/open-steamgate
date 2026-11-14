@@ -127,7 +127,7 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
 
 
   it("removes a help view from the transpiler's registry and keeps a database view", async () => {
-    const {dropHelpViews} = await import("../tools/osd-transpile.mjs");
+    const {dropHelpViews} = await import("../tools/osd-warm-order.mjs");
     const core = await import("@abaplint/core");
     const reg = new core.Registry();
     const view = (name, cls) => `<?xml version="1.0" encoding="utf-8"?><abapGit version="v1.0.0" serializer="LCL_OBJECT_VIEW" serializer_version="v1.0.0"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DD25V><VIEWNAME>${name}</VIEWNAME><VIEWCLASS>${cls}</VIEWCLASS></DD25V></asx:values></asx:abap></abapGit>`;
@@ -135,5 +135,99 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
     reg.addFile(new core.MemoryFile("zdb.view.xml", view("ZDB", "D")));
     expect(dropHelpViews(reg, core)).to.deep.equal(["ZHELP"]);
     expect([...reg.getObjects()].map((o) => o.getName())).to.deep.equal(["ZDB"]);
+  });
+
+  // PR #952 critic round
+  const viewXml = (conditions, fields = ["CODE", "EXT", "DIM"]) => `<abapGit><asx:values><DD25V><VIEWNAME>ZHV</VIEWNAME><VIEWCLASS>H</VIEWCLASS></DD25V><DD26V_TABLE>
+<DD26V><TABNAME>ZBASE</TABNAME><TABPOS>0001</TABPOS><FORTABNAME>ZBASE</FORTABNAME></DD26V></DD26V_TABLE><DD27P_TABLE>${
+    fields.map((f, i) => `<DD27P><VIEWFIELD>${f}</VIEWFIELD><TABNAME>ZBASE</TABNAME><FIELDNAME>${f}</FIELDNAME><OBJPOS>000${i + 1}</OBJPOS></DD27P>`).join("")
+  }</DD27P_TABLE><DD28V_TABLE>${
+    conditions.map(([f, c, andOr], i) => `<DD28V><POSITION>000${i + 1}</POSITION><TABNAME>ZBASE</TABNAME><FIELDNAME>${f}</FIELDNAME><OPERATOR>EQ</OPERATOR><CONSTANTS>${c}</CONSTANTS><AND_OR>${andOr ?? ""}</AND_OR></DD28V>`).join("")
+  }</DD28V_TABLE></asx:values></abapGit>`;
+  const base = tabl("ZBASE", [["MANDT", true, "CLNT"], ["CODE", true, "CHAR"], ["EXT", false, "CHAR"], ["DIM", false, "CHAR"]]);
+  const viewHelp = (conditions, fields) => layer({"zbase.tabl.xml": base, "zhv.view.xml": viewXml(conditions, fields),
+    "zh.shlp.xml": shlp("ZH", "ZHV", ["CODE"], "<SELMTYPE>H</SELMTYPE>")});
+  const registryOf = (root) => generate([root]).files.get("zcl_stg_shlp_registry.clas.abap");
+  const joinOf = (root) => [...generate([root]).files.values()].find((a) => a.includes("INTERFACES zif_oao_shlp_source"));
+
+  it("refuses a name that is no dictionary identifier instead of writing it into ABAP (MUST-2)", () => {
+    const root = layer({
+      "zt.tabl.xml": tabl("ZT", [["MANDT", true, "CLNT"], ["CODE'", true, "CHAR"]]),
+      "ztt.tabl.xml": tabl("ZTT", [["MANDT", true, "CLNT"], ["SPRAS", true, "LANG", true], ["CODE'", true, "CHAR"], ["TXT", false, "CHAR"]]),
+      "zh.shlp.xml": shlp("ZH", "ZT", ["CODE'"], "<TEXTTAB>ZTT</TEXTTAB>"),
+    });
+    try {
+      const abap = registryOf(root);
+      expect(abap).to.contain("* ZH: not registered, parameter \"CODE'\" is not a dictionary name");
+      expect(joinOf(root)).to.equal(undefined);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("refuses a condition constant or field that is not one literal or one name (MUST-2)", () => {
+    const constant = viewHelp([["CODE", "'A' OR mandt <> '999'"]]);
+    const field = viewHelp([["CODE OR 'X' = '", "'A'"]]);
+    const fine = viewHelp([["EXT", "'it''s'"]]);
+    try {
+      expect(registryOf(constant)).to.contain("not registered, help view ZHV: condition constant");
+      expect(joinOf(constant)).to.equal(undefined);
+      expect(registryOf(field)).to.contain("not registered, condition field");
+      expect(joinOf(field)).to.equal(undefined);
+      expect(joinOf(fine)).to.contain("WHERE ( t1~ext = 'it''s' ) AND (lv_where)");
+    } finally {
+      for (const r of [constant, field, fine]) rmSync(r, {recursive: true, force: true});
+    }
+  });
+
+  it("pairs text table key fields by name, not by position, and refuses what pairs with nothing (MUST-3)", () => {
+    const crossed = layer({
+      "zb.tabl.xml": tabl("ZB", [["MANDT", true, "CLNT"], ["A", true, "CHAR"], ["B", true, "CHAR"]]),
+      "zbt.tabl.xml": tabl("ZBT", [["MANDT", true, "CLNT"], ["B", true, "CHAR"], ["A", true, "CHAR"], ["SPRAS", true, "LANG", true], ["TXT", false, "CHAR"]]),
+      "zh.shlp.xml": shlp("ZH", "ZB", ["A", "TXT"], "<TEXTTAB>ZBT</TEXTTAB>"),
+    });
+    const unpaired = layer({
+      "zb.tabl.xml": tabl("ZB", [["MANDT", true, "CLNT"], ["A", true, "CHAR"], ["B", true, "CHAR"]]),
+      "zbt.tabl.xml": tabl("ZBT", [["MANDT", true, "CLNT"], ["X", true, "CHAR"], ["Y", true, "CHAR"], ["SPRAS", true, "LANG", true], ["TXT", false, "CHAR"]]),
+      "zh.shlp.xml": shlp("ZH", "ZB", ["A", "TXT"], "<TEXTTAB>ZBT</TEXTTAB>"),
+    });
+    try {
+      const abap = joinOf(crossed);
+      expect(abap).to.contain("AND t2~b = t1~b");
+      expect(abap).to.contain("AND t2~a = t1~a");
+      expect(registryOf(unpaired)).to.contain("* ZH: not registered, ZBT: key field(s) X, Y pair with no key field of ZB by name");
+    } finally {
+      rmSync(crossed, {recursive: true, force: true});
+      rmSync(unpaired, {recursive: true, force: true});
+    }
+  });
+
+  it("joins AND-linked conditions with AND and refuses a sequence with an OR (MUST-4)", () => {
+    const and = viewHelp([["CODE", "'A'", "AND"], ["EXT", "'X'"]]);
+    const or = viewHelp([["CODE", "'A'", "OR"], ["EXT", "'X'", "AND"], ["DIM", "'MASS'"]]);
+    try {
+      expect(joinOf(and)).to.contain("WHERE ( t1~code = 'A' AND t1~ext = 'X' ) AND (lv_where)");
+      expect(registryOf(or)).to.contain("* ZH: not registered, help view ZHV: selection conditions linked by OR are not served");
+      expect(joinOf(or)).to.equal(undefined);
+    } finally {
+      rmSync(and, {recursive: true, force: true});
+      rmSync(or, {recursive: true, force: true});
+    }
+  });
+
+  it("drops a help view on every path that orders a registry: cold, warm and the warm verifier (MUST-1)", async () => {
+    const {orderRegistry} = await import("../tools/osd-warm-order.mjs");
+    const core = await import("@abaplint/core");
+    const reg = new core.Registry();
+    const files = [
+      {filename: "zhelp.view.xml", contents: `<?xml version="1.0" encoding="utf-8"?><abapGit version="v1.0.0" serializer="LCL_OBJECT_VIEW" serializer_version="v1.0.0"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DD25V><VIEWNAME>ZHELP</VIEWNAME><VIEWCLASS>H</VIEWCLASS></DD25V></asx:values></asx:abap></abapGit>`},
+      {filename: "zcl_keep.clas.abap", contents: "CLASS zcl_keep DEFINITION PUBLIC.\nENDCLASS.\nCLASS zcl_keep IMPLEMENTATION.\nENDCLASS."},
+    ];
+    for (const f of files) reg.addFile(new core.MemoryFile(f.filename, f.contents));
+    expect(orderRegistry(reg, core, files)).to.deep.equal(["ZHELP"]);
+    expect([...reg.getObjects()].map((o) => o.getName())).to.deep.equal(["ZCL_KEEP"]);
+    // ordering an already ordered registry again (the warm compiler does) keeps it out
+    expect(orderRegistry(reg, core, files)).to.deep.equal([]);
+    expect([...reg.getObjects()].map((o) => o.getName())).to.deep.equal(["ZCL_KEEP"]);
   });
 });

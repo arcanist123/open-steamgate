@@ -106,9 +106,18 @@ context), the same Open SQL runs on every backend, and on HANA in
 existing-schema mode each base table already resolves to its client-
 filtered shadow view, so the join needs no DDL of its own -- the read-only
 guard admits none on the tenant anyway. A help view `.view.xml` never
-reaches the transpiler's database schema (`dropHelpViews` in
-`tools/osd-transpile.mjs`): it would have become a `CREATE VIEW` that names
-tables its `FROM` lacks. Also served now: a parameter with a list position
+reaches the transpiler's database schema (`dropHelpViews`, called by
+`orderRegistry` in `tools/osd-warm-order.mjs`, so the cold build, the warm
+compiler and its verifier agree): it would have become a `CREATE VIEW` that
+names tables its `FROM` lacks. What the generator writes into ABAP out of
+the dictionary XML is checked: every name must be a DDIC identifier and no
+Open SQL word, a selection condition's constant one literal (escaped
+again), a text table's key fields pair with the parent's by name (one left
+over on each side pairs by elimination), and conditions linked by OR are
+refused because which row an `AND_OR` belongs to is not measured; each
+refusal leaves the help unregistered with its reason in the registry. A
+help whose view definition is missing is unregistered the same way, never a
+build error. Also served now: a parameter with a list position
 is a list field whether or not it is exported, a literal default
 (`DEFAULTTYP L`) restricts its field unless the request does. Values stay in
 internal form as the search help runtime answers them: a conversion exit

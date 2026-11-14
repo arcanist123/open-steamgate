@@ -42,7 +42,8 @@ CLASS zcl_osd_shlp_zosd_h5x_cty IMPLEMENTATION.
       WHEN 'NAME'.
         rv_column = 't2~name'.
       WHEN OTHERS.
-        rv_column = to_lower( iv_field ).
+* the provider refuses a field that is no parameter before it asks here
+        CLEAR rv_column.
     ENDCASE.
   ENDMETHOD.
 

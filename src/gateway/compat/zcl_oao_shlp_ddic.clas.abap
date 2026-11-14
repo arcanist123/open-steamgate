@@ -286,6 +286,7 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
     DATA ls_sorted   TYPE ty_sorted.
     DATA lv_record   TYPE i.
     DATA ls_result   LIKE LINE OF et_return_list.
+    DATA ls_selopt   TYPE ddshselopt.
     FIELD-SYMBOLS <lt_rows>  TYPE STANDARD TABLE.
     FIELD-SYMBOLS <ls_row>   TYPE any.
     FIELD-SYMBOLS <lv_value> TYPE any.
@@ -303,6 +304,16 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
       es_message-message = |Search help { mv_shlp_name } has no output parameters|.
       RETURN.
     ENDIF.
+* a selection option names a parameter of this search help, or the request
+* is refused: its field name would otherwise reach the SQL as written
+    LOOP AT it_selopt INTO ls_selopt.
+      READ TABLE mt_parameters TRANSPORTING NO FIELDS WITH KEY name = ls_selopt-shlpfield.
+      IF sy-subrc <> 0.
+        es_message-type    = 'E'.
+        es_message-message = |Search help { mv_shlp_name } has no parameter { ls_selopt-shlpfield }|.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
     lv_where = where_clause( with_defaults( it_selopt ) ).
 
     IF mo_source IS BOUND.

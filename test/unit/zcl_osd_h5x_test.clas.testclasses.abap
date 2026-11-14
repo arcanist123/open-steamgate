@@ -314,6 +314,8 @@ CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS 
     METHODS help_view_join FOR TESTING RAISING cx_static_check.
     METHODS help_view_count FOR TESTING RAISING cx_static_check.
     METHODS default_yields_to_request FOR TESTING RAISING cx_static_check.
+    METHODS exit_only_is_not_served FOR TESTING RAISING cx_static_check.
+    METHODS unknown_field_is_refused FOR TESTING RAISING cx_static_check.
 
     METHODS get
       IMPORTING
@@ -560,6 +562,58 @@ CLASS ltcl_value_help IMPLEMENTATION.
     CLEAR lt_selopt.
     cl_abap_unit_assert=>assert_equals( act = lo_shlp->where_clause( lo_shlp->with_defaults( lt_selopt ) )
                                         exp = `( dim = 'MASS' )` ).
+  ENDMETHOD.
+
+  METHOD exit_only_is_not_served.
+* an exit-only search help answers an E message, which the generated DPC
+* turns into a business error (a 400), not a dump and not an empty set
+    DATA lo_shlp    TYPE REF TO zcl_oao_shlp_ddic.
+    DATA lt_selopt  TYPE ddshselops.
+    DATA lt_result  TYPE /iwbep/if_sb_gendpc_shlp_data=>tt_result_list.
+    DATA ls_message TYPE bapiret2.
+
+    lo_shlp = zcl_oao_shlp_ddic=>create( iv_shlp_name = 'ZOSD_H5X_SH_EXIT'
+                                         iv_selmexit  = 'ZOSD_H5X_SHEXIT' ).
+    lo_shlp->add_parameter( iv_name          = 'CODE'
+                            iv_list_position = 1 ).
+    lo_shlp->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values(
+      EXPORTING
+        iv_shlp_name   = 'ZOSD_H5X_SH_EXIT'
+        it_selopt      = lt_selopt
+      IMPORTING
+        et_return_list = lt_result
+        es_message     = ls_message ).
+    cl_abap_unit_assert=>assert_equals( act = ls_message-type
+                                        exp = 'E' ).
+    cl_abap_unit_assert=>assert_initial( lt_result ).
+  ENDMETHOD.
+
+  METHOD unknown_field_is_refused.
+* a selection option on a field that is no parameter of the help is refused
+* with an E message; its name never reaches the WHERE clause
+    DATA lo_sh_data TYPE REF TO /iwbep/if_sb_shlp_data.
+    DATA lt_selopt  TYPE ddshselops.
+    DATA ls_selopt  LIKE LINE OF lt_selopt.
+    DATA lt_result  TYPE /iwbep/if_sb_gendpc_shlp_data=>tt_result_list.
+    DATA ls_message TYPE bapiret2.
+
+    ls_selopt-shlpname  = 'ZOSD_H5X_SH_CTY'.
+    ls_selopt-shlpfield = `CODE) OR (1 = 1`.
+    ls_selopt-sign      = 'I'.
+    ls_selopt-option    = 'EQ'.
+    ls_selopt-low       = 'AA'.
+    APPEND ls_selopt TO lt_selopt.
+    lo_sh_data = /iwbep/cl_sb_shlp_data_factory=>get_sh_data_obj( ).
+    lo_sh_data->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values(
+      EXPORTING
+        iv_shlp_name   = 'ZOSD_H5X_SH_CTY'
+        it_selopt      = lt_selopt
+      IMPORTING
+        et_return_list = lt_result
+        es_message     = ls_message ).
+    cl_abap_unit_assert=>assert_equals( act = ls_message-type
+                                        exp = 'E' ).
+    cl_abap_unit_assert=>assert_initial( lt_result ).
   ENDMETHOD.
 
 ENDCLASS.

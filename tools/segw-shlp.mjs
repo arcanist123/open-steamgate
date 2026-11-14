@@ -225,15 +225,41 @@ function bindKey(dict, child, parent, forfield, fordir) {
   if (childClient && parentClient) on.push({field: childClient.name, parentField: parentClient.name});
   if (language) on.push({field: language.name, language: true});
   if (fordir === "E") {
-    rest.forEach((f, i) => {
-      const same = parent.fields.find((p) => p.name === f.name);
-      on.push({field: f.name, parentField: i === rest.length - 1 && forfield ? forfield : same?.name});
-    });
+    // the parent's FORFIELD is checked against this table: it pairs with
+    // the one key field no parent field of the same name explains
+    const named = rest.filter((f) => rest.length > 1 && parent.fields.some((p) => p.name === f.name && p.name !== forfield));
+    const open = rest.filter((f) => !named.includes(f));
+    for (const f of named) on.push({field: f.name, parentField: f.name});
+    if (open.length !== 1 || !forfield) {
+      return {reason: `${child.name}: ${open.length} key field(s) left for the checking field ${forfield || "(none)"} of ${parent.name}`};
+    }
+    on.push({field: open[0].name, parentField: forfield});
   } else {
     if (rest.length !== parentKeys.length) {
       return {reason: `${child.name}: ${rest.length} key field(s) besides client and language, ${parent.name} has ${parentKeys.length}`};
     }
-    rest.forEach((f, i) => on.push({field: f.name, parentField: parentKeys[i].name}));
+    // DDIC pairs the fields of a foreign key one by one (DD05P), not by
+    // key order; the converter's tabl.xml carries no DD05P, so a field
+    // pairs with the parent key field of its name, and only a single field
+    // left over on each side pairs by elimination (a text table's SPRSL
+    // with its check table's SPRAS). Anything else is refused: a join on
+    // crossed fields would answer wrong rows without a word.
+    const free = [...parentKeys];
+    const left = [];
+    for (const f of rest) {
+      const same = free.find((p) => p.name === f.name);
+      if (same) {
+        free.splice(free.indexOf(same), 1);
+        on.push({field: f.name, parentField: same.name});
+      } else {
+        left.push(f);
+      }
+    }
+    if (left.length === 1 && free.length === 1) {
+      on.push({field: left[0].name, parentField: free[0].name});
+    } else if (left.length > 0) {
+      return {reason: `${child.name}: key field(s) ${left.map((f) => f.name).join(", ")} pair with no key field of ${parent.name} by name`};
+    }
   }
   const unbound = on.filter((c) => !c.language && !c.parentField);
   if (unbound.length > 0) return {reason: `${child.name}: no field of ${parent.name} for ${unbound.map((c) => c.field).join(", ")}`};
@@ -243,6 +269,45 @@ function bindKey(dict, child, parent, forfield, fordir) {
 }
 
 const OPERATORS = {EQ: "=", NE: "<>", LT: "<", LE: "<=", GT: ">", GE: ">=", LIKE: "LIKE"};
+
+// What reaches generated ABAP and SQL out of dictionary XML is checked here,
+// the generator being the validator of last resort over a converted dump's
+// layers (PR #952 critic MUST-2): a name is a DDIC identifier -- an optional
+// /NAMESPACE/, then a letter or underscore, letters, digits, underscores --
+// and not one of the Open SQL words that could change a statement's meaning;
+// a condition constant is one quoted literal or a number, re-emitted through
+// the same escaping as a parameter default. Anything else is refused with
+// its reason, never emitted.
+const NAME = /^(\/[A-Z0-9_]+\/)?[A-Z_][A-Z0-9_]*$/;
+const SQL_WORDS = new Set(["AND", "OR", "NOT", "LIKE", "IN", "BETWEEN", "IS", "NULL", "AS", "FROM", "WHERE", "ON",
+  "JOIN", "INNER", "OUTER", "LEFT", "ORDER", "BY", "GROUP", "HAVING", "SELECT", "INTO", "UP", "TO", "ROWS", "ESCAPE",
+  "EXISTS", "DISTINCT", "UNION", "ALL", "ANY", "SOME", "CASE", "WHEN", "THEN", "ELSE", "END"]);
+export const validName = (name) => typeof name === "string" && NAME.test(name) && !SQL_WORDS.has(name);
+
+/** a DD28V constant as ABAP source, or undefined when it is not one literal */
+export function conditionLiteral(constants) {
+  const text = String(constants ?? "").trim();
+  const quoted = /^'((?:[^']|'')*)'$/.exec(text);
+  if (quoted) return q(quoted[1].replace(/''/g, "'"));
+  if (/^[+-]?\d+(\.\d+)?$/.test(text)) return text;
+  return undefined;
+}
+
+/** the first name of a help (and its plan) that is no identifier, as a reason */
+export function nameRefusal(help, plan) {
+  const names = [["selection method", help.selmethod], ["text table", help.texttab], ["exit", help.selmexit],
+    ...help.parameters.map((p) => ["parameter", p.name.toUpperCase()])].filter(([, n]) => n !== "");
+  if (plan && !plan.reason) {
+    for (const t of plan.tables) {
+      names.push(["table", t.table.name]);
+      for (const c of t.on ?? []) names.push(["join field", c.field], ...(c.parentField ? [["join field", c.parentField]] : []));
+    }
+    for (const [viewfield, f] of plan.fields) names.push(["field", viewfield], ["field", f.table], ["field", f.field]);
+    for (const c of plan.conditions) names.push(["condition field", c.field]);
+  }
+  const bad = names.find(([, n]) => !validName(n));
+  return bad ? `${bad[0]} ${JSON.stringify(bad[1])} is not a dictionary name this generator writes into ABAP` : undefined;
+}
 
 /** the join a search help's selection amounts to, or {reason} */
 export function joinPlan(help, dict) {
@@ -290,7 +355,15 @@ export function joinPlan(help, dict) {
   for (const c of view.conditions) {
     if (!aliasOf.has(c.table)) return {reason: `help view ${help.selmethod}: a condition on ${c.table}, which is not among its tables`};
     if (!OPERATORS[c.operator]) return {reason: `help view ${help.selmethod}: condition operator ${c.operator} is not served`};
-    conditions.push({...c, alias: aliasOf.get(c.table)});
+    const literal = conditionLiteral(c.constants);
+    if (literal === undefined) return {reason: `help view ${help.selmethod}: condition constant ${JSON.stringify(c.constants)} is not one literal`};
+    conditions.push({...c, literal, alias: aliasOf.get(c.table)});
+  }
+  // AND only (PR #952 critic MUST-4): which row a DD28V AND_OR belongs to,
+  // and how DDIC groups an OR, are not measured here, and a guess changes the
+  // row set. A sequence with an OR is refused; between rows AND is the link.
+  if (conditions.some((c) => c.andOr === "OR")) {
+    return {reason: `help view ${help.selmethod}: selection conditions linked by OR are not served`};
   }
   return {kind: "helpview", key: help.selmethod, method: help.selmethod, tables, fields, conditions};
 }
@@ -311,6 +384,9 @@ function needed(plan, used) {
 }
 
 const q = (s) => "'" + s.replace(/'/g, "''") + "'";
+// a comment line carries 7-bit printable text only: a line break would end
+// the comment, and ABAP source is ASCII
+const comment = (s) => String(s).replace(/[^\x20-\x7E]/g, "?");
 const bool = (b) => (b ? "abap_true" : "abap_false");
 const lower = (s) => s.toLowerCase();
 
@@ -327,11 +403,9 @@ export function sourceClass(className, plan, used) {
     from.push(`        LEFT OUTER JOIN ${lower(t.table.name)} AS ${t.alias}`);
     from.push(`          ON ${on.join(`\n         AND `)}`);
   }
-  let where = "";
-  plan.conditions.forEach((c, i) => {
-    const cond = `${c.negation ? "NOT " : ""}${c.alias}~${lower(c.field)} ${OPERATORS[c.operator]} ${c.constants}`;
-    where += i === 0 ? cond : ` ${plan.conditions[i - 1].andOr === "OR" ? "OR" : "AND"} ${cond}`;
-  });
+  const where = plan.conditions
+    .map((c) => `${c.negation ? "NOT " : ""}${c.alias}~${lower(c.field)} ${OPERATORS[c.operator]} ${c.literal}`)
+    .join(" AND ");
   const whereLine = where === "" ? "      WHERE (lv_where)" : `      WHERE ( ${where} ) AND (lv_where)`;
   const order = tables[0].table.fields.filter((f) => f.key).map((f) => `${tables[0].alias}~${lower(f.name)}`);
   const cases = columns.map((c) => `      WHEN ${q(c.name)}.\n        rv_column = '${c.alias}~${lower(c.field)}'.`);
@@ -373,7 +447,8 @@ ${whereLine}
     CASE to_upper( iv_field ).
 ${cases.join("\n")}
       WHEN OTHERS.
-        rv_column = to_lower( iv_field ).
+* the provider refuses a field that is no parameter before it asks here
+        CLEAR rv_column.
     ENDCASE.
   ENDMETHOD.
 
@@ -388,13 +463,14 @@ export function sources(helps, dict) {
   const forHelp = new Map();
   const used = new Set();
   for (const h of helps) {
-    if (h.collective || !h.simple || h.selmethod === "") continue;
-    const plan = joinPlan(h, dict);
-    if (plan === undefined) continue;
-    if (plan.reason) {
-      forHelp.set(h.name, {reason: plan.reason});
+    if (h.collective || !h.simple) continue;
+    const plan = h.selmethod === "" ? undefined : joinPlan(h, dict);
+    const refused = plan?.reason ?? nameRefusal(h, plan);
+    if (refused) {
+      forHelp.set(h.name, {reason: refused});
       continue;
     }
+    if (plan === undefined) continue;
     const missing = h.parameters.filter((p) => !plan.fields.has(p.name.toUpperCase()));
     if (missing.length > 0) {
       forHelp.set(h.name, {reason: `${missing.map((p) => p.name).join(", ")} not in ${plan.method}${plan.kind === "texttab" ? " or " + h.texttab : ""}`});
@@ -423,20 +499,20 @@ export function shlpRegistryClass(helps, {dict, className = "zcl_stg_shlp_regist
   let joined = false;
   for (const h of helps) {
     if (h.collective || !h.simple) {
-      blocks.push(`* ${h.name}: collective search help, not registered (elementary ones only)`);
+      blocks.push(`* ${comment(h.name)}: collective search help, not registered (elementary ones only)`);
       continue;
     }
     if (h.selmethod === "" && h.selmexit === "") {
-      blocks.push(`* ${h.name}: no selection method and no exit, not registered`);
+      blocks.push(`* ${comment(h.name)}: no selection method and no exit, not registered`);
       continue;
     }
     const source = read.get(h.name);
     if (source?.reason) {
-      blocks.push(`* ${h.name}: not registered, ${source.reason}`);
+      blocks.push(`* ${comment(h.name)}: not registered, ${comment(source.reason)}`);
       continue;
     }
     registered++;
-    const lines = [`* ${h.name}: ${h.description || "search help"}`];
+    const lines = [`* ${comment(h.name)}: ${comment(h.description || "search help")}`];
     const opts = [`iv_shlp_name = ${q(h.name)}`];
     if (h.selmethod !== "") {
       opts.push(`iv_selmethod = ${q(h.selmethod)}`);
@@ -459,7 +535,7 @@ export function shlpRegistryClass(helps, {dict, className = "zcl_stg_shlp_regist
       const extra = [];
       if (p.default !== undefined) extra.push(`iv_default         = ${q(p.default)}`);
       if (p.defaultType !== "" && p.defaultType !== "L") {
-        lines.push(`* ${p.name}: default of kind ${p.defaultType} (${p.defaultValue}) is not applied here`);
+        lines.push(`* ${comment(p.name)}: default of kind ${comment(p.defaultType)} (${comment(p.defaultValue)}) is not applied here`);
       }
       lines.push(`    lo_shlp->add_parameter( iv_name            = ${q(p.name)}
 ${ppad}iv_input           = ${bool(p.input)}
