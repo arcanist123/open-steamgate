@@ -7,6 +7,10 @@ CLASS zcl_osd_h5x_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_m
 * another name (BUYER_ID: the source key must be converted against the
 * source), an order item with a two-part key, a contact with an Edm.Guid
 * key, and the navigations between them both ways.
+* Milestone 3 (B3): the partner's ChangedAt is its ETag (one property, a
+* DEC 21,7 timestamp, as the sample's); the order has a note read in the
+* session language and the language it was found in, a language key with
+* the ISOLA exit (E on the database, EN on the wire).
   PUBLIC SECTION.
     TYPES: BEGIN OF ts_address,
              city    TYPE c LENGTH 40,
@@ -20,8 +24,10 @@ CLASS zcl_osd_h5x_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_m
            END OF ts_partner.
     TYPES tt_partner TYPE STANDARD TABLE OF ts_partner WITH DEFAULT KEY.
     TYPES: BEGIN OF ts_order,
-             order_id TYPE c LENGTH 10,
-             buyer_id TYPE c LENGTH 10,
+             order_id   TYPE c LENGTH 10,
+             buyer_id   TYPE c LENGTH 10,
+             note       TYPE c LENGTH 40,
+             note_langu TYPE c LENGTH 1,
            END OF ts_order.
     TYPES tt_order TYPE STANDARD TABLE OF ts_order WITH DEFAULT KEY.
     TYPES: BEGIN OF ts_order_item,
@@ -76,6 +82,7 @@ CLASS zcl_osd_h5x_mpc IMPLEMENTATION.
     lo_prop = lo_type->create_property( iv_property_name  = 'ChangedAt'
                                         iv_abap_fieldname = 'CHANGED_AT' ).
     lo_prop->set_type_edm_datetime( ).
+    lo_prop->set_as_etag( ).
     lo_type->bind_structure( 'ZCL_OSD_H5X_MPC=>TS_PARTNER' ).
     lo_type->create_entity_set( 'PartnerSet' ).
 
@@ -91,6 +98,13 @@ CLASS zcl_osd_h5x_mpc IMPLEMENTATION.
     lo_prop = lo_type->create_property( iv_property_name  = 'BuyerID'
                                         iv_abap_fieldname = 'BUYER_ID' ).
     lo_prop->set_type_edm_string( ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'Note'
+                                        iv_abap_fieldname = 'NOTE' ).
+    lo_prop->set_type_edm_string( ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'NoteLanguage'
+                                        iv_abap_fieldname = 'NOTE_LANGU' ).
+    lo_prop->set_type_edm_string( ).
+    lo_prop->set_conversion_exit( 'ISOLA' ).
     lo_type->bind_structure( 'ZCL_OSD_H5X_MPC=>TS_ORDER' ).
     lo_type->create_entity_set( 'OrderSet' ).
 

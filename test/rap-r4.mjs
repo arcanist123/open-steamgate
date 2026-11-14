@@ -143,7 +143,10 @@ describe("RAP R4 constructs over OData", function () {
       const tagV4 = async () => (await call(key)).body["@odata.etag"];
       const patchV4 = (tag, description) => call(key, {method: "PATCH", headers: {...write, "if-match": tag}, body: JSON.stringify({description})});
       const u0 = await tagV4();
-      assert.equal(u0, t2, "V2 and V4 name the same ETag");
+      // each protocol its own form of the same value (M3 B3, option B): V2
+      // writes the property's URI literal, as a system's V2 tag is (a one-
+      // property tag; an Edm.Decimal literal ends in m), V4 the bare value
+      assert.equal(t2, u0.replace(/"$/, 'm"'), "V2 and V4 name the same ETag value, each in its own form");
       assert.ok([200, 204].includes((await patchV4(u0, "third")).status));
       const u1 = await tagV4();
       assert.ok([200, 204].includes((await patchV4(u1, "fourth")).status));

@@ -24,6 +24,16 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
 * - the default order of the item set is two columns separated by a blank,
 *   and $orderby is concatenated the same way: legal Open SQL that SQL only
 *   takes with commas (ANORMALIES "dynamic-order-by-blanks").
+*
+* Milestone 3 (B3), the wire form:
+* - the partner set refuses a condition on CHANGED_AT itself, with a
+*   business exception carrying a T100 key whose attr1 is a text, not an
+*   attribute name (the sample's way of raising "filter not supported" and
+*   "key '&1' does not exist"); an unknown partner is the same, 002;
+* - an OR across two properties is read from get_osql_where_clause_convert
+*   like every other filter: there is no select-option form of it;
+* - an order's note is read in sy-langu, the session language, and its
+*   language key is handed over as stored (E): the exit is the framework's.
   PUBLIC SECTION.
     METHODS /iwbep/if_mgw_appl_srv_runtime~get_entityset REDEFINITION.
     METHODS /iwbep/if_mgw_appl_srv_runtime~get_entity REDEFINITION.
@@ -49,6 +59,9 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
         iv_add          TYPE string
       RETURNING
         VALUE(rv_where) TYPE string.
+    CLASS-METHODS order_note
+      CHANGING
+        cs_order TYPE zcl_osd_h5x_mpc=>ts_order.
     CLASS-METHODS not_found
       IMPORTING
         iv_what TYPE string
@@ -173,6 +186,12 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     ELSE.
       rv_where = |( { rv_where } ) AND { iv_add }|.
     ENDIF.
+  ENDMETHOD.
+
+  METHOD order_note.
+    SELECT SINGLE note spras FROM zosd_h5x_sot
+      INTO (cs_order-note, cs_order-note_langu)
+      WHERE order_id = cs_order-order_id AND spras = sy-langu.
   ENDMETHOD.
 
   METHOD not_found.
@@ -414,8 +433,17 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     DATA lv_skip      TYPE i.
     DATA lv_maxrows   TYPE i.
     DATA lv_count     TYPE i.
+    DATA ls_t100      TYPE scx_t100key.
 
     lv_where = to_sql( io_ctx->get_osql_where_clause_convert( ) ).
+    IF lv_where CS 'CHANGED_AT'.
+      ls_t100-msgid = 'ZOSD_H5X'.
+      ls_t100-msgno = '001'.
+      ls_t100-attr1 = 'CHANGED_AT'.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          textid = ls_t100.
+    ENDIF.
     lv_orderby = to_sql( orderby_of( io_ctx ) ).
     IF lv_orderby IS INITIAL.
       lv_orderby = 'b~PARTNER_ID'.
@@ -467,6 +495,7 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     DATA lv_where     TYPE string.
     DATA lv_orderby   TYPE string.
     DATA lv_count     TYPE i.
+    FIELD-SYMBOLS <ls_order> TYPE zcl_osd_h5x_mpc=>ts_order.
 
     IF io_ctx IS BOUND.
       lv_where = io_ctx->get_osql_where_clause_convert( ).
@@ -496,6 +525,9 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
       ORDER BY (lv_orderby).
       APPEND ls_entity TO lt_entityset.
     ENDSELECT.
+    LOOP AT lt_entityset ASSIGNING <ls_order>.
+      order_note( CHANGING cs_order = <ls_order> ).
+    ENDLOOP.
 
     copy_data_to_ref( EXPORTING is_data = lt_entityset
                       CHANGING  cr_data = er_entityset ).
@@ -587,6 +619,8 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD partner_single.
+    DATA ls_t100 TYPE scx_t100key.
+
     SELECT b~partner_id b~name b~changed_at a~city a~country
       INTO (rs_entity-partner_id, rs_entity-name, rs_entity-changed_at,
             rs_entity-address-city, rs_entity-address-country)
@@ -596,7 +630,12 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
       WHERE b~partner_id = iv_partner_id.
     ENDSELECT.
     IF sy-subrc <> 0.
-      not_found( |Partner { iv_partner_id }| ).
+      ls_t100-msgid = 'ZOSD_H5X'.
+      ls_t100-msgno = '002'.
+      ls_t100-attr1 = iv_partner_id.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          textid = ls_t100.
     ENDIF.
   ENDMETHOD.
 
@@ -607,6 +646,7 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     IF sy-subrc <> 0.
       not_found( |Order { iv_order_id }| ).
     ENDIF.
+    order_note( CHANGING cs_order = rs_entity ).
   ENDMETHOD.
 
   METHOD item_single.

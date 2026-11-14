@@ -31,6 +31,19 @@ CLASS ltcl_read DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
     METHODS order_two_columns_default FOR TESTING RAISING cx_static_check.
     METHODS order_two_properties FOR TESTING RAISING cx_static_check.
     METHODS nav_names_the_source FOR TESTING RAISING cx_static_check.
+* milestone 3 (B3): the wire form
+    METHODS filter_or_two_properties FOR TESTING RAISING cx_static_check.
+    METHODS filter_not_applied_refused FOR TESTING RAISING cx_static_check.
+    METHODS business_error_t100_text FOR TESTING RAISING cx_static_check.
+    METHODS unknown_key_t100_text FOR TESTING RAISING cx_static_check.
+    METHODS select_projects_members FOR TESTING RAISING cx_static_check.
+    METHODS etag_v2_literal_form FOR TESTING RAISING cx_static_check.
+    METHODS if_none_match_is_304 FOR TESTING RAISING cx_static_check.
+    METHODS session_language FOR TESTING RAISING cx_static_check.
+    METHODS conversion_exit_output FOR TESTING RAISING cx_static_check.
+    METHODS guid_wire_form FOR TESTING RAISING cx_static_check.
+    METHODS inline_count_before_rows FOR TESTING RAISING cx_static_check.
+    METHODS batch_part_length FOR TESTING RAISING cx_static_check.
 
     METHODS get
       IMPORTING
@@ -69,12 +82,26 @@ CLASS ltcl_read IMPLEMENTATION.
     DATA ls_soi TYPE zosd_h5x_soi.
     DATA lt_ct TYPE STANDARD TABLE OF zosd_h5x_ct WITH DEFAULT KEY.
     DATA ls_ct TYPE zosd_h5x_ct.
+    DATA lt_sot TYPE STANDARD TABLE OF zosd_h5x_sot WITH DEFAULT KEY.
+    DATA ls_sot TYPE zosd_h5x_sot.
 
     DELETE FROM zosd_h5x_bp.
     DELETE FROM zosd_h5x_ad.
     DELETE FROM zosd_h5x_so.
     DELETE FROM zosd_h5x_soi.
     DELETE FROM zosd_h5x_ct.
+    DELETE FROM zosd_h5x_sot.
+
+* an order's note in two languages: the session language picks one
+    ls_sot-client = sy-mandt.
+    ls_sot-order_id = 'S1'.
+    ls_sot-spras = 'E'.
+    ls_sot-note = 'Order one'.
+    APPEND ls_sot TO lt_sot.
+    ls_sot-spras = 'D'.
+    ls_sot-note = 'Auftrag eins'.
+    APPEND ls_sot TO lt_sot.
+    INSERT zosd_h5x_sot FROM TABLE lt_sot.
 
 * orders name their partner as BUYER_ID: a source key converted against
 * the target finds no field of that name (M3-B0, RC2)
@@ -615,6 +642,233 @@ CLASS ltcl_read IMPLEMENTATION.
     ok( ls_response ).
     lacks( iv_body = ls_response-body
            iv_text = `iv_source_name` ).
+  ENDMETHOD.
+
+  METHOD filter_or_two_properties.
+* an OR across two properties has no select-option form; the condition is
+* built from the expression tree (without the fix: an empty condition, all
+* four partners -- on the system the rows of either property, M3 oracle
+* 06-07-or-two-props)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$filter=Name eq 'Alpha Ltd' or Address/City eq 'Gamma City'` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"PartnerID":"0000000001"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"PartnerID":"0000000003"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"PartnerID":"0000000002"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"PartnerID":"0000000004"` ).
+    ls_response = get( iv_path  = c_base && '/$count'
+                       iv_query = `$filter=Name eq 'Alpha Ltd' or Address/City eq 'Gamma City'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = '2' ).
+  ENDMETHOD.
+
+  METHOD filter_not_applied_refused.
+* the contact set reads no filter at all: a filter only the condition can
+* carry would come back as every contact -- refused, never dropped
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/ContactSet`
+                       iv_query = `$filter=Name eq 'Carol' or PartnerID eq '0000000001'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 501
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `STG/FILTER_NOT_APPLIED` ).
+  ENDMETHOD.
+
+  METHOD business_error_t100_text.
+* the provider refuses the filter with a T100 key: the code is class/number
+* and the message its text, &1 filled from attr1 (a text, not an attribute
+* name; M3 oracle 06-00-substringof: 400, code class/number, the
+* message's text). Without the fix: STG/BUSINESS and a fixed sentence
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"code":"ZOSD_H5X/001"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"value":"Filter on CHANGED_AT is not supported"` ).
+  ENDMETHOD.
+
+  METHOD unknown_key_t100_text.
+* an unknown key: 400 with the provider's message, the key in its text (M3
+* oracle 03-50-BusinessPartnerSet-unknown)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000099')` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"code":"ZOSD_H5X/002"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"value":"Partner with key '0000000099' does not exist"` ).
+  ENDMETHOD.
+
+  METHOD select_projects_members.
+* $select answers the selected properties and nothing else, the ETag stays
+* in __metadata (M3 oracle 03-60-BP-single-select, 09-e0-bp-select-two;
+* without the fix every member and every deferred link came back)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base && `('0000000001')`
+                       iv_query = `$select=PartnerID,Name` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"PartnerID":"0000000001","Name":"Alpha Ltd"}}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"ChangedAt"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Address"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `__deferred` ).
+    has( iv_body = ls_response-body
+         iv_text = `"etag":` ).
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$top=2&$orderby=PartnerID&$select=Name` ).
+    ok( ls_response ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"PartnerID":` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Beta Ltd"}` ).
+  ENDMETHOD.
+
+  METHOD etag_v2_literal_form.
+* one ETag property: W/"<its URI literal>", the colons escaped upper case,
+* in the header and in __metadata (M3 oracle 07-01-single-for-etag; before,
+* the V4 facade's W/"2021-01-02T03%3a04%3a05.0000000Z")
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA ls_header   TYPE ihttpnvp.
+
+    ls_response = get( c_base && `('0000000003')` ).
+    ok( ls_response ).
+    READ TABLE ls_response-headers INTO ls_header WITH KEY name = 'etag'.
+    cl_abap_unit_assert=>assert_equals( act = ls_header-value
+                                        exp = `W/"datetime'2021-01-02T03%3A04%3A05.0000000'"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"etag":"W/\"datetime'2021-01-02T03%3A04%3A05.0000000'\""` ).
+  ENDMETHOD.
+
+  METHOD if_none_match_is_304.
+* If-None-Match with the entity's tag: 304 and no body; another tag: 200
+* (M3 oracle 07-02-single-if-none-match)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_header   TYPE ihttpnvp.
+
+    ls_header-name  = 'If-None-Match'.
+    ls_header-value = `W/"datetime'2021-01-02T03%3A04%3A05.0000000'"`.
+    APPEND ls_header TO lt_headers.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_base && `('0000000003')`
+                                                it_headers = lt_headers ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 304
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_initial( ls_response-body ).
+
+    CLEAR lt_headers.
+    ls_header-value = `W/"datetime'2020-01-01T00%3A00%3A00.0000000'"`.
+    APPEND ls_header TO lt_headers.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_base && `('0000000003')`
+                                                it_headers = lt_headers ).
+    ok( ls_response ).
+  ENDMETHOD.
+
+  METHOD session_language.
+* sap-language names the session language of the request: the provider's
+* sy-langu read answers in it, and the logon language is back afterwards
+* (M3 oracle 09-a0-SO-top5-DE; without the fix the note stayed English)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_logon    TYPE sy-langu.
+
+    lv_logon = sy-langu.
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet('S1')`
+                       iv_query = `sap-language=DE` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"Auftrag eins","NoteLanguage":"DE"` ).
+    cl_abap_unit_assert=>assert_equals( act = sy-langu
+                                        exp = lv_logon ).
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet('S1')` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"Order one"` ).
+  ENDMETHOD.
+
+  METHOD conversion_exit_output.
+* NoteLanguage carries the ISOLA exit: E on the database, EN on the wire,
+* as the system writes NameLanguage (M3 oracle 02-01a: "NameLanguage":"EN";
+* without the fix "E", M3-B0 W8)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet`
+                       iv_query = `sap-language=EN` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"Order one","NoteLanguage":"EN"` ).
+  ENDMETHOD.
+
+  METHOD guid_wire_form.
+* an Edm.Guid is lower case and dashed in the body, guid'...' in the URI
+* (M3 oracle 03-04a-ContactSet-single; before, 32 upper-case hex digits
+* in both, M3-B0 W6)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/ContactSet(guid'c0ffee00-0000-4000-8000-0000000000a1')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"ContactGuid":"c0ffee00-0000-4000-8000-0000000000a1"` ).
+    has( iv_body = ls_response-body
+         iv_text = `ContactSet(guid'c0ffee00-0000-4000-8000-0000000000a1')` ).
+  ENDMETHOD.
+
+  METHOD inline_count_before_rows.
+* {"d":{"__count":"4","results":[...]}}, the system's member order (M3
+* oracle 04-01a)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$top=1&$inlinecount=allpages` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `{"d":{"__count":"4","results":[{` ).
+  ENDMETHOD.
+
+  METHOD batch_part_length.
+* $batch answers 202, each part says how long its HTTP message is -- the
+* status line to the end of the body (M3 oracle 08-01-batch: the count
+* part's Content-Length 186). Without the fix the part had no length
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_crlf     TYPE string.
+    DATA lv_body     TYPE string.
+
+    lv_crlf = cl_abap_char_utilities=>cr_lf.
+    lv_body = |--batch_b3{ lv_crlf }Content-Type: application/http{ lv_crlf }Content-Transfer-Encoding: binary{ lv_crlf }{ lv_crlf }| &&
+              |GET PartnerSet/$count HTTP/1.1{ lv_crlf }Accept: application/json{ lv_crlf }{ lv_crlf }{ lv_crlf }--batch_b3--{ lv_crlf }|.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+                                                iv_path         = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/$batch`
+                                                iv_body         = lv_body
+                                                iv_content_type = 'multipart/mixed; boundary=batch_b3' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 202
+                                        msg = ls_response-body ).
+* HTTP/1.1 200 OK, Content-Type: text/plain, Content-Length: 1,
+* DataServiceVersion: 2.0, a blank line, 4: 17 + 26 + 19 + 25 + 2 + 1
+    has( iv_body = ls_response-body
+         iv_text = |Content-Type: application/http{ lv_crlf }Content-Length: 90{ lv_crlf }| ).
+    has( iv_body = ls_response-body
+         iv_text = |{ lv_crlf }{ lv_crlf }4{ lv_crlf }--| ).
   ENDMETHOD.
 
 ENDCLASS.

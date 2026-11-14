@@ -5,6 +5,14 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
 * pairs folded to BT, ne and not-eq to E EQ, startswith/endswith/substringof
 * to CP). Anything else yields an empty table and the DPC gets the raw
 * string, which is also what a real system does.
+*
+* osql_where is the same filter as ONE Open SQL condition in ABAP names,
+* built from the expression tree: what get_osql_where_clause(_convert)
+* answers when select-options cannot carry the filter. An OR across two
+* properties has no select-option form; answered from the select-options
+* alone it was an empty condition, and a SEGW sample's DPC read every row
+* (M3-B0, W1: `WHERE 1 = 1`, all 205 rows, where the system answers the
+* rows of either property).
   PUBLIC SECTION.
     TYPES: BEGIN OF ty_token,
              kind  TYPE string,
@@ -29,6 +37,15 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
         is_set                   TYPE zcl_stg_model_info=>ty_entity_set
       RETURNING
         VALUE(rt_select_options) TYPE /iwbep/t_mgw_select_option
+      RAISING
+        zcx_stg_error.
+
+    CLASS-METHODS osql_where
+      IMPORTING
+        iv_filter       TYPE string
+        is_set          TYPE zcl_stg_model_info=>ty_entity_set
+      RETURNING
+        VALUE(rv_where) TYPE string
       RAISING
         zcx_stg_error.
 
@@ -146,6 +163,18 @@ CLASS zcl_stg_filter DEFINITION PUBLIC CREATE PUBLIC.
         et_groups TYPE ty_groups
         ev_ok     TYPE abap_bool.
 
+    METHODS where_of
+      IMPORTING
+        iv_id           TYPE i
+      RETURNING
+        VALUE(rv_where) TYPE string.
+
+    METHODS field_of
+      IMPORTING
+        iv_property     TYPE string
+      RETURNING
+        VALUE(rv_field) TYPE string.
+
     METHODS fail
       IMPORTING
         iv_message TYPE string
@@ -188,6 +217,78 @@ CLASS zcl_stg_filter IMPLEMENTATION.
       ls_option-select_options = ls_group-options.
       APPEND ls_option TO rt_select_options.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD osql_where.
+    DATA lo_parser TYPE REF TO zcl_stg_filter.
+
+    IF iv_filter IS INITIAL.
+      RETURN.
+    ENDIF.
+    CREATE OBJECT lo_parser
+      EXPORTING
+        it_tokens = tokenize( iv_filter )
+        is_set    = is_set.
+    lo_parser->parse_tree( ).
+    rv_where = lo_parser->where_of( lines( lo_parser->mt_nodes ) ).
+  ENDMETHOD.
+
+  METHOD field_of.
+* the ABAP name, as in the select-option form: a property's field, a
+* complex member's ABAP path (ADDRESS-CITY)
+    DATA ls_property TYPE zcl_stg_model_info=>ty_property.
+
+    READ TABLE ms_set-properties INTO ls_property WITH KEY name = iv_property.
+    IF sy-subrc <> 0.
+      READ TABLE ms_set-components INTO ls_property WITH KEY name = iv_property.
+    ENDIF.
+    IF sy-subrc = 0 AND ls_property-fieldname IS NOT INITIAL.
+      rv_field = ls_property-fieldname.
+    ELSE.
+      rv_field = to_upper( iv_property ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD where_of.
+* one node as a condition: each comparison through the one escaper
+* (zcl_stg_request_context=>where_for_option), AND / OR / NOT bracketed
+    DATA ls_node   TYPE ty_node.
+    DATA ls_option TYPE /iwbep/s_cod_select_option.
+    DATA lv_value  TYPE string.
+
+    READ TABLE mt_nodes INDEX iv_id INTO ls_node.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+    CASE ls_node-kind.
+      WHEN 'cmp'.
+        ls_option-sign = 'I'.
+        ls_option-option = to_upper( ls_node-op ).
+        ls_option-low = ls_node-value.
+        rv_where = zcl_stg_request_context=>where_for_option( iv_field  = field_of( ls_node-property )
+                                                               is_option = ls_option ).
+      WHEN 'fn'.
+        lv_value = ls_node-value.
+        REPLACE ALL OCCURRENCES OF REGEX '([*+#])' IN lv_value WITH '#$1'.
+        ls_option-sign = 'I'.
+        ls_option-option = 'CP'.
+        CASE ls_node-op.
+          WHEN 'startswith'.
+            ls_option-low = |{ lv_value }*|.
+          WHEN 'endswith'.
+            ls_option-low = |*{ lv_value }|.
+          WHEN OTHERS.
+            ls_option-low = |*{ lv_value }*|.
+        ENDCASE.
+        rv_where = zcl_stg_request_context=>where_for_option( iv_field  = field_of( ls_node-property )
+                                                               is_option = ls_option ).
+      WHEN 'not'.
+        rv_where = |NOT ( { where_of( ls_node-left ) } )|.
+      WHEN 'and'.
+        rv_where = |( { where_of( ls_node-left ) } AND { where_of( ls_node-right ) } )|.
+      WHEN 'or'.
+        rv_where = |( { where_of( ls_node-left ) } OR { where_of( ls_node-right ) } )|.
+    ENDCASE.
   ENDMETHOD.
 
   METHOD fail.

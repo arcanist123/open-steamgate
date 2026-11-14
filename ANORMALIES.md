@@ -4795,3 +4795,51 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass; local commit on `fix/dynamic-order-by-commas` off 28b6944e (runtime `abap.dynamicOrderBy`, used by the generated dynamic ORDER BY), not pushed. The workaround goes when the pin carries it
 - Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); `test/order-by.mjs` (the cases: `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY)
 - Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-message-t100-english-only -- `MESSAGE ID ... INTO` reads the T100 text in English whatever sy-langu is
+
+- Status: `open` (no workaround: the Gateway's business-error text, M3 B3, is the English text of the message in every session language)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned runtime (oisee/transpiler 28a3c53a), `packages/runtime/src/statements/message.ts` `findText`
+- Affected ABAP statement, runtime API or adapter: `MESSAGE ID id TYPE t NUMBER n WITH v1 v2 v3 v4 INTO text`, and every exception text read through `cl_message_helper=>get_text_for_message`
+- Minimal ABAP reproducer: a message class with an E and a D text for 001; `sy-langu = 'D'. MESSAGE ID 'ZX' TYPE 'E' NUMBER '001' INTO lv_text.` answers the E text
+- Exact command used to run it: read off the source: `SELECT * FROM t100 WHERE sprsl='E' AND ...`, then `abap.MSAG[...]`, which holds one language
+- Expected SAP behaviour: the text in the session language, falling back to the class's original language
+- Actual open-abap behaviour: always the E row of T100 (or the one language the transpiled message class carries)
+- Impact on open-steamgate: a business error of a request with `sap-language=DE` carries the English text where the system answers the German one (M3 oracle has no DE error capture; the E texts are equal)
+- Smallest safe workaround: none taken; the text is right in the logon language E
+- Upstream issue: needs an issue in abaplint/transpiler after a critic pass (read `sprsl = sy-langu` first, then the master language)
+- Regression-test location: none yet
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-set-locale-no-op -- `SET LOCALE LANGUAGE` does not change sy-langu
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned runtime (oisee/transpiler 28a3c53a), `packages/runtime/src/statements/set_locale.ts` (a `// todo` body); `GET LOCALE` answers E always (`get_locale.ts`)
+- Affected ABAP statement, runtime API or adapter: `SET LOCALE LANGUAGE lv_langu`, `GET LOCALE LANGUAGE lv_langu`
+- Minimal ABAP reproducer: `SET LOCALE LANGUAGE 'D'. ASSERT sy-langu = 'D'.` fails
+- Exact command used to run it: read off the source of the pinned runtime
+- Expected SAP behaviour: the text environment and sy-langu change to the language for the rest of the internal session
+- Actual open-abap behaviour: nothing changes
+- Impact on open-steamgate: the Gateway's session language per request (`sap-language`, M3 B3) cannot be set the way a system's ICF does it
+- Smallest safe workaround: the dispatcher assigns `sy-langu` itself for the request and puts the logon language back afterwards (`zcl_stg_dispatcher=>dispatch`, also on CLEANUP)
+- Upstream issue: needs an issue in abaplint/transpiler after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` `session_language`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-modify-itab-as-database -- `MODIFY itab FROM wa` (no INDEX) in a LOOP is transpiled as a database MODIFY
+
+- Status: `workaround` (the twin's provider loops with ASSIGNING instead)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28a3c53a)
+- Affected ABAP statement, runtime API or adapter: `MODIFY lt_rows FROM ls_row.` inside `LOOP AT lt_rows INTO ls_row`, lt_rows a local `STANDARD TABLE` of a structure declared in another class
+- Minimal ABAP reproducer: `DATA lt TYPE zcl_x=>tt_rows. DATA ls LIKE LINE OF lt. LOOP AT lt INTO ls. MODIFY lt FROM ls. ENDLOOP.` in a method
+- Exact command used to run it: `node tools/osd-unit.mjs CLAS ZCL_OSD_H5X_TEST` before the twin's loop was changed: `CX_SY_DYNAMIC_OSQL_SEMANTICS`, the generated code calls `abap.statements.modifyDatabase("lt_entityset", ...)`
+- Expected SAP behaviour: the short form of MODIFY on an internal table changes the current row of the loop
+- Actual open-abap behaviour: the statement is read as `MODIFY dbtab FROM wa` and sent to the database as a table named like the variable
+- Impact on open-steamgate: none in tree code found; hit while growing the twin
+- Smallest safe workaround: `LOOP AT itab ASSIGNING <fs>` (or `MODIFY itab FROM wa INDEX sy-tabix`)
+- Upstream issue: needs an issue in abaplint/transpiler after a critic pass (whether abaplint's statement parse or the transpiler's choice)
+- Regression-test location: none
+- Upstream version containing a fix: unknown
