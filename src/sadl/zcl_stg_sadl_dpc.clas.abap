@@ -703,6 +703,14 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
 
     lo_context ?= io_tech_request_context.
+* one step only: the navigation is read off the first row of the path, so
+* a longer path would answer the first step's target -- refused instead
+    IF lines( lo_context->mt_navigation_path ) > 1.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          textid  = /iwbep/cx_mgw_busi_exception=>business_error
+          message = 'A path of more than one navigation is not served by the SADL runtime'.
+    ENDIF.
     ls_entity = entity_of( io_tech_request_context->get_entity_set_name( ) ).
     lo_source = source_of( ls_entity ).
 
@@ -818,6 +826,14 @@ CLASS zcl_stg_sadl_dpc IMPLEMENTATION.
     FIELD-SYMBOLS <ls_row>  TYPE any.
 
     lo_context ?= io_tech_request_context.
+* one step only: the navigation is read off the first row of the path, so
+* a longer path would answer the first step's target -- refused instead
+    IF lines( lo_context->mt_navigation_path ) > 1.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          textid  = /iwbep/cx_mgw_busi_exception=>business_error
+          message = 'A path of more than one navigation is not served by the SADL runtime'.
+    ENDIF.
     ls_entity = entity_of( io_tech_request_context->get_entity_set_name( ) ).
     lo_source = source_of( ls_entity ).
 
