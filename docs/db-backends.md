@@ -536,6 +536,17 @@ the transpiler and the store alike. Everything is exercised with fakes and
 fixtures (`test/hana-ddic-gen.mjs`, `test/hana-shadow-schema.mjs`); no HANA
 is reachable from CI, and the acceptance runs on the bed.
 
+The control that the filter works, on a bed:
+`node tools/hana-client-control.mjs --table <T> --clients 000,001`, with the
+env of the mode. Per client it opens a session the way the runtime does and
+counts `<T>` through our own schema, then reads the tenant directly (rows per
+DD03L client column, and the total). It passes only when every client's count
+is the tenant's count for that client, the shadow object is a view, and the
+counts differ from each other and from the total -- so a table holding one
+client's rows cannot pass: a missing filter would read the same numbers. It
+refuses to run outside the shadow-schema mode. Tests over a fake database in
+`test/hana-client-control.mjs`.
+
 Not covered, as decided when the mechanism was chosen (2026-11-11): `CLIENT
 SPECIFIED` — reading across all clients would want a synonym-read variant
 per table, countable in the corpus before anyone needs it; and writes into
@@ -1316,9 +1327,18 @@ object is never excluded: the walk's own seed classes, above.
 
 Every fixed point writes `closure-summary.json` beside the record
 (`tools/hana-closure-report.mjs`, H5x-4 B1): `{fixed_point, iterations,
-island_objects, stubs_unique, excluded, gaps, seed: {classes,
-stubbed_methods}, failures}` — the machine-readable answer to "does the
-island carry the service". It is the false-green guard: a green control
+island_objects, stubs_unique, lifted, lifted_stubs, excluded, gaps, seed:
+{classes, stubbed_methods}, failures}` — the machine-readable answer to
+"does the island carry the service". The stub record is the CURRENT
+iteration's (M3 B5.1): every iteration re-lays the island pristine and
+cuts only what its findings still name, so a stub of an earlier iteration
+whose missing name has since arrived is **lifted** — its record goes, the
+iteration line says `N lifted` and the summary lists it. Before, one record
+for the whole walk kept every stub ever cut: on the bed a fresh walk
+reported 111 unique stubs and the same island resumed 37. A resumed run
+starts from the record on disk, so fresh and resumed walks end on the
+same set; an object excluded in the meantime has no stub and is not
+counted as lifted. It is the false-green guard: a green control
 build proves nothing when the service's own classes were excluded or their
 reads stubbed away, so the run exits non-zero, the summary on disk, when a
 seed class (the guard's set above) is excluded, when one a registration or
