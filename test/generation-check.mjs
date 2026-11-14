@@ -88,6 +88,19 @@ describe("generation check: a generation that cannot load is refused", function 
     expect(result.latent[0].message).to.match(/Illegal return/);
   });
 
+  it("lists the class-constructor wait-cycles init.mjs carries, without failing the generation", () => {
+    const dir = fixture({
+      "init.mjs": `await import("./zcl_a.clas.mjs");\nconst __abapClassConstructorCycles = [["ZCL_POOL","ZCL_X"]];\n`,
+      "zcl_a.clas.mjs": `export const a = 1;\n`,
+    });
+    const said = [];
+    const result = assertLoadable(dir, {allow: [], log: (m) => said.push(m)});
+    expect(result.ok).to.equal(true);
+    expect(result.cctorCycles).to.deep.equal([["ZCL_POOL", "ZCL_X"]]);
+    expect(said).to.include("generation-check: class constructors in a wait-cycle run in a defined order ABAP would not use: ZCL_POOL <-> ZCL_X");
+    expect(checkGeneration(fixture({"init.mjs": `export const x = 1;\n`}), {allow: []}).cctorCycles).to.deep.equal([]);
+  });
+
   it("reports an import that throws as a load failure with its exit code", () => {
     const dir = fixture({"init.mjs": `throw new Error("boom at load");\n`});
     const result = loadCheck(dir);

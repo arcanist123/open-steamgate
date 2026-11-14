@@ -18,6 +18,11 @@ that needs it. Its variable names: `HANA_HOST`, `HANA_PORT`, `HANA_DATABASE`,
 `HANA_USER`, `HANA_PASSWORD`, `HANA_SCHEMA` (the tenant's schema),
 `HANA_OWN_SCHEMA` (ours: the shadow views and synonyms live there).
 
+0. The tree on the pinned transpiler: `npm ci --ignore-scripts && node
+   tools/osd-bootstrap.mjs` (`node tools/osd-transpiler-pin.mjs` links the
+   pin of `libs.lock.json`, oisee/transpiler `local/osd-build-4j` 28a3c53a or
+   later). Nothing outside this tree is needed: the transpiler fixes the
+   island depends on are in that pin.
 1. The island, by iteration over the dumper (reads only):
    `OSD_HANA_DUMPER=<vsp> OSD_HANA_DUMP_ENV=<env file> OSD_HANA_CONVERTER=<converter>
    node tools/hana-closure.mjs --dump <dump> --system <SID> --max-iterations <n>
@@ -96,11 +101,14 @@ exception class named `*_TEST` is island content; an excluded object leaves
 the build and the closure's own validation whole; a shadow object only for a
 name the tenant's catalog holds.
 
-Outside this tree: two transpiler commits on the fork, not pushed and not
-pinned -- `[]` in JavaScript (now in pin 4f) and **the class constructor's
-targets in its module's requires** (ANOMALY-2026-11-14-class-constructor-targets).
-The island loaded on the bed only with the second one linked locally; with
-pin 4g alone it fails the load check (`... is not a constructor`).
+The transpiler fixes the island needs -- `[]` in JavaScript
+(ANOMALY-2026-11-14-table-body-suffix-js), a local class of its own global
+class (ANOMALY-2026-11-14-local-inherits-owner), interface constants from
+other constants (ANOMALY-2026-11-14-intf-const-from-const) and the classes a
+class constructor names loaded before it runs
+(ANOMALY-2026-11-14-cctor-load-order) -- are in the pinned transpiler (pin
+4j, #941). The bed measurement above was first made with the last of them as
+a local commit; it is the pin's now, cycle-free.
 
 ## What still differs, and why
 
@@ -124,7 +132,7 @@ pin 4g alone it fails the load check (`... is not a constructor`).
 
 ## Out of scope
 
-Single-entity reads (stubbed in the island), the value-help sets (search-help
+Single-entity reads (not served by this milestone; another PR serves them), the value-help sets (search-help
 runtime), the sales-order sets (a function module the tree does not have),
 every write, `$batch`, Atom, and the host is not the product: it boots no ICF
 registry, no cross-reference seed, no demo data.

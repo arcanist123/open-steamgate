@@ -110,8 +110,11 @@ export function scaled(ms, env = process.env) {
   return Math.round(ms * speed(env).factor);
 }
 
-// The deadline for one warm operation. `kind` is "prime" (sized by `files`)
-// or anything else (one save). An explicit store.warmDeadlineMs wins for
+// The deadline for one warm operation. `kind` is "prime" (sized by `files`),
+// "update" (the registry's catch-up after a cold publication: it re-transpiles
+// the closure of what the cold build changed -- 209 objects in 13-29 s on CI
+// after an interface is created -- so it is sized like the prime it can at
+// most be, never like one save) or anything else (one save). An explicit store.warmDeadlineMs wins for
 // every kind (tests that want a hang caught fast), then the environment:
 // OSD_WARM_PRIME_DEADLINE_MS for the prime, OSD_WARM_DEADLINE_MS for the
 // rest. Otherwise the default times the speed factor, within the bounds.
@@ -121,7 +124,7 @@ export function warmDeadline({kind, files = 0, store = {}, env = process.env, me
   const fixed = positive(kind === "prime" ? env.OSD_WARM_PRIME_DEADLINE_MS : env.OSD_WARM_DEADLINE_MS);
   if (fixed !== undefined) return {ms: fixed, source: kind === "prime" ? "OSD_WARM_PRIME_DEADLINE_MS" : "OSD_WARM_DEADLINE_MS"};
   const s = speed(env, measure);
-  const prime = kind === "prime";
+  const prime = kind === "prime" || kind === "update";
   const base = prime ? Math.max(PRIME_FLOOR_MS, files * PRIME_MS_PER_FILE) : OPERATION_MS;
   return {ms: Math.round(clamp(base * s.factor, prime ? PRIME_FLOOR_MS : OPERATION_MS, prime ? CEILING_MS : OPERATION_CEILING_MS)),
     source: s.source, factor: s.factor, calibrationMs: s.calibrationMs, base};

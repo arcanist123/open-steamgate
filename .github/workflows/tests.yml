@@ -757,7 +757,8 @@ jobs:
     runs-on: ubuntu-latest
     # Measured 21-24 min on green main runs (2026-10-05/06), so 25 cancelled
     # healthy runs on slower runners. 40 leaves headroom without hiding a hang.
-    timeout-minutes: 40
+    # 60: a slow runner took 33 min and another was cancelled at 40 (2026-11-13).
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read

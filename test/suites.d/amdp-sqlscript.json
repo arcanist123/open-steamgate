@@ -15,6 +15,7 @@
     "test/amdp-value-parity.mjs",
     "test/amdp-pack.mjs",
     "test/reserved-words.mjs",
+    "test/hana-client-control.mjs",
     "test/hana-closure.mjs",
     "test/hana-ddic-map.mjs",
     "test/hana-ddic-append-view.mjs",

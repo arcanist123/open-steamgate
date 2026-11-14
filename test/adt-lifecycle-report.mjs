@@ -1,6 +1,6 @@
 import {expect} from "chai";
 import {checkReport, metrics, renderReport, checkVspSyntax, timingReference, TIMING_RULE} from "../tools/adt-lifecycle-report.mjs";
-import {CALL_TIMEOUT_S, ddlsCallTimeoutS, warmReadyTimeoutS} from "../tools/adt-lifecycle-vsp.mjs";
+import {CALL_TIMEOUT_S, WARM_TYPES, coldBuildTimeoutS, vspCallTimeoutS, warmReadyTimeoutS} from "../tools/adt-lifecycle-vsp.mjs";
 import {readFileSync, mkdtempSync, writeFileSync, rmSync} from "node:fs";
 import {spawnSync} from "node:child_process";
 import {tmpdir} from "node:os";
@@ -335,42 +335,45 @@ describe("CI lifecycle timing history collection",()=>{
 });
 
 
-describe("DDLS call timeout margin",()=>{
+describe("VSP call budgets: cold-build calls get the measured budget",()=>{
  const lifecycle = readFileSync("tools/adt-lifecycle.mjs","utf8");
  const vspClient = readFileSync("tools/adt-lifecycle-vsp.mjs","utf8");
- it("keeps 90 s for the other families and floors the DDLS budget at 240 s under the measured-speed factor",()=>{
+ it("floors the cold-build budget at 240 s under the measured-speed factor and keeps 90 s for a warm edit",()=>{
   expect(CALL_TIMEOUT_S).to.equal(90);
   // Forced factors, as a CI job that knows its runner would set them. The
   // factors CI has measured are 1.00-1.29: the budget those runners receive
   // is 240-310 s.
-  expect(ddlsCallTimeoutS({OSD_WARM_SPEED_FACTOR:"1"})).to.equal(240);
-  expect(ddlsCallTimeoutS({OSD_WARM_SPEED_FACTOR:"1.29"})).to.equal(310);
-  expect(ddlsCallTimeoutS({OSD_WARM_SPEED_FACTOR:"2"})).to.equal(480);
-  expect(ddlsCallTimeoutS({OSD_WARM_SPEED_FACTOR:"8"})).to.equal(480);
+  expect(coldBuildTimeoutS({OSD_WARM_SPEED_FACTOR:"1"})).to.equal(240);
+  expect(coldBuildTimeoutS({OSD_WARM_SPEED_FACTOR:"1.29"})).to.equal(310);
+  expect(coldBuildTimeoutS({OSD_WARM_SPEED_FACTOR:"2"})).to.equal(480);
+  expect(coldBuildTimeoutS({OSD_WARM_SPEED_FACTOR:"8"})).to.equal(480);
   // 240 s is the floor, not the ceiling: the calibration runs idle in the
   // harness while the activation builds under the lifecycle's own load, and
   // across the failing runs it moved 1.00-1.29 while the DDLS cost moved
   // 1.7-2x -- a budget derived from it must never land under 240 s. A factor
   // below one is clamped to the floor by warm-deadline first.
-  expect(ddlsCallTimeoutS({OSD_WARM_SPEED_FACTOR:"0.5"})).to.equal(240);
+  expect(coldBuildTimeoutS({OSD_WARM_SPEED_FACTOR:"0.5"})).to.equal(240);
  });
- it("gives every VSP call of the DDLS family the measured budget and keeps the others at 90 s",()=>{
-  const budget = String.raw`timeout:vspTimeout\(f(,'create')?\)`;
-  expect(lifecycle.match(new RegExp(budget,"g"))).to.have.length(3);
-  // the create call names itself, so the interface's create gets the budget
-  // and its edits do not
-  expect(lifecycle.match(/timeout:vspTimeout\(f,'create'\)/g)).to.have.length(1);
-  expect(lifecycle).to.contain("const vspTimeout = (f, op) => f.type === 'DDLS' || (f.type === 'INTF' && op === 'create') ? ddlsCallTimeoutS() : CALL_TIMEOUT_S");
-  expect(lifecycle).not.to.match(/timeout:\s*90\b/);
-  expect(lifecycle).to.contain("import {vspClient, CALL_TIMEOUT_S, ddlsCallTimeoutS, warmReadyTimeoutS}");
+ it("gives every create, every call on a type warm does not build, and every unknown type the cold-build budget",()=>{
+  const env = {OSD_WARM_SPEED_FACTOR:"1"};
+  // every type the lifecycle creates, read off its fixture table, plus one
+  // it does not have yet: a new type must not fall back to 90 s
+  const types = [...lifecycle.matchAll(/^ \['([A-Z]+)', '[A-Z]+\/[A-Z]+'/gm)].map(m => m[1]);
+  expect(types).to.include.members(["CLAS","INTF","PROG","INCL","DDLS"]);
+  for (const type of [...types, "XYZW"]) {
+   // the 2026-11-14 red: PROG's create cut at 90.0 s, INTF at 90.1 s
+   expect(vspCallTimeoutS(type,"create",env), `${type} create`).to.equal(240);
+   expect(vspCallTimeoutS(type,"activate",env), `${type} activate`).to.equal(240);
+   expect(vspCallTimeoutS(type,"edit",env), `${type} edit`).to.equal(WARM_TYPES.has(type) ? 90 : 240);
+  }
+  expect([...WARM_TYPES].sort()).to.deep.equal(["CLAS","INCL","INTF"]);
  });
- it("gives the interface's create+write+activate the same budget (slow runners cut it at 90.0 s)",()=>{
-  const vspTimeout = new Function("ddlsCallTimeoutS","CALL_TIMEOUT_S",
-   "return " + /const vspTimeout = (\(f, op\) => [^;]+);/.exec(lifecycle)[1])(() => 240, 90);
-  expect(vspTimeout({type:"INTF"},"create")).to.equal(240);
-  expect(vspTimeout({type:"INTF"})).to.equal(90);
-  expect(vspTimeout({type:"CLAS"},"create")).to.equal(90);
-  expect(vspTimeout({type:"DDLS"})).to.equal(240);
+ it("takes every VSP budget from that one function, one call site per operation",()=>{
+  const timeouts = [...lifecycle.matchAll(/timeout:(\w+\([^)]*\))/g)].map(m => m[1]);
+  expect(timeouts).to.deep.equal(["vspCallTimeoutS(f.type,'create')","vspCallTimeoutS(f.type,'edit')","vspCallTimeoutS(f.type,'activate')"]);
+  expect(lifecycle).not.to.match(/CALL_TIMEOUT_S|ddlsCallTimeoutS|vspTimeout\b/);
+  // the lifecycle's swap check and the budget read the same warm types
+  expect(lifecycle).to.contain("if(WARM_TYPES.has(f.type))");
  });
  it("waits for the warm compiler as long as a DDLS call may take (the #942 slow runner ran out at 90 s)",()=>{
   expect(warmReadyTimeoutS({OSD_WARM_SPEED_FACTOR:"1"})).to.equal(240);
@@ -379,7 +382,7 @@ describe("DDLS call timeout margin",()=>{
   expect(lifecycle).not.to.match(/Date\.now\(\)\+90000/);
  });
  it("never lets the client-side rpc ceiling be the binding budget",()=>{
-  expect(vspClient).to.contain("Math.max(120000, (ddlsCallTimeoutS() + 60) * 1000)");
+  expect(vspClient).to.contain("Math.max(120000, (coldBuildTimeoutS() + 60) * 1000)");
  });
  it("isolates the VSP child from the workstation config and survives its death",()=>{
   // A developer's ~/.vsp.json pins a real system; VSP reads it even from an

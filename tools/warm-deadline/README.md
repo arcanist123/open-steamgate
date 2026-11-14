@@ -2,8 +2,9 @@
 
 How long the HTTP front lets the warm compiler work before it calls the
 compiler silent, kills it and builds cold (`warmOperation` in
-`tools/osd-store-warm.mjs`). After such a timeout warm builds stay off until
-the host restarts.
+`tools/osd-store-warm.mjs`). After such a timeout of a save or of the prime,
+warm builds stay off until the host restarts, and the warm status says so
+(`disabled: true`), so a client waiting for `primed` stops waiting.
 
 ## What the deadline guards
 
@@ -21,8 +22,15 @@ whenever a runner was slow.
 
 ## How it is sized
 
-- **A save, a check, an update**: 30 s (`OPERATION_MS`) times the speed
+- **A save, a check**: 30 s (`OPERATION_MS`) times the speed
   factor, at most 2 min (`OPERATION_CEILING_MS`).
+- **The update after a cold publication** (`kind: "update"`): sized like the
+  prime, because it re-transpiles the closure of what the cold build changed
+  and at most the whole registry -- after an interface is created that is 209
+  objects, 13-29 s on green CI runners, which a 30 s bound cut on every runner
+  slower than the reference (adt-lifecycle, 2026-11-14). Its timeout does not
+  turn warm off: the compiler is killed and the registry primed again, and the
+  prime's own deadline is what decides that the compiler is silent.
 - **The prime**: 16 ms per input file of the compile view (`PRIME_MS_PER_FILE`),
   at least 30 s, times the speed factor, at most 15 min (`CEILING_MS`).
   Measured on the reference machine: 37.8 s for 6924 input files, 5.5 ms

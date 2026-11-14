@@ -4713,22 +4713,6 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: the ABAP unit class above, the transpiler's unit and requires tests
 - Upstream version containing a fix: unknown
 
-### ANOMALY-2026-11-14-class-constructor-targets -- a class constructor runs at load before the class it creates
-
-- Status: `fixed in a pin` (oisee/transpiler `local/osd-build-4h`, #941's head 7c59f51f; first written as the local commit 3cdb24b7 on top of pin 4g)
-- Discovery date: `2026-11-14`
-- Affected versions: the pinned transpiler (oisee/transpiler 9437debe, local/osd-build-4g)
-- Affected ABAP statement, runtime API or adapter: `CREATE OBJECT go TYPE zcl_later` (or `NEW`, `zcl_later=>m( )`) inside a CLASS_CONSTRUCTOR
-- Minimal ABAP reproducer: transpiler test/unit.ts "test-cc-load-order" (zcl_a_buffer's class constructor creates zcl_b_store)
-- Exact command used to run it: `node tools/osd-generation-check.mjs output --json` over the island: `abap.Classes.<class> is not a constructor`
-- Expected SAP behaviour: a class constructor runs at the class's first use, after every class it names is there
-- Actual open-abap behaviour: it runs when its module loads; a named class is not among the module's requires, so a build that loads modules by name ran it before the class existed
-- Impact on open-steamgate: the SEGW sample's island did not load
-- Smallest safe workaround: none needed with pin 4h; the pinned commit adds the classes a class constructor names to its module's requires
-- Upstream issue: branch inside abaplint/transpiler after a critic pass
-- Regression-test location: the transpiler test above
-- Upstream version containing a fix: unknown
-
 ### ANOMALY-2026-11-14-form-field-names-encoded -- a form field's name arrives undecoded
 
 - Status: `workaround`
@@ -4740,7 +4724,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: the name is decoded; `%24top` is `$top`
 - Actual open-abap behaviour: the name stays `%24top`; the option is ignored without a word and the whole set comes back
 - Impact on open-steamgate: a client that encodes `$` (URLSearchParams does) silently loses every system query option
-- Smallest safe workaround: `ZCL_STG_URL=>OPTION` decodes a name that carries `%`
+- Smallest safe workaround: `ZCL_STG_URL=>OPTION` decodes a name that is a well-formed escape (`%zz` is left alone and ignored)
 - Upstream issue: needs an issue (express-icf-shim or open-abap-core) after a critic pass
 - Regression-test location: `ZCL_OSD_H5X_TEST` (encoded_option_names)
 - Upstream version containing a fix: unknown
@@ -4759,21 +4743,23 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: the overlay `src/gateway/compat/zcl_oao_model.clas.abap` (compat README)
 - Upstream issue: one small PR to open-abap-odata after a critic pass
 - Regression-test location: `ZCL_OSD_H5X_TEST` (default_sets_in_metadata); the `$metadata` diff on the bed (structure 0)
+- Upstream version containing a fix: unknown
 
 ### ANOMALY-2026-11-14-cctor-load-order -- a class constructor ran at load before the class it creates existed
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4i` `28b6944e`: `5678066f` from the HANA track, made cycle-free by `17162d2c`, ordered by `28b6944e`; not upstream)
+- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4j` `28a3c53a`: `5678066f` from the HANA track, made cycle-free by `17162d2c`, ordered by `28b6944e`, wait-cycles named by `28a3c53a`; not upstream)
 - Discovery date: `2026-11-14`
 - Affected versions: the pinned transpiler up to oisee/transpiler c84497b4
 - Affected ABAP statement, runtime API or adapter: `CREATE OBJECT ... TYPE zcl_b`, `NEW zcl_b( )`, `zcl_b=>m( )` inside a CLASS_CONSTRUCTOR
-- Minimal ABAP reproducer: transpiler unit tests test-cc-load-order, test-84 (two constructors naming each other's classes), test-85 (a constructor creating its own subclass), test-86 (a ring of three), test-87 (a subclass constructor reading its queued superclass's static), test-88/test-92 (another pool's constructor reading a queued pool's static, the reader sorted before the release), test-89 (each runs once), test-90 (a constructor reading an interface constant), test-91 (an interface constant from a queued class's constant)
+- Minimal ABAP reproducer: transpiler unit tests test-cc-load-order, test-84 (two constructors naming each other's classes), test-85 (a constructor creating its own subclass), test-86 (a ring of three), test-87 (a subclass constructor reading its queued superclass's static), test-88/test-92 (another pool's constructor reading a queued pool's static, the reader sorted before the release), test-89 (each runs once), test-90 (a constructor reading an interface constant), test-91 (an interface constant from a queued class's constant), test-93 (critic q9: a superclass constructor reading a descendant whose constructor is queued -- a wait-cycle, its defined order and its notice)
 - Exact command used to run it: importing init.mjs of the HANA island generation
 - Expected SAP behaviour: a class constructor runs on first use of the class; the classes it names exist
 - Actual open-abap behaviour: the class constructor runs when its module loads, and a class it named whose module loads later was not there: `abap.Classes.<class> is not a constructor`. Requiring that module (5678066f) can close an import cycle -- mutual constructors, a constructor creating its subclass, a ring -- and then the modules await each other (exit 13)
 - The fix (4h): the requirement is decided once per run over the whole registry against the real load-time edges; one that would close a cycle is not taken, and that pool's class constructors wait in a queue and run at the end of the module of the class they named, once every class they name is registered
 - Critic round 2 (4i): the queue released a pool when the class it named had REGISTERED, not when the class constructors it depends on had RUN. Two silent wrong values followed: a subclass's class constructor ran before its queued superclass's and read the superclass's static unset (ABAP runs them top-down); another pool's class constructor read a queued pool's static before the queue released it. Now what depends on a queued class constructor waits for it to have run -- a subclass's constructor, a constructor naming the class, an interface constant read from that class's constant -- and the queue runs them in that order, each once. A class constructor naming an interface now requires it as well.
-- The remaining difference, deliberate: this runtime runs every class constructor at load, in dependency order; ABAP runs it on first use. A first-use trigger would need every static access to await the (asynchronous) constructor. A class constructor that, mid-way, uses a class whose own constructor needs the first one sees the other's statics as set so far -- in ABAP the inner constructor runs nested at the point of use, here before or after the outer one. Anything still queued when init.mjs has imported everything is an error naming the pools and what they wait for, never a silent initial value.
-- Smallest safe workaround: none needed with the 4i pin
+- Critic round 3 (4j): a class constructor whose naming of a queued class was itself a cycle skip waited only for that class's module to register, and read its statics before its constructor ran, silently, with nothing left queued. The rule is now one rule: whoever reads a pool at load -- a class constructor naming it, a subclass's constructor, an interface constant -- waits for its class constructor to have RUN.
+- The remaining difference, deliberate: this runtime runs every class constructor whole, at load, in dependency order; ABAP runs it on first use and nests the inner one at the point of use. Where two pools genuinely wait for each other's constructor (a wait-cycle: two constructors naming each other, a constructor creating a subclass that has its own constructor, a superclass constructor reading a descendant), no whole-constructor order agrees with ABAP in every case, so one is defined: one wait of the cycle falls back to registration -- a cycle skip first, then a constructor naming the class, then an interface read, never a superclass, then by name -- and the run is deterministic. The first constructor then sees the other's statics as set so far. Such a generation is never silent about it: init.mjs carries the cycles and says them at load once (`globalThis.osdLoadNotice({kind: "cctor-cycle", pools})`, else one `console.warn`), and the build's generation check lists them (`cctor_cycles` in its JSON). A pool still queued after the last import is a load error naming it.
+- Smallest safe workaround: none needed with the 4j pin
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass
 - Regression-test location: the transpiler's unit tests above; `test/generation-check.mjs` (0 cycles)
 - Upstream version containing a fix: unknown

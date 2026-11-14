@@ -130,13 +130,38 @@ bounds a pathological run's wall time — the price is that a slow failure can
 arrive as a cancellation rather than a red row (as #926 shows), so read the job
 log for the cancel marker before treating a cancellation as flakiness.
 `test/adt-lifecycle-report.mjs` pins the values, the three call sites and
-the ceiling ("DDLS call timeout margin").
+the ceiling ("VSP call budgets").
 
 The interface family's create+write+activate call takes the same budget
 (2026-11-14): 51-72 s on good CI runs, cut at 90.0 s on slow runners three times
 on 2026-11-13. The first creation in the family builds cold, as a DDLS
-activation does; the interface's edits and explicit activation keep 90 s. The
-same test pins it (the `(f, op)` form of `vspTimeout`, one `'create'` call site).
+activation does; the interface's edits and explicit activation keep 90 s.
+
+**One rule since 2026-11-14, not a list of types.** The next red was the PROG
+create, cut at 90.0 s on a 1.11 runner: every create builds the tree cold, and
+the per-type list had covered only DDLS and the INTF create. Measured over 27
+runs (median / max on factor-1.00 runners / max on slower ones, seconds):
+
+| VSP step | median | max @1.00 | max >1.00 |
+|---|---:|---:|---:|
+| CLAS create+write+activate | 52.6 | 56.0 | 69.6 |
+| INTF create+write+activate | 75.6 | 82.2 | 101.7 |
+| PROG create+write+activate | 63.9 | 75.7 | 90.0 (cut) |
+| INCL create+write+activate | 66.5 | 73.2 | 83.8 |
+| DDLS create+write+activate | 65.7 | 78.4 | 87.3 |
+| PROG edit+check+activate (cold: no warm PROG) | 63.2 | 71.1 | 81.6 |
+| DDLS edit+check+activate | 75.5 | 85.4 | 101.2 |
+
+`vspCallTimeoutS(type, op)` in `adt-lifecycle-vsp.mjs` is the only source of a
+VSP budget: the cold-build budget (`coldBuildTimeoutS`, 240 s × factor within
+240-480 s) for every create, every explicit activation and every call on a
+type the warm compiler does not build; 90 s only for a content edit of a warm
+type (`WARM_TYPES`: CLAS, INTF, INCL, the same set the swap check reads; those
+edits measure 4-9 s, one outlier of 28.7 s in 201). A type added to the lifecycle starts on the cold budget.
+`test/adt-lifecycle-report.mjs` pins it for every type in the fixture table
+and an unknown one, and that the lifecycle has exactly three `timeout:` sites,
+all through the function. The job's cap is 60 minutes (#948); green runs take
+23-39 minutes, and a call that uses its whole budget fails the gate anyway.
 
 The wait for the warm compiler (`warmReady`) takes the same budget too
 (2026-11-14, `warmReadyTimeoutS`). On the slow runner of #942 (speed factor
@@ -144,6 +169,20 @@ The wait for the warm compiler (`warmReady`) takes the same budget too
 own deadline; it re-primed behind two 29-36 s verification comparisons, and the
 fixed 90 s wait ran out with no prime started. On green runs the same wait is
 about 54 s (a 29-37 s baseline activation and a 15-30 s prime).
+
+That reading was wrong, and the longer wait did not help (2026-11-14, 7 red of
+24 runs, on main's transpiler pin and on the newer ones alike): the deadline
+the interface create overran was that of the **registry update after the cold
+publication**, a fixed 30 s x speed factor for a re-transpile of 209 objects
+that took 13-29 s on the green runs, and a timeout there turned warm off for
+the life of the host. The status then said `cold` forever, the log said
+`re-prime` for a prime that never came, and `warmReady` waited out its whole
+budget. Every red run had exactly one `warm compiler exceeded` on that update
+(speed factor 1.02-1.19, cut at 30.6-35.6 s); no green run had one. The update
+is now sized like the prime (`kind: "update"`, `tools/warm-deadline/README.md`),
+its timeout drops the compiler and re-primes instead, the warm status carries
+`disabled`, and `warmReady` fails at once with the reason when it is set
+(`test/warm-update-timeout.mjs`).
 
 `test/adt-lifecycle-report.mjs` transcribes the real #635/#633/#636 tables as
 JSON fixtures (all QUIET), injects one 2x operation slowdown (WARN), uniform
