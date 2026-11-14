@@ -134,7 +134,7 @@ SEGW sample; measured against the system's own `$metadata`, the EN and the
 DE capture). The overlays sit in `src/gateway/compat/` with their library
 copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
 
-12. **open-abap-odata: labels from the text pool** --
+15. **open-abap-odata: labels from the text pool** --
     `ANOMALY-2026-11-14-textpool-absent`. `set_label_from_text_element`
     stores the symbol and the writer prints the ABAP field name. The PR:
     a small provider interface in the library (`get_text( container,
@@ -145,7 +145,7 @@ copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
     parameter's label (SEGW calls the same method on it). Test here:
     `ZCL_OSD_H5X_TEST` ltcl_annotations.
 
-13. **open-abap-odata: bind_structure from the dictionary, the writer as
+16. **open-abap-odata: bind_structure from the dictionary, the writer as
     the model says** -- `ANOMALY-2026-11-14-bind-structure-ddic`. Three
     PRs, in this order: (a) `sap:unicode` only from the model's
     annotation (no hard-coded `false`); (b) `sap:unit` and derived
@@ -159,7 +159,7 @@ copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
     and a Fiori V2 app shows a SEGW-path date with its time unless the
     model annotates `display-format` itself.
 
-14. **abaplint/transpiler: SET LOCALE LANGUAGE** --
+17. **abaplint/transpiler: SET LOCALE LANGUAGE** --
     `ANOMALY-2026-11-14-set-locale-noop`. The runtime's `setLocale` is
     empty; worked around in the dispatcher by setting `sy-langu` for the
     request. Needs an issue first (what else the statement should switch

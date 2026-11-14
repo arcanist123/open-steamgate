@@ -8,7 +8,7 @@ import {mkdtempSync, mkdirSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {abapText, parsePool, registryClass as poolClass, textPools} from "../tools/osd-textpool-registry.mjs";
-import {ddicInfo, parseDtel, registryClass as ddicClass} from "../tools/osd-ddic-info-registry.mjs";
+import {ddicInfo, parseDtel, parseTabl, registryClass as ddicClass} from "../tools/osd-ddic-info-registry.mjs";
 
 const wrap = (inner) => `<?xml version="1.0" encoding="utf-8"?>
 <abapGit version="v1.0.0"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values>${inner}</asx:values></asx:abap></abapGit>`;
@@ -102,6 +102,13 @@ describe("tools/osd-ddic-info-registry: dictionary field information for the run
     } finally {
       rmSync(root, {recursive: true, force: true});
     }
+  });
+
+  it("refuses a dictionary name that is not one, rather than quoting around it", () => {
+    const evil = wrap(`<DD02V><TABNAME>ZS</TABNAME></DD02V><DD03P_TABLE><DD03P><FIELDNAME>EVIL';DELETE FROM USERS;--</FIELDNAME><DATATYPE>CHAR</DATATYPE></DD03P></DD03P_TABLE>`);
+    expect(() => parseTabl(evil)).to.throw(/is not a dictionary name/);
+    expect(() => parsePool(wrap(`<VSEOCLASS><CLSNAME>ZCL_X' OR</CLSNAME><LANGU>E</LANGU></VSEOCLASS><TPOOL>${tpoolItem("I", "001", "x")}</TPOOL>`), "x.clas.xml"))
+      .to.throw(/program name/);
   });
 
   it("keeps a label set only when it has a text", () => {

@@ -72,24 +72,33 @@ function walk(dir, out = []) {
 }
 
 const text = (v) => (v === undefined || v === null || typeof v === "object" ? "" : String(v).trim());
+
+// a dictionary name goes into the generated ABAP as a literal: a name that is
+// not one (a quote, a blank, a semicolon) is refused, not quoted around
+const NAME = /^[A-Z0-9_/]*$/;
+export function dictionaryName(value, what) {
+  const name = text(value).toUpperCase();
+  if (!NAME.test(name) || name.length > 40) throw new Error(`osd-ddic-info-registry: ${what} ${JSON.stringify(name)} is not a dictionary name`);
+  return name;
+}
 const valuesOf = (xml) => parser.parse(xml)?.abapGit?.["asx:abap"]?.["asx:values"] ?? {};
 
 /** one structure or table: {name, fields: [{fieldname, rollname, datatype, reftable, reffield, include}]} */
 export function parseTabl(xml) {
   const v = valuesOf(xml);
-  const name = text(v.DD02V?.TABNAME).toUpperCase();
+  const name = dictionaryName(v.DD02V?.TABNAME, "table");
   const rows = v.DD03P_TABLE?.DD03P ?? [];
   const fields = rows.map((r) => {
     const fieldname = text(r.FIELDNAME).toUpperCase();
     if (fieldname.startsWith(".INCLU")) {
-      return {include: text(r.PRECFIELD).toUpperCase()};
+      return {include: dictionaryName(r.PRECFIELD, "included structure")};
     }
     return {
-      fieldname,
-      rollname: text(r.COMPTYPE) === "E" || text(r.COMPTYPE) === "" ? text(r.ROLLNAME).toUpperCase() : "",
-      datatype: text(r.DATATYPE).toUpperCase(),
-      reftable: text(r.REFTABLE).toUpperCase(),
-      reffield: text(r.REFFIELD).toUpperCase(),
+      fieldname: dictionaryName(fieldname, `field of ${name}`),
+      rollname: text(r.COMPTYPE) === "E" || text(r.COMPTYPE) === "" ? dictionaryName(r.ROLLNAME, `data element of ${name}`) : "",
+      datatype: dictionaryName(r.DATATYPE, `type of ${name}`),
+      reftable: dictionaryName(r.REFTABLE, `reference table of ${name}`),
+      reffield: dictionaryName(r.REFFIELD, `reference field of ${name}`),
     };
   }).filter((f) => f.include !== undefined ? f.include !== "" : f.fieldname !== "" && f.fieldname.startsWith(".") === false);
   return {name, fields};
@@ -110,9 +119,9 @@ export function parseDtel(xml) {
     if (langu !== "" && langu !== master) labels.push(label(t, langu));
   }
   return {
-    name: text(d.ROLLNAME).toUpperCase(),
-    datatype: text(d.DATATYPE).toUpperCase(),
-    domname: text(d.DOMNAME).toUpperCase(),
+    name: dictionaryName(d.ROLLNAME, "data element"),
+    datatype: dictionaryName(d.DATATYPE, "type"),
+    domname: dictionaryName(d.DOMNAME, "domain"),
     labels: labels.filter((l) => l.short || l.medium || l.long || l.heading),
   };
 }
@@ -122,16 +131,16 @@ export function parseView(xml) {
   const v = valuesOf(xml);
   const rows = v.DD27P_TABLE?.DD27P ?? [];
   return {
-    name: text(v.DD25V?.VIEWNAME).toUpperCase(),
+    name: dictionaryName(v.DD25V?.VIEWNAME, "view"),
     view: (Array.isArray(rows) ? rows : [rows]).map((r) => ({
-      fieldname: text(r.VIEWFIELD).toUpperCase(), tabname: text(r.TABNAME).toUpperCase(), tabfield: text(r.FIELDNAME).toUpperCase(),
+      fieldname: dictionaryName(r.VIEWFIELD, "view field"), tabname: dictionaryName(r.TABNAME, "view base table"), tabfield: dictionaryName(r.FIELDNAME, "view base field"),
     })).filter((f) => f.fieldname !== "" && f.tabname !== ""),
   };
 }
 
 export function parseDoma(xml) {
   const d = valuesOf(xml).DD01V ?? {};
-  return {name: text(d.DOMNAME).toUpperCase(), datatype: text(d.DATATYPE).toUpperCase()};
+  return {name: dictionaryName(d.DOMNAME, "domain"), datatype: dictionaryName(d.DATATYPE, "type")};
 }
 
 /** the dictionary below the folders: {structures, elements} */

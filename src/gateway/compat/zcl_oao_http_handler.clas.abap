@@ -545,7 +545,7 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
       |<?xml version="1.0" encoding="utf-8"?>\n| &&
       |<edmx:Edmx xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx" xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata" xmlns:sap="http://www.sap.com/Protocols/SAPData" Version="1.0">\n| &&
       |  <edmx:DataServices m:DataServiceVersion="2.0">\n| &&
-      |    <Schema xmlns="http://schemas.microsoft.com/ado/2008/09/edm" Namespace="{ lv_namespace }" xml:lang="en" sap:schema-version="1">\n| &&
+      |    <Schema xmlns="http://schemas.microsoft.com/ado/2008/09/edm" Namespace="{ lv_namespace }" xml:lang="{ zcl_osd_session_langu=>iso( ) }" sap:schema-version="1">\n| &&
       |      <Annotation xmlns="http://docs.oasis-open.org/odata/ns/edm" Term="Core.SchemaVersion" String="1.0.0"/>\n|.
     LOOP AT lt_entity_types INTO lv_entity_type.
       lo_entity ?= lo_model->/iwbep/if_mgw_odata_model~get_entity_type( lv_entity_type ).

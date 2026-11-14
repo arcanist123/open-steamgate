@@ -98,11 +98,25 @@ export function parsePool(xml, file = "") {
   }
   program = program.toUpperCase();
   master = (master || "E").trim().toUpperCase();
+  // the program, the language, the id and the key go into the ABAP as
+  // literals; one that is not a name is refused (the entry is a text and is
+  // written escaped)
+  const check = (value, re, what) => {
+    if (!re.test(value)) throw new Error(`osd-textpool-registry: ${file}: ${what} ${JSON.stringify(value)} is not one`);
+    return value;
+  };
+  check(program, /^[A-Z0-9_/]{1,40}$/, "program name");
+  check(master, /^[A-Z0-9]$/, "language key");
   const out = rows(values.TPOOL?.item, master);
   for (const i18n of values.I18N_TPOOL?.item ?? []) {
     const langu = text(i18n.LANGUAGE).trim().toUpperCase();
     if (langu === "") continue;
+    check(langu, /^[A-Z0-9]$/, "language key");
     out.push(...rows(i18n.TEXTPOOL?.item, langu));
+  }
+  for (const r of out) {
+    check(r.id, /^[A-Z]$/, "text pool id");
+    check(r.key, /^[A-Za-z0-9_%/-]{0,30}$/, "text pool key");
   }
   return out.length > 0 ? {program, master, rows: out} : undefined;
 }
@@ -114,7 +128,8 @@ export function textPools(folders) {
     const pool = parsePool(readFileSync(file, "utf8"), file);
     if (pool !== undefined) pools.push({...pool, file});
   }
-  return pools.sort((a, b) => a.program.localeCompare(b.program));
+  // codepoint order, never the locale's: the bytes are a generation input
+  return pools.sort((a, b) => (a.program < b.program ? -1 : a.program > b.program ? 1 : 0));
 }
 
 const ascii = (s) => /^[\x20-\x7e]*$/.test(s);

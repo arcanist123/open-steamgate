@@ -45,7 +45,7 @@ do not travel to SAP.
   `zcl_oao_cmplx_type.clas`, `zcl_oao_http_handler.clas` -- the
   `$metadata` annotations as a system writes them (milestone 3 B4,
   `ANOMALY-2026-11-14-textpool-absent`,
-  `ANOMALY-2026-11-14-bind-structure-ddic`, docs/upstream.md items 12-13):
+  `ANOMALY-2026-11-14-bind-structure-ddic`, docs/upstream.md items 15-16):
   bind_structure fills the property's data element, dictionary type,
   unit property and derived semantics through `ZCL_OSD_DDIC_INFO` (a
   type of the class through RTTI); the writer takes the label from the

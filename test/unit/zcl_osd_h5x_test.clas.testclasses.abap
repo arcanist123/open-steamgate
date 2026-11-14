@@ -817,6 +817,8 @@ CLASS ltcl_annotations IMPLEMENTATION.
 
     lv_langu = sy-langu.
     lv_body = metadata( 'DE' ).
+    has( iv_body = lv_body
+         iv_text = `xml:lang="de"` ).
     has( iv_body = element( iv_body  = lv_body
                             iv_start = `<Property Name="Currency"` )
          iv_text = |sap:label="W{ utf8( 'C3A4' ) }hrung"| ).
@@ -835,6 +837,8 @@ CLASS ltcl_annotations IMPLEMENTATION.
     has( iv_body = element( iv_body  = metadata( )
                             iv_start = `<Property Name="Currency"` )
          iv_text = `sap:label="Currency"` ).
+    has( iv_body = metadata( )
+         iv_text = `xml:lang="en"` ).
   ENDMETHOD.
 
   METHOD accept_language.

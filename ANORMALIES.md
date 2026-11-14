@@ -4776,7 +4776,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: the writer printed the ABAP field name (`BP_ID` for `Bus. Part. ID`), and under any language the same
 - Impact on open-steamgate: 59 property and 4 parameter labels of the sample; every stg-compile model's labels (those carry a `<TPOOL>`)
 - Smallest safe workaround: the build reads every `<TPOOL>` into `gen/textpool/zcl_osd_textpool_registry` (tools/osd-textpool-registry.mjs), `ZCL_OSD_TEXTPOOL` answers by container and symbol in `sy-langu`, the writer overlay `src/gateway/compat/zcl_oao_http_handler` asks it
-- Upstream issue: READ TEXTPOOL needs an issue in abaplint/transpiler (where the pool would come from is the question, not the statement); the label resolution is one small PR to open-abap-odata through a provider interface the runtime fills (docs/upstream.md, item 12)
+- Upstream issue: READ TEXTPOOL needs an issue in abaplint/transpiler (where the pool would come from is the question, not the statement); the label resolution is one small PR to open-abap-odata through a provider interface the runtime fills (docs/upstream.md, item 15)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: text_pool_labels, class_pool_container); `test/gateway-annotation-registries.mjs`
 - Upstream version containing a fix: unknown
 
@@ -4792,7 +4792,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: bind_structure set `sap:display-format="Date"` and nothing else; the writer hard-coded `sap:unicode="false"`, fell back to the ABAP field name for the label, wrote no label on a parameter
 - Impact on open-steamgate: 44 labels, 12 units, 11 semantics, 7 unicode, 1 display format of the sample; on our own services, see docs/upstream.md item 13 (dates of SEGW-path models lose `sap:display-format`; services without labels lose the field-name label; SADL keeps both)
 - Smallest safe workaround: the overlays `src/gateway/compat/zcl_oao_{property,entity_typ,cmplx_type,http_handler}` and the build-time dictionary registry `gen/ddicinfo/zcl_osd_ddic_info_registry` (tools/osd-ddic-info-registry.mjs) read through `ZCL_OSD_DDIC_INFO`
-- Upstream issue: small PRs to open-abap-odata (docs/upstream.md, items 12-13)
+- Upstream issue: small PRs to open-abap-odata (docs/upstream.md, items 15-16)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: dictionary_labels, units_and_semantics, unicode_as_the_model_says); `test/gateway-annotation-registries.mjs`
 - Upstream version containing a fix: unknown
 
@@ -4807,7 +4807,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: the request runs in the language the parameter names (ISO `DE` or SAP `D`); texts follow it
 - Actual open-abap behaviour: every request runs in the boot language
 - Impact on open-steamgate: labels (and every language-dependent read of a DPC) ignore `sap-language`
-- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception, through `ZCL_OSD_SESSION_LANGU` (`REQUESTED`: sap-language, else the first tag of Accept-Language; `SWITCH`) -- only when the request names a language, because the Go host's compiler does not carry `sy-langu` (a request with `sap-language` dumps NOT_COMPILED there)
+- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception, through `ZCL_OSD_SESSION_LANGU` (`REQUESTED`: sap-language, else the first tag of Accept-Language; `SWITCH`) -- only when the request names a language, because the Go host's compiler does not carry `sy-langu` (a request with a language dumps NOT_COMPILED there, in `SWITCH`; the ISO mapping goes through `CL_I18N_LANGUAGES` directly, since the compiler also refused `CONVERSION_EXIT_ISOLA_INPUT`'s untyped IMPORTING parameter). `xml:lang` of `$metadata` follows the session language (`ISO`). A language the system does not know is ignored, not refused: lenient on purpose, unmeasured
 - Upstream issue: needs an issue in abaplint/transpiler for `SET LOCALE LANGUAGE` (setting `sy-langu` is the visible half)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (labels_in_the_request_language)
 
