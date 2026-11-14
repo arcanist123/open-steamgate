@@ -1,36 +1,12 @@
 import {transpileIssues, withoutHostPaths} from "./osd-build-issues.mjs";
 import {acceptView, captureView} from "./osd-store-compile-view.mjs";
-import {genHash, liveHash} from "./osd-build.mjs";
+import {genHash, layout, liveHash} from "./osd-build.mjs";
+import {whenLockFree} from "./osd-build-lock-wait.mjs";
 import {forgetRegistry} from "./osd-store-registry.mjs";
 import {relative, sep} from "node:path";
 import {warmOperation} from "./osd-store-warm.mjs";
 import {describe, measureSpeed, saveWait} from "./warm-deadline/warm-deadline.mjs";
 const WARM_REPRIME_MS = Number(process.env.OSD_WARM_REPRIME_MS ?? 5000);
-// How long a build waits for the build lock before it answers BUSY. The
-// store builds one at a time, so what holds the lock under it is a frozen
-// verification pinning or settling its generation (milliseconds), the GC, or
-// a build from another process (minutes). Refusing at once failed an
-// explicit activation in adt-lifecycle (2026-11-14, #946) because a
-// verification settled in the same second.
-export const BUILD_LOCK_WAIT_MS = 10000;
-
-// Run work, which takes the build lock first thing and throws BUSY before it
-// changes anything, again while the lock stays held, up to the bound.
-export async function whenLockFree(store, work) {
-  const bound = Number(store.buildLockWaitMs ?? process.env.OSD_BUILD_LOCK_WAIT_MS ?? BUILD_LOCK_WAIT_MS);
-  const until = Date.now() + bound;
-  for (let waited = false; ; waited = true) {
-    try {
-      const r = await work();
-      if (waited) console.log("build: the build lock came free; building");
-      return r;
-    } catch (error) {
-      if (error?.code !== "BUSY" || Date.now() >= until) throw error;
-      await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, until - Date.now()))));
-    }
-  }
-}
-
 export async function transpileStore(store, options, activating, built) {
   const started = Date.now();
   const w = store.warm();
@@ -84,7 +60,8 @@ export async function transpileStore(store, options, activating, built) {
     let generatedRefreshed = false;
     try {
       const {build} = await import("./osd-build.mjs");
-      const r = await whenLockFree(store, () => build({...store.buildOptions, root: store.root, force: options.force === true, replace: options.replace === true, overlay, switch: false, expectedHash: view.hash}));
+      const r = await whenLockFree(store, held => build({...store.buildOptions, root: store.root, force: options.force === true, replace: options.replace === true, overlay, switch: false, expectedHash: view.hash, ...held}),
+        {paths: layout(store.root)});
       let updated;
       if (genHash(store.root) !== view.gen || w.on === true && !w.disabled && w.compiler?.primed) {
         updated = await captureView(store, activating);
