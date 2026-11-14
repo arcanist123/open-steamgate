@@ -90,6 +90,7 @@ async function warmReady(f) {
   }
    if(!r.warm) throw Error('Server does not expose warm status');
   if(r.warm.state === 'off') throw Error('Warm compiler disabled');
+  if(r.warm.disabled === true) throw Error(`Warm compiler turned off for good: ${r.warm.reason}`);
   await new Promise(r=>setTimeout(r,250));
  }
  throw Error('Warm compiler did not become ready');
