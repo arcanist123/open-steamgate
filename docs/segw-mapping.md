@@ -80,13 +80,45 @@ hands out `zcl_oao_shlp_data`, a registry of providers by search help name;
 `SELECT *` over the table with the WHERE the selection options amount to,
 sorted by the list fields when `iv_sort` is set, cut to `iv_maxrows`,
 answered as record / field / value rows. `tools/segw-shlp.mjs` reads every
-`<name>.shlp.xml` under `src/` and writes `gen/segw/zcl_stg_shlp_registry`,
+`<name>.shlp.xml` of the layers and writes `gen/segw/zcl_stg_shlp_registry`,
 which builds and registers one provider per elementary search help; the
 demo's `ZSTG_STATUS_SH` over `ZSTG_STATUS` is served this way and
 `StatusVHSet` in `zcl_zstg_demo_dpc_ext` follows the generated template.
+
+Text tables and help views (milestone 3 B5.2, the overlay
+`src/gateway/compat/zcl_oao_shlp_ddic`). Every layer is read, a converted
+dump's `gen/hana-src/*` included, and so is the dictionary beside the
+search helps: a help with a `TEXTTAB`, and a help whose selection method is
+a help view (`SELMTYPE H`, `DD25V-VIEWCLASS H`, a join with no database
+object), get a generated read class, `gen/segw/zcl_osd_shlp_<method>`,
+implementing `zif_oao_shlp_source`: a static Open SQL `LEFT OUTER JOIN`
+from the base table, each further table bound on its whole key -- the
+client to the parent's client, the `LANGUFLAG` field to the session
+language (`iv_langu`), the rest to the parent's key by position, or for a
+check table (`FORDIR E`) to the field it checks -- with the view's
+`DD28V` selection conditions in the static WHERE and the request's
+selection options, written against the joined column (`column( )`), in the
+dynamic one. A secondary table bound on its whole key that gives no field
+and no condition is left out: an outer join to it neither adds nor removes
+a row. Why a generated class and not a database view: the language is a
+session value that no portable view can carry (SQLite has no session
+context), the same Open SQL runs on every backend, and on HANA in
+existing-schema mode each base table already resolves to its client-
+filtered shadow view, so the join needs no DDL of its own -- the read-only
+guard admits none on the tenant anyway. A help view `.view.xml` never
+reaches the transpiler's database schema (`dropHelpViews` in
+`tools/osd-transpile.mjs`): it would have become a `CREATE VIEW` that names
+tables its `FROM` lacks. Also served now: a parameter with a list position
+is a list field whether or not it is exported, a literal default
+(`DEFAULTTYP L`) restricts its field unless the request does. Values stay in
+internal form as the search help runtime answers them: a conversion exit
+(the language help's ISOLA) belongs to the OData property, not to the
+help (measured offline: converted in the help, `SR` became `S` in the
+one-character entity field). The
+synthetic twin in `test/hana-m2` has one value help set per kind.
 Not served yet: selection through an exit function (`SELMEXIT`, the exit's
-interface needs `SHLP_DESCR`, `DDSHF4CTRL`, `SEAHLPRES`), text tables,
-collective search helps; those come back as an E message.
+interface needs `SHLP_DESCR`, `DDSHF4CTRL`, `SEAHLPRES`), collective search
+helps; those come back as an E message.
 
 **SADL** (`sadlMethods`, existed before): `if_sadl_gw_dpc_util~get_dpc`
 with the `<sadl:definition>` XML now takes the binding type from the tree

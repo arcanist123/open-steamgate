@@ -4779,3 +4779,35 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass
 - Regression-test location: the transpiler's unit tests above; `test/generation-check.mjs` (0 cycles)
 - Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-help-view-schema -- a help view becomes a database view
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28a3c53a), `DatabaseSchemaReuse.buildVIEW`
+- Affected ABAP statement, runtime API or adapter: the database setup of a `.view.xml` whose `DD25V-VIEWCLASS` is `H`
+- Minimal ABAP reproducer: `test/hana-m2/zosd_h5x_uv.view.xml` (a help view over two tables, its second table joined by a foreign key, `DD26V-FORDIR I`, and no `DD28J` row)
+- Exact command used to run it: `npm run transpile` with `dropHelpViews` taken out of `tools/osd-transpile.mjs`; the generation's init.mjs then carries `CREATE VIEW 'zosd_h5x_uv' AS SELECT 'zosd_h5x_un'.client ..., 'zosd_h5x_unt'.ltxt AS ltxt ... FROM 'zosd_h5x_un'`
+- Expected SAP behaviour: a help view has no database object; only its search helps read it, as an outer join with the text in the logon language
+- Actual open-abap behaviour: every VIEW of the registry becomes `CREATE VIEW` from its `DD28J` rows as inner joins; a help view's joins are foreign keys, not `DD28J` rows, so its columns name tables the `FROM` lacks. SQLite accepts the statement (it resolves a view's columns when the view is read, measured: the twin's unit run stays green with the view in the schema) and any read of the view fails; an engine that checks at CREATE (PostgreSQL) fails the schema
+- Impact on open-steamgate: a converted dump's help view in the build input would put a broken database object in every SQLite generation and fail the schema on PostgreSQL; nothing reads it, its search helps read the generated join
+- Smallest safe workaround: `dropHelpViews` (`tools/osd-transpile.mjs`) takes a help view out of the registry before the run; its search helps read it through the join `tools/segw-shlp.mjs` generates
+- Upstream issue: needs an issue (abaplint/transpiler: skip `VIEWCLASS H` in the schema) after a critic pass
+- Regression-test location: `test/segw-shlp.mjs` ("removes a help view from the transpiler's registry"), `ZCL_OSD_H5X_TEST` (ltcl_value_help)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-create-data-table-of-class-type -- CREATE DATA ... TYPE STANDARD TABLE OF a class's type is no table
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler and runtime (oisee/transpiler 28a3c53a)
+- Affected ABAP statement, runtime API or adapter: `CREATE DATA lr TYPE STANDARD TABLE OF zcl_x=>ts_row.` followed by `ASSIGN lr->* TO <lt> .` with `<lt> TYPE STANDARD TABLE`
+- Minimal ABAP reproducer: the twin DPC's first value help read (test/hana-m2/zcl_osd_h5x_dpc.clas.abap) in its first form; the transpiled call is `createData(rr_rows,{"typeName": "ZCL_OSD_H5X_MPC=>TS_VH_CATEGORY","table": true})`
+- Exact command used to run it: `ZCL_OSD_H5X_TEST` ltcl_value_help with the unit bootstrap
+- Expected SAP behaviour: the data object is a standard table of that row type and the ASSIGN succeeds
+- Actual open-abap behaviour: `ASSIGN_TYPE_CONFLICT` at the ASSIGN (six test methods)
+- Impact on open-steamgate: a DPC that creates its result table this way dumps; the SEGW sample does not, our twin did
+- Smallest safe workaround: a named table type (`TYPES tt_x TYPE STANDARD TABLE OF ts_x ...`, `CREATE DATA lr TYPE zcl_x=>tt_x`)
+- Upstream issue: needs an issue (abaplint/transpiler) after a reduced reproducer and a critic pass
+- Regression-test location: none yet (the twin uses the workaround)
+- Upstream version containing a fix: unknown

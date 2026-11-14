@@ -295,3 +295,271 @@ CLASS ltcl_read IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
+* The value help sets of a SEGW sample, one per kind of search help, read
+* through the generated registry (test/hana-m2/zcl_osd_h5x_shlp_registry,
+* written by tools/segw-shlp.mjs and kept equal to it by test/segw-shlp.mjs):
+* a plain table, a table with a text table, a help view with no database
+* object. Texts exist in two languages; one country has none; one unit is
+* excluded by the view's condition, one by the help's default value.
+  PRIVATE SECTION.
+    CONSTANTS c_srv TYPE string VALUE '/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/'.
+
+    METHODS setup.
+    METHODS plain_table_sorted_page FOR TESTING RAISING cx_static_check.
+    METHODS texts_in_session_language FOR TESTING RAISING cx_static_check.
+    METHODS text_table_key_filter FOR TESTING RAISING cx_static_check.
+    METHODS text_table_single FOR TESTING RAISING cx_static_check.
+    METHODS help_view_join FOR TESTING RAISING cx_static_check.
+    METHODS help_view_count FOR TESTING RAISING cx_static_check.
+    METHODS default_yields_to_request FOR TESTING RAISING cx_static_check.
+
+    METHODS get
+      IMPORTING
+        iv_path            TYPE string
+        iv_query           TYPE string OPTIONAL
+      RETURNING
+        VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
+    METHODS has
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+    METHODS lacks
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+ENDCLASS.
+
+CLASS ltcl_value_help IMPLEMENTATION.
+
+  METHOD setup.
+    DATA ls_cat  TYPE zosd_h5x_cat.
+    DATA ls_cty  TYPE zosd_h5x_cty.
+    DATA ls_ctyt TYPE zosd_h5x_ctyt.
+    DATA ls_un   TYPE zosd_h5x_un.
+    DATA ls_unt  TYPE zosd_h5x_unt.
+
+    DELETE FROM zosd_h5x_cat.
+    DELETE FROM zosd_h5x_cty.
+    DELETE FROM zosd_h5x_ctyt.
+    DELETE FROM zosd_h5x_un.
+    DELETE FROM zosd_h5x_unt.
+
+* inserted out of order: the value help sorts by its list fields
+    ls_cat-client = sy-mandt.
+    ls_cat-category = 'Pens'.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_cat-category = 'Binders'.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_cat-category = 'Lamps'.
+    INSERT zosd_h5x_cat FROM ls_cat.
+
+    ls_cty-client = sy-mandt.
+    ls_cty-code = 'BB'.
+    INSERT zosd_h5x_cty FROM ls_cty.
+    ls_cty-code = 'AA'.
+    INSERT zosd_h5x_cty FROM ls_cty.
+* no text in any language: an outer join keeps it
+    ls_cty-code = 'CC'.
+    INSERT zosd_h5x_cty FROM ls_cty.
+    ls_ctyt-client = sy-mandt.
+    ls_ctyt-langu = 'E'.
+    ls_ctyt-code = 'AA'.
+    ls_ctyt-name = 'Aland'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+    ls_ctyt-code = 'BB'.
+    ls_ctyt-name = 'Bland'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+    ls_ctyt-langu = 'D'.
+    ls_ctyt-code = 'AA'.
+    ls_ctyt-name = 'Aland DE'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+    ls_ctyt-code = 'BB'.
+    ls_ctyt-name = 'Bland DE'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+
+    ls_un-client = sy-mandt.
+    ls_un-unit = 'KG'.
+    ls_un-dim = 'MASS'.
+    ls_un-ext = 'X'.
+    INSERT zosd_h5x_un FROM ls_un.
+    ls_un-unit = 'G'.
+    INSERT zosd_h5x_un FROM ls_un.
+* not external: the view's selection condition leaves it out
+    ls_un-unit = 'MG'.
+    ls_un-ext = ' '.
+    INSERT zosd_h5x_un FROM ls_un.
+* another dimension: the help's default value leaves it out
+    ls_un-unit = 'CM'.
+    ls_un-dim = 'LENGTH'.
+    ls_un-ext = 'X'.
+    INSERT zosd_h5x_un FROM ls_un.
+    ls_unt-client = sy-mandt.
+    ls_unt-langu = 'E'.
+    ls_unt-unit = 'KG'.
+    ls_unt-ltxt = 'Kilogram'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    ls_unt-unit = 'G'.
+    ls_unt-ltxt = 'Gram'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    ls_unt-unit = 'CM'.
+    ls_unt-ltxt = 'Centimeter'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    ls_unt-langu = 'D'.
+    ls_unt-unit = 'KG'.
+    ls_unt-ltxt = 'Kilogramm'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+
+    zcl_oao_shlp_data=>clear( ).
+    zcl_osd_h5x_shlp_registry=>register( ).
+    zcl_oao_registry=>register( iv_service = 'ZOSD_H5X_SRV'
+                                iv_mpc     = 'ZCL_OSD_H5X_MPC'
+                                iv_dpc     = 'ZCL_OSD_H5X_DPC' ).
+    zcl_stg_model_info=>clear( ).
+  ENDMETHOD.
+
+  METHOD get.
+    DATA lt_options TYPE tihttpnvp.
+
+    IF iv_query IS NOT INITIAL.
+      lt_options = cl_http_utility=>string_to_fields( iv_query ).
+    ENDIF.
+    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_srv && iv_path
+                                                it_options = lt_options ).
+  ENDMETHOD.
+
+  METHOD has.
+    cl_abap_unit_assert=>assert_true( act = boolc( iv_body CS iv_text )
+                                      msg = |expected { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD lacks.
+    cl_abap_unit_assert=>assert_false( act = boolc( iv_body CS iv_text )
+                                       msg = |did not expect { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD plain_table_sorted_page.
+* $skip=1&$top=1 of Binders, Lamps, Pens is Lamps
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$skip=1&$top=1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Category":"Lamps"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Category":"Binders"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Category":"Pens"` ).
+  ENDMETHOD.
+
+  METHOD texts_in_session_language.
+* the text table joined on its key and the session language, as an outer
+* join (without the fix: 400, the help was not served; the language bound
+* off: each country twice; an inner join: CC gone)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( 'VH_CountrySet' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"AA","Name":"Aland"}` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"BB","Name":"Bland"}` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"CC","Name":""}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `land DE` ).
+    ls_response = get( 'VH_CountrySet/$count' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = '3' ).
+  ENDMETHOD.
+
+  METHOD text_table_key_filter.
+* CODE is a column of both tables: the selection option is written against
+* the base table's (unqualified, the join's SELECT is ambiguous)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_CountrySet'
+                       iv_query = `$filter=Code eq 'BB'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"BB","Name":"Bland"}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Code":"AA"` ).
+  ENDMETHOD.
+
+  METHOD text_table_single.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `VH_CountrySet('AA')` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"AA","Name":"Aland"}` ).
+  ENDMETHOD.
+
+  METHOD help_view_join.
+* the help view's tables joined, its condition (EXT = 'X') applied, the
+* default DIM = 'MASS' applied, the text in the session language; LTXT is
+* a list field without being an export parameter
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( 'VH_UnitSet' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"G","Ltxt":"Gram"}` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"KG","Ltxt":"Kilogram"}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Unit":"MG"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Unit":"CM"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `Kilogramm` ).
+  ENDMETHOD.
+
+  METHOD help_view_count.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( 'VH_UnitSet/$count' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = '2' ).
+  ENDMETHOD.
+
+  METHOD default_yields_to_request.
+* a selection option on the field replaces its default value; without one
+* the default restricts the field
+    DATA lo_shlp   TYPE REF TO zcl_oao_shlp_ddic.
+    DATA lt_selopt TYPE ddshselops.
+    DATA ls_selopt LIKE LINE OF lt_selopt.
+
+    lo_shlp = zcl_oao_shlp_ddic=>create( 'ZOSD_H5X_SH_X' ).
+    lo_shlp->add_parameter( iv_name    = 'DIM'
+                            iv_default = 'MASS' ).
+    ls_selopt-shlpfield = 'DIM'.
+    ls_selopt-sign      = 'I'.
+    ls_selopt-option    = 'EQ'.
+    ls_selopt-low       = 'LENGTH'.
+    APPEND ls_selopt TO lt_selopt.
+    cl_abap_unit_assert=>assert_equals( act = lo_shlp->where_clause( lo_shlp->with_defaults( lt_selopt ) )
+                                        exp = `( dim = 'LENGTH' )` ).
+    CLEAR lt_selopt.
+    cl_abap_unit_assert=>assert_equals( act = lo_shlp->where_clause( lo_shlp->with_defaults( lt_selopt ) )
+                                        exp = `( dim = 'MASS' )` ).
+  ENDMETHOD.
+
+ENDCLASS.
