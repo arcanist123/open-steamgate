@@ -3615,6 +3615,7 @@ const SY = {"SY-INDEX": "Index", "SY-TABIX": "Tabix", "SY-SUBRC": "Subrc", "SY-D
 /** @type {Record<string, {field: string; type: import("./ir.ts").Type}>} */ const SY_MESSAGES = {
   "SY-MSGID": {field: "Msgid", type: C(20)}, "SY-MSGNO": {field: "Msgno", type: {k: "n", len: 3}},
   "SY-MSGTY": {field: "Msgty", type: C(1)},
+  "SY-LANGU": {field: "Langu", type: C(1)}, // the session language (the Gateway's sap-language, M3 B3)
   ...Object.fromEntries([1, 2, 3, 4].map((i) => [`SY-MSGV${i}`, {field: `Msgv${i}`, type: C(50)}])),
 };
 const CONSTRUCTORS = new Set(["VALUE", "CONV", "NEW", "REF", "COND", "SWITCH", "EXACT", "CORRESPONDING", "REDUCE", "FILTER", "CAST", "BOOLC", "XSDBOOL"]);

@@ -988,7 +988,7 @@ function expr(e, ctx) {
     case "padc": return `abap.PadC(${expr(e.x, ctx)}, ${e.n})`;
     case "flag": return String(e.value);
     case "str_fn": return `abap.${e.fn}(${e.args.map((a) => expr(a, ctx)).join(", ")})`;
-    case "sy": return /^Msg/.test(e.field) ? `(s.sy.${e.field.toLowerCase()} ?? ${JSON.stringify(e.field === "Msgno" ? "000" : "")})` : `s.sy.${e.field.toLowerCase()}`;
+    case "sy": return /^Msg|^Langu$/.test(e.field) ? `(s.sy.${e.field.toLowerCase()} ?? ${JSON.stringify(e.field === "Msgno" ? "000" : e.field === "Langu" ? "E" : "")})` : `s.sy.${e.field.toLowerCase()}`;
     case "sy_mandt": return "abap.Mandt";
     case "sy_host": return `abap.${e.name}`;
     case "int": return String(e.value);

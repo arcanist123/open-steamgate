@@ -1185,7 +1185,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
         ? `(*func() *${type} { Ensure_${typeName(owner)}(s); return &${field} }())` : field;
     }
     case "const": return p.go;
-    case "sy": return p.field === "Msgno" ? `(*s.Sy.MessageNumber())` : `s.Sy.${p.field}`;
+    case "sy": return p.field === "Msgno" ? `(*s.Sy.MessageNumber())` : p.field === "Langu" ? `(*s.Sy.Language())` : `s.Sy.${p.field}`;
     case "field": return `${PLACES.has(p.base.e) || p.base.e === "const" ? place(p.base, ctx) : `(${expr(p.base, ctx)})`}.${ident(p.name)}`;
     case "dref_field": return `abap.DerefAs[${goType(p.struct)}](${expr(p.base, ctx)}, ${JSON.stringify(`->${p.name}`)}).${ident(p.name)}`;
     case "fs": return p.type.k === "data" ? ident(p.name) : p.type.k === "struct" ? `(*${ident(p.name)})` : `(*abap.CheckedRowPtr(${ident(p.name)}))`;
