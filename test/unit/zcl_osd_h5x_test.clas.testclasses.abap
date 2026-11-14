@@ -295,3 +295,165 @@ CLASS ltcl_read IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+CLASS ltcl_literals DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
+* A value in a $filter is data for everything after the escaper as well.
+* The runtime's dynamic WHERE and the database clients ran their rewrites
+* (EQ, field symbols, ~, DESCENDING, LIMIT 0, UP TO n ROWS) over the whole
+* statement, literals included (ANORMALIES.md, "SQL literals re-read as
+* statement text"). Each value below is a partner's name, and beside it is
+* the name the old rewrite made of it, so a rewrite that still reads the
+* value finds the decoy's row instead of none.
+  PRIVATE SECTION.
+    CONSTANTS c_base TYPE string VALUE '/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/PartnerSet'.
+
+    METHODS setup.
+    METHODS each_value_finds_its_row FOR TESTING RAISING cx_static_check.
+    METHODS up_to_in_value_limits_nothing FOR TESTING RAISING cx_static_check.
+
+    METHODS add
+      IMPORTING
+        iv_id   TYPE string
+        iv_name TYPE string.
+    METHODS get
+      IMPORTING
+        iv_path            TYPE string
+        iv_filter          TYPE string
+      RETURNING
+        VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
+ENDCLASS.
+
+CLASS ltcl_literals IMPLEMENTATION.
+
+  METHOD setup.
+    DATA ls_ad TYPE zosd_h5x_ad.
+
+    DELETE FROM zosd_h5x_bp.
+    DELETE FROM zosd_h5x_ad.
+    ls_ad-client = sy-mandt.
+    ls_ad-node_key = 'A1'.
+    ls_ad-city = 'Alpha City'.
+    ls_ad-country = 'AA'.
+    INSERT zosd_h5x_ad FROM ls_ad.
+
+    add( iv_id = `0000000101` iv_name = `a~b` ).
+    add( iv_id = `0000000102` iv_name = `a.b` ).
+    add( iv_id = `0000000103` iv_name = `A EQ B` ).
+    add( iv_id = `0000000104` iv_name = `A = B` ).
+    add( iv_id = `0000000105` iv_name = `x DESCENDING` ).
+    add( iv_id = `0000000106` iv_name = `x DESC` ).
+    add( iv_id = `0000000107` iv_name = `x UP TO 9 ROWS` ).
+    add( iv_id = `0000000108` iv_name = `x` ).
+    add( iv_id = `0000000109` iv_name = `x LIMIT 0` ).
+    add( iv_id = `0000000110` iv_name = `q <ls_key> r` ).
+    add( iv_id = `0000000111` iv_name = `O'Hara` ).
+    add( iv_id = `0000000112` iv_name = `a``b` ).
+    add( iv_id = `0000000113` iv_name = `--x` ).
+    add( iv_id = `0000000114` iv_name = `a;b` ).
+
+    zcl_oao_registry=>register( iv_service = 'ZOSD_H5X_SRV'
+                                iv_mpc     = 'ZCL_OSD_H5X_MPC'
+                                iv_dpc     = 'ZCL_OSD_H5X_DPC' ).
+    zcl_stg_model_info=>clear( ).
+  ENDMETHOD.
+
+  METHOD add.
+    DATA ls_bp TYPE zosd_h5x_bp.
+
+    ls_bp-client = sy-mandt.
+    ls_bp-partner_id = iv_id.
+    ls_bp-name = iv_name.
+    ls_bp-addr_key = 'A1'.
+    INSERT zosd_h5x_bp FROM ls_bp.
+  ENDMETHOD.
+
+  METHOD get.
+* the option is built here and not parsed from a query string: a value may
+* hold = and ;, which is the point of the test
+    DATA lt_options TYPE tihttpnvp.
+    DATA ls_option LIKE LINE OF lt_options.
+
+    ls_option-name = '$filter'.
+    ls_option-value = iv_filter.
+    APPEND ls_option TO lt_options.
+    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = iv_path
+                                                it_options = lt_options ).
+  ENDMETHOD.
+
+  METHOD each_value_finds_its_row.
+    TYPES: BEGIN OF ty_case,
+             value TYPE string,
+             id    TYPE string,
+           END OF ty_case.
+    DATA lt_case TYPE STANDARD TABLE OF ty_case WITH DEFAULT KEY.
+    DATA ls_case TYPE ty_case.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_filter TYPE string.
+
+* the value as an OData literal writes a quote twice
+    ls_case-value = `a~b`.
+    ls_case-id = `0000000101`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `A EQ B`.
+    ls_case-id = `0000000103`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `x DESCENDING`.
+    ls_case-id = `0000000105`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `x UP TO 9 ROWS`.
+    ls_case-id = `0000000107`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `x LIMIT 0`.
+    ls_case-id = `0000000109`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `q <ls_key> r`.
+    ls_case-id = `0000000110`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `O''Hara`.
+    ls_case-id = `0000000111`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `a``b`.
+    ls_case-id = `0000000112`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `--x`.
+    ls_case-id = `0000000113`.
+    APPEND ls_case TO lt_case.
+    ls_case-value = `a;b`.
+    ls_case-id = `0000000114`.
+    APPEND ls_case TO lt_case.
+
+    LOOP AT lt_case INTO ls_case.
+      lv_filter = `Name eq '` && ls_case-value && `'`.
+      ls_response = get( iv_path   = c_base && `/$count`
+                         iv_filter = lv_filter ).
+      cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                          exp = `1`
+                                          msg = |{ lv_filter }: { ls_response-body }| ).
+      ls_response = get( iv_path   = c_base
+                         iv_filter = lv_filter ).
+      cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                          exp = 200
+                                          msg = |{ lv_filter }: { ls_response-body }| ).
+      cl_abap_unit_assert=>assert_true(
+        act = boolc( ls_response-body CS `"PartnerID":"` && ls_case-id && `"` )
+        msg = |{ lv_filter }: { ls_response-body }| ).
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD up_to_in_value_limits_nothing.
+* a value naming a row count appends no LIMIT: every partner comes back
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path   = c_base
+                       iv_filter = `Name eq 'x UP TO 1 ROWS' or PartnerID ge '0000000000'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_true( act = boolc( ls_response-body CS `"PartnerID":"0000000101"` )
+                                      msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_true( act = boolc( ls_response-body CS `"PartnerID":"0000000114"` )
+                                      msg = ls_response-body ).
+  ENDMETHOD.
+
+ENDCLASS.

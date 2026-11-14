@@ -26,6 +26,7 @@
     "test/sqlite-file-client.mjs",
     "test/sqlite-like.mjs",
     "test/sqlite-heap-execute.mjs",
+    "test/sql-literals.mjs",
     "test/store-destination.mjs",
     "test/store-exclusions.mjs",
     "test/transaction.mjs",

@@ -11,6 +11,7 @@
 // second one beside it: OSD has exactly one system, and a read through the
 // façade sees what a program running inside sees.
 import {singleSelect, selectSQLiteOne} from './adt-single-select.mjs';
+import {abapSelectToSql} from './osd-sql-literals.mjs';
 import {existsSync} from "node:fs";
 import {join} from "node:path";
 import {runsAs} from "./osd-main.mjs";
@@ -170,14 +171,7 @@ export class Data {
     // predates this optional seam, but exposes SQLite's prepare primitive;
     // mirror its SELECT rewrites and free the compiled statement immediately.
     if (client.name === "sqlite" && typeof client.sqlite?.prepare === "function") {
-      const sqlite = text.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1")
-        .replace(/ ORDER BY PRIMARY KEY/i, "")
-        .replace(/ ASCENDING/ig, " ASC")
-        .replace(/ DESCENDING/ig, " DESC")
-        .replace(/ LIMIT 0/g, "")
-        .replace(/~/g, ".")
-        .replace(/\bLEFT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, "substr($1, 1, $2)")
-        .replace(/\bRIGHT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, "substr($1, -$2)");
+      const sqlite = abapSelectToSql(text, {substr: true});
       const statement = client.sqlite.prepare(sqlite);
       statement.free?.();
       return;
