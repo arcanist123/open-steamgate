@@ -95,6 +95,21 @@
       "file": "test/third-party-notices.mjs",
       "value": "172.23.207.80",
       "reason": "Ложное срабатывание: байты ac17cf50 внутри SHA-256 текста MIT-лицензии zork-abap (3bed...a91d), это хэш, а не адрес."
+    },
+    {
+      "file": "test/unit/zcl_osd_h5x_test.clas.testclasses.abap",
+      "value": "c0ffee00-0000-4000-8000-0000000000a1",
+      "reason": "Made-up uuid in the SEGW-twin test of the guid'...' key literal (M3-B2): it has to have the uuid form, or the test does not prove the literal is parsed. Typed by hand (c0ffee00-0000-4000-8000-0000000000aN), it identifies nothing; the earlier draft carried a real tenant value and was replaced because of this scan."
+    },
+    {
+      "file": "test/unit/zcl_osd_h5x_test.clas.testclasses.abap",
+      "value": "c0ffee00-0000-4000-8000-0000000000a2",
+      "reason": "Made-up uuid in the SEGW-twin test of the guid'...' key literal (M3-B2): it has to have the uuid form, or the test does not prove the literal is parsed. Typed by hand (c0ffee00-0000-4000-8000-0000000000aN), it identifies nothing; the earlier draft carried a real tenant value and was replaced because of this scan."
+    },
+    {
+      "file": "src/gateway/zcl_stg_url.clas.abap",
+      "value": "c0ffee00-0000-4000-8000-0000000000a1",
+      "reason": "Made-up uuid in the SEGW-twin test of the guid'...' key literal (M3-B2): it has to have the uuid form, or the test does not prove the literal is parsed. Typed by hand (c0ffee00-0000-4000-8000-0000000000aN), it identifies nothing; the earlier draft carried a real tenant value and was replaced because of this scan."
     }
   ]
 }

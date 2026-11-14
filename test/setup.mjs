@@ -4,6 +4,7 @@ import {SQLiteDatabaseClient} from "../tools/sqlite-heap-client.mjs";
 import {randomBytes} from "node:crypto";
 import {bootIdentity} from "../tools/osd-identity.mjs";
 import {installTrim} from "../tools/sql-literals.mjs";
+import {installOrderByCommas} from "../tools/osd-order-by.mjs";
 import {installSqlTrace, fileSink} from "../tools/osd-sql-trace.mjs";
 import {batchInserts} from "../tools/osd-batch-inserts.mjs";
 import {TraceRing, TraceDestination} from "../tools/osd-sql-trace-buffer.mjs";
@@ -286,10 +287,14 @@ function traced(db) {
   const toFile = file === undefined || file === "" ? undefined : fileSink(file);
   // Installed whether or not anything is listening, because the screen turns
   // it on at runtime; `enabled` keeps that free until something does.
-  return installSqlTrace(db, (entry) => {
+  installSqlTrace(db, (entry) => {
     toFile?.(entry);
     traceRing.record(entry);
   }, {enabled: () => toFile !== undefined || traceRing.on === true});
+  // the commas of a dynamic ORDER BY whose columns are separated by blanks
+  // (ANORMALIES "dynamic-order-by-blanks"): here because every client
+  // passes, and outside the tracer so the trace shows the text the client got
+  return installOrderByCommas(db);
 }
 
 /** the destination the ST05 screen calls, the same shape as AMDP's */
