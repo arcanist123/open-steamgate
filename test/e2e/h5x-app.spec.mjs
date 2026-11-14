@@ -46,7 +46,7 @@ test.beforeAll(async () => {
   const lines = [];
   host = spawn(process.execPath, [resolve(root, "tools", "hana-serve.mjs"), "--port", "0",
     "--client-module", "test/fixtures/hana-serve/twin-client.mjs",
-    "--register", "ZOSD_H5X_APP_SRV=ZCL_OSD_H5X_APP_MPC,ZCL_OSD_H5X_APP_DPC"], {cwd: root, env, stdio: ["ignore", "pipe", "pipe"]});
+    "--register", "ZOSD_H5X_APP_SRV=ZCL_OSD_H5X_APP_MPC,ZCL_OSD_H5X_DPC"], {cwd: root, env, stdio: ["ignore", "pipe", "pipe"]});
   base = await new Promise((done, fail) => {
     const take = (chunk) => {
       for (const line of String(chunk).split("\n")) {

@@ -43,7 +43,8 @@
     "test/rap-flight-travel.mjs",
     "test/gateway-metadata-diff.mjs",
     "test/hana-serve.mjs",
-    "test/odata-read-diff.mjs"
+    "test/odata-read-diff.mjs",
+    "test/order-by.mjs"
   ],
   "_odata-read-diff": "Gateway ownership: the V2 read comparison instrument belongs beside the wire suites it compares.",
   "_odata-v4": "Gateway ownership: V4 wire suite belongs beside V2 wire tests.",

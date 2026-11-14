@@ -1,8 +1,8 @@
 CLASS zcl_osd_h5x_app_mpc DEFINITION PUBLIC INHERITING FROM zcl_osd_h5x_mpc CREATE PUBLIC.
-* What the read-only Fiori Elements app needs of the twin, on top of the
-* twin and without changing it: the navigation from a partner to its orders
-* over the association the twin already declares, and a sap:label on the
-* properties the app shows. The labels are the model's (SEGW writes them as
+* What the read-only Fiori Elements app needs of the twin's model, on top of
+* the twin and without changing it: a sap:label on the properties the app
+* shows, and sort and filter on the two the list report uses. The reads,
+* singles and navigations are the twin's own DPC (ZCL_OSD_H5X_DPC). The labels are the model's (SEGW writes them as
 * create_annotation( 'sap' )->add( 'label' )), so the app's column headers
 * come from $metadata and the app's own annotation file carries none: a
 * label missing here is a header the spec cannot find (webapp/h5x).
@@ -53,14 +53,11 @@ CLASS zcl_osd_h5x_app_mpc IMPLEMENTATION.
     lo_prop->set_filterable( abap_true ).
     label( io_property = lo_type->get_property( 'ChangedAt' )
            iv_label    = 'Last changed' ).
-    lo_type->create_navigation_property( iv_property_name    = 'ToOrders'
-                                         iv_abap_fieldname   = 'TOORDERS'
-                                         iv_association_name = 'Assoc_Partner_Orders_With_A_Long_Name' ).
 
     lo_type = model->get_entity_type( 'Order' ).
     label( io_property = lo_type->get_property( 'OrderID' )
            iv_label    = 'Order number' ).
-    label( io_property = lo_type->get_property( 'PartnerID' )
+    label( io_property = lo_type->get_property( 'BuyerID' )
            iv_label    = 'Ordering partner' ).
   ENDMETHOD.
 ENDCLASS.

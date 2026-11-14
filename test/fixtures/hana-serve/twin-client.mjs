@@ -27,7 +27,7 @@ export const CLIENT = "100";
 const DDL = [
   `CREATE TABLE 'zosd_h5x_bp' ('client' NCHAR(3) COLLATE RTRIM, 'partner_id' NCHAR(10) COLLATE RTRIM, 'name' NCHAR(80) COLLATE RTRIM, 'addr_key' NCHAR(10) COLLATE RTRIM, 'changed_at' DECIMAL(21,7), PRIMARY KEY('client','partner_id'));`,
   `CREATE TABLE 'zosd_h5x_ad' ('client' NCHAR(3) COLLATE RTRIM, 'node_key' NCHAR(10) COLLATE RTRIM, 'city' NCHAR(40) COLLATE RTRIM, 'country' NCHAR(3) COLLATE RTRIM, PRIMARY KEY('client','node_key'));`,
-  `CREATE TABLE 'zosd_h5x_so' ('client' NCHAR(3) COLLATE RTRIM, 'order_id' NCHAR(10) COLLATE RTRIM, 'partner_id' NCHAR(10) COLLATE RTRIM, PRIMARY KEY('client','order_id'));`,
+  `CREATE TABLE 'zosd_h5x_so' ('client' NCHAR(3) COLLATE RTRIM, 'order_id' NCHAR(10) COLLATE RTRIM, 'buyer_id' NCHAR(10) COLLATE RTRIM, PRIMARY KEY('client','order_id'));`,
   `CREATE TABLE 'dummy' ('dummy' NCHAR(1));`,
 ];
 

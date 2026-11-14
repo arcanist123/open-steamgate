@@ -64,20 +64,19 @@ leaves no read in the fake's log -- it did not reach the ABAP).
 ## The app and its twin service
 
 `webapp/h5x` is a Fiori Elements V2 list report -> object page -> sub-list
-over `ZOSD_H5X_APP_SRV`: the milestone-2 twin of `test/hana-m2` with, added
-beside it and without changing it, a navigation from a partner to its orders
-and a `sap:label` on each property shown (`ZCL_OSD_H5X_APP_MPC`), a single
-read and the orders read (`ZCL_OSD_H5X_APP_DPC`, written to the SEGW
-contract: on a navigation `it_key_tab` holds the source's keys by OData
-name), and an orders table. `useBatch` is on.
+over `ZOSD_H5X_APP_SRV`: the twin of `test/hana-m2` (its partners, orders,
+singles and navigations, read by the twin's own DPC `ZCL_OSD_H5X_DPC`) with
+one model class added beside it, `ZCL_OSD_H5X_APP_MPC`: a `sap:label` on
+each property shown and sort/filter on the two the list report uses.
+`useBatch` is on.
 
 Two things the app showed. A V2 list report leaves a complex property
 (`Address/City`) out of its table and out of `$select`, so the address is
-on the object page only. And this gateway passes `iv_source_name` empty to
-`GET_ENTITYSET` on a navigation, where a system names the source type: the
-first orders read asked it, and the sub-list showed every partner's orders
-(four rows where the spec expects three); the DPC reads the source set
-from the technical context instead, as the twin does.
+on the object page only. And the gateway passed `iv_source_name` empty to
+`GET_ENTITYSET` on a navigation, where a system names the source type: an
+orders read that asked it put every partner's orders on the sub-list (four
+rows where the spec expects three). The gateway names the source now
+(PR #947).
 
 The app's annotation file carries **no property label**: every column
 header is the service's `sap:label`, so a label the service lacks is a

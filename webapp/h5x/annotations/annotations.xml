@@ -95,7 +95,7 @@
               <PropertyValue Property="Value" Path="OrderID"/>
             </Record>
             <Record Type="UI.DataField">
-              <PropertyValue Property="Value" Path="PartnerID"/>
+              <PropertyValue Property="Value" Path="BuyerID"/>
             </Record>
           </Collection>
         </Annotation>
