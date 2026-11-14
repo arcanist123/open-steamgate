@@ -377,19 +377,11 @@ function propertyCode(pr, opts, struct = "") {
   if (pr.asEtag) {
     lines.push("lo_property->set_as_etag( ).");
   }
-  // a date (ABAP type kind D behind Edm.DateTime) is shown as a date only when
-  // the model says so: a system derives no sap:display-format from the
-  // dictionary (measured, milestone 3 B4), a SEGW developer annotates it.
-  // stg-compile does it for its models; SEGW's own generator does not. A
-  // property of a dictionary-bound type is a date when its component is
-  // DATS: opts.dateDisplayFormat(structure, abapField) says.
-  const isDate = pr.typeKind === "D"
-    || (typeof opts.dateDisplayFormat === "function" && struct !== "" && opts.dateDisplayFormat(struct, pr.abapField));
+  // a date is shown as a date only when the model says so (a system derives no
+  // sap:display-format, milestone 3 B4): stg-compile's option, not SEGW's own
+  const isDate = pr.typeKind === "D" || (typeof opts.dateDisplayFormat === "function" && opts.dateDisplayFormat(struct, pr.abapField));
   if (opts.dateDisplayFormat && isDate && pr.edmType === "Edm.DateTime") {
-    lines.push(`lo_property->/iwbep/if_mgw_odata_annotatabl~create_annotation( 'sap' )->add(
-      EXPORTING
-        iv_key      = 'display-format'
-        iv_value    = 'Date' ).`);
+    lines.push("lo_property->/iwbep/if_mgw_odata_annotatabl~create_annotation( 'sap' )->add(\n      EXPORTING\n        iv_key      = 'display-format'\n        iv_value    = 'Date' ).");
   }
   // SEGW takes labels from the class's text elements (set_label_from_text_element);
   // without a text pool the label goes in as the sap:label annotation (stg-compile)

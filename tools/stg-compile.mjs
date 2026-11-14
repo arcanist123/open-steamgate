@@ -58,8 +58,7 @@ import yaml from "js-yaml";
 import {generate} from "./segw-gen.mjs";
 import {AnnotationWriter} from "./stg-compile-annotations.mjs";
 import {loadFunctionGroups} from "./segw-gen-mapping.mjs";
-import {ddicInfo} from "./osd-ddic-info-registry.mjs";
-import {classNameOf} from "./cds-names.mjs";
+import {dictionaryDates} from "./osd-ddic-info-registry.mjs";
 import SPEC from "./segw-tables.json" with {type: "json"};
 
 // ------------------------------------------------------------- the model
@@ -848,26 +847,6 @@ const versionedFile = (name, ext) => {
   if (width === undefined) throw new Error(`no key width known for ${ext}`);
   return name.toLowerCase().replaceAll("/", "#").padEnd(width, " ") + "0001" + ext; // namespace -> `#`, as above
 };
-
-/** The dates of the dictionary below the folders, as segw-gen asks for them:
- *  (structure, field) -> is the component DATS. A model of this tree shows a
- *  date as a date by an explicit sap:display-format annotation (a system
- *  derives none from the dictionary, milestone 3 B4), for an inline `type:
- *  date` property and for a component of a bound dictionary structure. */
-export function dictionaryDates(folders) {
-  const dates = new Set();
-  const aliases = new Map();
-  for (const s of ddicInfo(folders).structures) {
-    for (const f of s.fields) if (f.datatype === "DATS") dates.add(`${s.name}-${f.fieldname}`);
-    // a published CDS view's model binds the row type of its source class
-    // (tools/cds2ddic.mjs: ty_row includes the SQL view), named this way
-    aliases.set(`${classNameOf("ZCL_STG_CDS_", s.name)}=>TY_ROW`, s.name);
-  }
-  return (structure, field) => {
-    const name = String(structure).toUpperCase();
-    return dates.has(`${aliases.get(name) ?? name}-${String(field).toUpperCase()}`);
-  };
-}
 
 // everything the folder gets: the tree, the registration objects, the
 // classes (generated from the tree by segw-gen, so what SEGW would write)

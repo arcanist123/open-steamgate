@@ -719,8 +719,8 @@
    "reason": "H3, 2026-11-11: eight lines. gen/hana-ddic is generated, not hand-written: ROOT_PACKAGES names its package and rootsOf keeps it non-writable like gen/, and build() hands walkStoreFiles the set of root paths to skip so a folder that is an input of its own (gen/hana-ddic inside gen) is indexed once, as its own layer -- the same nested-input rule the build's filesIn and the transpiler's listFiles got. H4, 2026-11-12: five lines. gen/hana-src/<layer> is generated like gen/ too: rootsOf keeps every child non-writable and pins one package ($STG_HANA_SRC) for the subtree -- the converter's layer names carry the tenant's packages, and the fallback derivation would name them after the zero-padded folder."
   },
   "tools/segw-gen.mjs": {
-   "lines": 1845,
-   "reason": "baseline 2026-10-01"
+   "lines": 1851,
+   "reason": "baseline 2026-10-01; 2026-11-14 (milestone 3 B4) +6, the dateDisplayFormat option: stg-compile's models annotate a date explicitly (a system derives no sap:display-format), the bound structure handed to propertyCode"
   },
   "tools/sqlscript-procedure-ir.mjs": {
    "lines": 1352,
@@ -731,8 +731,8 @@
    "reason": "baseline 2026-10-01"
   },
   "tools/stg-compile.mjs": {
-   "lines": 1053,
-   "reason": "baseline 2026-10-01"
+   "lines": 1055,
+   "reason": "baseline 2026-10-01; 2026-11-14 (milestone 3 B4) +2, the dictionary's dates (osd-ddic-info-registry dictionaryDates) handed to segw-gen"
   },
   "tools/gogen/go/abap/stepconn.go": {
    "lines": 211,
