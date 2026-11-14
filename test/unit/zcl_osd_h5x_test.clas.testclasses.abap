@@ -313,6 +313,7 @@ CLASS ltcl_annotations DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS
     METHODS unicode_as_the_model_says FOR TESTING RAISING cx_static_check.
     METHODS labels_in_the_request_language FOR TESTING RAISING cx_static_check.
     METHODS class_pool_container FOR TESTING RAISING cx_static_check.
+    METHODS accept_language FOR TESTING RAISING cx_static_check.
 
     METHODS metadata
       IMPORTING
@@ -511,6 +512,38 @@ CLASS ltcl_annotations IMPLEMENTATION.
     has( iv_body = element( iv_body  = metadata( )
                             iv_start = `<Property Name="Currency"` )
          iv_text = `sap:label="Currency"` ).
+  ENDMETHOD.
+
+  METHOD accept_language.
+* without sap-language the first tag of Accept-Language; sap-language wins;
+* a wildcard or an unknown language is none
+    DATA lt_options  TYPE tihttpnvp.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_pair     TYPE ihttpnvp.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_pair-name  = 'Accept-Language'.
+    ls_pair-value = 'de-DE,de;q=0.9,en;q=0.8'.
+    APPEND ls_pair TO lt_headers.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_headers = lt_headers )
+                                        exp = 'D' ).
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_metadata
+                                                it_headers = lt_headers ).
+    has( iv_body = element( iv_body  = ls_response-body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Freizugebende Position"` ).
+    ls_pair-name  = 'sap-language'.
+    ls_pair-value = 'EN'.
+    APPEND ls_pair TO lt_options.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_options = lt_options
+                                                                                it_headers = lt_headers )
+                                        exp = 'E' ).
+    CLEAR lt_headers.
+    ls_pair-name  = 'accept-language'.
+    ls_pair-value = '*'.
+    APPEND ls_pair TO lt_headers.
+    cl_abap_unit_assert=>assert_initial( zcl_osd_session_langu=>requested( it_headers = lt_headers ) ).
   ENDMETHOD.
 
   METHOD class_pool_container.

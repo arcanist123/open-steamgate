@@ -58,6 +58,8 @@ import yaml from "js-yaml";
 import {generate} from "./segw-gen.mjs";
 import {AnnotationWriter} from "./stg-compile-annotations.mjs";
 import {loadFunctionGroups} from "./segw-gen-mapping.mjs";
+import {ddicInfo} from "./osd-ddic-info-registry.mjs";
+import {classNameOf} from "./cds-names.mjs";
 import SPEC from "./segw-tables.json" with {type: "json"};
 
 // ------------------------------------------------------------- the model
@@ -847,6 +849,26 @@ const versionedFile = (name, ext) => {
   return name.toLowerCase().replaceAll("/", "#").padEnd(width, " ") + "0001" + ext; // namespace -> `#`, as above
 };
 
+/** The dates of the dictionary below the folders, as segw-gen asks for them:
+ *  (structure, field) -> is the component DATS. A model of this tree shows a
+ *  date as a date by an explicit sap:display-format annotation (a system
+ *  derives none from the dictionary, milestone 3 B4), for an inline `type:
+ *  date` property and for a component of a bound dictionary structure. */
+export function dictionaryDates(folders) {
+  const dates = new Set();
+  const aliases = new Map();
+  for (const s of ddicInfo(folders).structures) {
+    for (const f of s.fields) if (f.datatype === "DATS") dates.add(`${s.name}-${f.fieldname}`);
+    // a published CDS view's model binds the row type of its source class
+    // (tools/cds2ddic.mjs: ty_row includes the SQL view), named this way
+    aliases.set(`${classNameOf("ZCL_STG_CDS_", s.name)}=>TY_ROW`, s.name);
+  }
+  return (structure, field) => {
+    const name = String(structure).toUpperCase();
+    return dates.has(`${aliases.get(name) ?? name}-${String(field).toUpperCase()}`);
+  };
+}
+
 // everything the folder gets: the tree, the registration objects, the
 // classes (generated from the tree by segw-gen, so what SEGW would write)
 export function compile(text, opts = {}) {
@@ -858,7 +880,7 @@ export function compile(text, opts = {}) {
     [versionedFile(m.model, ".iwmo.xml")]: iwmoXml(m),
   };
   const warnings = [];
-  const generated = generate(iwpr, {functionModules: opts.functionModules ?? new Map(), warnings, labelAnnotations: true, ...(opts.generateOptions ?? {})});
+  const generated = generate(iwpr, {functionModules: opts.functionModules ?? new Map(), warnings, labelAnnotations: true, dateDisplayFormat: opts.dates ?? true, ...(opts.generateOptions ?? {})});
   const classes = {...generated.files, ...annotationsClass(m)};
   const ext = {...generated.ext};
   if (m.annotations.length > 0) {
@@ -918,13 +940,14 @@ export function compileAll(root = "src", out = "gen/stg", libs = [], extraRoots 
     .map((file) => [objectOf(file), file]));
   const existing = new Set(existingPaths.keys());
   const functionModules = loadFunctionGroups([...libs, ...roots]);
+  const dates = dictionaryDates(roots);
   const report = [];
   // The configured layer order also applies to models another generator wrote
   // (a CDS view published with @OData.publish, gen/cds/*.stg.yaml).
   const files = winningByLayer(roots, (dir) => walk(dir).filter((p) => p.endsWith(".stg.yaml")),
     (file) => readModel(readFileSync(file, "utf8"), basename(file)).project);
   for (const file of files) {
-    const result = compile(readFileSync(file, "utf8"), {file: basename(file), functionModules});
+    const result = compile(readFileSync(file, "utf8"), {file: basename(file), functionModules, dates});
     const target = join(out, result.model.project.toLowerCase().replaceAll("/", "#"));
     const written = [];
     const kept = [];
@@ -1006,7 +1029,7 @@ export function writeCompiled(result, out) {
 /** Compile one `.stg.yaml` into a folder, the way the command does. */
 export function compileFile(file, out, libs = []) {
   const result = compile(readFileSync(file, "utf8"),
-    {file: basename(file), functionModules: loadFunctionGroups([...libs, dirname(file)])});
+    {file: basename(file), functionModules: loadFunctionGroups([...libs, dirname(file)]), dates: dictionaryDates([...libs, dirname(file)])});
   if (out !== undefined) {
     writeCompiled(result, out);
   }

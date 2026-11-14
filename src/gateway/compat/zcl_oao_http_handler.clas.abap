@@ -394,7 +394,11 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
       WHEN /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-datetime
           OR /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-datetimeoffset.
         lv_facets = | Precision="{ io_property->mv_precision }"|.
-        IF io_property->mv_display_format IS NOT INITIAL.
+* (an explicit display-format annotation of the model is printed with the
+* other annotations; never both)
+        IF io_property->mv_display_format IS NOT INITIAL
+            AND annotation_value( io_annotation = io_property->mo_annotation
+                                  iv_key        = 'display-format' ) IS INITIAL.
           lv_facets = |{ lv_facets } sap:display-format="{ io_property->mv_display_format }"|.
         ENDIF.
       WHEN OTHERS.

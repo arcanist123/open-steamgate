@@ -29,13 +29,6 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         iv_host          TYPE string
       RETURNING
         VALUE(rv_origin) TYPE string.
-* the language a request asks for (sap-language, ISO 'DE' or SAP 'D'),
-* '' when it asks for none or for one this system does not know
-    CLASS-METHODS request_language
-      IMPORTING
-        it_options      TYPE tihttpnvp
-      RETURNING
-        VALUE(rv_langu) TYPE sy-langu.
     CLASS-METHODS run
       IMPORTING
         iv_method          TYPE string
@@ -340,9 +333,10 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
-* sap-language: the request runs in that language and the session's own
-* comes back after it (ZCL_OSD_SESSION_LANGU)
-    lv_langu = request_language( it_options ).
+* sap-language (else Accept-Language): the request runs in that language
+* and the session's own comes back after it (ZCL_OSD_SESSION_LANGU)
+    lv_langu = zcl_osd_session_langu=>requested( it_options = it_options
+                                                 it_headers = it_headers ).
     IF lv_langu IS NOT INITIAL.
       lv_logon = zcl_osd_session_langu=>switch( lv_langu ).
     ENDIF.
@@ -391,34 +385,6 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     IF lv_logon IS NOT INITIAL.
       zcl_osd_session_langu=>switch( lv_logon ).
     ENDIF.
-  ENDMETHOD.
-
-  METHOD request_language.
-    DATA ls_option LIKE LINE OF it_options.
-    DATA lv_value  TYPE string.
-    DATA lv_sap1   TYPE sy-langu.
-
-    LOOP AT it_options INTO ls_option.
-      IF to_lower( ls_option-name ) = 'sap-language'.
-        lv_value = to_upper( condense( ls_option-value ) ).
-      ENDIF.
-    ENDLOOP.
-    CASE strlen( lv_value ).
-      WHEN 1.
-        rv_langu = lv_value.
-      WHEN 2.
-        CALL FUNCTION 'CONVERSION_EXIT_ISOLA_INPUT'
-          EXPORTING
-            input            = lv_value
-          IMPORTING
-            output           = lv_sap1
-          EXCEPTIONS
-            unknown_language = 1
-            OTHERS           = 2.
-        IF sy-subrc = 0.
-          rv_langu = lv_sap1.
-        ENDIF.
-    ENDCASE.
   ENDMETHOD.
 
   METHOD json_response.

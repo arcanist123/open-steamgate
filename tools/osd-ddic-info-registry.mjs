@@ -41,7 +41,7 @@ const parser = new XMLParser({
   ignoreAttributes: true,
   parseTagValue: false,
   trimValues: true,
-  isArray: (name) => ["DD03P", "item", "DD04_TEXTS"].includes(name),
+  isArray: (name) => ["DD03P", "DD27P", "item", "DD04_TEXTS"].includes(name),
 });
 
 function walk(dir, out = []) {
@@ -63,7 +63,7 @@ function walk(dir, out = []) {
     if (stat.isDirectory()) {
       if (entry === "node_modules" || entry.startsWith(".")) continue;
       walk(full, out);
-    } else if (/\.(tabl|dtel|doma)\.xml$/i.test(entry)) {
+    } else if (/\.(tabl|view|dtel|doma)\.xml$/i.test(entry)) {
       out.push(full);
     }
   }
@@ -116,6 +116,18 @@ export function parseDtel(xml) {
   };
 }
 
+/** a database view (cds2ddic writes one per CDS view): {name, view: [{fieldname, tabname, tabfield}]} */
+export function parseView(xml) {
+  const v = valuesOf(xml);
+  const rows = v.DD27P_TABLE?.DD27P ?? [];
+  return {
+    name: text(v.DD25V?.VIEWNAME).toUpperCase(),
+    view: (Array.isArray(rows) ? rows : [rows]).map((r) => ({
+      fieldname: text(r.VIEWFIELD).toUpperCase(), tabname: text(r.TABNAME).toUpperCase(), tabfield: text(r.FIELDNAME).toUpperCase(),
+    })).filter((f) => f.fieldname !== "" && f.tabname !== ""),
+  };
+}
+
 export function parseDoma(xml) {
   const d = valuesOf(xml).DD01V ?? {};
   return {name: text(d.DOMNAME).toUpperCase(), datatype: text(d.DATATYPE).toUpperCase()};
@@ -131,6 +143,9 @@ export function ddicInfo(folders) {
     if (/\.tabl\.xml$/i.test(file)) {
       const t = parseTabl(xml);
       if (t.name) tabls.set(t.name, t);
+    } else if (/\.view\.xml$/i.test(file)) {
+      const t = parseView(xml);
+      if (t.name) tabls.set(t.name, t);
     } else if (/\.dtel\.xml$/i.test(file)) {
       const d = parseDtel(xml);
       if (d.name) dtels.set(d.name, d);
@@ -143,6 +158,24 @@ export function ddicInfo(folders) {
     const t = tabls.get(name);
     if (t === undefined || seen.has(name)) return [];
     seen.add(name);
+    if (t.view !== undefined) {
+      // a view field is its base table's field under the view's name; a
+      // reference field becomes the view field over the base's reference
+      // field (none when the view does not select it)
+      const bases = new Map();
+      const baseOf = (tab) => {
+        if (!bases.has(tab)) bases.set(tab, flat(tab, new Set(seen)));
+        return bases.get(tab);
+      };
+      return t.view.map((v) => {
+        const base = baseOf(v.tabname).find((f) => f.fieldname === v.tabfield);
+        if (base === undefined) return {fieldname: v.fieldname, rollname: "", datatype: "", reftable: "", reffield: ""};
+        const ref = base.reffield === "" ? undefined
+          : t.view.find((w) => w.tabname === v.tabname && w.tabfield === base.reffield);
+        return {fieldname: v.fieldname, rollname: base.rollname, datatype: base.datatype,
+          reftable: ref ? name : "", reffield: ref ? ref.fieldname : ""};
+      });
+    }
     return t.fields.flatMap((f) => (f.include !== undefined ? flat(f.include, seen) : [f]));
   };
   const typeOf = (f) => {

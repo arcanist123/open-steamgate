@@ -1422,6 +1422,9 @@ CLASS ltcl_navigation IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<End Type="ZSTG_DEMO_SRV.Booking" Multiplicity="*" Role="ToRole_TravelToBookings"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<AssociationSet Name="TravelToBookingsSet" Association="ZSTG_DEMO_SRV.TravelToBookings"' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Property Name="FlightDate" Type="Edm.DateTime" Nullable="true" Precision="0"' ) ).
+* the date keeps its display format by the model's own annotation (the
+* Gateway no longer derives one from a DATS component, milestone 3 B4)
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'sap:label="Flight date" sap:creatable="true" sap:updatable="true" sap:sortable="true" sap:filterable="true" sap:display-format="Date"' ) ).
   ENDMETHOD.
 
   METHOD to_many_navigation.
