@@ -66,7 +66,9 @@ describe("tools/amdp-status: the facts a destination gives about itself", () => 
       .to.include({db: "duckdb", driver: false, configured: false, session: "none"});
     expect(await amdpFacts({destination: destination({...settings, password: ""}), client: {name: "duckdb", connected: true}}))
       .to.include({db: "duckdb", driver: true, configured: false});
-    expect(await amdpFacts({destination: undefined, client: undefined})).to.deep.equal({db: "unknown", driver: false, configured: false, session: "none", methods: []});
+    // null, not undefined: an undefined argument takes the default, the running host's own
+    // connection, which a suite booted earlier in the same mocha run leaves behind
+    expect(await amdpFacts({destination: null, client: null})).to.deep.equal({db: "unknown", driver: false, configured: false, session: "none", methods: []});
   });
 
   it("accepts a child's answer only inside the vocabulary", () => {
