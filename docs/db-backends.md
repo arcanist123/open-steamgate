@@ -1552,3 +1552,72 @@ and a GET under both prefixes, 405, the trace with its control (and a copy
 without it failing the check), the bind log; one write added to the boot
 turns it red. `test/gateway-metadata-diff.mjs` covers the diff with two
 synthetic documents.
+
+### The host's two safety nets (milestone 4): tools/hana-host-guard.mjs
+
+A service delivered by somebody else runs in this process, so the host
+promises two more things, both installed by `tools/hana-serve.mjs` before a
+class module of the generation loads (a class constructor runs at load).
+
+**Nothing leaves the box.** The seam is the lowest one the host controls:
+Node's own entry points, patched in this process (`installOutboundGuard`).
+`net.Socket.prototype.connect` is the socket every TCP, TLS, HTTP(S), http2,
+`fetch`, WebSocket and local (unix) socket client connects through; UDP
+`send`/`connect`; every `dns` lookup and resolve (a lookup is a packet, and
+a name can carry data), callback and promise forms and the `Resolver`s;
+`child_process` (all seven, the ESM named exports synced) and
+`worker_threads.Worker`, since a child or a worker has modules nothing here
+patched; `process.binding` for the socket and process bindings; `fetch` and
+`WebSocket` once more to name the URL. Each refuses by throwing
+`OSD_OUTBOUND_REFUSED` before a socket exists, default deny, no allow-list.
+The one exception is the database's own: what the database client opens
+inside its `connect()` (the host wraps it, `asOwnDatabase`) and later
+reconnects to that same endpoint -- which also admits a second client to
+it, such as the AMDP destination's own connection. The class library's HTTP client
+(open-abap-core `CL_HTTP_CLIENT`) is wrapped on top
+(`installHttpClientGuard`) so the refusal reads the way a system without a
+route out says it: `CREATE_BY_URL` and `CREATE_BY_DESTINATION` hand out a
+client (creating one opens nothing; the library's `CREATE_BY_DESTINATION` is
+a todo-assert otherwise), `SEND` raises the classic
+`HTTP_COMMUNICATION_FAILURE` with `GET_LAST_ERROR` naming the refusal, and
+its connect is refused even toward the database's endpoint.
+
+**Every stub raise is seen.** `installStubHook` sets
+`globalThis.osdNotActivated`, which `ZCX_OSD_NOT_ACTIVATED`'s constructor
+calls before any `CATCH` can see the exception; the hook reads the class and
+method off the stack (the first frame in a `*.clas.mjs` that is not the
+exception class). Stubs and refusals land in one record per request
+(`AsyncLocalStorage`), so a provider that swallows either and answers 200
+still leaves its trace. `--stub-trace <file>` writes the record as JSON
+lines, the file created `0600` and truncated per run: a `boot` line first
+(`probe`, the stubbed class constructors' signals from the load, the
+refusals of the boot), then one line per request under `/sap/opu/odata`,
+those refused before the ABAP included: `{method, path, status, stubs:
+[{class, method, reason}], refused: [{kind, target, …}]}`. The record never
+goes into a response header or body. Without the option nothing is kept and
+each event is one stderr line (`not activated: <class>=><method>: <reason>`,
+`hana-serve: refused outbound <kind> <target>`). The boot raises one
+synthetic stub through the loaded exception class and checks that the hook
+saw it -- the positive control; with `--stub-trace` a hook that did not see
+it refuses the start.
+
+What it does not close: native code (a N-API addon or a `process.dlopen`ed
+library opens its own sockets below Node's); raw sockets to the database's
+own endpoint from `@KERNEL` code; a socket opened before the guard went in
+(none of the ABAP's: the generation loads after it); and anything outside
+this process, such as a file the service writes for somebody else to send.
+
+`tools/hana-closure-report.mjs` widened in the same milestone:
+`serviceClasses(root)` reads the island's own registration (the dump facts
+in `gen/hana-segw`, the island's `*.iwsv.xml` / `*.iwmo.xml`, joined as the
+SEGW registry joins them, never by suffix) and follows each registered
+DPC's and MPC's superclass chain through the island (abaplint's class
+definition); given those `services`, `closureSummary` lists per service
+which of its classes carry stubs and applies `--require-unstubbed` to every
+one of them -- a DPC inheriting another service's `_EXT` class, a
+hand-written DPC without a SEGW project. The closure loop
+(`tools/hana-closure.mjs`) does not hand `services` to `closureSummary` yet;
+until it passes `services: serviceClasses(root)`, a run's summary checks the
+seeds as before. Tests: `test/hana-host-guard.mjs`
+(the twin `ZOSD_M4G_SRV`, `test/hana-m4`, with a local listener that must
+receive nothing).

@@ -24,6 +24,7 @@
     "test/hana-ddic-probe.mjs",
     "test/hana-dialect.mjs",
     "test/hana-existing-schema.mjs",
+    "test/hana-host-guard.mjs",
     "test/hana-readonly.mjs",
     "test/hana-shadow-schema.mjs",
     "test/hana-src-gen.mjs",

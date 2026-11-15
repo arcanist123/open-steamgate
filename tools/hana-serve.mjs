@@ -3,7 +3,7 @@
 //
 //   STG_DB=hana HANA_EXISTING_SCHEMA=1 HANA_OWN_SCHEMA=<own> OSD_CLIENT=<client> \
 //     HANA_HOST=... HANA_PORT=... HANA_USER=... HANA_PASSWORD=... HANA_SCHEMA=<tenant> \
-//     [OSD_SQL_TRACE=1] [OSD_BIND=0.0.0.0] node tools/hana-serve.mjs [--port 3040]
+//     [OSD_SQL_TRACE=1] [OSD_BIND=0.0.0.0] node tools/hana-serve.mjs [--port 3040] [--stub-trace <file>]
 //   HANA_OWN_SCHEMA=<own> node tools/hana-serve.mjs --check-trace <trace.ndjson> [--own-schema <own>]
 //
 // --check-trace needs the own schema the host ran with: shadow DDL is
@@ -77,6 +77,18 @@
 // `--client-module <file>` replaces the HANA client with the module's
 // `createClient(options)` -- a fake DatabaseClient for the test
 // (test/hana-serve.mjs); it is said on startup, loudly.
+//
+// Milestone 4 (tools/hana-host-guard.mjs, docs/db-backends.md "The host's
+// two safety nets"): before the generation loads, every outbound network
+// call of this process is refused -- sockets, DNS, child processes,
+// workers, fetch, WebSocket -- except the database client's own connection,
+// and the class library's HTTP client answers SEND with
+// HTTP_COMMUNICATION_FAILURE. Every stub raise (ZCX_OSD_NOT_ACTIVATED,
+// through globalThis.osdNotActivated) and every refusal is recorded per
+// request; `--stub-trace <file>` writes the record as JSON lines (one per
+// request under /sap/opu/odata, a `boot` line for what the load signalled),
+// never into a response. The boot raises one synthetic stub and refuses to
+// start with --stub-trace when the hook did not see it.
 import {existsSync, mkdirSync, realpathSync, rmSync, statSync} from "node:fs";
 import {createServer} from "node:http";
 import {dirname, join, resolve, sep} from "node:path";
@@ -389,7 +401,7 @@ export function parseApps(values = []) {
 
 /** Boot the generation and listen. Returns {server, url, close, stats, bindLog}. */
 export async function serve({root = process.cwd(), port = 3040, clientModule, env = process.env, log = console.log,
-  register = [], apps = []} = {}) {
+  register = [], apps = [], stubTrace} = {}) {
   const refused = refusal(env);
   if (refused !== undefined) throw new Error(refused);
   const {loadDestinations} = await import("./rfc-replay.mjs");
@@ -415,6 +427,9 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   const stats = {statements: 0, writes: []};
   let built = 0;
   let factory;
+  // milestone 4: installed below, before the generation loads; the
+  // database client's connect is the one place a connection may open
+  let guard;
   if (clientModule !== undefined) {
     const mod = await import(pathToFileURL(resolve(root, clientModule)).href);
     log(`hana-serve: DATABASE IS NOT HANA -- the client is createClient() of ${clientModule}`);
@@ -426,6 +441,12 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   globalThis.__osdHanaClientFactory = async (options) => {
     const client = await factory(options);
     countWrites(client, {ownSchema, stats});
+    const connect = client.connect;
+    if (typeof connect === "function") {
+      client.connect = function (...args) {
+        return guard === undefined ? connect.apply(this, args) : guard.asOwnDatabase(() => connect.apply(this, args));
+      };
+    }
     built += 1;
     return client;
   };
@@ -440,6 +461,12 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   // connection keeps the event loop alive. Refuse first, naming the cycle.
   const {assertLoadable} = await import("./osd-generation-check.mjs");
   assertLoadable(output, {log: (m) => console.error(`hana-serve: ${m}`)});
+  // milestone 4: the guard and the stub hook go in before a class module
+  // loads -- a class constructor runs at load and may reach for either
+  const {createHostRecord, installStubHook, installOutboundGuard, installHttpClientGuard, probeStubHook} = await import("./hana-host-guard.mjs");
+  const record = createHostRecord({file: stubTrace === undefined ? undefined : resolve(root, stubTrace)});
+  guard = installOutboundGuard(record);
+  installStubHook(record);
   const from = (file) => import(pathToFileURL(join(output, file)).href);
   const {initializeABAP} = await from("init.mjs");
   const {cl_express_icf_shim} = await from("cl_express_icf_shim.clas.mjs");
@@ -452,6 +479,7 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
 
   await initializeABAP();
   if (built === 0) throw new Error("hana-serve: test/setup.mjs did not build the client through the factory seam -- is STG_DB=hana reaching it?");
+  if (installHttpClientGuard(abap, guard, record).installed !== true) log("hana-serve: the generation has no CL_HTTP_CLIENT; outbound calls stay refused at the socket");
   await dialogStep(() => zcl_stg_segw_registry.register(), "hana-serve: the SEGW registry");
   await dialogStep(() => zcl_stg_shlp_registry.register(), "hana-serve: the search help registry");
   for (const one of register) {
@@ -473,6 +501,18 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   }
   log(`hana-serve: booted over client ${env.OSD_CLIENT}, ${stats.statements} statement(s), 0 writes${traceFile ? `; trace ${traceFile}` : "; trace off (OSD_SQL_TRACE=1)"}`);
 
+  // the stub hook's positive control: one synthetic raise through the
+  // exception class the generation loaded; a trace asked for and a hook
+  // that did not see it is a trace that would read clean and be blind
+  const hookProbe = await probeStubHook(abap, record);
+  if (hookProbe.ok !== true) {
+    if (record.tracing) throw new Error(`hana-serve: refuses to start: ${hookProbe.why} (--stub-trace asked for the trace)`);
+    console.error(`hana-serve: WARNING: ${hookProbe.why}`);
+  }
+  const boot = record.endBoot({probe: hookProbe.ok === true ? "seen" : "missing"});
+  log(`hana-serve: outbound calls refused (sockets, DNS, processes, workers, fetch, WebSocket; the database's own connection excepted); `
+    + `${boot.stubs.length} stub signal(s) at load; stub trace ${record.tracing ? record.file : "off (--stub-trace <file>)"}`);
+
   const {default: express} = await import("express");
   const {listenBound, describeBind, bindHint} = await import("./osd-bind.mjs");
   const app = express();
@@ -489,7 +529,10 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     log(`hana-serve: /app/${one.name}/ is ${resolve(root, one.dir)} (--app)`);
   }
   app.use("/app", mountStatic(rootWebappOf(root, env)));
-  app.all(/^\/sap\/opu\/odata\/[^/]+\/[^/]+/, async (req, res) => {
+  // one record per request, the refusals before the ABAP included: its
+  // line names the status the client got, and nothing of it goes back
+  app.all(/^\/sap\/opu\/odata\/[^/]+\/[^/]+/, (req, res) => record.request({method: req.method, path: req.path}, () => odata(req, res), () => res.statusCode));
+  async function odata(req, res) {
     const client = String(env.OSD_CLIENT);
     const otherClient = clientRefusal({query: req.query, headers: req.headers}, client);
     if (otherClient !== undefined) {
@@ -534,7 +577,7 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
       console.error(`hana-serve: a ${req.method} of ${req.path} asked for ${stats.writes.length - before} write(s): ${stats.writes.slice(before).map((w) => `${w.method} ${w.kind}${w.refused ? ` [refused: ${w.refused}]` : ""}`).join(", ")}`);
     }
     if (/\/\$metadata\/?$/.test(req.path)) log(bindLog.line());
-  });
+  }
   app.all("*", (req, res) => {
     res.status(404).type("text/plain").send("hana-serve answers /sap/opu/odata/<namespace or sap>/<SERVICE>/... and the static files under /app/ only\n");
   });
@@ -548,8 +591,8 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   const url = `http://${address.family === "IPv6" ? `[${address.address}]` : address.address}:${address.port}`;
   log(`hana-serve: listening on ${url}/sap/opu/odata/  (bound to ${describeBind(env)})`);
   if (bindHint(env) !== undefined) log(bindHint(env));
-  const close = () => new Promise((done) => server.close(() => done()));
-  return {server, url, close, stats, bindLog, traceFile};
+  const close = () => new Promise((done) => server.close(() => done())).then(() => guard.uninstall());
+  return {server, url, close, stats, bindLog, traceFile, record};
 }
 
 if (runsAs("hana-serve.mjs")) {
@@ -575,7 +618,7 @@ if (runsAs("hana-serve.mjs")) {
   try {
     const all = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]] : []));
     await serve({port: Number(portFlag ?? process.env.STG_PORT ?? 3040), clientModule: flag("client-module"),
-      register: parseRegistrations(all("register")), apps: parseApps(all("app"))});
+      register: parseRegistrations(all("register")), apps: parseApps(all("app")), stubTrace: flag("stub-trace")});
   } catch (e) {
     console.error(e?.message ?? e);
     process.exit(1);
