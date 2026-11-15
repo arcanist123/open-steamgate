@@ -352,7 +352,9 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
 * a system (M3 oracle: 400, code class/number, the key in the text)
 * an error answer: JSON, or -- for a /$count request that did not ask for
 * JSON -- the XML error document a system answers there (M3 oracle 09-c1:
-* the same code and text, as application/xml)
+* no Accept preference, the same code and text as application/xml). The
+* body follows the format the request asked for: $format, else an Accept
+* naming application/json; a count's usual Accept (text/plain, */*) gets XML
     CLASS-METHODS error_response
       IMPORTING
         iv_status          TYPE i
@@ -361,6 +363,7 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         it_messages        TYPE bapirettab OPTIONAL
         iv_path            TYPE string
         it_options         TYPE tihttpnvp
+        it_headers         TYPE tihttpnvp OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response.
 
@@ -434,13 +437,15 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                       iv_code    = lx_stg->code
                                       iv_message = lx_stg->message
                                       iv_path    = iv_path
-                                      it_options = it_options ).
+                                      it_options = it_options
+                                      it_headers = it_headers ).
       CATCH /iwbep/cx_mgw_not_impl_exc INTO lx_not.
         rs_response = error_response( iv_status  = 501
                                       iv_code    = 'STG/NOT_IMPLEMENTED'
                                       iv_message = |DPC method not implemented: { lx_not->method }|
                                       iv_path    = iv_path
-                                      it_options = it_options ).
+                                      it_options = it_options
+                                      it_headers = it_headers ).
       CATCH /iwbep/cx_mgw_busi_exception INTO lx_busi.
         t100_of( EXPORTING ix_busi    = lx_busi
                  IMPORTING ev_code    = lv_code
@@ -464,13 +469,15 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                       iv_message  = lv_message
                                       it_messages = lt_msg
                                       iv_path     = iv_path
-                                      it_options  = it_options ).
+                                      it_options  = it_options
+                                      it_headers  = it_headers ).
       CATCH /iwbep/cx_mgw_base_exception INTO lx_gateway.
         rs_response = error_response( iv_status  = 500
                                       iv_code    = 'STG/TECHNICAL'
                                       iv_message = lx_gateway->get_text( )
                                       iv_path    = iv_path
-                                      it_options = it_options ).
+                                      it_options = it_options
+                                      it_headers = it_headers ).
       CLEANUP.
         IF lv_logon IS NOT INITIAL.
           zcl_osd_session_langu=>switch( lv_logon ).
@@ -484,6 +491,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
   METHOD error_response.
     DATA lv_path    TYPE string.
     DATA ls_request TYPE zcl_stg_url=>ty_request.
+    DATA ls_header  TYPE ihttpnvp.
 
     rs_response = json_response( iv_status = iv_status
                                  iv_body   = zcl_stg_json=>error( iv_code     = iv_code
@@ -499,11 +507,18 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * $format read as zcl_stg_url reads any option: %24format is $format
     ls_request-options = it_options.
     IF to_lower( zcl_stg_url=>option( is_request = ls_request
-                                      iv_name    = '$format' ) ) NS 'json'.
-      rs_response-content_type = 'application/xml'.
-      rs_response-body = zcl_stg_json=>error_xml( iv_code    = iv_code
-                                                  iv_message = iv_message ).
+                                      iv_name    = '$format' ) ) CS 'json'.
+      RETURN.
     ENDIF.
+* without $format, an Accept that names JSON asks for it
+    LOOP AT it_headers INTO ls_header.
+      IF to_lower( ls_header-name ) = 'accept' AND to_lower( ls_header-value ) CS 'application/json'.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+    rs_response-content_type = 'application/xml'.
+    rs_response-body = zcl_stg_json=>error_xml( iv_code    = iv_code
+                                                iv_message = iv_message ).
   ENDMETHOD.
 
   METHOD t100_of.

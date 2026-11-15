@@ -968,6 +968,13 @@ CLASS ltcl_read IMPLEMENTATION.
 * an error on /$count is the XML error document, same code and text (M3
 * oracle 09-c1); with $format=json it stays JSON
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_header   TYPE ihttpnvp.
+    DATA lt_options  TYPE tihttpnvp.
+    DATA ls_option   TYPE ihttpnvp.
+
+    ls_option-name  = '$filter'.
+    ls_option-value = `ChangedAt ge datetime'2021-01-01T00:00:00'`.
 
     ls_response = get( iv_path  = c_base && '/$count'
                        iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'` ).
@@ -982,6 +989,28 @@ CLASS ltcl_read IMPLEMENTATION.
                        iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'` ).
     has( iv_body = ls_response-body
          iv_text = `"code":"ZOSD_H5X/001"` ).
+* Accept naming application/json asks for JSON; a count's usual Accept
+* (text/plain, */*) keeps the XML
+    CLEAR ls_header.
+    ls_header-name  = 'Accept'.
+    ls_header-value = 'application/json'.
+    APPEND ls_header TO lt_headers.
+    APPEND ls_option TO lt_options.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_base && '/$count'
+                                                it_options = lt_options
+                                                it_headers = lt_headers ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-content_type
+                                        exp = 'application/json' ).
+    CLEAR lt_headers.
+    ls_header-value = '*/*'.
+    APPEND ls_header TO lt_headers.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_base && '/$count'
+                                                it_options = lt_options
+                                                it_headers = lt_headers ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-content_type
+                                        exp = 'application/xml' ).
 * $format=json asked for, its $ encoded or not: JSON on /$count too
     ls_response = get( iv_path  = c_base && '/$count'
                        iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'&%24format=json` ).
