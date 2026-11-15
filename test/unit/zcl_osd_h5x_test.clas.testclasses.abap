@@ -15,6 +15,22 @@ CLASS ltcl_read DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
     METHODS default_sets_in_metadata FOR TESTING RAISING cx_static_check.
     METHODS malformed_option_name FOR TESTING RAISING cx_static_check.
     METHODS client_order_maps_back FOR TESTING RAISING cx_static_check.
+* milestone 3 (B2): single reads, the navigation contract, two-step paths,
+* $expand over them, and the blank-separated dynamic ORDER BY
+    METHODS single_direct_read FOR TESTING RAISING cx_static_check.
+    METHODS single_two_part_key FOR TESTING RAISING cx_static_check.
+    METHODS single_guid_key FOR TESTING RAISING cx_static_check.
+    METHODS nav_source_keys_to_many FOR TESTING RAISING cx_static_check.
+    METHODS nav_source_keys_to_one FOR TESTING RAISING cx_static_check.
+    METHODS nav_step_key_in_abap_names FOR TESTING RAISING cx_static_check.
+    METHODS nav_step_two_part_key FOR TESTING RAISING cx_static_check.
+    METHODS nav_guid_both_ways FOR TESTING RAISING cx_static_check.
+    METHODS nav_two_step_path FOR TESTING RAISING cx_static_check.
+    METHODS expand_navigations FOR TESTING RAISING cx_static_check.
+    METHODS expand_nested FOR TESTING RAISING cx_static_check.
+    METHODS order_two_columns_default FOR TESTING RAISING cx_static_check.
+    METHODS order_two_properties FOR TESTING RAISING cx_static_check.
+    METHODS nav_names_the_source FOR TESTING RAISING cx_static_check.
 
     METHODS get
       IMPORTING
@@ -30,6 +46,14 @@ CLASS ltcl_read DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
       IMPORTING
         iv_body TYPE string
         iv_text TYPE string.
+    METHODS before
+      IMPORTING
+        iv_body   TYPE string
+        iv_first  TYPE string
+        iv_second TYPE string.
+    METHODS ok
+      IMPORTING
+        is_response TYPE zcl_stg_dispatcher=>ty_response.
 ENDCLASS.
 
 CLASS ltcl_read IMPLEMENTATION.
@@ -39,9 +63,67 @@ CLASS ltcl_read IMPLEMENTATION.
     DATA ls_bp TYPE zosd_h5x_bp.
     DATA lt_ad TYPE STANDARD TABLE OF zosd_h5x_ad WITH DEFAULT KEY.
     DATA ls_ad TYPE zosd_h5x_ad.
+    DATA lt_so TYPE STANDARD TABLE OF zosd_h5x_so WITH DEFAULT KEY.
+    DATA ls_so TYPE zosd_h5x_so.
+    DATA lt_soi TYPE STANDARD TABLE OF zosd_h5x_soi WITH DEFAULT KEY.
+    DATA ls_soi TYPE zosd_h5x_soi.
+    DATA lt_ct TYPE STANDARD TABLE OF zosd_h5x_ct WITH DEFAULT KEY.
+    DATA ls_ct TYPE zosd_h5x_ct.
 
     DELETE FROM zosd_h5x_bp.
     DELETE FROM zosd_h5x_ad.
+    DELETE FROM zosd_h5x_so.
+    DELETE FROM zosd_h5x_soi.
+    DELETE FROM zosd_h5x_ct.
+
+* orders name their partner as BUYER_ID: a source key converted against
+* the target finds no field of that name (M3-B0, RC2)
+    ls_so-client = sy-mandt.
+    ls_so-order_id = 'S1'.
+    ls_so-buyer_id = '0000000001'.
+    APPEND ls_so TO lt_so.
+    ls_so-order_id = 'S2'.
+    ls_so-buyer_id = '0000000001'.
+    APPEND ls_so TO lt_so.
+    ls_so-order_id = 'S3'.
+    ls_so-buyer_id = '0000000002'.
+    APPEND ls_so TO lt_so.
+    INSERT zosd_h5x_so FROM TABLE lt_so.
+
+* items out of key order: the default order (two columns) sorts them
+    ls_soi-client = sy-mandt.
+    ls_soi-order_id = 'S2'.
+    ls_soi-item_pos = '0000000010'.
+    ls_soi-note = 'two-ten'.
+    APPEND ls_soi TO lt_soi.
+    ls_soi-order_id = 'S1'.
+    ls_soi-item_pos = '0000000020'.
+    ls_soi-note = 'one-twenty'.
+    APPEND ls_soi TO lt_soi.
+    ls_soi-order_id = 'S3'.
+    ls_soi-item_pos = '0000000010'.
+    ls_soi-note = 'three-ten'.
+    APPEND ls_soi TO lt_soi.
+    ls_soi-order_id = 'S1'.
+    ls_soi-item_pos = '0000000030'.
+    ls_soi-note = 'one-thirty'.
+    APPEND ls_soi TO lt_soi.
+    ls_soi-order_id = 'S1'.
+    ls_soi-item_pos = '0000000010'.
+    ls_soi-note = 'one-ten'.
+    APPEND ls_soi TO lt_soi.
+    INSERT zosd_h5x_soi FROM TABLE lt_soi.
+
+    ls_ct-client = sy-mandt.
+    ls_ct-contact_guid = 'C0FFEE000000400080000000000000A1'.
+    ls_ct-partner_id = '0000000002'.
+    ls_ct-name = 'Carol'.
+    APPEND ls_ct TO lt_ct.
+    ls_ct-contact_guid = 'C0FFEE000000400080000000000000A2'.
+    ls_ct-partner_id = '0000000001'.
+    ls_ct-name = 'Dave'.
+    APPEND ls_ct TO lt_ct.
+    INSERT zosd_h5x_ct FROM TABLE lt_ct.
 
     ls_bp-client = sy-mandt.
     ls_bp-partner_id = '0000000003'.
@@ -112,6 +194,26 @@ CLASS ltcl_read IMPLEMENTATION.
   METHOD lacks.
     cl_abap_unit_assert=>assert_false( act = boolc( iv_body CS iv_text )
                                        msg = |did not expect { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD before.
+    DATA lv_first  TYPE i.
+    DATA lv_second TYPE i.
+
+    FIND iv_first IN iv_body MATCH OFFSET lv_first.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = |expected { iv_first } in { iv_body }| ).
+    FIND iv_second IN iv_body MATCH OFFSET lv_second.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = |expected { iv_second } in { iv_body }| ).
+    cl_abap_unit_assert=>assert_true( act = boolc( lv_first < lv_second )
+                                      msg = |expected { iv_first } before { iv_second } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD ok.
+    cl_abap_unit_assert=>assert_equals( act = is_response-status
+                                        exp = 200
+                                        msg = is_response-body ).
   ENDMETHOD.
 
   METHOD ordered_page_with_address.
@@ -292,6 +394,227 @@ CLASS ltcl_read IMPLEMENTATION.
       act = zcl_stg_odata_client=>orderby_option( it_orderby = lt_orderby
                                                   is_set     = ls_set )
       exp = `PartnerID desc,Address/City asc` ).
+  ENDMETHOD.
+
+  METHOD single_direct_read.
+* a direct single read has no source set: the provider reads the key
+* (without the fix: the set was answered as the source, the provider took
+* its navigation branch with an empty path, 404 without a statement)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000003')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"PartnerID":"0000000003"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Gamma Ltd"` ).
+  ENDMETHOD.
+
+  METHOD single_two_part_key.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet(OrderID='S1',ItemPosition='0000000020')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"one-twenty"` ).
+  ENDMETHOD.
+
+  METHOD single_guid_key.
+* the guid'...' literal is the RAW 16 value of the key
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/ContactSet(guid'c0ffee00-0000-4000-8000-0000000000a1')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Carol"` ).
+  ENDMETHOD.
+
+  METHOD nav_source_keys_to_many.
+* the partner's key converted against the partner, not the order (whose
+* reference field is BUYER_ID): without the fix the source key was dropped
+* and the provider looked for partner ' '
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000001')/ToOrders` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"OrderID":"S1"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"OrderID":"S2"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"OrderID":"S3"` ).
+    ls_response = get( c_base && `('0000000001')/ToOrders/$count` ).
+    ok( ls_response ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = '2' ).
+  ENDMETHOD.
+
+  METHOD nav_source_keys_to_one.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet('S3')/ToPartner` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"PartnerID":"0000000002"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Beta Ltd"` ).
+  ENDMETHOD.
+
+  METHOD nav_step_key_in_abap_names.
+* the step's key_tab is the target's key, ORDER_ID: without the fix it held
+* the source's PartnerID and the provider read order '0000000001'
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000001')/ToOrders('S2')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"OrderID":"S2"` ).
+  ENDMETHOD.
+
+  METHOD nav_step_two_part_key.
+* a two-part target key, read by name (ORDER_ID, ITEM_POS)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet('S1')/ToItems(OrderID='S1',ItemPosition='0000000010')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"one-ten"` ).
+  ENDMETHOD.
+
+  METHOD nav_guid_both_ways.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000002')/ToContacts(guid'c0ffee00-0000-4000-8000-0000000000a1')` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Carol"` ).
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/ContactSet(guid'c0ffee00-0000-4000-8000-0000000000a2')/ToPartner` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"PartnerID":"0000000001"` ).
+  ENDMETHOD.
+
+  METHOD nav_two_step_path.
+* A('k')/ToB('k2')/ToC (without the fix: 400, unsupported resource path);
+* the items of S1 only, in the default two-column order
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000001')/ToOrders('S1')/ToItems` ).
+    ok( ls_response ).
+    before( iv_body   = ls_response-body
+            iv_first  = `"Note":"one-ten"`
+            iv_second = `"Note":"one-twenty"` ).
+    before( iv_body   = ls_response-body
+            iv_first  = `"Note":"one-twenty"`
+            iv_second = `"Note":"one-thirty"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `two-ten` ).
+  ENDMETHOD.
+
+  METHOD expand_navigations.
+* each parent row is the source of its own navigation: values compared,
+* not counts
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$filter=PartnerID eq '0000000002'&$expand=ToOrders,ToContacts` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"ToOrders":{"results":[` ).
+    has( iv_body = ls_response-body
+         iv_text = `"OrderID":"S3"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"OrderID":"S1"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Carol"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Name":"Dave"` ).
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet('S3')`
+                       iv_query = `$expand=ToItems,ToPartner` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"three-ten"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `one-ten` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Name":"Beta Ltd"` ).
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$top=2&$expand=ToOrder` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"ToOrder":{"__metadata"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"BuyerID":"0000000001"` ).
+  ENDMETHOD.
+
+  METHOD expand_nested.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base && `('0000000001')`
+                       iv_query = `$expand=ToOrders/ToItems` ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"one-ten"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Note":"two-ten"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `three-ten` ).
+  ENDMETHOD.
+
+  METHOD order_two_columns_default.
+* the provider's default order is `s~ORDER_ID i~ITEM_POS` (without the fix:
+* SQL refused it, the provider answered a business exception, 400)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$top=3` ).
+    ok( ls_response ).
+    before( iv_body   = ls_response-body
+            iv_first  = `"Note":"one-ten"`
+            iv_second = `"Note":"one-twenty"` ).
+    before( iv_body   = ls_response-body
+            iv_first  = `"Note":"one-twenty"`
+            iv_second = `"Note":"one-thirty"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `two-ten` ).
+  ENDMETHOD.
+
+  METHOD order_two_properties.
+* $orderby of two properties, concatenated with blanks by the provider
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$orderby=OrderID desc,ItemPosition desc&$top=3` ).
+    ok( ls_response ).
+    before( iv_body   = ls_response-body
+            iv_first  = `"Note":"three-ten"`
+            iv_second = `"Note":"two-ten"` ).
+    before( iv_body   = ls_response-body
+            iv_first  = `"Note":"two-ten"`
+            iv_second = `"Note":"one-thirty"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `one-twenty` ).
+  ENDMETHOD.
+
+  METHOD nav_names_the_source.
+* iv_source_name on a navigation read is the source type, as a system
+* passes it (the provider refuses any other name; without the fix the
+* reads passed '' and a provider filtering by it answered every parent's
+* children)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( c_base && `('0000000001')/ToOrders` ).
+    ok( ls_response ).
+    ls_response = get( c_base && `('0000000001')/ToOrders/$count` ).
+    ok( ls_response ).
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderSet('S3')/ToPartner` ).
+    ok( ls_response ).
+    ls_response = get( c_base && `('0000000001')/ToOrders('S1')/ToItems` ).
+    ok( ls_response ).
+    lacks( iv_body = ls_response-body
+           iv_text = `iv_source_name` ).
   ENDMETHOD.
 
 ENDCLASS.

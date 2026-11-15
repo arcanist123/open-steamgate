@@ -166,8 +166,10 @@ Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
     the database without commas. Fixed at the source in the pin
     `local/osd-build-4k` (`abap.dynamicOrderBy`, cherry-picked from the
     milestone-3 branch, tests kept). The same PR as item 15 or one beside
-    it; with the pin, a host-side comma pass (#947's `tools/osd-order-by.mjs`)
-    is no longer needed.
+    it; with the pin, the host-side comma pass (#947's `tools/osd-order-by.mjs`)
+    is removed, and the twin's ORDER BY tests pass through the pin alone.
+    A follow-up on the same pin keeps PRIMARY KEY inside a longer list one
+    item (critic of #954).
 
 ## What we carry, and what we wait for
 

@@ -78,6 +78,8 @@ export class OsdPostgresClient extends PostgresDatabaseClient {
   // handed a text whose UP TO is already rewritten, so its own rewrite can
   // only find one inside a value; when a value holds one, the rows are read
   // here instead, all at once, as the client does inside a transaction.
+  // That branch is a memory trade, not an optimisation: such a cursor holds
+  // its whole result instead of one package at a time.
   async openCursor(options) {
     const select = outsideLiterals(options.select, (s) => s.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1"));
     if (!/ UP TO (\d+) ROWS/i.test(select)) return super.openCursor({...options, select});

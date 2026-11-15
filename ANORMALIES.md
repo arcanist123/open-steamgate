@@ -4781,3 +4781,19 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Upstream issue: one small PR to abaplint/transpiler from a branch inside it (runtime + the four database packages), after a critic pass (docs/upstream.md)
 - Regression-test location: `test/sql-literals.mjs` (every client, the driver channel of HANA and PostgreSQL, the preview console); `ZCL_OSD_H5X_TEST` `ltcl_literals` (`$filter=Name eq '<value>'` through the dispatcher on SQLite); the transpiler's `packages/runtime/test/expand_dynamic.ts`, `sql_literals.ts` and `test/database.ts`
 - Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-dynamic-order-by-blanks -- a dynamic ORDER BY whose columns are separated by blanks reaches SQL without commas
+
+- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4k` 05b8d3b5: `dd8696f6`, runtime `abap.dynamicOrderBy` used by the generated dynamic ORDER BY; a PRIMARY KEY inside a longer list stays one item since the 4k follow-up). The host-side workaround is removed; not upstream
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28b6944e, local/osd-build-4i) and every database client of it
+- Affected ABAP statement, runtime API or adapter: `SELECT ... ORDER BY (lv_order)` with lv_order = `s~so_id i~so_item_pos`, or `a DESCENDING b` -- the form a SEGW-generated sample builds with `CONCATENATE ... SEPARATED BY space` from the technical order
+- Minimal ABAP reproducer: `lv_order = 'name id'. SELECT id name INTO (lv_id, lv_name) FROM zjhead ORDER BY (lv_order). ENDSELECT.` (transpiler test/database.ts "dynamic ORDER BY, columns separated by blanks")
+- Exact command used to run it: the SEGW sample's line-item set over the bed (M3-B0, RC5): HANA error 257 (syntax error near the second column), caught by the sample as `cx_sy_dynamic_osql_*` and answered as a business exception, 400. SQLite answers its own syntax error the same way
+- Expected SAP behaviour: Open SQL accepts columns separated by blanks or by commas in a dynamic ORDER BY, each optionally followed by ASCENDING / DESCENDING; the rows come back in that order
+- Actual open-abap behaviour: the transpiler emits `"ORDER BY " + lv_order` verbatim for a string (a table's rows are joined with ", ", a static clause gets its commas from SQLOrderByTranspiler); the database clients translate ASCENDING / DESCENDING and `~` and insert no comma, so the database sees `ORDER BY s.so_id i.so_item_pos`
+- Impact on open-steamgate: every read of the sample's line-item set (its default order has two columns), every `$orderby` of two properties on the sample's sets, and every path through them: 4 requests on the bed directly, 7 more behind the navigation fixes
+- Smallest safe workaround: none needed with the 4k pin. Until then `tools/osd-order-by.mjs` put the commas into the trailing ORDER BY of a SELECT on its way into any client (installed in `test/setup.mjs`); removed with the pin move (#954), and the ABAP tests below pass through the pin alone
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass (docs/upstream.md item 16)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); the transpiler's `packages/runtime/test/dynamic_order_by.ts` and `test/database.ts` "dynamic ORDER BY, columns separated by blanks" (the cases `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY alone and inside a list)
+- Upstream version containing a fix: unknown

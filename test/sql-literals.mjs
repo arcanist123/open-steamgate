@@ -9,7 +9,7 @@ import {FileSqliteClient} from "../tools/sqlite-file-client.mjs";
 import {SQLiteDatabaseClient} from "../tools/sqlite-heap-client.mjs";
 import {OsdPostgresClient} from "../tools/postgres-client.mjs";
 import {rewritePreview} from "../tools/adt-single-select.mjs";
-import {readQuery} from "../web/preview-runtime.mjs";
+import {openSqlToSql} from "../tools/osd-data.mjs";
 
 // A literal in a statement is a value, for every rewrite after the escaper
 // as well (ANORMALIES.md, "SQL literals re-read as statement text"). Each
@@ -127,6 +127,18 @@ describe("SQL literals stay verbatim: no rewrite reads inside a quoted literal",
 
   describe("HANA (the driver channel, a stand-in driver)", () => {
     afterEach(giveBackHdb);
+    // connect() writes sy-mandt and sy-dbsys on whatever runtime this process
+    // has loaded; a later file in the same process must find them unchanged
+    let saved;
+    before(() => {
+      const sy = globalThis.abap?.builtin?.sy?.get?.();
+      saved = sy === undefined ? undefined : {sy, mandt: sy.mandt?.get(), dbsys: sy.dbsys?.get()};
+    });
+    after(() => {
+      if (saved === undefined) return;
+      saved.sy.mandt?.set(saved.mandt);
+      saved.sy.dbsys?.set(saved.dbsys);
+    });
     const fakeHdb = () => {
       const sent = [];
       const require = createRequire(import.meta.url);
@@ -189,8 +201,21 @@ describe("SQL literals stay verbatim: no rewrite reads inside a quoted literal",
     });
   });
 
+  describe("the ADT SQL console (osd-data)", () => {
+    it("reads UP TO off the code, not off a value", () => {
+      expect(openSqlToSql("SELECT name FROM zt WHERE name = 'x up to 1 rows'"))
+        .to.equal("SELECT name FROM zt WHERE name = 'x up to 1 rows'");
+      expect(openSqlToSql("SELECT name FROM zt WHERE name = 'x up to 1 rows' UP TO 3 ROWS"))
+        .to.equal("SELECT name FROM zt WHERE name = 'x up to 1 rows' LIMIT 3");
+    });
+  });
+
   describe("the browser preview's SQL console", () => {
     it("reads UP TO off the code, not off a value", async () => {
+      // the preview pins the global Date when it loads; a test in the same
+      // process keeps the real clock (as test/osd-data.mjs does)
+      globalThis.__stgPreviewFreezeTime = false;
+      const {readQuery} = await import("../web/preview-runtime.mjs");
       const seen = [];
       const client = {select: async ({select}) => { seen.push(select); return {rows: []}; }};
       await readQuery(client, "SELECT name FROM t WHERE name = 'x up to 1 rows'", 50);

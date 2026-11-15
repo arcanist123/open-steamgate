@@ -11,7 +11,7 @@
 // second one beside it: OSD has exactly one system, and a read through the
 // façade sees what a program running inside sees.
 import {singleSelect, selectSQLiteOne} from './adt-single-select.mjs';
-import {abapSelectToSql} from './osd-sql-literals.mjs';
+import {abapSelectToSql, outsideLiterals} from './osd-sql-literals.mjs';
 import {existsSync} from "node:fs";
 import {join} from "node:path";
 import {runsAs} from "./osd-main.mjs";
@@ -50,11 +50,11 @@ export function openSqlToSql(text) {
       out = keyword + list.trim().split(/\s+/).join(", ") + from + out.slice(head[0].length);
     }
   }
-  const upTo = /\s+up\s+to\s+(\d+)\s+rows\b/i.exec(out);
-  if (upTo !== null) {
-    out = out.replace(upTo[0], "") + ` LIMIT ${upTo[1]}`;
-  }
-  return out;
+  // UP TO is read off the code, never off a value: 'x up to 1 rows' is data
+  return outsideLiterals(out, (code) => {
+    const upTo = /\s+up\s+to\s+(\d+)\s+rows\b/i.exec(code);
+    return upTo ? code.replace(upTo[0], "") + ` LIMIT ${upTo[1]}` : code;
+  });
 }
 
 export class Data {
