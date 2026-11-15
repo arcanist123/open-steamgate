@@ -53,6 +53,7 @@ import * as abaplint from "@abaplint/core";
 import {loadFiles, loadLibs} from "./osd-transpile.mjs";
 import {excludePatterns, layers} from "./osd-inputs.mjs";
 import {orderRegistry} from "./osd-warm-order.mjs";
+import {searchHelpReferences} from "./hana-closure-shlp.mjs";
 
 const ST = abaplint.ScopeType;
 const UnknownType = abaplint.BasicTypes.UnknownType;
@@ -252,7 +253,7 @@ export function analyseObject(reg, filename) {
   // (top-down, so the declaring scope wins the level)
   let spaghetti;
   try {
-    spaghetti = new abaplint.SyntaxLogic(reg, obj).run().spaghetti;
+    spaghetti = result.scope = new abaplint.SyntaxLogic(reg, obj).run().spaghetti; // the one pass, kept for the search-help scan
   } catch {
     // no scope result: the statement carriers below still stand
     spaghetti = undefined;
@@ -383,7 +384,8 @@ export function analyseObject(reg, filename) {
 export function references(reg, filename) {
   const analysis = analyseObject(reg, filename);
   const base = baseName(filename);
-  return (analysis?.perFile.get(base)?.unknowns ?? []).map((u) => ({
+  // + the search helps the object hands to the /IWBEP/ API by name (kind shlp)
+  return [...(analysis?.perFile.get(base)?.unknowns ?? []).map((u) => ({
     name: u.name, kind: u.kind, line: u.line, level: u.level,
     ...(u.method !== undefined ? {method: u.method} : {}),
     ...(u.via !== undefined ? {via: u.via} : {}),
@@ -391,7 +393,7 @@ export function references(reg, filename) {
     ...(u.fix !== undefined ? {fix: u.fix} : {}),
     ...(u.var !== undefined ? {var: u.var} : {}),
     ...(u.reason !== undefined ? {reason: u.reason} : {}),
-  }));
+  })), ...searchHelpReferences(reg, filename, analysis === undefined ? undefined : {spaghetti: analysis.scope})];
 }
 
 const rangeRows = (from, to) => {
@@ -454,7 +456,7 @@ export function analyseIsland({reg, root, classPaths}) {
     }
     const object = analysis.object;
     const record = {object, file: mainPath.slice(root.length + 1), kind: analysis.kind,
-      files: [...entry.files], ...merged};
+      files: [...entry.files], ...merged, scope: analysis.scope};
     objects.push(record);
     byObject.set(object, record);
   }
