@@ -35,6 +35,9 @@ import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 import * as abaplint from "@abaplint/core";
 import {parseSearchHelp, parseView} from "./segw-shlp.mjs";
+// the tables a conversion exit reads through a dynamic FROM, asked beside the
+// helps (the iterator takes both from here)
+export {conversionExitAsks} from "./hana-closure-convexit.mjs";
 
 const E = abaplint.Expressions;
 

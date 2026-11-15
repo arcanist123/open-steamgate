@@ -484,6 +484,7 @@ CLASS ${className} IMPLEMENTATION.
 
   METHOD zif_oao_shlp_source~select.
     DATA lv_where TYPE string.
+    DATA lv_rows TYPE i.
     FIELD-SYMBOLS <lt_rows> TYPE ty_rows.
 
     CREATE DATA rr_rows TYPE ty_rows.
@@ -492,9 +493,15 @@ CLASS ${className} IMPLEMENTATION.
     IF lv_where IS INITIAL.
       lv_where = '1 = 1'.
     ENDIF.
+* at most iv_maxrows rows in the key order, before the provider sorts them
+    lv_rows = iv_maxrows.
+    IF lv_rows <= 0.
+      lv_rows = zcl_oao_shlp_ddic=>c_all_rows.
+    ENDIF.
     SELECT ${select.join("\n           ")}
 ${from.join("\n")}
       INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
+      UP TO lv_rows ROWS
 ${whereLine}
       ORDER BY ${order.join(" ")}.
   ENDMETHOD.
@@ -578,6 +585,13 @@ export function shlpRegistryClass(helps, {dict, className = "zcl_stg_shlp_regist
     }
     if (h.texttab !== "") {
       opts.push(`iv_texttab   = ${q(h.texttab)}`);
+    }
+    // a one-table help: its key fields, the order of a row-limited read
+    // (ORDER BY PRIMARY KEY over a dynamic FROM is dropped by this runtime)
+    const plain = source?.className === undefined && h.selmethod !== "" ? dict?.table(h.selmethod) : undefined;
+    const keys = (plain?.fields ?? []).filter((f) => f.key).map((f) => f.name.toLowerCase());
+    if (keys.length > 0 && keys.every((k) => validName(k.toUpperCase()))) {
+      opts.push(`iv_order_by  = ${q(keys.join(" "))}`);
     }
     if (source?.className) {
       joined = true;

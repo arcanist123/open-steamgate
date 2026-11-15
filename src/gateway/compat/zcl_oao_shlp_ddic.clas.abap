@@ -11,7 +11,12 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
 * a literal default value restricts its field when the request does not.
 * Values stay in internal form, as the search help runtime answers them
 * (a conversion exit is the OData property's business), but the hit list
-* is sorted by the external form of a list field that has a sort exit:
+* is read first and sorted afterwards, as the system's search help runtime
+* does: at most iv_maxrows rows (the generated DPC passes $top + $skip when
+* $top is set, 0 otherwise) in the selection's key order, then -- iv_sort
+* set -- those rows alone sorted; a page is not a slice of the sorted whole
+* list (M3 oracle, all seven table helps' first pages). The sort takes the
+* external form of a list field that has a sort exit:
 * the system answers a unit help view with a unit whose English form is a
 * sign first, before the letters, where its internal key sorts among them
 * (M3 oracle 02-12a; the language help, by contrast, comes in the order of
@@ -38,6 +43,9 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
     DATA mv_selmethod  TYPE string READ-ONLY.
     DATA mv_selmexit   TYPE string READ-ONLY.
     DATA mv_texttab    TYPE string READ-ONLY.
+* the key fields of a one-table selection method, blank-separated, in key
+* order: the order the read takes before a row limit
+    DATA mv_order_by   TYPE string READ-ONLY.
     DATA mt_parameters TYPE ty_parameters READ-ONLY.
     DATA mo_source     TYPE REF TO zif_oao_shlp_source READ-ONLY.
 
@@ -47,6 +55,7 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
         iv_selmethod   TYPE csequence OPTIONAL
         iv_selmexit    TYPE csequence OPTIONAL
         iv_texttab     TYPE csequence OPTIONAL
+        iv_order_by    TYPE csequence OPTIONAL
         io_source      TYPE REF TO zif_oao_shlp_source OPTIONAL
       RETURNING
         VALUE(ro_shlp) TYPE REF TO zcl_oao_shlp_ddic.
@@ -91,6 +100,8 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
         it_selopt        TYPE ddshselops
       RETURNING
         VALUE(rt_selopt) TYPE ddshselops.
+* the row limit that reads every row (UP TO 0 ROWS would read none here)
+    CONSTANTS c_all_rows TYPE i VALUE 2147483647.
   PRIVATE SECTION.
     TYPES: BEGIN OF ty_sorted,
              key   TYPE string,
@@ -121,6 +132,7 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
     ro_shlp->mv_selmethod = to_upper( iv_selmethod ).
     ro_shlp->mv_selmexit  = to_upper( iv_selmexit ).
     ro_shlp->mv_texttab   = to_upper( iv_texttab ).
+    ro_shlp->mv_order_by  = to_lower( iv_order_by ).
     ro_shlp->mo_source    = io_source.
   ENDMETHOD.
 
@@ -299,6 +311,7 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
     DATA lv_record   TYPE i.
     DATA ls_result   LIKE LINE OF et_return_list.
     DATA ls_selopt   TYPE ddshselopt.
+    DATA lv_rows     TYPE i.
     FIELD-SYMBOLS <lt_rows>  TYPE STANDARD TABLE.
     FIELD-SYMBOLS <ls_row>   TYPE any.
     FIELD-SYMBOLS <lv_value> TYPE any.
@@ -329,8 +342,9 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
     lv_where = where_clause( with_defaults( it_selopt ) ).
 
     IF mo_source IS BOUND.
-      lr_rows = mo_source->select( iv_where = lv_where
-                                   iv_langu = sy-langu ).
+      lr_rows = mo_source->select( iv_where   = lv_where
+                                   iv_langu   = sy-langu
+                                   iv_maxrows = iv_maxrows ).
       ASSIGN lr_rows->* TO <lt_rows>.
     ELSE.
       CREATE DATA lr_rows TYPE STANDARD TABLE OF (mv_selmethod).
@@ -338,17 +352,37 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
       IF lv_where IS INITIAL.
         lv_where = '1 = 1'.
       ENDIF.
-      SELECT * FROM (mv_selmethod)
-        INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
-        WHERE (lv_where)
-        ORDER BY PRIMARY KEY.
+* the row limit of the read, before any sort; 0 is no limit, which the
+* SQL adapters here would read as LIMIT 0 (ANORMALIES
+* 2026-11-15-up-to-zero-rows)
+      lv_rows = iv_maxrows.
+      IF lv_rows <= 0.
+        lv_rows = c_all_rows.
+      ENDIF.
+* the key order by name: ORDER BY PRIMARY KEY over a dynamic FROM is
+* dropped here (ANORMALIES 2026-11-15-order-by-primary-key-dynamic), and a
+* row limit without an order is any rows
+      IF mv_order_by IS NOT INITIAL.
+        SELECT * FROM (mv_selmethod)
+          INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
+          UP TO lv_rows ROWS
+          WHERE (lv_where)
+          ORDER BY (mv_order_by).
+      ELSE.
+        SELECT * FROM (mv_selmethod)
+          INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
+          UP TO lv_rows ROWS
+          WHERE (lv_where)
+          ORDER BY PRIMARY KEY.
+      ENDIF.
     ENDIF.
     IF <lt_rows> IS INITIAL.
       RETURN.
     ENDIF.
 
-* sort by the list fields, each in its external form when it has a sort
-* exit, then cut to iv_maxrows
+* the rows read, sorted by the list fields when iv_sort is set -- each in
+* its external form when it has a sort exit; a stable sort, so rows equal
+* in their list fields keep the key order of the read
     LOOP AT <lt_rows> ASSIGNING <ls_row>.
       CLEAR ls_sorted.
       ls_sorted-index = sy-tabix.
@@ -366,7 +400,7 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
       APPEND ls_sorted TO lt_sorted.
     ENDLOOP.
     IF iv_sort = abap_true.
-      SORT lt_sorted BY key.
+      SORT lt_sorted STABLE BY key.
     ENDIF.
 
     LOOP AT lt_sorted INTO ls_sorted.

@@ -412,10 +412,14 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lt_msg     TYPE bapirettab.
     DATA lv_logon   TYPE c LENGTH 1.
     DATA lv_langu   TYPE c LENGTH 1.
+    DATA lx_table   TYPE REF TO zcx_osd_conv_table.
 
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
+* one request, one read of a language's units for every conversion it
+* makes (ZCL_OSD_CUNIT: the cache lives as long as the request)
+    zcl_osd_cunit=>scope_begin( ).
 * sap-language (else Accept-Language): the request runs in that language
 * and the session's own comes back after it (ZCL_OSD_SESSION_LANGU)
     lv_langu = zcl_osd_session_langu=>requested( it_options = it_options
@@ -478,11 +482,22 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                       iv_path    = iv_path
                                       it_options = it_options
                                       it_headers = it_headers ).
+* a property's conversion exit whose table this system lacks: an error,
+* never the unconverted value (which would be a silently wrong answer)
+      CATCH zcx_osd_conv_table INTO lx_table.
+        rs_response = error_response( iv_status  = 500
+                                      iv_code    = 'OSD/CONVERSION_TABLE'
+                                      iv_message = lx_table->get_text( )
+                                      iv_path    = iv_path
+                                      it_options = it_options
+                                      it_headers = it_headers ).
       CLEANUP.
+        zcl_osd_cunit=>scope_end( ).
         IF lv_logon IS NOT INITIAL.
           zcl_osd_session_langu=>switch( lv_logon ).
         ENDIF.
     ENDTRY.
+    zcl_osd_cunit=>scope_end( ).
     IF lv_logon IS NOT INITIAL.
       zcl_osd_session_langu=>switch( lv_logon ).
     ENDIF.

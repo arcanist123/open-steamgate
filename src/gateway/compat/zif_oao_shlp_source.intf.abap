@@ -4,10 +4,13 @@ INTERFACE zif_oao_shlp_source PUBLIC.
 * object). A generated class answers the rows of the join, one component
 * per search help field, and the column each field is read from, so the
 * selection options of a request can be written against the join.
+* iv_maxrows: at most that many rows, the first in the join's key order;
+* 0 is every row
   METHODS select
     IMPORTING
       iv_where       TYPE string
       iv_langu       TYPE sy-langu
+      iv_maxrows     TYPE i DEFAULT 0
     RETURNING
       VALUE(rr_rows) TYPE REF TO data.
 
