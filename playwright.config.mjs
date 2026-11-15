@@ -20,7 +20,10 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
   },
-  webServer: {
+  // OSD_E2E_BASE_URL: a spec run by hand against a host somewhere else
+  // (test/e2e/h5x-app.spec.mjs on a bed, docs/hana-milestone-3.md) needs no
+  // gateway of its own
+  webServer: process.env.OSD_E2E_BASE_URL ? undefined : {
     command: "node test/run.mjs",
     // CRUD suites must not reuse the developer's persistent default DB.
     // Explicit adapter selection is retained for targeted backend checks.

@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's local annotations over the twin service (test/hana-m2,
+     ZOSD_H5X_APP_SRV): which columns, which filter fields, which sections.
+     The rule of this file: NO label of a property. No Common.Label, no
+     DataField Label: every column header and field label is the service's
+     sap:label in $metadata, so a label the service lacks is a header that
+     shows the property name, and test/e2e/h5x-app.spec.mjs fails on it.
+     The service is read-only on this host, so the sets are not insertable,
+     updatable or deletable here whatever $metadata says: a Create button that
+     answers 405 is a lie on screen. -->
+<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+  <edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/UI.xml">
+    <edmx:Include Namespace="com.sap.vocabularies.UI.v1" Alias="UI"/>
+  </edmx:Reference>
+  <edmx:Reference Uri="https://oasis-tcs.github.io/odata-vocabularies/vocabularies/Org.OData.Capabilities.V1.xml">
+    <edmx:Include Namespace="Org.OData.Capabilities.V1" Alias="Capabilities"/>
+  </edmx:Reference>
+  <edmx:DataServices>
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="osd.h5x.annotations">
+      <Annotations Target="ZOSD_H5X.Partner">
+        <Annotation Term="UI.HeaderInfo">
+          <Record Type="UI.HeaderInfoType">
+            <PropertyValue Property="TypeName" String="Partner"/>
+            <PropertyValue Property="TypeNamePlural" String="Partners"/>
+            <PropertyValue Property="Title">
+              <Record Type="UI.DataField">
+                <PropertyValue Property="Value" Path="Name"/>
+              </Record>
+            </PropertyValue>
+            <PropertyValue Property="Description">
+              <Record Type="UI.DataField">
+                <PropertyValue Property="Value" Path="PartnerID"/>
+              </Record>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+        <Annotation Term="UI.SelectionFields">
+          <Collection>
+            <PropertyPath>PartnerID</PropertyPath>
+            <PropertyPath>Name</PropertyPath>
+          </Collection>
+        </Annotation>
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField">
+              <PropertyValue Property="Value" Path="PartnerID"/>
+            </Record>
+            <Record Type="UI.DataField">
+              <PropertyValue Property="Value" Path="Name"/>
+            </Record>
+          </Collection>
+        </Annotation>
+        <!-- the address is a complex property: a V2 list report's table leaves
+             a complex path out of its columns (and out of $select), so it is
+             shown on the object page only -->
+        <Annotation Term="UI.FieldGroup" Qualifier="General">
+          <Record Type="UI.FieldGroupType">
+            <PropertyValue Property="Data">
+              <Collection>
+                <Record Type="UI.DataField">
+                  <PropertyValue Property="Value" Path="PartnerID"/>
+                </Record>
+                <Record Type="UI.DataField">
+                  <PropertyValue Property="Value" Path="Address/City"/>
+                </Record>
+                <Record Type="UI.DataField">
+                  <PropertyValue Property="Value" Path="Address/Country"/>
+                </Record>
+                <Record Type="UI.DataField">
+                  <PropertyValue Property="Value" Path="ChangedAt"/>
+                </Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+        <Annotation Term="UI.Facets">
+          <Collection>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="General"/>
+              <PropertyValue Property="Label" String="General"/>
+              <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#General"/>
+            </Record>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="Orders"/>
+              <PropertyValue Property="Label" String="Orders"/>
+              <PropertyValue Property="Target" AnnotationPath="ToOrders/@UI.LineItem"/>
+            </Record>
+          </Collection>
+        </Annotation>
+      </Annotations>
+      <Annotations Target="ZOSD_H5X.Order">
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField">
+              <PropertyValue Property="Value" Path="OrderID"/>
+            </Record>
+            <Record Type="UI.DataField">
+              <PropertyValue Property="Value" Path="BuyerID"/>
+            </Record>
+          </Collection>
+        </Annotation>
+      </Annotations>
+      <Annotations Target="ZOSD_H5X.ZOSD_H5X_Entities/PartnerSet">
+        <Annotation Term="Capabilities.InsertRestrictions">
+          <Record><PropertyValue Property="Insertable" Bool="false"/></Record>
+        </Annotation>
+        <Annotation Term="Capabilities.UpdateRestrictions">
+          <Record><PropertyValue Property="Updatable" Bool="false"/></Record>
+        </Annotation>
+        <Annotation Term="Capabilities.DeleteRestrictions">
+          <Record><PropertyValue Property="Deletable" Bool="false"/></Record>
+        </Annotation>
+      </Annotations>
+      <Annotations Target="ZOSD_H5X.ZOSD_H5X_Entities/OrderSet">
+        <Annotation Term="Capabilities.InsertRestrictions">
+          <Record><PropertyValue Property="Insertable" Bool="false"/></Record>
+        </Annotation>
+        <Annotation Term="Capabilities.UpdateRestrictions">
+          <Record><PropertyValue Property="Updatable" Bool="false"/></Record>
+        </Annotation>
+        <Annotation Term="Capabilities.DeleteRestrictions">
+          <Record><PropertyValue Property="Deletable" Bool="false"/></Record>
+        </Annotation>
+      </Annotations>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
