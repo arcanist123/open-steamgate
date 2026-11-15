@@ -13,14 +13,14 @@ CLASS zcl_osd_cx_mpc IMPLEMENTATION.
   METHOD define.
     DATA lv_exit TYPE string.
     io_property->set_conversion_exit( 'CUNIT' ).
-    CALL METHOD io_property->set_conversion_exit EXPORTING iv_conv_exit = 'CUNIT'.
+    CALL METHOD io_property->set_conversion_exit EXPORTING iv_other = 'ALPHA' iv_conv_exit = 'CUNIT'.
     io_property->set_conversion_exit( 'ALPHA' ).
     io_property->set_conversion_exit( lv_exit ).
   ENDMETHOD.
 ENDCLASS.
 `;
 const PROPERTY = `INTERFACE zif_osd_cx_property PUBLIC.
-  METHODS set_conversion_exit IMPORTING iv_conv_exit TYPE string.
+  METHODS set_conversion_exit IMPORTING iv_conv_exit TYPE string iv_other TYPE string OPTIONAL.
 ENDINTERFACE.
 `;
 

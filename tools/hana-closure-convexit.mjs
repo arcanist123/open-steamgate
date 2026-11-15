@@ -42,6 +42,18 @@ export const EXIT_TABLES = {
 };
 
 const METHOD = "SET_CONVERSION_EXIT";
+const PARAMETER = "IV_CONV_EXIT";
+
+/** the ParameterS nodes of one call, without descending into a nested call */
+function parametersOf(node, out = []) {
+  for (const child of node.getChildren?.() ?? []) {
+    const k = kindOf(child);
+    if (k === "MethodCall" || k === "MethodCallChain") continue;
+    if (k === "ParameterS") out.push(child);
+    else parametersOf(child, out);
+  }
+  return out;
+}
 
 function literalText(str) {
   const s = String(str);
@@ -68,7 +80,14 @@ export function conversionExitCalls(obj) {
       }
       for (const call of calls) {
         if (up(call.name).split("~").pop() !== METHOD) continue;
-        const constant = call.node.findFirstExpression(E.Constant);
+        // a named call: the exit parameter's own value, never another
+        // parameter's constant; a positional call: its one argument
+        const named = parametersOf(call.node);
+        const source = named.length > 0
+          ? named.find((p) => up(p.findDirectExpression(E.ParameterName)?.concatTokens()) === PARAMETER)?.findDirectExpression(E.Source)
+          : call.node;
+        const only = source?.getChildren?.().length === 1 ? source.getChildren()[0] : undefined;
+        const constant = named.length > 0 ? (only !== undefined && kindOf(only) === "Constant" ? only : undefined) : source?.findFirstExpression(E.Constant);
         const text = constant === undefined ? undefined : literalText(constant.getFirstToken().getStr());
         if (text !== undefined && text.trim() !== "") out.push({exit: up(text).trim(), line: st.getStart().getRow()});
       }
@@ -112,8 +131,10 @@ export function conversionExitAsks(reg, objects, root, sourceOf = (file) => read
       for (const d of declared) {
         if (tables.has(d.constant + d.class) === false) tables.set(d.constant + d.class, declaredTable(sourceOf(d.file), d));
         const table = tables.get(d.constant + d.class);
-        if (seen.has(table) === true) continue;
-        seen.add(table);
+        // once per exit and table: a second exit reading the same table keeps
+        // its own finding
+        if (seen.has(`${call.exit}|${table}`) === true) continue;
+        seen.add(`${call.exit}|${table}`);
         asks.push({name: table, kind: "tabl",
           finding: `structural: conversion exit ${call.exit} set in ${o.object} (line ${call.line}) reads ${table} (${d.class}=>${d.constant})`});
       }

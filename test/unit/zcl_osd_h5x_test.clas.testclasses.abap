@@ -1107,6 +1107,11 @@ CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS 
     METHODS skip_page_reads_top_and_skip FOR TESTING RAISING cx_static_check.
     METHODS no_sort_keeps_key_order FOR TESTING RAISING cx_static_check.
     METHODS units_read_once_per_request FOR TESTING RAISING cx_static_check.
+* $top / $skip: request-controlled numbers that reach a row limit
+    METHODS paging_must_be_a_count FOR TESTING RAISING cx_static_check.
+    METHODS top_zero_is_an_empty_page FOR TESTING RAISING cx_static_check.
+    METHODS paging_at_the_cap FOR TESTING RAISING cx_static_check.
+    METHODS inlinecount_is_the_page FOR TESTING RAISING cx_static_check.
     METHODS missing_unit_table_is_an_error FOR TESTING RAISING cx_static_check.
     METHODS unit
       IMPORTING
@@ -1446,6 +1451,98 @@ CLASS ltcl_value_help IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_cunit=>reads( ) - lv_reads
                                         exp = 1
                                         msg = 'a key in, a unit out, one read' ).
+  ENDMETHOD.
+
+  METHOD paging_must_be_a_count.
+* OData V2: $top and $skip are non-negative integers; anything else, and a
+* value beyond the cap, is a 400 -- never a row limit (a negative or a
+* huge one read every row, or overflowed top + skip in the generated DPC)
+    DATA lt_query    TYPE string_table.
+    DATA lv_query    TYPE string.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    APPEND `$top=-1` TO lt_query.
+    APPEND `$top=abc` TO lt_query.
+    APPEND `$top=1.5` TO lt_query.
+    APPEND `$top=99999999999` TO lt_query.
+    APPEND `$top=1000000001` TO lt_query.
+    APPEND `$skip=-5` TO lt_query.
+    APPEND `$skip=x` TO lt_query.
+    APPEND `$top=5&$skip=1000000001` TO lt_query.
+    LOOP AT lt_query INTO lv_query.
+      ls_response = get( iv_path  = 'VH_UnitSet'
+                         iv_query = lv_query ).
+      cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                          exp = 400
+                                          msg = |{ lv_query }: { ls_response-body }| ).
+      has( iv_body = ls_response-body
+           iv_text = `"code":"STG/BAD_PAGING"` ).
+    ENDLOOP.
+    ls_response = get( iv_path  = 'PartnerSet'
+                       iv_query = `$top=-1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+  ENDMETHOD.
+
+  METHOD top_zero_is_an_empty_page.
+* $top=0 asks for no row, on a business set and on a value help alike (a
+* provider reads a top of 0 as "no limit": every row came back)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=0` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$top=0&$skip=1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+    ls_response = get( iv_path  = 'PartnerSet'
+                       iv_query = `$top=0` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+  ENDMETHOD.
+
+  METHOD paging_at_the_cap.
+* the largest $top and $skip together still fit the generated DPC's sum
+* (lv_max_hits = top + skip, a 4-byte integer): the read answers, empty
+* beyond the twelve rows
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=1000000000&$skip=1000000000` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=1000000000&sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = units( ls_response-body )
+                                        exp = `\"|A1|AU|BAG|BT|G|KG|KT|TO|UG|XA|XC` ).
+  ENDMETHOD.
+
+  METHOD inlinecount_is_the_page.
+* PINNED, NOT MEASURED: $inlinecount=allpages on a value-help set with
+* $top answers the page's size (the generated DPC counts nothing, the
+* dispatcher counts the rows it got). What a system answers here is not
+* measured; this pins today's answer so a change is a decision
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=2&$inlinecount=allpages` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `{"d":{"__count":"2",` ).
   ENDMETHOD.
 
   METHOD missing_unit_table_is_an_error.

@@ -417,9 +417,6 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
-* one request, one read of a language's units for every conversion it
-* makes (ZCL_OSD_CUNIT: the cache lives as long as the request)
-    zcl_osd_cunit=>scope_begin( ).
 * sap-language (else Accept-Language): the request runs in that language
 * and the session's own comes back after it (ZCL_OSD_SESSION_LANGU)
     lv_langu = zcl_osd_session_langu=>requested( it_options = it_options
@@ -428,6 +425,10 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
       lv_logon = zcl_osd_session_langu=>switch( lv_langu ).
     ENDIF.
     TRY.
+* one request, one read of a language's units for every conversion it
+* makes (ZCL_OSD_CUNIT: the cache lives as long as the request); begun
+* inside the TRY, so nothing before it can leave a scope open
+        zcl_osd_cunit=>scope_begin( ).
         rs_response = run( iv_method  = iv_method
                            iv_path    = iv_path
                            it_options = it_options
@@ -1079,6 +1080,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 
   METHOD current_etag.
     DATA lr_entity TYPE REF TO data.
+    DATA lx_table  TYPE REF TO zcx_osd_conv_table.
     FIELD-SYMBOLS <ls_data> TYPE any.
 
     TRY.
@@ -1092,6 +1094,10 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
             io_tech_request_context = io_context
           IMPORTING
             er_entity               = lr_entity ).
+* a conversion exit without its table is the request's error, not "no
+* ETag": it goes on to the dispatcher's 500
+      CATCH zcx_osd_conv_table INTO lx_table.
+        RAISE EXCEPTION lx_table.
       CATCH cx_root.
         RETURN.
     ENDTRY.
@@ -1407,17 +1413,12 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     check_select( is_request = is_request
                   is_set     = is_set ).
 
-    lv_value = zcl_stg_url=>option( is_request = is_request
-                                    iv_name    = '$top' ).
-    IF lv_value IS NOT INITIAL.
-      ro_context->mv_top = lv_value.
-    ENDIF.
-
-    lv_value = zcl_stg_url=>option( is_request = is_request
-                                    iv_name    = '$skip' ).
-    IF lv_value IS NOT INITIAL.
-      ro_context->mv_skip = lv_value.
-    ENDIF.
+* $top / $skip checked where they become numbers (400 for anything but a
+* non-negative integer within the cap)
+    ro_context->set_paging( iv_top  = zcl_stg_url=>option( is_request = is_request
+                                                           iv_name    = '$top' )
+                            iv_skip = zcl_stg_url=>option( is_request = is_request
+                                                           iv_name    = '$skip' ) ).
 
     lv_value = zcl_stg_url=>option( is_request = is_request
                                     iv_name    = '$inlinecount' ).
@@ -1569,6 +1570,12 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
         lv_count = |{ lines( <lt_data> ) }|.
         CONDENSE lv_count NO-GAPS.
       ENDIF.
+    ENDIF.
+
+* $top=0 asks for no row; a provider reads a top of 0 as "no limit", so
+* the page is emptied here, after any count above
+    IF lo_context->mv_top_zero = abap_true AND <lt_data> IS ASSIGNED.
+      CLEAR <lt_data>.
     ENDIF.
 
     IF <lt_data> IS ASSIGNED AND lt_expand IS NOT INITIAL.
