@@ -132,7 +132,7 @@ export function layersDdicCount(layersDirs) {
  *  fill's who-is-missing and the iteration line's resolved-vs-written
  *  counts. Pure. */
 export function ddicWritten(root) {
-  const names = {TABL: new Set(), DTEL: new Set(), DOMA: new Set(), TTYP: new Set()};
+  const names = {TABL: new Set(), DTEL: new Set(), DOMA: new Set(), TTYP: new Set(), SHLP: new Set(), VIEW: new Set()};
   const walk = (dir) => {
     let entries;
     try {
@@ -144,7 +144,7 @@ export function ddicWritten(root) {
     for (const entry of entries) {
       if (entry.isDirectory()) walk(join(dir, entry.name));
       else {
-        const ddic = /^([^.]+)\.(tabl|dtel|doma|ttyp)\.xml$/.exec(entry.name);
+        const ddic = /^([^.]+)\.(tabl|dtel|doma|ttyp|shlp|view)\.xml$/.exec(entry.name);
         if (ddic !== null) {
           names[ddic[2].toUpperCase()].add(ddic[1].replace(/^#([^#]+)#/, "/$1/").toUpperCase());
         }

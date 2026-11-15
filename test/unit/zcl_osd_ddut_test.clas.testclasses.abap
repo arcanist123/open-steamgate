@@ -10,7 +10,7 @@ CLASS ltcl_domvalues DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS F
     METHODS values_and_texts_in_e FOR TESTING RAISING cx_static_check.
     METHODS texts_in_d FOR TESTING RAISING cx_static_check.
     METHODS default_language_is_sy_langu FOR TESTING RAISING cx_static_check.
-    METHODS unknown_domain_raises FOR TESTING RAISING cx_static_check.
+    METHODS unknown_domain_is_empty FOR TESTING RAISING cx_static_check.
     METHODS initial_name_raises FOR TESTING RAISING cx_static_check.
     METHODS domain_without_texts FOR TESTING RAISING cx_static_check.
     METHODS texts_only_skips_untexted FOR TESTING RAISING cx_static_check.
@@ -158,15 +158,22 @@ CLASS ltcl_domvalues IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = joined( lt_values ) exp = joined( lt_explicit ) ).
   ENDMETHOD.
 
-  METHOD unknown_domain_raises.
+  METHOD unknown_domain_is_empty.
+* measured on a system 2026-11-14: unknown domain -> empty, no exception
+* (both TEXTS_ONLY modes)
     DATA lv_subrc TYPE sysubrc.
     DATA lt_values TYPE ty_values.
     read( EXPORTING iv_name = 'ZOSD_DDUT_NOPE' iv_langu = 'E' IMPORTING ev_subrc = lv_subrc et_values = lt_values ).
-    cl_abap_unit_assert=>assert_equals( act = lv_subrc exp = 1 ).
+    cl_abap_unit_assert=>assert_equals( act = lv_subrc exp = 0 ).
+    cl_abap_unit_assert=>assert_initial( lt_values ).
+    read( EXPORTING iv_name = 'ZOSD_DDUT_NOPE' iv_langu = 'E' iv_texts_only = ' '
+      IMPORTING ev_subrc = lv_subrc et_values = lt_values ).
+    cl_abap_unit_assert=>assert_equals( act = lv_subrc exp = 0 ).
     cl_abap_unit_assert=>assert_initial( lt_values ).
   ENDMETHOD.
 
   METHOD initial_name_raises.
+* unmeasured: kept from the documented exception text
     DATA lv_subrc TYPE sysubrc.
     read( EXPORTING iv_name = '' iv_langu = 'E' IMPORTING ev_subrc = lv_subrc ).
     cl_abap_unit_assert=>assert_equals( act = lv_subrc exp = 1 ).
