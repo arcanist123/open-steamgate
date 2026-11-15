@@ -2,11 +2,11 @@ import {expect} from "chai";
 import {spawn} from "node:child_process";
 import {createRequire} from "node:module";
 import {HanaDatabaseClient} from "../tools/hana-client.mjs";
-import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
-import {checkTrace, countWrites, isShadowDdl, refusal, rfcRefusal, TRACE_PROBE_SQL} from "../tools/hana-serve.mjs";
+import {batchParts, batchRefusal, checkTrace, clientRefusal, countWrites, isShadowDdl, parseApps, parseRegistrations, refusal, rfcRefusal, runtimeText, staticFile, TRACE_PROBE_SQL} from "../tools/hana-serve.mjs";
 import {installBindStructureLog} from "../tools/osd-bind-structure-log.mjs";
 import {installSqlTrace, readTrace} from "../tools/osd-sql-trace.mjs";
 
@@ -21,12 +21,22 @@ import {installSqlTrace, readTrace} from "../tools/osd-sql-trace.mjs";
 //   - $metadata and a GET under /sap/opu/odata/sap/ AND under a namespace
 //     prefix, answered by the ABAP request path, the entries naming the
 //     prefix they were read under;
-//   - 405 for anything but GET;
+//   - 405 for anything but GET, HEAD and a $batch of GETs; a $batch with
+//     any other part refused whole, before the ABAP;
+//   - HEAD answered like the GET (a CSRF fetch gets its token), no body;
+//   - another sap-client than OSD_CLIENT refused with 400;
+//   - the static files of webapp/ under /app/;
 //   - a boot that writes nothing (the fake would throw; the host counts);
 //   - OSD_SQL_TRACE=1 writes a trace that carries its positive control,
 //     and --check-trace fails one that does not.
 // Mutation, measured when this was written: one write added to the boot
 // (a db.insert after the registry) and this suite goes red at "boots".
+// Mutation (milestone 3 fix round), measured: the realpath containment in
+// staticFile removed -> the symlink cases of "serves a static file only
+// from inside the mount's real path" and of the live --app mount go red.
+// Mutation (milestone 3), measured: the batchRefusal check in serve()
+// removed -> "refuses a $batch with a POST part ... before the ABAP" goes
+// red (the batch is answered and its GET part reached the database).
 const root = fileURLToPath(new URL("..", import.meta.url));
 const output = join(root, "output");
 const tool = join(root, "tools", "hana-serve.mjs");
@@ -278,6 +288,103 @@ describe("bind_structure made loud (tools/osd-bind-structure-log.mjs)", () => {
   });
 });
 
+describe("hana-serve: one client, GET-only $batch (the pure parts)", () => {
+  const batch = (parts, boundary = "batch_1") => `${parts.map((p) => `--${boundary}\r\n${p}`).join("")}--${boundary}--\r\n`;
+  const get = (url) => `Content-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\nGET ${url} HTTP/1.1\r\nAccept: application/json\r\n\r\n\r\n`;
+  const post = (url) => `Content-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\nPOST ${url} HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}\r\n`;
+  const changeset = (inner) => `Content-Type: multipart/mixed; boundary=changeset_1\r\n\r\n${batch([inner], "changeset_1")}\r\n`;
+  const type = "multipart/mixed; boundary=batch_1";
+
+  it("refuses another client, by URL option or header, and lets this one and none through", () => {
+    expect(clientRefusal({query: {}}, "100")).to.equal(undefined);
+    expect(clientRefusal({query: {"sap-client": "100"}}, "100")).to.equal(undefined);
+    expect(clientRefusal({query: {"sap-client": ""}}, "100")).to.equal(undefined);
+    expect(clientRefusal({query: {"sap-client": "200"}}, "100")).to.match(/serves client 100 only .* sap-client=200/);
+    expect(clientRefusal({query: {"sap-client": ["100", "200"]}}, "100")).to.match(/sap-client=200/);
+    expect(clientRefusal({headers: {"sap-client": "999"}}, "100")).to.match(/sap-client=999/);
+    expect(clientRefusal({headers: {cookie: "a=1; sap-client=200"}}, "100")).to.match(/sap-client=200/);
+    expect(clientRefusal({headers: {cookie: "a=1; SAP-CLIENT=100"}}, "100")).to.equal(undefined);
+  });
+
+  it("reads the parts of a batch, a changeset as one part", () => {
+    expect(batchParts(type, batch([get("PartnerSet?$top=2"), get("PartnerSet/$count")]))).to.deep.equal([
+      {changeset: false, type: "application/http", method: "GET", url: "PartnerSet?$top=2", headers: {accept: "application/json"}},
+      {changeset: false, type: "application/http", method: "GET", url: "PartnerSet/$count", headers: {accept: "application/json"}},
+    ]);
+    expect(batchParts(type, batch([changeset(post("PartnerSet"))])).map((p) => p.changeset)).to.deep.equal([true]);
+    expect(batchParts("multipart/mixed", "")).to.equal(undefined);
+    // a quoted boundary, LF line ends
+    expect(batchParts("multipart/mixed; boundary=\"b q\"", "--b q\nContent-Type: application/http\n\nGET A HTTP/1.1\n\n--b q--\n")).to.deep.equal([
+      {changeset: false, type: "application/http", method: "GET", url: "A", headers: {}},
+    ]);
+  });
+
+  it("admits a batch of GETs only: a POST part, a changeset, no part or no boundary refuse the whole", () => {
+    expect(batchRefusal(type, batch([get("PartnerSet?$top=2"), get("PartnerSet/$count")]), "100")).to.equal(undefined);
+    expect(batchRefusal(type, batch([get("PartnerSet"), post("PartnerSet")]), "100")).to.deep.equal({status: 405, message: "hana-serve is read-only: part 2 of this $batch is POST, not GET; the whole batch is refused"});
+    expect(batchRefusal(type, batch([changeset(get("PartnerSet"))]), "100").message).to.match(/part 1 of this \$batch is a changeset/);
+    expect(batchRefusal(type, "--batch_1--\r\n", "100")).to.deep.equal({status: 400, message: "hana-serve: a $batch without a part"});
+    expect(batchRefusal("application/json", "{}", "100").status).to.equal(400);
+    expect(batchRefusal(type, batch([get("PartnerSet?sap-client=200")]), "100")).to.deep.include({status: 400});
+    // a part's own headers: another client, a method override
+    const withHeader = (name, value) => `Content-Type: application/http\r\n\r\nGET PartnerSet HTTP/1.1\r\n${name}: ${value}\r\n\r\n\r\n`;
+    expect(batchRefusal(type, batch([withHeader("SAP-CLIENT", "200")]), "100")).to.deep.include({status: 400});
+    expect(batchRefusal(type, batch([withHeader("Cookie", "sap-client=200")]), "100")).to.deep.include({status: 400});
+    expect(batchRefusal(type, batch([withHeader("sap-client", "100")]), "100")).to.equal(undefined);
+    for (const name of ["X-HTTP-Method", "X-HTTP-Method-Override"]) {
+      expect(batchRefusal(type, batch([withHeader(name, "DELETE")]), "100").message).to.match(/carries x-http-method/);
+    }
+    // an absolute part URL stays inside the batched service
+    const own = "/sap/opu/odata/sap/ZOSD_H5X_APP_SRV";
+    expect(batchRefusal(type, batch([get("PartnerSet")]), "100", own)).to.equal(undefined);
+    expect(batchRefusal(type, batch([get(`${own}/PartnerSet`)]), "100", own)).to.equal(undefined);
+    expect(batchRefusal(type, batch([get("/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$top=1")]), "100", own).message).to.match(/outside the batched service/);
+    expect(batchRefusal(type, batch([get(`${own}X/PartnerSet`)]), "100", own).status).to.equal(400);
+    expect(batchRefusal(type, batch([get("http://elsewhere/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet")]), "100", own).status).to.equal(400);
+  });
+
+  it("serves a static file only from inside the mount's real path, never a dotfile", () => {
+    const top = mkdtempSync(join(tmpdir(), "hana-serve-static-"));
+    try {
+      const mount = join(top, "mount");
+      mkdirSync(join(mount, "sub"), {recursive: true});
+      writeFileSync(join(mount, "index.html"), "in");
+      writeFileSync(join(mount, "sub", "a.json"), "{}");
+      writeFileSync(join(mount, ".secret"), "dot");
+      writeFileSync(join(top, "outside.txt"), "SECRET");
+      symlinkSync(join(top, "outside.txt"), join(mount, "escape.txt"));
+      symlinkSync(top, join(mount, "up"));
+      symlinkSync(join(mount, "sub", "a.json"), join(mount, "inner.json"));
+      expect(staticFile(mount, "/index.html")).to.match(/index\.html$/);
+      expect(staticFile(mount, "/sub/a.json")).to.match(/a\.json$/);
+      // a symlink that stays inside is followed
+      expect(staticFile(mount, "/inner.json")).to.match(/sub.a\.json$/);
+      // out of the mount: refused, by file and by directory link
+      expect(staticFile(mount, "/escape.txt")).to.equal(undefined);
+      expect(staticFile(mount, "/up/outside.txt")).to.equal(undefined);
+      // dotfiles, dot segments, encodings, NUL, directories, nothing
+      for (const rel of ["/.secret", "/../outside.txt", "/%2e%2e/outside.txt", "/sub/%2E%2E/%2E%2E/outside.txt", "/index.html%00", "/sub", "/", "/%zz"]) {
+        expect(staticFile(mount, rel), rel).to.equal(undefined);
+      }
+    } finally {
+      rmSync(top, {recursive: true, force: true});
+    }
+  });
+
+  it("says what a runtime error was, an ABAP exception without a message included", () => {
+    expect(runtimeText(new Error("boom"))).to.equal("boom");
+    class cx_sy_dynamic_osql_semantics {}
+    expect(runtimeText(new cx_sy_dynamic_osql_semantics())).to.equal("CX_SY_DYNAMIC_OSQL_SEMANTICS raised and not caught");
+  });
+
+  it("parses --register and --app", () => {
+    expect(parseRegistrations(["zosd_x_srv=ZCL_X_MPC,zcl_x_dpc"])).to.deep.equal([{service: "ZOSD_X_SRV", mpc: "ZCL_X_MPC", dpc: "ZCL_X_DPC"}]);
+    expect(() => parseRegistrations(["ZOSD_X_SRV=ZCL_X_MPC"])).to.throw(/--register takes/);
+    expect(parseApps(["bed=../private/app"])).to.deep.equal([{name: "bed", dir: "../private/app"}]);
+    expect(() => parseApps(["../x"])).to.throw(/--app takes/);
+  });
+});
+
 describe("hana-serve over a fake DatabaseClient", function () {
   this.timeout(180000);
   let child;
@@ -285,18 +392,26 @@ describe("hana-serve over a fake DatabaseClient", function () {
   let lines = [];
   let dir;
   let traceFile;
+  let fakeLog;
 
   before(async function () {
     if (!existsSync(join(output, "init.mjs"))) this.skip();
     dir = mkdtempSync(join(tmpdir(), "hana-serve-"));
     traceFile = join(dir, "trace.ndjson");
+    fakeLog = join(dir, "fake.log");
+    // an --app mount with a symlink pointing out of it
+    mkdirSync(join(dir, "bed"));
+    writeFileSync(join(dir, "bed", "index.html"), "bed page");
+    writeFileSync(join(dir, "bed", ".hidden"), "dot");
+    writeFileSync(join(dir, "outside.txt"), "OUTSIDE-SECRET");
+    symlinkSync(join(dir, "outside.txt"), join(dir, "bed", "escape.txt"));
     const env = {...process.env};
     for (const name of ["STG_DB", "STG_SQL_TRACE", "STG_DB_TRACE", "OSD_HANA_WRITE", "STG_DB_FRESH", "OSD_BIND", "STG_TABLE_PROXY", "STG_RFC_PROXY"]) delete env[name];
     Object.assign(env, {
       HANA_EXISTING_SCHEMA: "1", OSD_CLIENT: "100", HANA_SCHEMA: "OSDB3TENANT", HANA_OWN_SCHEMA: "OSDB3OWN",
-      OSD_SQL_TRACE: "1", OSD_SQL_TRACE_FILE: traceFile, OSD_OUTPUT: output,
+      OSD_SQL_TRACE: "1", OSD_SQL_TRACE_FILE: traceFile, OSD_OUTPUT: output, FAKE_CLIENT_LOG: fakeLog,
     });
-    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs"],
+    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs", "--app", `bed=${join(dir, "bed")}`],
       {cwd: root, env, stdio: ["ignore", "pipe", "pipe"]});
     base = await new Promise((resolve, reject) => {
       const take = (chunk) => {
@@ -365,8 +480,97 @@ describe("hana-serve over a fake DatabaseClient", function () {
     expect(answer.err).to.match(/refuses outbound RFC destinations: ZOSD_B3_OUT \(live\)/);
   });
 
+  const demoReads = () => (existsSync(fakeLog) ? readFileSync(fakeLog, "utf8").split("\n").filter((l) => l === "select zstg_demo").length : 0);
+  const boundary = "batch_b6";
+  const batchOf = (parts) => `${parts.map((p) => `--${boundary}\r\n${p}`).join("")}--${boundary}--\r\n`;
+  const getPart = (url) => `Content-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\nGET ${url} HTTP/1.1\r\nAccept: application/json\r\n\r\n\r\n`;
+  const postBatch = (body) => fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch`, {method: "POST", headers: {"content-type": `multipart/mixed; boundary=${boundary}`, "x-csrf-token": "open-steamgate"}, body});
+
+  it("answers HEAD with a CSRF fetch like the ordinary server: the token, no body", async () => {
+    const answer = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/`, {method: "HEAD", headers: {"x-csrf-token": "Fetch"}});
+    expect(answer.status).to.equal(200);
+    expect(answer.headers.get("x-csrf-token")).to.equal("open-steamgate");
+    expect(await answer.text()).to.equal("");
+    const set = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet`, {method: "HEAD"});
+    expect(set.status).to.equal(200);
+  });
+
+  it("answers a $batch whose parts are all GETs, through the ABAP", async () => {
+    const before = demoReads();
+    const answer = await postBatch(batchOf([getPart("TravelSet?$top=1&$format=json"), getPart("TravelSet/$count")]));
+    expect(answer.status).to.equal(202);
+    const text = await answer.text();
+    expect(text.match(/HTTP\/1\.1 200/g)?.length).to.equal(2);
+    expect(text).to.contain("T0101");
+    expect(demoReads()).to.be.greaterThan(before);
+  });
+
+  it("refuses a $batch with a POST part or a changeset whole, before the ABAP", async () => {
+    const before = demoReads();
+    const post = `Content-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\nPOST TravelSet HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{"TravelId":"T0999"}\r\n`;
+    const mixed = await postBatch(batchOf([getPart("TravelSet?$top=1"), post]));
+    expect(mixed.status).to.equal(405);
+    expect((await mixed.json()).error).to.deep.include({code: "OSD/READ_ONLY"});
+    const changeset = `Content-Type: multipart/mixed; boundary=cs_b6\r\n\r\n--cs_b6\r\n${post}--cs_b6--\r\n\r\n`;
+    const cs = await postBatch(batchOf([getPart("TravelSet?$top=1"), changeset]));
+    expect(cs.status).to.equal(405);
+    // the GET part beside it never ran: the database saw no read of it
+    expect(demoReads()).to.equal(before);
+  });
+
+  it("answers a GET function import as a read and refuses a POST one before the ABAP", async () => {
+    // TravelCount is the demo's GET import (a SELECT COUNT); CancelTravel
+    // writes and is a POST, refused by the method rule, never dispatched
+    const count = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelCount?Status='A'&$format=json`);
+    expect(count.status).to.equal(200);
+    const before = demoReads();
+    const cancel = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/CancelTravel?TravelId='T0101'`, {method: "POST", headers: {"x-csrf-token": "open-steamgate"}});
+    expect(cancel.status).to.equal(405);
+    const inBatch = `Content-Type: application/http\r\n\r\nPOST CancelTravel?TravelId='T0101' HTTP/1.1\r\n\r\n\r\n`;
+    expect((await postBatch(batchOf([inBatch]))).status).to.equal(405);
+    expect(demoReads()).to.equal(before);
+  });
+
+  it("refuses a method override on a request or in a batch part, and a part outside the service", async () => {
+    const override = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet`, {headers: {"x-http-method": "DELETE"}});
+    expect(override.status).to.equal(405);
+    const before = demoReads();
+    const part = `Content-Type: application/http\r\n\r\nGET TravelSet?$top=1 HTTP/1.1\r\nX-HTTP-Method-Override: MERGE\r\n\r\n\r\n`;
+    expect((await postBatch(batchOf([part]))).status).to.equal(405);
+    const elsewhere = await postBatch(batchOf([getPart("/sap/opu/odata/sap/ZSTG_SADL_SRV/SomeSet")]));
+    expect(elsewhere.status).to.equal(400);
+    expect(demoReads()).to.equal(before);
+  });
+
+  it("refuses another sap-client with 400 and answers its own", async () => {
+    const other = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json&sap-client=200`);
+    expect(other.status).to.equal(400);
+    expect((await other.json()).error).to.deep.include({code: "OSD/CLIENT"});
+    const header = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json`, {headers: {"sap-client": "999"}});
+    expect(header.status).to.equal(400);
+    const cookie = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json`, {headers: {cookie: "sap-client=200"}});
+    expect(cookie.status).to.equal(400);
+    const part = `Content-Type: application/http\r\n\r\nGET TravelSet?$top=1 HTTP/1.1\r\nSAP-CLIENT: 200\r\n\r\n\r\n`;
+    expect((await postBatch(batchOf([part]))).status).to.equal(400);
+    const own = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json&sap-client=100`);
+    expect(own.status).to.equal(200);
+  });
+
+  it("serves the static files of webapp/ under /app/, and an --app mount without following a symlink out of it", async () => {
+    const manifest = await fetch(`${base}/app/h5x/manifest.json`);
+    expect(manifest.status).to.equal(200);
+    expect((await manifest.json())["sap.app"].id).to.equal("osd.h5x");
+    expect((await fetch(`${base}/app/h5x/none.json`)).status).to.equal(404);
+    expect((await fetch(`${base}/app/bed/index.html`)).status).to.equal(200);
+    expect(await (await fetch(`${base}/app/bed/index.html`)).text()).to.equal("bed page");
+    const escape = await fetch(`${base}/app/bed/escape.txt`);
+    expect(escape.status).to.equal(404);
+    expect(await escape.text()).not.to.contain("OUTSIDE-SECRET");
+    expect((await fetch(`${base}/app/bed/.hidden`)).status).to.equal(404);
+  });
+
   it("refuses anything but GET with 405, before the ABAP", async () => {
-    for (const method of ["POST", "PUT", "PATCH", "DELETE", "MERGE"]) {
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "MERGE", "OPTIONS"]) {
       const answer = await fetch(`${base}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet`, {method, body: method === "DELETE" ? undefined : "{}"});
       expect(answer.status, method).to.equal(405);
     }

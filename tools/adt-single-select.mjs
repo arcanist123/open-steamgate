@@ -1,3 +1,5 @@
+import {abapSelectToSql} from "./osd-sql-literals.mjs";
+
 // Validate before opening a preview fence or forwarding SQL to another process.
 // Delimiters inside SQL strings, identifiers and comments are not statements.
 export function singleSelect(sql, refuse) {
@@ -50,10 +52,7 @@ export function singleSelect(sql, refuse) {
 }
 
 export function rewritePreview(sql) {
-  return sql.replace(/ ORDER BY PRIMARY KEY/i, '').replace(/ ASCENDING/ig, ' ASC')
-    .replace(/ DESCENDING/ig, ' DESC').replace(/~/g, '.')
-    .replace(/\bLEFT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, 'substr($1, 1, $2)')
-    .replace(/\bRIGHT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, 'substr($1, -$2)');
+  return abapSelectToSql(sql, {upTo: false, limitZero: false, substr: true});
 }
 
 // SQLite's cursor uses prepare; singleSelect has already checked its tail.

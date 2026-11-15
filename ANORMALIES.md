@@ -4780,6 +4780,24 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: the transpiler's unit tests above; `test/generation-check.mjs` (0 cycles)
 - Upstream version containing a fix: unknown
 
+### ANOMALY-2026-11-14-sql-literals-statement-text -- SQL literals re-read as statement text after the escaper
+
+- Status: `fixed in the pin` (runtime and database packages: oisee/transpiler `local/osd-build-4k`) and `workaround` (the clients this tree owns and the two published clients it extends: `tools/osd-sql-literals.mjs`)
+- Discovery date: `2026-11-14` (security review of the `$filter` path, finding 3)
+- Affected versions: the runtime's `expandDynamic` up to oisee/transpiler 28a3c53a; `@abaplint/database-sqlite` 2.13.83 and `@abaplint/database-pg` 2.11.83 `select()`/`openCursor()`; this tree's HANA, DuckDB, DuckDB-wasm, SQLite-file and PostgreSQL clients, the ADT data preview and the browser preview's SQL console
+- Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE (lv_where)` (and `HAVING (lv)`), and every SELECT a client rewrites (static ones too)
+- Minimal ABAP reproducer: `lv_where = 'name = ''a~b'''. SELECT * FROM t INTO TABLE lt WHERE (lv_where).` against a table holding `a~b` and `a.b`
+- Exact command used to run it: the twin service `ZOSD_H5X_SRV` through `zcl_stg_dispatcher=>dispatch` on SQLite, the final SQL read off `sqlite.exec`; `test/sql-literals.mjs`; the transpiler's `test/database.ts` "literals in a dynamic WHERE are data"
+- Expected SAP behaviour: a literal is a value; nothing inside the quotes changes the statement
+- Actual open-abap behaviour: three layers ran regular expressions over the whole statement, literals included, after the gateway's escaper had done its job. Measured (condition from the gateway -> SQL sent):
+  `NAME = 'a~b'` -> `b.NAME = 'a.b'`; `NAME = 'A EQ B'` -> `'A = B'`; `NAME = 'x DESCENDING'` -> `'x DESC'`; `NAME = 'x LIMIT 0'` -> `'x'`; `BUYER_ID = 'x UP TO 9 ROWS'` -> `= 'x' ... LIMIT 9` (a row limit the value chose); with `ne` the excluded row came back. In a dynamic WHERE, `expandDynamic` substituted field symbols inside literals: with an assigned character-like `<fs>` holding `OR 1 = 1 OR NAME =`, `NAME = 'q <fs> r'` became `NAME = 'q 'OR 1 = 1 OR NAME =' r'` (a literal split open into SQL); an unassigned one named in a value was a JS `TypeError` no `CATCH` sees. Its `(?:(\w+) IN)?` step was quadratic: a 10 000-character literal took 95 ms, 100 000 took 9.7 s, 200 000 took 42.6 s, holding the one work process.
+- Impact on open-steamgate: a client-chosen value changed the predicate or appended a LIMIT; conditional injection where a DPC has an assigned field symbol in scope of its SELECT; one long `$filter` (in a `$batch` body, no header limit) stopped every other request
+- The fix: literals are found once and masked; every rewrite runs on the code only, and the literals go back byte for byte. In the runtime (`packages/runtime/src/sql_literals.ts`, `splitLiterals`/`outsideLiterals`): `expandDynamic` substitutes and rewrites EQ outside literals only, sends an Open SQL backtick literal on single-quoted, raises `CX_SY_DYNAMIC_OSQL_SEMANTICS` for an unassigned field symbol (or a missing component) outside a literal, and finds a `field IN` before a match by walking back, linear (200 000 characters: under 10 ms); the four database packages run their rewrites through the same function (a copy per package, held identical by a test, until a runtime release can carry it to them). Here: `tools/osd-sql-literals.mjs` (`abapSelectToSql`), used by every client; `tools/sqlite-heap-client.mjs` and `tools/postgres-client.mjs` replace the published `select()`/`openCursor()`, which rewrite and run in one method; `trimLiterals` reads the same scanner.
+- Smallest safe workaround: the pin plus `tools/osd-sql-literals.mjs`; binding values as parameters would be stronger, but the runtime hands a client one SQL text with the values inlined, so masking is what each layer can do
+- Upstream issue: one small PR to abaplint/transpiler from a branch inside it (runtime + the four database packages), after a critic pass (docs/upstream.md)
+- Regression-test location: `test/sql-literals.mjs` (every client, the driver channel of HANA and PostgreSQL, the preview console); `ZCL_OSD_H5X_TEST` `ltcl_literals` (`$filter=Name eq '<value>'` through the dispatcher on SQLite); the transpiler's `packages/runtime/test/expand_dynamic.ts`, `sql_literals.ts` and `test/database.ts`
+- Upstream version containing a fix: unknown
+
 ### ANOMALY-2026-11-14-textpool-absent -- a class's text pool is not there at run time
 
 - Status: `workaround`
@@ -4873,9 +4891,10 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: the overlay `src/gateway/compat/zcl_oao_shlp_ddic.clas.abap` + `zif_oao_shlp_source.intf.abap` (compat README), reading through the join class `tools/segw-shlp.mjs` generates
 - Upstream issue: one small PR to open-abap-odata after a critic pass (docs/upstream.md item 15)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_value_help), `ZCL_STG_SHLP_TEST`, `test/segw-shlp.mjs`
+
 ### ANOMALY-2026-11-14-dynamic-order-by-blanks -- a dynamic ORDER BY whose columns are separated by blanks reaches SQL without commas
 
-- Status: `workaround` (and a local transpiler commit, not pushed: see Upstream issue)
+- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4k` 05b8d3b5: `dd8696f6`, runtime `abap.dynamicOrderBy` used by the generated dynamic ORDER BY; a PRIMARY KEY inside a longer list stays one item since the 4k follow-up). The host-side workaround is removed; not upstream
 - Discovery date: `2026-11-14`
 - Affected versions: the pinned transpiler (oisee/transpiler 28b6944e, local/osd-build-4i) and every database client of it
 - Affected ABAP statement, runtime API or adapter: `SELECT ... ORDER BY (lv_order)` with lv_order = `s~so_id i~so_item_pos`, or `a DESCENDING b` -- the form a SEGW-generated sample builds with `CONCATENATE ... SEPARATED BY space` from the technical order
@@ -4884,9 +4903,9 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: Open SQL accepts columns separated by blanks or by commas in a dynamic ORDER BY, each optionally followed by ASCENDING / DESCENDING; the rows come back in that order
 - Actual open-abap behaviour: the transpiler emits `"ORDER BY " + lv_order` verbatim for a string (a table's rows are joined with ", ", a static clause gets its commas from SQLOrderByTranspiler); the database clients translate ASCENDING / DESCENDING and `~` and insert no comma, so the database sees `ORDER BY s.so_id i.so_item_pos`
 - Impact on open-steamgate: every read of the sample's line-item set (its default order has two columns), every `$orderby` of two properties on the sample's sets, and every path through them: 4 requests on the bed directly, 7 more behind the navigation fixes
-- Smallest safe workaround: `tools/osd-order-by.mjs` puts the commas into the trailing ORDER BY of a SELECT on its way into any client (installed in `test/setup.mjs`'s `traced`, the one place every client passes). It changes a clause only when it is a plain column list (no parenthesis or quote) and leaves `PRIMARY KEY` and an already comma-separated list as they are
-- Upstream issue: needs a branch in abaplint/transpiler after a critic pass; local commit on `fix/dynamic-order-by-commas` off 28b6944e (runtime `abap.dynamicOrderBy`, used by the generated dynamic ORDER BY), not pushed. The workaround goes when the pin carries it
-- Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); `test/order-by.mjs` (the cases: `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY)
+- Smallest safe workaround: none needed with the 4k pin. Until then `tools/osd-order-by.mjs` put the commas into the trailing ORDER BY of a SELECT on its way into any client (installed in `test/setup.mjs`); removed with the pin move (#954), and the ABAP tests below pass through the pin alone
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass (docs/upstream.md item 19)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); the transpiler's `packages/runtime/test/dynamic_order_by.ts` and `test/database.ts` "dynamic ORDER BY, columns separated by blanks" (the cases `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY alone and inside a list)
 - Upstream version containing a fix: unknown
 
 ### ANOMALY-2026-11-14-message-t100-english-only -- `MESSAGE ID ... INTO` reads the T100 text in English whatever sy-langu is

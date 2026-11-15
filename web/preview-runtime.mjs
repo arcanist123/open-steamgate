@@ -3,6 +3,8 @@
 //
 // The generated CL_SYSTEM_UUID reaches for window.crypto; a service worker has
 // the same object on its own global under another name.
+import {outsideLiterals} from "../tools/osd-sql-literals.mjs";
+
 globalThis.window ??= globalThis;
 
 // GET TIME STAMP / sy-datum reach the JavaScript Date. Pinning it makes two
@@ -67,8 +69,12 @@ export async function readQuery(client, statement, requestedMax) {
   if (head && !head[2].includes(",") && /^[A-Za-z_/$][\w/$~]*(?:\s+[A-Za-z_/$][\w/$~]*)+$/.test(head[2].trim())) {
     sql = head[1] + head[2].trim().split(/\s+/).join(", ") + head[3] + sql.slice(head[0].length);
   }
-  const upTo = /\s+up\s+to\s+(\d+)\s+rows\b/i.exec(sql);
-  if (upTo) sql = sql.replace(upTo[0], "") + ` LIMIT ${upTo[1]}`;
+  // UP TO is read off the code, never off a value:
+  // 'x up to 1 rows' is data (tools/osd-sql-literals.mjs)
+  sql = outsideLiterals(sql, (code) => {
+    const upTo = /\s+up\s+to\s+(\d+)\s+rows\b/i.exec(code);
+    return upTo ? code.replace(upTo[0], "") + ` LIMIT ${upTo[1]}` : code;
+  });
   // The sql.js adapter removes a trailing LIMIT 0 before preparing SQL.
   if (/\s+limit\s+0$/i.test(sql)) {
     return {sql, columns: [], rows: [], count: 0, truncated: false};
