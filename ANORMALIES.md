@@ -4957,3 +4957,35 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Upstream issue: needs an issue (open-abap-core: the function pair) after a critic pass; until then the pair stays here
 - Regression-test location: `test/unit/zcl_osd_cunit_test`, `test/unit/zcl_osd_h5x_test` (ltcl_value_help: external_unit_key_and_order, external_unit_key_single)
 - Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-15-up-to-zero-rows -- `UP TO 0 ROWS` reads no row through the SQLite adapter
+
+- Status: `workaround`
+- Discovery date: `2026-11-15`
+- Affected versions: `@abaplint/database-sqlite` at the pin (its `select` rewrites ` UP TO (\d+) ROWS` into `LIMIT $1`)
+- Affected ABAP statement, runtime API or adapter: `SELECT ... UP TO lv_n ROWS ...` with `lv_n = 0`
+- Minimal ABAP reproducer: `DATA lv_n TYPE i. SELECT * FROM t000 INTO TABLE lt UP TO lv_n ROWS.` (any table with rows)
+- Exact command used to run it: read off the adapter's source (`build/index.js`, `select` and `openCursor`), not run against a system
+- Expected SAP behaviour: 0 is no limit -- every row (the ABAP keyword documentation of `UP TO n ROWS`)
+- Actual open-abap behaviour: `LIMIT 0`, no row
+- Impact on open-steamgate: a search help read without `$top` (the generated DPC passes `iv_maxrows = 0`) would answer an empty list once the read honours the row limit
+- Smallest safe workaround: `ZCL_OAO_SHLP_DDIC` and the join classes `tools/segw-shlp.mjs` writes pass `ZCL_OAO_SHLP_DDIC=>C_ALL_ROWS` (the largest `i`) for 0
+- Upstream issue: needs an issue (abaplint/database-sqlite, and the other adapters checked alike) after a critic pass
+- Regression-test location: `test/unit/zcl_osd_h5x_test` (ltcl_value_help: external_unit_key_and_order reads the whole list without `$top`)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-15-order-by-primary-key-dynamic -- `ORDER BY PRIMARY KEY` over a dynamic FROM is dropped
+
+- Status: `workaround`
+- Discovery date: `2026-11-15`
+- Affected versions: the pinned `@abaplint/transpiler` (statements/select.ts passes `primaryKey` only for a table it knows at transpile time) with `@abaplint/database-sqlite` (an absent `primaryKey` turns the clause into nothing)
+- Affected ABAP statement, runtime API or adapter: `SELECT * FROM (lv_table) ... ORDER BY PRIMARY KEY`
+- Minimal ABAP reproducer: `test/unit/zcl_osd_h5x_test` ltcl_value_help->plain_table_sorted_page with the registry's `iv_order_by` removed (rows come in insertion order)
+- Exact command used to run it: `npm run unit`; on the bed the milestone-3 pass-3 SQL trace shows the one-table help read `WHERE 1 = 1` with no ORDER BY
+- Expected SAP behaviour: the rows in the table's key order
+- Actual open-abap behaviour: no ORDER BY; the database's order
+- Impact on open-steamgate: a value help read with a row limit ($top) takes ANY rows before it sorts them, not the first keys
+- Smallest safe workaround: `tools/segw-shlp.mjs` writes the table's key fields as `iv_order_by` and `ZCL_OAO_SHLP_DDIC` orders by them by name
+- Upstream issue: needs an issue (abaplint/transpiler) after a critic pass
+- Regression-test location: `test/unit/zcl_osd_h5x_test` (ltcl_value_help: plain_table_sorted_page, entry_uri_key_encoded)
+- Upstream version containing a fix: unknown

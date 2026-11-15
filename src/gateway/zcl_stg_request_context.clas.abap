@@ -29,6 +29,10 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
     DATA mv_entity_type   TYPE string.
     DATA mv_top           TYPE string.
     DATA mv_skip          TYPE i.
+* $top=0: the request asks for no row at all (OData V2), which the paging
+* structure cannot say -- a top of 0 there means "no limit" to every
+* provider. The dispatcher answers an empty page when this is set
+    DATA mv_top_zero      TYPE abap_bool.
     DATA mv_inlinecount   TYPE abap_bool.
     DATA mv_count         TYPE abap_bool.
     DATA mt_orderby       TYPE /iwbep/t_mgw_tech_order.
@@ -83,6 +87,22 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rs_paging) TYPE /iwbep/s_mgw_paging.
 
+* the largest $top and the largest $skip this gateway takes: both
+* together stay inside a 4-byte integer (a generated DPC adds them into
+* its row limit, lv_max_hits = top + skip)
+    CONSTANTS c_max_paging TYPE i VALUE 1000000000.
+
+* $top and $skip from the URL, as written (empty: not given). Each is a
+* non-negative integer of at most c_max_paging digits' value, or the
+* request is a 400 (OData V2: $top and $skip are non-negative integers);
+* a value never reaches a provider's row limit unchecked
+    METHODS set_paging
+      IMPORTING
+        iv_top  TYPE string
+        iv_skip TYPE string
+      RAISING
+        zcx_stg_error.
+
 * One select-option into one Open SQL clause, and one value into one escaped
 * literal. Public and static because they are pure functions of their
 * arguments and because there must be exactly **one** of each in the system:
@@ -117,6 +137,15 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
     METHODS source_keys_to_structure
       EXPORTING
         es_key_values TYPE data.
+
+    CLASS-METHODS paging_number
+      IMPORTING
+        iv_name         TYPE string
+        iv_value        TYPE string
+      RETURNING
+        VALUE(rv_value) TYPE i
+      RAISING
+        zcx_stg_error.
 ENDCLASS.
 
 CLASS zcl_stg_request_context IMPLEMENTATION.
@@ -130,6 +159,50 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
       ls_sort-order    = ls_tech-order.
       APPEND ls_sort TO rt_order.
     ENDLOOP.
+  ENDMETHOD.
+
+  METHOD paging_number.
+    DATA lv_digits TYPE string.
+    DATA lv_number TYPE p LENGTH 16 DECIMALS 0.
+
+    lv_digits = iv_value.
+    IF lv_digits IS INITIAL OR lv_digits CN '0123456789'.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING
+          status  = 400
+          code    = 'STG/BAD_PAGING'
+          message = |{ iv_name } must be a non-negative integer|.
+    ENDIF.
+    SHIFT lv_digits LEFT DELETING LEADING '0'.
+    IF strlen( lv_digits ) > 10.
+      lv_number = c_max_paging + 1.
+    ELSEIF lv_digits IS NOT INITIAL.
+      lv_number = lv_digits.
+    ENDIF.
+    IF lv_number > c_max_paging.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING
+          status  = 400
+          code    = 'STG/BAD_PAGING'
+          message = |{ iv_name } may be at most { c_max_paging }|.
+    ENDIF.
+    rv_value = lv_number.
+  ENDMETHOD.
+
+  METHOD set_paging.
+    DATA lv_top TYPE i.
+
+    IF iv_top IS NOT INITIAL.
+      lv_top = paging_number( iv_name  = '$top'
+                              iv_value = iv_top ).
+      mv_top = |{ lv_top }|.
+      CONDENSE mv_top NO-GAPS.
+      mv_top_zero = boolc( lv_top = 0 ).
+    ENDIF.
+    IF iv_skip IS NOT INITIAL.
+      mv_skip = paging_number( iv_name  = '$skip'
+                               iv_value = iv_skip ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD get_paging.

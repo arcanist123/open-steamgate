@@ -12,7 +12,8 @@ CLASS zcl_osd_h5x_shlp_registry IMPLEMENTATION.
 
 * ZOSD_H5X_SH_CAT: OSD value help shape: categories
     lo_shlp = zcl_oao_shlp_ddic=>create( iv_shlp_name = 'ZOSD_H5X_SH_CAT'
-                                         iv_selmethod = 'ZOSD_H5X_CAT' ).
+                                         iv_selmethod = 'ZOSD_H5X_CAT'
+                                         iv_order_by  = 'client category' ).
     lo_shlp->add_parameter( iv_name            = 'CATEGORY'
                             iv_input           = abap_true
                             iv_output          = abap_true

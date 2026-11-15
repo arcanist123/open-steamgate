@@ -279,7 +279,7 @@ import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
 import {TADIR, requestFor, tadirKinds} from "./hana-closure-request.mjs";
-import {followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
+import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
 // ------------------------------------------------------------ findings ----
@@ -838,7 +838,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // is a CASCADE of that object's own findings, counted below as
     // "cascade (present)". An object excluded this run is out of the
     // build; its name rides the request's excluded key instead.
-    const {names, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...classified.names], island, excludedObjects);
+    const {names, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...conversionExitAsks(reg, analysisForNames.objects, root), ...classified.names], island, excludedObjects);
     const cascades = classified.cascades;
     const unclassified = classified.unclassified;
     // and the stubs' eager DDIC names (H5x-1): asked like any classified name

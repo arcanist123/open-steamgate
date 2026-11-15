@@ -926,6 +926,7 @@ CLASS ltcl_read IMPLEMENTATION.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lt_unit     TYPE STANDARD TABLE OF zosd_h5x_uom WITH DEFAULT KEY.
     DATA ls_unit     TYPE zosd_h5x_uom.
+    DATA lv_reads    TYPE i.
 
     DELETE FROM zosd_h5x_uom.
     ls_unit-client = sy-mandt.
@@ -944,8 +945,13 @@ CLASS ltcl_read IMPLEMENTATION.
     INSERT zosd_h5x_uom FROM TABLE lt_unit.
     zcl_stg_json=>unit_table( 'ZOSD_H5X_UOM' ).
 
+    lv_reads = zcl_stg_json=>unit_reads( ).
     ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/ItemSet` ).
     zcl_stg_json=>unit_table( ).
+* the unit table is read once for the request's quantities, not per unit
+* (milestone 3 pass 3: a product list ran one statement per unit)
+    cl_abap_unit_assert=>assert_equals( act = zcl_stg_json=>unit_reads( ) - lv_reads
+                                        exp = 1 ).
     ok( ls_response ).
     has( iv_body = ls_response-body
          iv_text = `"Quantity":"3","QuantityUnit":"PC"` ).
@@ -1095,6 +1101,29 @@ CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS 
 * own URL parser: each key form the encoding writes
     METHODS link_reads_the_entry_back FOR TESTING RAISING cx_static_check.
     METHODS unit_link_reads_back FOR TESTING RAISING cx_static_check.
+* milestone 3, pass 3: the hit list is read up to $top + $skip rows in key
+* order and only those are sorted
+    METHODS page_read_before_sort FOR TESTING RAISING cx_static_check.
+    METHODS skip_page_reads_top_and_skip FOR TESTING RAISING cx_static_check.
+    METHODS no_sort_keeps_key_order FOR TESTING RAISING cx_static_check.
+    METHODS units_read_once_per_request FOR TESTING RAISING cx_static_check.
+* $top / $skip: request-controlled numbers that reach a row limit
+    METHODS paging_must_be_a_count FOR TESTING RAISING cx_static_check.
+    METHODS top_zero_is_an_empty_page FOR TESTING RAISING cx_static_check.
+    METHODS paging_at_the_cap FOR TESTING RAISING cx_static_check.
+    METHODS inlinecount_is_the_page FOR TESTING RAISING cx_static_check.
+    METHODS missing_unit_table_is_an_error FOR TESTING RAISING cx_static_check.
+    METHODS unit
+      IMPORTING
+        iv_key      TYPE csequence
+        iv_external TYPE csequence
+        iv_new      TYPE abap_bool DEFAULT abap_false
+        iv_text     TYPE csequence OPTIONAL.
+    METHODS units
+      IMPORTING
+        iv_body         TYPE string
+      RETURNING
+        VALUE(rv_units) TYPE string.
     METHODS teardown.
 * the first entry link of a body, from the set's name to its closing
 * parenthesis (an encoded key holds no parenthesis)
@@ -1135,7 +1164,6 @@ CLASS ltcl_value_help IMPLEMENTATION.
     DATA ls_ctyt TYPE zosd_h5x_ctyt.
     DATA ls_un   TYPE zosd_h5x_un.
     DATA ls_unt  TYPE zosd_h5x_unt.
-    DATA ls_uoma TYPE zosd_h5x_uoma.
 
     DELETE FROM zosd_h5x_cat.
     DELETE FROM zosd_h5x_cty.
@@ -1207,30 +1235,26 @@ CLASS ltcl_value_help IMPLEMENTATION.
     ls_unt-unit = 'KG'.
     ls_unt-ltxt = 'Kilogramm'.
     INSERT zosd_h5x_unt FROM ls_unt.
-* a unit whose external form is not its key: ZZ1 inside, " outside in
-* English -- a sign outside, which sorts before the letters, and a key
-* inside that sorts after them
-    ls_un-unit = 'ZZ1'.
-    ls_un-dim = 'MASS'.
-    ls_un-ext = 'X'.
-    INSERT zosd_h5x_un FROM ls_un.
-    ls_unt-langu = 'E'.
-    ls_unt-unit = 'ZZ1'.
-    ls_unt-ltxt = 'Twin unit'.
-    INSERT zosd_h5x_unt FROM ls_unt.
+* units whose external forms sort otherwise than their keys. In key order
+* BAG BOT G IN1 KG KT LE TO UG XA XB XC, outside (English) BAG BT G " KG
+* KT AU TO UG XA A1 XC: IN1 is a sign that sorts before the letters, inside
+* the first five keys; LE (AU) and XB (A1) sort early outside but come
+* late in the key order -- beyond row 5 and beyond row 10. A page sorted
+* after its rows were read differs from a slice of the sorted whole list
     DELETE FROM zosd_h5x_uoma.
-    ls_uoma-client = sy-mandt.
-    ls_uoma-spras = 'E'.
-    ls_uoma-msehi = 'G'.
-    ls_uoma-mseh3 = 'G'.
-    INSERT zosd_h5x_uoma FROM ls_uoma.
-    ls_uoma-msehi = 'KG'.
-    ls_uoma-mseh3 = 'KG'.
-    INSERT zosd_h5x_uoma FROM ls_uoma.
-    ls_uoma-msehi = 'ZZ1'.
-    ls_uoma-mseh3 = '"'.
-    INSERT zosd_h5x_uoma FROM ls_uoma.
     zcl_osd_cunit=>text_table( 'ZOSD_H5X_UOMA' ).
+    unit( iv_key = 'G'   iv_external = 'G' ).
+    unit( iv_key = 'KG'  iv_external = 'KG' ).
+    unit( iv_key = 'BAG' iv_external = 'BAG' iv_new = abap_true ).
+    unit( iv_key = 'BOT' iv_external = 'BT'  iv_new = abap_true ).
+    unit( iv_key = 'IN1' iv_external = '"'   iv_new = abap_true iv_text = 'Twin unit' ).
+    unit( iv_key = 'KT'  iv_external = 'KT'  iv_new = abap_true ).
+    unit( iv_key = 'LE'  iv_external = 'AU'  iv_new = abap_true ).
+    unit( iv_key = 'TO'  iv_external = 'TO'  iv_new = abap_true ).
+    unit( iv_key = 'UG'  iv_external = 'UG'  iv_new = abap_true ).
+    unit( iv_key = 'XA'  iv_external = 'XA'  iv_new = abap_true ).
+    unit( iv_key = 'XB'  iv_external = 'A1'  iv_new = abap_true ).
+    unit( iv_key = 'XC'  iv_external = 'XC'  iv_new = abap_true ).
 
     zcl_oao_shlp_data=>clear( ).
     zcl_osd_h5x_shlp_registry=>register( ).
@@ -1358,7 +1382,245 @@ CLASS ltcl_value_help IMPLEMENTATION.
                                         exp = 200
                                         msg = ls_response-body ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-body
-                                        exp = '3' ).
+                                        exp = '12' ).
+  ENDMETHOD.
+
+  METHOD unit.
+    DATA ls_un   TYPE zosd_h5x_un.
+    DATA ls_unt  TYPE zosd_h5x_unt.
+    DATA ls_uoma TYPE zosd_h5x_uoma.
+
+    IF iv_new = abap_true.
+      ls_un-client = sy-mandt.
+      ls_un-unit = iv_key.
+      ls_un-dim = 'MASS'.
+      ls_un-ext = 'X'.
+      INSERT zosd_h5x_un FROM ls_un.
+    ENDIF.
+    IF iv_text IS NOT INITIAL.
+      ls_unt-client = sy-mandt.
+      ls_unt-langu = 'E'.
+      ls_unt-unit = iv_key.
+      ls_unt-ltxt = iv_text.
+      INSERT zosd_h5x_unt FROM ls_unt.
+    ENDIF.
+    ls_uoma-client = sy-mandt.
+    ls_uoma-spras = 'E'.
+    ls_uoma-msehi = iv_key.
+    ls_uoma-mseh3 = iv_external.
+    INSERT zosd_h5x_uoma FROM ls_uoma.
+  ENDMETHOD.
+
+  METHOD units.
+* the Unit values of a body in their order, as JSON writes them, joined by |
+    DATA lt_parts TYPE string_table.
+    DATA lv_part  TYPE string.
+    DATA lv_value TYPE string.
+
+    SPLIT iv_body AT `"Unit":"` INTO TABLE lt_parts.
+    LOOP AT lt_parts INTO lv_part FROM 2.
+      SPLIT lv_part AT `","Ltxt"` INTO lv_value lv_part.
+      IF rv_units IS INITIAL.
+        rv_units = lv_value.
+      ELSE.
+        rv_units = |{ rv_units }\|{ lv_value }|.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD units_read_once_per_request.
+* one request converts every unit of the list (output, and the sort of the
+* hit list) and a key (input): the unit text table is read once for it
+* (milestone 3 pass 3: one statement per converted value)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_reads    TYPE i.
+
+    lv_reads = zcl_osd_cunit=>reads( ).
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200 ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_cunit=>reads( ) - lv_reads
+                                        exp = 1
+                                        msg = 'twelve units, one read' ).
+    lv_reads = zcl_osd_cunit=>reads( ).
+    ls_response = get( iv_path  = `VH_UnitSet('"')`
+                       iv_query = `sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200 ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_cunit=>reads( ) - lv_reads
+                                        exp = 1
+                                        msg = 'a key in, a unit out, one read' ).
+  ENDMETHOD.
+
+  METHOD paging_must_be_a_count.
+* OData V2: $top and $skip are non-negative integers; anything else, and a
+* value beyond the cap, is a 400 -- never a row limit (a negative or a
+* huge one read every row, or overflowed top + skip in the generated DPC)
+    DATA lt_query    TYPE string_table.
+    DATA lv_query    TYPE string.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    APPEND `$top=-1` TO lt_query.
+    APPEND `$top=abc` TO lt_query.
+    APPEND `$top=1.5` TO lt_query.
+    APPEND `$top=99999999999` TO lt_query.
+    APPEND `$top=1000000001` TO lt_query.
+    APPEND `$skip=-5` TO lt_query.
+    APPEND `$skip=x` TO lt_query.
+    APPEND `$top=5&$skip=1000000001` TO lt_query.
+    LOOP AT lt_query INTO lv_query.
+      ls_response = get( iv_path  = 'VH_UnitSet'
+                         iv_query = lv_query ).
+      cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                          exp = 400
+                                          msg = |{ lv_query }: { ls_response-body }| ).
+      has( iv_body = ls_response-body
+           iv_text = `"code":"STG/BAD_PAGING"` ).
+    ENDLOOP.
+    ls_response = get( iv_path  = 'PartnerSet'
+                       iv_query = `$top=-1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+  ENDMETHOD.
+
+  METHOD top_zero_is_an_empty_page.
+* $top=0 asks for no row, on a business set and on a value help alike (a
+* provider reads a top of 0 as "no limit": every row came back)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=0` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$top=0&$skip=1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+    ls_response = get( iv_path  = 'PartnerSet'
+                       iv_query = `$top=0` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+  ENDMETHOD.
+
+  METHOD paging_at_the_cap.
+* the largest $top and $skip together still fit the generated DPC's sum
+* (lv_max_hits = top + skip, a 4-byte integer): the read answers, empty
+* beyond the twelve rows
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=1000000000&$skip=1000000000` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = `{"d":{"results":[]}}` ).
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=1000000000&sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = units( ls_response-body )
+                                        exp = `\"|A1|AU|BAG|BT|G|KG|KT|TO|UG|XA|XC` ).
+  ENDMETHOD.
+
+  METHOD inlinecount_is_the_page.
+* PINNED, NOT MEASURED: $inlinecount=allpages on a value-help set with
+* $top answers the page's size (the generated DPC counts nothing, the
+* dispatcher counts the rows it got). What a system answers here is not
+* measured; this pins today's answer so a change is a decision
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=2&$inlinecount=allpages` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `{"d":{"__count":"2",` ).
+  ENDMETHOD.
+
+  METHOD missing_unit_table_is_an_error.
+* a unit-converted property in a system without the unit text table: an
+* error naming the exit and the table, not the internal key
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    zcl_osd_cunit=>text_table( 'ZOSD_H5X_NO_SUCH_TABLE' ).
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=1&sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 500
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"code":"OSD/CONVERSION_TABLE"` ).
+    has( iv_body = ls_response-body
+         iv_text = `ZOSD_H5X_NO_SUCH_TABLE` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Unit":"BAG"` ).
+  ENDMETHOD.
+
+  METHOD page_read_before_sort.
+* $top=5: the provider reads the first five keys (BAG BOT G IN1 KG) and
+* sorts those five by their external form; AU and A1, early outside but
+* late in the key order, stay out (M3 oracle 02-10a: the page of the
+* system's generated DPC, maxrows = $top + $skip, then the sort). A slice
+* of the sorted whole list would be " A1 AU BAG BT
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=5&sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = units( ls_response-body )
+                                        exp = `\"|BAG|BT|G|KG` ).
+  ENDMETHOD.
+
+  METHOD skip_page_reads_top_and_skip.
+* $skip=5&$top=5: ten rows read in key order, the ten sorted, the first
+* five dropped (the sorted whole list would give G KG KT TO UG)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$skip=5&$top=5&sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = units( ls_response-body )
+                                        exp = `KG|KT|TO|UG|XA` ).
+  ENDMETHOD.
+
+  METHOD no_sort_keeps_key_order.
+* iv_sort initial: the rows read come back in the key order of the read,
+* internal values (the provider's contract)
+    DATA lo_sh_data TYPE REF TO /iwbep/if_sb_shlp_data.
+    DATA lt_selopt  TYPE ddshselops.
+    DATA lt_result  TYPE /iwbep/if_sb_gendpc_shlp_data=>tt_result_list.
+    DATA ls_result  LIKE LINE OF lt_result.
+    DATA ls_message TYPE bapiret2.
+    DATA lv_units   TYPE string.
+
+    lo_sh_data = /iwbep/cl_sb_shlp_data_factory=>get_sh_data_obj( ).
+    lo_sh_data->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values(
+      EXPORTING
+        iv_shlp_name   = 'ZOSD_H5X_SH_UN'
+        iv_maxrows     = 5
+        iv_sort        = abap_false
+        it_selopt      = lt_selopt
+      IMPORTING
+        et_return_list = lt_result
+        es_message     = ls_message ).
+    cl_abap_unit_assert=>assert_initial( ls_message ).
+    LOOP AT lt_result INTO ls_result WHERE field_name = 'UNIT'.
+      lv_units = |{ lv_units }{ ls_result-field_value }.|.
+    ENDLOOP.
+    cl_abap_unit_assert=>assert_equals( act = lv_units
+                                        exp = `BAG.BOT.G.IN1.KG.` ).
   ENDMETHOD.
 
   METHOD teardown.
@@ -1366,13 +1628,11 @@ CLASS ltcl_value_help IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD external_unit_key_and_order.
-* the key in its external form in the body and in the entry's URI, and the
-* rows in the order of that form: " before G before KG, where the keys
-* sort G, KG, ZZ1 (M3 oracle 02-12a: the sign first; without the output
-* conversion the key was ZZ1, without the sort exit " came last)
+* the key in its external form in the body and in the entry's URI, and --
+* no $top, so no row limit -- the whole list in the order of that form
+* (M3 oracle 02-12a: the sign first; without the output conversion the key
+* was IN1, without the sort exit " came after G)
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
-    DATA lv_first    TYPE i.
-    DATA lv_second   TYPE i.
 
     ls_response = get( iv_path  = 'VH_UnitSet'
                        iv_query = `sap-language=EN` ).
@@ -1384,18 +1644,14 @@ CLASS ltcl_value_help IMPLEMENTATION.
     has( iv_body = ls_response-body
          iv_text = `"Unit":"\"","Ltxt":"Twin unit"}` ).
     lacks( iv_body = ls_response-body
-           iv_text = `ZZ1` ).
-    FIND FIRST OCCURRENCE OF `"Unit":"\""` IN ls_response-body MATCH OFFSET lv_first.
-    FIND FIRST OCCURRENCE OF `"Unit":"G"` IN ls_response-body MATCH OFFSET lv_second.
-    cl_abap_unit_assert=>assert_true( act = boolc( lv_first < lv_second )
-                                      msg = |the external form orders the list: { ls_response-body }| ).
-* $top cuts the sorted list: the first row is the one with "
+           iv_text = `IN1` ).
+    cl_abap_unit_assert=>assert_equals( act = units( ls_response-body )
+                                        exp = `\"|A1|AU|BAG|BT|G|KG|KT|TO|UG|XA|XC` ).
+* $top=1 reads one row, the first key: BAG, whatever sorts first outside
     ls_response = get( iv_path  = 'VH_UnitSet'
                        iv_query = `$top=1&sap-language=EN` ).
-    has( iv_body = ls_response-body
-         iv_text = `"Unit":"\""` ).
-    lacks( iv_body = ls_response-body
-           iv_text = `"Unit":"G"` ).
+    cl_abap_unit_assert=>assert_equals( act = units( ls_response-body )
+                                        exp = `BAG` ).
   ENDMETHOD.
 
   METHOD external_unit_key_single.

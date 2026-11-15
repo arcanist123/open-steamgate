@@ -19,9 +19,16 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
 * client-dependent): T006 on a system (public table of units of measure,
 * https://www.sapdatasheet.org/abap/tabl/t006.html); a twin's own table in
 * its tests
+    CONSTANTS c_unit_table TYPE string VALUE 'T006'.
     CLASS-METHODS unit_table
       IMPORTING
-        iv_table TYPE csequence DEFAULT 'T006'.
+        iv_table TYPE csequence DEFAULT c_unit_table.
+
+* the statements run on the unit table since the process started (tests:
+* one per request, however many quantities it writes)
+    CLASS-METHODS unit_reads
+      RETURNING
+        VALUE(rv_reads) TYPE i.
 
 * The ETag of a row, for the entries of a type that declares one: the same
 * ZCL_OSD_V4_MODEL the V4 facade builds, so both protocols answer the same
@@ -178,12 +185,17 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
              unit     TYPE string,
              decimals TYPE i,
            END OF ty_unit.
-    CLASS-DATA gt_units TYPE STANDARD TABLE OF ty_unit WITH DEFAULT KEY.
-    CLASS-DATA gv_unit_table TYPE string VALUE 'T006'.
+    CLASS-DATA gt_units TYPE HASHED TABLE OF ty_unit WITH UNIQUE KEY unit.
+    CLASS-DATA gv_unit_table TYPE string VALUE c_unit_table.
+* the whole unit table is read on the first quantity of a request; a unit
+* it does not hold is a miss without another statement
+    CLASS-DATA gv_units_read TYPE abap_bool.
+    CLASS-DATA gv_unit_reads TYPE i.
 
 * the decimals a quantity of a unit of measure is written with (the unit's
-* rounding decimals); -1 when the unit (or the table) is not there. Read
-* once per request and unit
+* rounding decimals); -1 when the unit (or the table) is not there. The
+* table is read once per request, whole (a few hundred rows; one statement
+* per unit cost a product list a hundred statements, milestone 3 pass 3)
     CLASS-METHODS unit_decimals
       IMPORTING
         iv_unit            TYPE string
@@ -346,38 +358,49 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD unit_table.
     gv_unit_table = to_upper( iv_table ).
-    CLEAR gt_units.
+    CLEAR: gt_units, gv_units_read.
+  ENDMETHOD.
+
+  METHOD unit_reads.
+    rv_reads = gv_unit_reads.
   ENDMETHOD.
 
   METHOD unit_decimals.
+    TYPES: BEGIN OF ty_decimals,
+             msehi TYPE c LENGTH 3,
+             andec TYPE i,
+           END OF ty_decimals.
+    DATA lt_rows   TYPE STANDARD TABLE OF ty_decimals WITH DEFAULT KEY.
+    DATA ls_row    TYPE ty_decimals.
     DATA ls_unit   TYPE ty_unit.
-    DATA lv_andec  TYPE i.
-    DATA lv_msehi  TYPE c LENGTH 3.
 
-    READ TABLE gt_units INTO ls_unit WITH KEY unit = iv_unit.
-    IF sy-subrc = 0.
-      rv_decimals = ls_unit-decimals.
-      RETURN.
-    ENDIF.
     rv_decimals = -1.
-    lv_msehi = iv_unit.
-    IF lv_msehi IS NOT INITIAL.
+    IF gv_units_read = abap_false.
+      gv_units_read = abap_true.
+      gv_unit_reads = gv_unit_reads + 1.
       TRY.
 * ANDEC: a system writes a quantity to the unit's rounding decimals. Its
 * display decimals (DECAN) are 0 for every unit of the M3 oracle while it
 * writes three, two or no decimals by unit, each time the unit's ANDEC
 * (milestone 3, second measured pass)
-          SELECT SINGLE andec FROM (gv_unit_table) INTO lv_andec WHERE msehi = lv_msehi.
-          IF sy-subrc = 0.
-            rv_decimals = lv_andec.
-          ENDIF.
+          SELECT msehi andec FROM (gv_unit_table) INTO CORRESPONDING FIELDS OF TABLE lt_rows.
         CATCH cx_root ##NO_HANDLER.
-* no unit table in this system: the field's own scale
+* no unit table in this system: every quantity keeps its field's scale (a
+* form difference, not a value: the digits are the same)
       ENDTRY.
+      LOOP AT lt_rows INTO ls_row.
+        ls_unit-unit     = ls_row-msehi.
+        ls_unit-decimals = ls_row-andec.
+        INSERT ls_unit INTO TABLE gt_units.
+      ENDLOOP.
     ENDIF.
-    ls_unit-unit     = iv_unit.
-    ls_unit-decimals = rv_decimals.
-    APPEND ls_unit TO gt_units.
+    IF iv_unit IS INITIAL.
+      RETURN.
+    ENDIF.
+    READ TABLE gt_units INTO ls_unit WITH TABLE KEY unit = iv_unit.
+    IF sy-subrc = 0.
+      rv_decimals = ls_unit-decimals.
+    ENDIF.
   ENDMETHOD.
 
   METHOD quantity_text.
@@ -449,7 +472,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
   METHOD register_sets.
     gt_sets = it_sets.
 * a new request: units are read again (the table may have changed)
-    CLEAR gt_units.
+    CLEAR: gt_units, gv_units_read.
   ENDMETHOD.
 
   METHOD complex.

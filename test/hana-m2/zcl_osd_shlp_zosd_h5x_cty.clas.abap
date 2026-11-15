@@ -15,6 +15,7 @@ CLASS zcl_osd_shlp_zosd_h5x_cty IMPLEMENTATION.
 
   METHOD zif_oao_shlp_source~select.
     DATA lv_where TYPE string.
+    DATA lv_rows TYPE i.
     FIELD-SYMBOLS <lt_rows> TYPE ty_rows.
 
     CREATE DATA rr_rows TYPE ty_rows.
@@ -22,6 +23,11 @@ CLASS zcl_osd_shlp_zosd_h5x_cty IMPLEMENTATION.
     lv_where = iv_where.
     IF lv_where IS INITIAL.
       lv_where = '1 = 1'.
+    ENDIF.
+* at most iv_maxrows rows in the key order, before the provider sorts them
+    lv_rows = iv_maxrows.
+    IF lv_rows <= 0.
+      lv_rows = zcl_oao_shlp_ddic=>c_all_rows.
     ENDIF.
     SELECT t1~code AS code
            t2~name AS name
@@ -31,6 +37,7 @@ CLASS zcl_osd_shlp_zosd_h5x_cty IMPLEMENTATION.
          AND t2~langu = iv_langu
          AND t2~code = t1~code
       INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
+      UP TO lv_rows ROWS
       WHERE (lv_where)
       ORDER BY t1~client t1~code.
   ENDMETHOD.
