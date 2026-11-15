@@ -22,7 +22,10 @@
 //      DDL or seed (docs/db-backends.md, "Existing schema, read-only");
 //   2. the services, registered by the generated SEGW registry
 //      (gen/segw/zcl_stg_segw_registry -- with the registration read out of
-//      the dump when gen/hana-segw holds one);
+//      the dump when gen/hana-segw holds one), and the value helps by
+//      the generated search help registry (gen/segw/zcl_stg_shlp_registry,
+//      tools/segw-shlp.mjs over every layer, the dump's *.shlp.xml among
+//      them) -- registering a provider reads and writes nothing;
 //   3. OData v2 GETs through the request path every host uses:
 //      ZCL_STG_HTTP_HANDLER behind CL_EXPRESS_ICF_SHIM, one dialog step per
 //      request (tools/osd-dialog-step.mjs), under /sap/opu/odata/sap/<SRV>
@@ -261,6 +264,7 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   const {initializeABAP} = await from("init.mjs");
   const {cl_express_icf_shim} = await from("cl_express_icf_shim.clas.mjs");
   const {zcl_stg_segw_registry} = await from("zcl_stg_segw_registry.clas.mjs");
+  const {zcl_stg_shlp_registry} = await from("zcl_stg_shlp_registry.clas.mjs");
   const abap = globalThis.abap;
   const {installBindStructureLog} = await import("./osd-bind-structure-log.mjs");
   const bindLog = installBindStructureLog(abap);
@@ -269,6 +273,7 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   await initializeABAP();
   if (built === 0) throw new Error("hana-serve: test/setup.mjs did not build the client through the factory seam -- is STG_DB=hana reaching it?");
   await dialogStep(() => zcl_stg_segw_registry.register(), "hana-serve: the SEGW registry");
+  await dialogStep(() => zcl_stg_shlp_registry.register(), "hana-serve: the search help registry");
 
   // the positive control, through the ABAP's own connection
   const db = abap.context.databaseConnections.DEFAULT;

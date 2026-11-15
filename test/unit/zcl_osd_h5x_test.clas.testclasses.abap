@@ -619,6 +619,605 @@ CLASS ltcl_read IMPLEMENTATION.
 
 ENDCLASS.
 
+CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
+* The value help sets of a SEGW sample, one per kind of search help, read
+* through the generated registry (test/hana-m2/zcl_osd_h5x_shlp_registry,
+* written by tools/segw-shlp.mjs and kept equal to it by test/segw-shlp.mjs):
+* a plain table, a table with a text table, a help view with no database
+* object. Texts exist in two languages; one country has none; one unit is
+* excluded by the view's condition, one by the help's default value.
+  PRIVATE SECTION.
+    CONSTANTS c_srv TYPE string VALUE '/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/'.
+
+    METHODS setup.
+    METHODS plain_table_sorted_page FOR TESTING RAISING cx_static_check.
+    METHODS texts_in_session_language FOR TESTING RAISING cx_static_check.
+    METHODS text_table_key_filter FOR TESTING RAISING cx_static_check.
+    METHODS text_table_single FOR TESTING RAISING cx_static_check.
+    METHODS help_view_join FOR TESTING RAISING cx_static_check.
+    METHODS help_view_count FOR TESTING RAISING cx_static_check.
+    METHODS default_yields_to_request FOR TESTING RAISING cx_static_check.
+    METHODS exit_only_is_not_served FOR TESTING RAISING cx_static_check.
+    METHODS unknown_field_is_refused FOR TESTING RAISING cx_static_check.
+
+    METHODS get
+      IMPORTING
+        iv_path            TYPE string
+        iv_query           TYPE string OPTIONAL
+      RETURNING
+        VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
+    METHODS has
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+    METHODS lacks
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+ENDCLASS.
+
+CLASS ltcl_value_help IMPLEMENTATION.
+
+  METHOD setup.
+    DATA ls_cat  TYPE zosd_h5x_cat.
+    DATA ls_cty  TYPE zosd_h5x_cty.
+    DATA ls_ctyt TYPE zosd_h5x_ctyt.
+    DATA ls_un   TYPE zosd_h5x_un.
+    DATA ls_unt  TYPE zosd_h5x_unt.
+
+    DELETE FROM zosd_h5x_cat.
+    DELETE FROM zosd_h5x_cty.
+    DELETE FROM zosd_h5x_ctyt.
+    DELETE FROM zosd_h5x_un.
+    DELETE FROM zosd_h5x_unt.
+
+* inserted out of order: the value help sorts by its list fields
+    ls_cat-client = sy-mandt.
+    ls_cat-category = 'Pens'.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_cat-category = 'Binders'.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_cat-category = 'Lamps'.
+    INSERT zosd_h5x_cat FROM ls_cat.
+
+    ls_cty-client = sy-mandt.
+    ls_cty-code = 'BB'.
+    INSERT zosd_h5x_cty FROM ls_cty.
+    ls_cty-code = 'AA'.
+    INSERT zosd_h5x_cty FROM ls_cty.
+* no text in any language: an outer join keeps it
+    ls_cty-code = 'CC'.
+    INSERT zosd_h5x_cty FROM ls_cty.
+    ls_ctyt-client = sy-mandt.
+    ls_ctyt-langu = 'E'.
+    ls_ctyt-code = 'AA'.
+    ls_ctyt-name = 'Aland'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+    ls_ctyt-code = 'BB'.
+    ls_ctyt-name = 'Bland'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+    ls_ctyt-langu = 'D'.
+    ls_ctyt-code = 'AA'.
+    ls_ctyt-name = 'Aland DE'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+    ls_ctyt-code = 'BB'.
+    ls_ctyt-name = 'Bland DE'.
+    INSERT zosd_h5x_ctyt FROM ls_ctyt.
+
+    ls_un-client = sy-mandt.
+    ls_un-unit = 'KG'.
+    ls_un-dim = 'MASS'.
+    ls_un-ext = 'X'.
+    INSERT zosd_h5x_un FROM ls_un.
+    ls_un-unit = 'G'.
+    INSERT zosd_h5x_un FROM ls_un.
+* not external: the view's selection condition leaves it out
+    ls_un-unit = 'MG'.
+    ls_un-ext = ' '.
+    INSERT zosd_h5x_un FROM ls_un.
+* another dimension: the help's default value leaves it out
+    ls_un-unit = 'CM'.
+    ls_un-dim = 'LENGTH'.
+    ls_un-ext = 'X'.
+    INSERT zosd_h5x_un FROM ls_un.
+    ls_unt-client = sy-mandt.
+    ls_unt-langu = 'E'.
+    ls_unt-unit = 'KG'.
+    ls_unt-ltxt = 'Kilogram'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    ls_unt-unit = 'G'.
+    ls_unt-ltxt = 'Gram'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    ls_unt-unit = 'CM'.
+    ls_unt-ltxt = 'Centimeter'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    ls_unt-langu = 'D'.
+    ls_unt-unit = 'KG'.
+    ls_unt-ltxt = 'Kilogramm'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+
+    zcl_oao_shlp_data=>clear( ).
+    zcl_osd_h5x_shlp_registry=>register( ).
+    zcl_oao_registry=>register( iv_service = 'ZOSD_H5X_SRV'
+                                iv_mpc     = 'ZCL_OSD_H5X_MPC'
+                                iv_dpc     = 'ZCL_OSD_H5X_DPC' ).
+    zcl_stg_model_info=>clear( ).
+  ENDMETHOD.
+
+  METHOD get.
+    DATA lt_options TYPE tihttpnvp.
+
+    IF iv_query IS NOT INITIAL.
+      lt_options = cl_http_utility=>string_to_fields( iv_query ).
+    ENDIF.
+    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_srv && iv_path
+                                                it_options = lt_options ).
+  ENDMETHOD.
+
+  METHOD has.
+    cl_abap_unit_assert=>assert_true( act = boolc( iv_body CS iv_text )
+                                      msg = |expected { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD lacks.
+    cl_abap_unit_assert=>assert_false( act = boolc( iv_body CS iv_text )
+                                       msg = |did not expect { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD plain_table_sorted_page.
+* $skip=1&$top=1 of Binders, Lamps, Pens is Lamps
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$skip=1&$top=1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Category":"Lamps"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Category":"Binders"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Category":"Pens"` ).
+  ENDMETHOD.
+
+  METHOD texts_in_session_language.
+* the text table joined on its key and the session language, as an outer
+* join (without the fix: 400, the help was not served; the language bound
+* off: each country twice; an inner join: CC gone)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( 'VH_CountrySet' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"AA","Name":"Aland"}` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"BB","Name":"Bland"}` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"CC","Name":""}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `land DE` ).
+    ls_response = get( 'VH_CountrySet/$count' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = '3' ).
+  ENDMETHOD.
+
+  METHOD text_table_key_filter.
+* CODE is a column of both tables: the selection option is written against
+* the base table's (unqualified, the join's SELECT is ambiguous)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = 'VH_CountrySet'
+                       iv_query = `$filter=Code eq 'BB'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"BB","Name":"Bland"}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Code":"AA"` ).
+  ENDMETHOD.
+
+  METHOD text_table_single.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( `VH_CountrySet('AA')` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Code":"AA","Name":"Aland"}` ).
+  ENDMETHOD.
+
+  METHOD help_view_join.
+* the help view's tables joined, its condition (EXT = 'X') applied, the
+* default DIM = 'MASS' applied, the text in the session language; LTXT is
+* a list field without being an export parameter
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( 'VH_UnitSet' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"G","Ltxt":"Gram"}` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"KG","Ltxt":"Kilogram"}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Unit":"MG"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Unit":"CM"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `Kilogramm` ).
+  ENDMETHOD.
+
+  METHOD help_view_count.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( 'VH_UnitSet/$count' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body
+                                        exp = '2' ).
+  ENDMETHOD.
+
+  METHOD default_yields_to_request.
+* a selection option on the field replaces its default value; without one
+* the default restricts the field
+    DATA lo_shlp   TYPE REF TO zcl_oao_shlp_ddic.
+    DATA lt_selopt TYPE ddshselops.
+    DATA ls_selopt LIKE LINE OF lt_selopt.
+
+    lo_shlp = zcl_oao_shlp_ddic=>create( 'ZOSD_H5X_SH_X' ).
+    lo_shlp->add_parameter( iv_name    = 'DIM'
+                            iv_default = 'MASS' ).
+    ls_selopt-shlpfield = 'DIM'.
+    ls_selopt-sign      = 'I'.
+    ls_selopt-option    = 'EQ'.
+    ls_selopt-low       = 'LENGTH'.
+    APPEND ls_selopt TO lt_selopt.
+    cl_abap_unit_assert=>assert_equals( act = lo_shlp->where_clause( lo_shlp->with_defaults( lt_selopt ) )
+                                        exp = `( dim = 'LENGTH' )` ).
+    CLEAR lt_selopt.
+    cl_abap_unit_assert=>assert_equals( act = lo_shlp->where_clause( lo_shlp->with_defaults( lt_selopt ) )
+                                        exp = `( dim = 'MASS' )` ).
+  ENDMETHOD.
+
+  METHOD exit_only_is_not_served.
+* an exit-only search help answers an E message, which the generated DPC
+* turns into a business error (a 400), not a dump and not an empty set
+    DATA lo_shlp    TYPE REF TO zcl_oao_shlp_ddic.
+    DATA lt_selopt  TYPE ddshselops.
+    DATA lt_result  TYPE /iwbep/if_sb_gendpc_shlp_data=>tt_result_list.
+    DATA ls_message TYPE bapiret2.
+
+    lo_shlp = zcl_oao_shlp_ddic=>create( iv_shlp_name = 'ZOSD_H5X_SH_EXIT'
+                                         iv_selmexit  = 'ZOSD_H5X_SHEXIT' ).
+    lo_shlp->add_parameter( iv_name          = 'CODE'
+                            iv_list_position = 1 ).
+    lo_shlp->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values(
+      EXPORTING
+        iv_shlp_name   = 'ZOSD_H5X_SH_EXIT'
+        it_selopt      = lt_selopt
+      IMPORTING
+        et_return_list = lt_result
+        es_message     = ls_message ).
+    cl_abap_unit_assert=>assert_equals( act = ls_message-type
+                                        exp = 'E' ).
+    cl_abap_unit_assert=>assert_initial( lt_result ).
+  ENDMETHOD.
+
+  METHOD unknown_field_is_refused.
+* a selection option on a field that is no parameter of the help is refused
+* with an E message; its name never reaches the WHERE clause
+    DATA lo_sh_data TYPE REF TO /iwbep/if_sb_shlp_data.
+    DATA lt_selopt  TYPE ddshselops.
+    DATA ls_selopt  LIKE LINE OF lt_selopt.
+    DATA lt_result  TYPE /iwbep/if_sb_gendpc_shlp_data=>tt_result_list.
+    DATA ls_message TYPE bapiret2.
+
+    ls_selopt-shlpname  = 'ZOSD_H5X_SH_CTY'.
+    ls_selopt-shlpfield = `CODE) OR (1 = 1`.
+    ls_selopt-sign      = 'I'.
+    ls_selopt-option    = 'EQ'.
+    ls_selopt-low       = 'AA'.
+    APPEND ls_selopt TO lt_selopt.
+    lo_sh_data = /iwbep/cl_sb_shlp_data_factory=>get_sh_data_obj( ).
+    lo_sh_data->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values(
+      EXPORTING
+        iv_shlp_name   = 'ZOSD_H5X_SH_CTY'
+        it_selopt      = lt_selopt
+      IMPORTING
+        et_return_list = lt_result
+        es_message     = ls_message ).
+    cl_abap_unit_assert=>assert_equals( act = ls_message-type
+                                        exp = 'E' ).
+    cl_abap_unit_assert=>assert_initial( lt_result ).
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS ltcl_annotations DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
+* The $metadata annotations a SEGW model gets from its text pool and from
+* the dictionary structure it binds (milestone 3 B4, measured on a SEGW
+* sample's $metadata against its system). The twin's Item type is bound to
+* ZOSD_H5X_S_ITEM by name; its class XML carries a text pool (001, 002 in
+* English, 002 in German too), its data elements carry field labels, two
+* of them a German one.
+  PRIVATE SECTION.
+    CONSTANTS c_metadata TYPE string VALUE '/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/$metadata'.
+
+    METHODS setup.
+    METHODS text_pool_labels FOR TESTING RAISING cx_static_check.
+    METHODS dictionary_labels FOR TESTING RAISING cx_static_check.
+    METHODS units_and_semantics FOR TESTING RAISING cx_static_check.
+    METHODS unicode_as_the_model_says FOR TESTING RAISING cx_static_check.
+    METHODS labels_in_the_request_language FOR TESTING RAISING cx_static_check.
+    METHODS class_pool_container FOR TESTING RAISING cx_static_check.
+    METHODS accept_language FOR TESTING RAISING cx_static_check.
+
+    METHODS metadata
+      IMPORTING
+        iv_language    TYPE string OPTIONAL
+      RETURNING
+        VALUE(rv_body) TYPE string.
+* the element <Property Name="..." .../> (or <Parameter ...>) of the body
+    METHODS element
+      IMPORTING
+        iv_body        TYPE string
+        iv_start       TYPE string
+      RETURNING
+        VALUE(rv_xml)  TYPE string.
+    METHODS has
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+    METHODS lacks
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+    METHODS utf8
+      IMPORTING
+        iv_hex         TYPE xstring
+      RETURNING
+        VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS ltcl_annotations IMPLEMENTATION.
+
+  METHOD setup.
+    zcl_oao_registry=>register( iv_service = 'ZOSD_H5X_SRV'
+                                iv_mpc     = 'ZCL_OSD_H5X_MPC'
+                                iv_dpc     = 'ZCL_OSD_H5X_DPC' ).
+    zcl_stg_model_info=>clear( ).
+  ENDMETHOD.
+
+  METHOD metadata.
+    DATA lt_options  TYPE tihttpnvp.
+    DATA ls_option   TYPE ihttpnvp.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    IF iv_language IS NOT INITIAL.
+      ls_option-name  = 'sap-language'.
+      ls_option-value = iv_language.
+      APPEND ls_option TO lt_options.
+    ENDIF.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_metadata
+                                                it_options = lt_options ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    rv_body = ls_response-body.
+  ENDMETHOD.
+
+  METHOD element.
+    DATA lv_from TYPE i.
+    DATA lv_end  TYPE i.
+    DATA lv_rest TYPE string.
+
+    FIND FIRST OCCURRENCE OF iv_start IN iv_body MATCH OFFSET lv_from.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = |{ iv_start } not in $metadata| ).
+    lv_rest = iv_body+lv_from.
+    FIND FIRST OCCURRENCE OF '>' IN lv_rest MATCH OFFSET lv_end.
+    rv_xml = lv_rest(lv_end).
+  ENDMETHOD.
+
+  METHOD has.
+    cl_abap_unit_assert=>assert_true( act = boolc( iv_body CS iv_text )
+                                      msg = |expected { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD lacks.
+    cl_abap_unit_assert=>assert_false( act = boolc( iv_body CS iv_text )
+                                       msg = |did not expect { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD utf8.
+    rv_text = cl_abap_codepage=>convert_from( iv_hex ).
+  ENDMETHOD.
+
+  METHOD text_pool_labels.
+* set_label_from_text_element resolves the class's text symbol: 001 on a
+* property, 002 on a function import parameter -- not the ABAP field name
+* the library used to write, and not the data element's label either
+    DATA lv_body TYPE string.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="ItemNo"` )
+         iv_text = `sap:label="Line Item"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Item to Release"` ).
+  ENDMETHOD.
+
+  METHOD dictionary_labels.
+* no text element: the medium field label of the component's data element,
+* through an include too; a component without a data element has none --
+* never the ABAP field name (a system writes no sap:label then)
+    DATA lv_body TYPE string.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Amount"` )
+         iv_text = `sap:label="Gross Amount"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="ChangedBy"` )
+         iv_text = `sap:label="Changed By"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Note"` )
+           iv_text = `sap:label=` ).
+* the twin's address type is bound to a local type: nothing to derive
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="City"` )
+           iv_text = `sap:label=` ).
+  ENDMETHOD.
+
+  METHOD units_and_semantics.
+* an amount or a quantity: sap:unit names the property bound to its
+* reference field; a currency key and a unit get their semantics; a date
+* gets no sap:display-format (the system writes none)
+    DATA lv_body     TYPE string.
+    DATA lv_currency TYPE string.
+    DATA lv_from     TYPE i.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Amount"` )
+         iv_text = `sap:unit="Currency"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Quantity"` )
+         iv_text = `sap:unit="QuantityUnit"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Currency"` )
+         iv_text = `sap:semantics="currency-code"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="QuantityUnit"` )
+         iv_text = `sap:semantics="unit-of-measure"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Currency"` )
+           iv_text = `sap:unit=` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="DeliveryDate"` )
+           iv_text = `sap:display-format` ).
+* a type of the class: RTTI names the data element of the component
+* (searched from VH_Currency on: VH_Country has a Code property too)
+    FIND FIRST OCCURRENCE OF `<EntityType Name="VH_Currency"` IN lv_body MATCH OFFSET lv_from.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = `VH_Currency not in $metadata` ).
+    lv_currency = lv_body+lv_from.
+    has( iv_body = element( iv_body  = lv_currency
+                            iv_start = `<Property Name="Code"` )
+         iv_text = `sap:semantics="currency-code"` ).
+    lacks( iv_body = element( iv_body  = lv_currency
+                              iv_start = `<Property Name="Text"` )
+           iv_text = `sap:semantics` ).
+  ENDMETHOD.
+
+  METHOD unicode_as_the_model_says.
+* sap:unicode="false" where the model added the annotation, nothing where
+* it did not (a complex type's properties on a system)
+    DATA lv_body TYPE string.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="ItemNo"` )
+         iv_text = `sap:unicode="false"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Note"` )
+           iv_text = `sap:unicode` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="City"` )
+           iv_text = `sap:unicode` ).
+  ENDMETHOD.
+
+  METHOD labels_in_the_request_language.
+* sap-language=DE: the texts that exist in German, and nothing for those
+* that do not -- no English, and a text symbol without German does not
+* fall back to the data element's German label (measured on the system)
+    DATA lv_body TYPE string.
+    DATA lv_langu TYPE sy-langu.
+
+    lv_langu = sy-langu.
+    lv_body = metadata( 'DE' ).
+    has( iv_body = lv_body
+         iv_text = `xml:lang="de"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Currency"` )
+         iv_text = |sap:label="W{ utf8( 'C3A4' ) }hrung"| ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Freizugebende Position"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="ItemNo"` )
+           iv_text = `sap:label=` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Amount"` )
+           iv_text = `sap:label=` ).
+* the request's language ends with the request
+    cl_abap_unit_assert=>assert_equals( act = sy-langu
+                                        exp = lv_langu ).
+    has( iv_body = element( iv_body  = metadata( )
+                            iv_start = `<Property Name="Currency"` )
+         iv_text = `sap:label="Currency"` ).
+    has( iv_body = metadata( )
+         iv_text = `xml:lang="en"` ).
+  ENDMETHOD.
+
+  METHOD accept_language.
+* without sap-language the first tag of Accept-Language; sap-language wins;
+* a wildcard or an unknown language is none
+    DATA lt_options  TYPE tihttpnvp.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_pair     TYPE ihttpnvp.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_pair-name  = 'Accept-Language'.
+    ls_pair-value = 'de-DE,de;q=0.9,en;q=0.8'.
+    APPEND ls_pair TO lt_headers.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_headers = lt_headers )
+                                        exp = 'D' ).
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_metadata
+                                                it_headers = lt_headers ).
+    has( iv_body = element( iv_body  = ls_response-body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Freizugebende Position"` ).
+    ls_pair-name  = 'sap-language'.
+    ls_pair-value = 'EN'.
+    APPEND ls_pair TO lt_options.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_options = lt_options
+                                                                                it_headers = lt_headers )
+                                        exp = 'E' ).
+    CLEAR lt_headers.
+    ls_pair-name  = 'accept-language'.
+    ls_pair-value = '*'.
+    APPEND ls_pair TO lt_headers.
+    cl_abap_unit_assert=>assert_initial( zcl_osd_session_langu=>requested( it_headers = lt_headers ) ).
+  ENDMETHOD.
+
+  METHOD class_pool_container.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_textpool=>program_of( 'ZCL_OSD_H5X_MPC===============CP' )
+                                        exp = `ZCL_OSD_H5X_MPC` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_textpool=>program_of( 'ZOSD_TEST_DEMO_PROG' )
+                                        exp = `ZOSD_TEST_DEMO_PROG` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_textpool=>text_symbol( iv_container = 'ZCL_OSD_H5X_MPC===============CP'
+                                                                             iv_symbol    = '001'
+                                                                             iv_langu     = 'E' )
+                                        exp = `Line Item` ).
+    cl_abap_unit_assert=>assert_initial( zcl_osd_textpool=>text_symbol( iv_container = 'ZCL_OSD_H5X_MPC===============CP'
+                                                                        iv_symbol    = '001'
+                                                                        iv_langu     = 'D' ) ).
+  ENDMETHOD.
+
+ENDCLASS.
+
 CLASS ltcl_literals DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
 * A value in a $filter is data for everything after the escaper as well.
 * The runtime's dynamic WHERE and the database clients ran their rewrites

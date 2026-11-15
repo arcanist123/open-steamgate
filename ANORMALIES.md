@@ -4713,6 +4713,22 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: the ABAP unit class above, the transpiler's unit and requires tests
 - Upstream version containing a fix: unknown
 
+### ANOMALY-2026-11-14-class-constructor-targets -- a class constructor runs at load before the class it creates
+
+- Status: `fixed in a pin` (oisee/transpiler `local/osd-build-4h`, #941's head 7c59f51f; first written as the local commit 3cdb24b7 on top of pin 4g)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 9437debe, local/osd-build-4g)
+- Affected ABAP statement, runtime API or adapter: `CREATE OBJECT go TYPE zcl_later` (or `NEW`, `zcl_later=>m( )`) inside a CLASS_CONSTRUCTOR
+- Minimal ABAP reproducer: transpiler test/unit.ts "test-cc-load-order" (zcl_a_buffer's class constructor creates zcl_b_store)
+- Exact command used to run it: `node tools/osd-generation-check.mjs output --json` over the island: `abap.Classes.<class> is not a constructor`
+- Expected SAP behaviour: a class constructor runs at the class's first use, after every class it names is there
+- Actual open-abap behaviour: it runs when its module loads; a named class is not among the module's requires, so a build that loads modules by name ran it before the class existed
+- Impact on open-steamgate: the SEGW sample's island did not load
+- Smallest safe workaround: none needed with pin 4h; the pinned commit adds the classes a class constructor names to its module's requires
+- Upstream issue: branch inside abaplint/transpiler after a critic pass
+- Regression-test location: the transpiler test above
+- Upstream version containing a fix: unknown
+
 ### ANOMALY-2026-11-14-form-field-names-encoded -- a form field's name arrives undecoded
 
 - Status: `workaround`
@@ -4782,6 +4798,100 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: `test/sql-literals.mjs` (every client, the driver channel of HANA and PostgreSQL, the preview console); `ZCL_OSD_H5X_TEST` `ltcl_literals` (`$filter=Name eq '<value>'` through the dispatcher on SQLite); the transpiler's `packages/runtime/test/expand_dynamic.ts`, `sql_literals.ts` and `test/database.ts`
 - Upstream version containing a fix: unknown
 
+### ANOMALY-2026-11-14-textpool-absent -- a class's text pool is not there at run time
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (READ TEXTPOOL transpiles to `throw new Error("ReadTextpool, transpiler todo")`); the pinned open-abap-odata (bd9f1fb) `zcl_oao_property`, whose `set_label_from_text_element` stores the symbol and nothing reads it
+- Affected ABAP statement, runtime API or adapter: `READ TEXTPOOL`; `/IWBEP/IF_MGW_ODATA_ITEM~SET_LABEL_FROM_TEXT_ELEMENT` (every SEGW-generated model provider labels its properties and parameters this way)
+- Minimal ABAP reproducer: the twin's `Item` type (`test/hana-m2/zcl_osd_h5x_mpc`, symbols 001/002 in the class XML's `<TPOOL>` and `<I18N_TPOOL>`)
+- Exact command used to run it: `$metadata` of the SEGW sample, diffed with tools/odata-metadata-diff.mjs against the system's
+- Expected SAP behaviour: `sap:label` is the text symbol in the session language; a symbol without a text in that language leaves the property without a label (measured: under `sap-language=DE` all 59 text-pool labels disappear, none falls back to the data element's German label)
+- Actual open-abap behaviour: the writer printed the ABAP field name (`BP_ID` for `Bus. Part. ID`), and under any language the same
+- Impact on open-steamgate: 59 property and 4 parameter labels of the sample; every stg-compile model's labels (those carry a `<TPOOL>`)
+- Smallest safe workaround: the build reads every `<TPOOL>` into `gen/textpool/zcl_osd_textpool_registry` (tools/osd-textpool-registry.mjs), `ZCL_OSD_TEXTPOOL` answers by container and symbol in `sy-langu`, the writer overlay `src/gateway/compat/zcl_oao_http_handler` asks it
+- Upstream issue: READ TEXTPOOL needs an issue in abaplint/transpiler (where the pool would come from is the question, not the statement); the label resolution is one small PR to open-abap-odata through a provider interface the runtime fills (docs/upstream.md, item 15)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: text_pool_labels, class_pool_container); `test/gateway-annotation-registries.mjs`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-bind-structure-ddic -- bind_structure takes nothing from the dictionary but a date
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_entity_typ`, `zcl_oao_cmplx_type`, `zcl_oao_http_handler`; RTTI of open-abap-core (no field labels, no reference fields)
+- Affected ABAP statement, runtime API or adapter: `/IWBEP/IF_MGW_ODATA_ENTITY_TYP~BIND_STRUCTURE`, `/IWBEP/IF_MGW_ODATA_CMPLX_TYPE~BIND_STRUCTURE`, the `$metadata` writer
+- Minimal ABAP reproducer: the twin's `Item` type bound to `ZOSD_H5X_S_ITEM` (an amount and a quantity with reference fields, a currency key, a unit, a date, an include) and `VH_Currency` bound to a type of the class
+- Exact command used to run it: as above
+- Expected SAP behaviour (measured on the SEGW sample against its system): a property with no label of its own gets the medium field label of its component's data element (44 of the sample's 103); an amount or quantity gets `sap:unit` = the property bound to its reference field (12, the model makes no unit call); a currency key gets `sap:semantics="currency-code"`, a unit `"unit-of-measure"` (11, also for a type of the class through its data elements); a DATS-bound `Edm.DateTime` gets **no** `sap:display-format`; `sap:unicode` only where the model adds the annotation (the sample's 7 complex-type properties get none); a property with no label anywhere gets none (not its ABAP field name)
+- Actual open-abap behaviour: bind_structure set `sap:display-format="Date"` and nothing else; the writer hard-coded `sap:unicode="false"`, fell back to the ABAP field name for the label, wrote no label on a parameter
+- Impact on open-steamgate: 44 labels, 12 units, 11 semantics, 7 unicode, 1 display format of the sample; on our own services, see docs/upstream.md item 13 (dates of SEGW-path models lose `sap:display-format`; services without labels lose the field-name label; SADL keeps both)
+- Smallest safe workaround: the overlays `src/gateway/compat/zcl_oao_{property,entity_typ,cmplx_type,http_handler}` and the build-time dictionary registry `gen/ddicinfo/zcl_osd_ddic_info_registry` (tools/osd-ddic-info-registry.mjs) read through `ZCL_OSD_DDIC_INFO`
+- Upstream issue: small PRs to open-abap-odata (docs/upstream.md, items 15-16)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: dictionary_labels, units_and_semantics, unicode_as_the_model_says); `test/gateway-annotation-registries.mjs`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-set-locale-noop -- SET LOCALE LANGUAGE does nothing, and sap-language was not read
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler's runtime (`setLocale` is an empty function, "todo"); this Gateway (no reader of `sap-language`)
+- Affected ABAP statement, runtime API or adapter: `SET LOCALE LANGUAGE`; the `sap-language` URL parameter
+- Minimal ABAP reproducer: `SET LOCALE LANGUAGE 'D'. WRITE sy-langu.` prints `E`
+- Exact command used to run it: `$metadata?sap-language=DE` of the twin
+- Expected SAP behaviour: the request runs in the language the parameter names (ISO `DE` or SAP `D`); texts follow it
+- Actual open-abap behaviour: every request runs in the boot language
+- Impact on open-steamgate: labels (and every language-dependent read of a DPC) ignore `sap-language`
+- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception, through `ZCL_OSD_SESSION_LANGU` (`REQUESTED`: sap-language, else the first tag of Accept-Language; `SWITCH`) -- only when the request names a language, because the Go host's compiler does not carry `sy-langu` (a request with a language dumps NOT_COMPILED there, in `SWITCH`; the ISO mapping goes through `CL_I18N_LANGUAGES` directly, since the compiler also refused `CONVERSION_EXIT_ISOLA_INPUT`'s untyped IMPORTING parameter). `xml:lang` of `$metadata` follows the session language (`ISO`). A language the system does not know is ignored, not refused: lenient on purpose, unmeasured
+- Upstream issue: needs an issue in abaplint/transpiler for `SET LOCALE LANGUAGE` (setting `sy-langu` is the visible half)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (labels_in_the_request_language)
+
+### ANOMALY-2026-11-14-help-view-schema -- a help view becomes a database view
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28a3c53a), `DatabaseSchemaReuse.buildVIEW`
+- Affected ABAP statement, runtime API or adapter: the database setup of a `.view.xml` whose `DD25V-VIEWCLASS` is `H`
+- Minimal ABAP reproducer: `test/hana-m2/zosd_h5x_uv.view.xml` (a help view over two tables, its second table joined by a foreign key, `DD26V-FORDIR I`, and no `DD28J` row)
+- Exact command used to run it: `npm run transpile` with `dropHelpViews` taken out; the generation's init.mjs then carries `CREATE VIEW 'zosd_h5x_uv' AS SELECT 'zosd_h5x_un'.client ..., 'zosd_h5x_unt'.ltxt AS ltxt ... FROM 'zosd_h5x_un'`
+- Expected SAP behaviour: a help view has no database object; only its search helps read it, as an outer join with the text in the logon language
+- Actual open-abap behaviour: every VIEW of the registry becomes `CREATE VIEW` from its `DD28J` rows as inner joins; a help view's joins are foreign keys, not `DD28J` rows, so its columns name tables the `FROM` lacks. SQLite accepts the statement (it resolves a view's columns when the view is read, measured: the twin's unit run stays green with the view in the schema) and any read of the view fails; an engine that checks at CREATE (PostgreSQL) fails the schema
+- Impact on open-steamgate: a converted dump's help view in the build input would put a broken database object in every SQLite generation and fail the schema on PostgreSQL; nothing reads it, its search helps read the generated join
+- Smallest safe workaround: `dropHelpViews` (`tools/osd-warm-order.mjs`, called by `orderRegistry`, so the cold transpile, the warm compiler and its verifier all drop it) takes a help view out of the registry before the run; its search helps read it through the join `tools/segw-shlp.mjs` generates
+- Upstream issue: needs an issue (abaplint/transpiler: skip `VIEWCLASS H` in the schema) after a critic pass
+- Regression-test location: `test/segw-shlp.mjs` ("removes a help view from the transpiler's registry"), `ZCL_OSD_H5X_TEST` (ltcl_value_help)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-create-data-table-of-class-type -- CREATE DATA ... TYPE STANDARD TABLE OF a class's type is no table
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler and runtime (oisee/transpiler 28a3c53a)
+- Affected ABAP statement, runtime API or adapter: `CREATE DATA lr TYPE STANDARD TABLE OF zcl_x=>ts_row.` followed by `ASSIGN lr->* TO <lt> .` with `<lt> TYPE STANDARD TABLE`
+- Minimal ABAP reproducer: the twin DPC's first value help read (test/hana-m2/zcl_osd_h5x_dpc.clas.abap) in its first form; the transpiled call is `createData(rr_rows,{"typeName": "ZCL_OSD_H5X_MPC=>TS_VH_CATEGORY","table": true})`
+- Exact command used to run it: `ZCL_OSD_H5X_TEST` ltcl_value_help with the unit bootstrap
+- Expected SAP behaviour: the data object is a standard table of that row type and the ASSIGN succeeds
+- Actual open-abap behaviour: `ASSIGN_TYPE_CONFLICT` at the ASSIGN (six test methods)
+- Impact on open-steamgate: a DPC that creates its result table this way dumps; the SEGW sample does not, our twin did
+- Smallest safe workaround: a named table type (`TYPES tt_x TYPE STANDARD TABLE OF ts_x ...`, `CREATE DATA lr TYPE zcl_x=>tt_x`)
+- Upstream issue: needs an issue (abaplint/transpiler) after a reduced reproducer and a critic pass
+- Regression-test location: none yet (the twin uses the workaround)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-shlp-joins -- the search help provider selects from one table only
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_shlp_ddic`
+- Affected ABAP statement, runtime API or adapter: `/iwbep/if_sb_gendpc_shlp_data~get_search_help_values` for a search help with a text table (`DD30V-TEXTTAB`), a help view (`SELMTYPE H`), a list field that is not exported, or a literal default value (`DD32P-DEFAULTTYP L`)
+- Minimal ABAP reproducer: the twin's three value help sets, `test/hana-m2` (ZOSD_H5X_SH_CTY, ZOSD_H5X_SH_UN)
+- Exact command used to run it: `ZCL_OSD_H5X_TEST` ltcl_value_help against the lib copy
+- Expected SAP behaviour: the text table joined in the logon language, the help view read as its outer join, list fields shown whether exported or not, a default restricting its field unless the caller does
+- Actual open-abap behaviour: `SELECT * FROM (selmethod)` only: no texts, a help view (no database object) fails, a list field without the export flag is not returned, defaults are ignored
+- Impact on open-steamgate: the SEGW sample's value help sets over a text table or a help view do not serve
+- Smallest safe workaround: the overlay `src/gateway/compat/zcl_oao_shlp_ddic.clas.abap` + `zif_oao_shlp_source.intf.abap` (compat README), reading through the join class `tools/segw-shlp.mjs` generates
+- Upstream issue: one small PR to open-abap-odata after a critic pass (docs/upstream.md item 15)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_value_help), `ZCL_STG_SHLP_TEST`, `test/segw-shlp.mjs`
+
 ### ANOMALY-2026-11-14-dynamic-order-by-blanks -- a dynamic ORDER BY whose columns are separated by blanks reaches SQL without commas
 
 - Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4k` 05b8d3b5: `dd8696f6`, runtime `abap.dynamicOrderBy` used by the generated dynamic ORDER BY; a PRIMARY KEY inside a longer list stays one item since the 4k follow-up). The host-side workaround is removed; not upstream
@@ -4794,6 +4904,6 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: the transpiler emits `"ORDER BY " + lv_order` verbatim for a string (a table's rows are joined with ", ", a static clause gets its commas from SQLOrderByTranspiler); the database clients translate ASCENDING / DESCENDING and `~` and insert no comma, so the database sees `ORDER BY s.so_id i.so_item_pos`
 - Impact on open-steamgate: every read of the sample's line-item set (its default order has two columns), every `$orderby` of two properties on the sample's sets, and every path through them: 4 requests on the bed directly, 7 more behind the navigation fixes
 - Smallest safe workaround: none needed with the 4k pin. Until then `tools/osd-order-by.mjs` put the commas into the trailing ORDER BY of a SELECT on its way into any client (installed in `test/setup.mjs`); removed with the pin move (#954), and the ABAP tests below pass through the pin alone
-- Upstream issue: needs a branch in abaplint/transpiler after a critic pass (docs/upstream.md item 16)
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass (docs/upstream.md item 19)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); the transpiler's `packages/runtime/test/dynamic_order_by.ts` and `test/database.ts` "dynamic ORDER BY, columns separated by blanks" (the cases `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY alone and inside a list)
 - Upstream version containing a fix: unknown

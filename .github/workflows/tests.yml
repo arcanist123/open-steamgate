@@ -485,12 +485,15 @@ jobs:
           go test ./apc/...
       - name: Media rows
         run: node --test tools/gogen/media.test.mjs
-      - name: One request of OSG's gateway through Go
+      - name: Two requests of OSG's gateway through Go
+        # the service document, and $metadata: the model writer's path (labels
+        # from the text pool and the dictionary, milestone 3 B4) runs on Go too
         run: |
-          out=$(node tools/gogen/gateway.mjs) || { echo "$out"; exit 1; }
+          out=$(node tools/gogen/gateway.mjs /sap/opu/odata/sap/ZSTG_DEMO_SRV/ '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$metadata') || { echo "$out"; exit 1; }
           echo "$out"
-          grep -q '^200 OK$' <<<"$out"
+          [ "$(grep -c '^200 OK$' <<<"$out")" = 2 ]
           grep -q '"EntitySets":\["TravelSet"' <<<"$out"
+          grep -q 'sap:display-format="Date"' <<<"$out"
       # ADT conformance on osgo (docs/adt-conformance.md, "CI"): the same case
       # list the required JS suite runs, against the osgo binary with -adt.
       # Known gaps are data in expected/osgo.json and never block. The ratchet:

@@ -129,6 +129,42 @@ Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
     `ZCL_OSD_H5X_TEST` encoded_option_names. Needs an issue first: which of
     the two builds the fields decides where the fix goes.
 
+Three more from HANA milestone 3 (B4, the `$metadata` annotations of the
+SEGW sample; measured against the system's own `$metadata`, the EN and the
+DE capture). The overlays sit in `src/gateway/compat/` with their library
+copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
+
+15. **open-abap-odata: labels from the text pool** --
+    `ANOMALY-2026-11-14-textpool-absent`. `set_label_from_text_element`
+    stores the symbol and the writer prints the ABAP field name. The PR:
+    a small provider interface in the library (`get_text( container,
+    symbol, language )`), the writer asking it in `sy-langu` and writing
+    no label when it answers nothing, never the field name; this
+    repository's provider is `ZCL_OSD_TEXTPOOL` over the build-time
+    registry (tools/osd-textpool-registry.mjs), which stays here. Also a
+    parameter's label (SEGW calls the same method on it). Test here:
+    `ZCL_OSD_H5X_TEST` ltcl_annotations.
+
+16. **open-abap-odata: bind_structure from the dictionary, the writer as
+    the model says** -- `ANOMALY-2026-11-14-bind-structure-ddic`. Three
+    PRs, in this order: (a) `sap:unicode` only from the model's
+    annotation (no hard-coded `false`); (b) `sap:unit` and derived
+    `sap:semantics` from a field-information provider bind_structure
+    asks (data element, type, reference field per component; this
+    repository's is `ZCL_OSD_DDIC_INFO` over tools/osd-ddic-info-registry.mjs);
+    (c) the label of the data element through the same provider, and no
+    `sap:display-format="Date"` derived for a DATS component (the system
+    writes none; the date mark stays for a V4 facade). Consumer impact to
+    state in the PR: a model that set no label loses the field-name label,
+    and a Fiori V2 app shows a SEGW-path date with its time unless the
+    model annotates `display-format` itself.
+
+17. **abaplint/transpiler: SET LOCALE LANGUAGE** --
+    `ANOMALY-2026-11-14-set-locale-noop`. The runtime's `setLocale` is
+    empty; worked around in the dispatcher by setting `sy-langu` for the
+    request. Needs an issue first (what else the statement should switch
+    is the question).
+
 12. **transpiler: a class constructor's targets at load** --
     `ANOMALY-2026-11-14-cctor-load-order`. Fixed in the pin
     `local/osd-build-4j` (28a3c53a, #941), cycle-free; a branch inside
@@ -145,7 +181,28 @@ Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
     Workaround: the closure's structure pre-pass
     (`tools/hana-closure-stubs.mjs` structureStubs).
 
-15. **transpiler runtime + database packages: SQL literals re-read as
+The three below came out of milestone 3 B5.2 (#952, search helps).
+
+15. **open-abap-odata: search helps over a join** --
+    `ANOMALY-2026-11-14-shlp-joins`. `zcl_oao_shlp_ddic` selects from one
+    table: no text table, no help view, a list field only when exported, no
+    default values. Carried here as the overlay
+    `src/gateway/compat/zcl_oao_shlp_ddic.clas.abap` with the new
+    `zif_oao_shlp_source` (compat README); the generator that writes the
+    joins stays here (`tools/segw-shlp.mjs`). Proof: the generated join
+    classes frozen in `test/hana-m2`, `ZCL_OSD_H5X_TEST` ltcl_value_help,
+    `ZCL_STG_SHLP_TEST`. One small PR to open-abap-odata (provider +
+    interface); then drop the overlay and its exclusion.
+
+16. **transpiler: a help view becomes a database view** --
+    `ANOMALY-2026-11-14-help-view-schema`. Needs an issue (skip
+    `VIEWCLASS H` in the schema). Workaround: `dropHelpViews`
+    (`tools/osd-warm-order.mjs`, on every path that orders a registry).
+
+17. **transpiler runtime: CREATE DATA ... TYPE STANDARD TABLE OF a class's
+    type** -- `ANOMALY-2026-11-14-create-data-table-of-class-type`. Needs
+    a reduced reproducer and an issue. Workaround: a named table type.
+18. **transpiler runtime + database packages: SQL literals re-read as
     statement text** -- `ANOMALY-2026-11-14-sql-literals-statement-text`.
     Fixed in the pin `local/osd-build-4k`: `packages/runtime/src/
     sql_literals.ts` (one scan; `outsideLiterals` masks the literals for a
@@ -161,11 +218,11 @@ Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
     released, `tools/sqlite-heap-client.mjs` and `tools/postgres-client.mjs`
     drop their `select()`/`openCursor()`.
 
-16. **transpiler: a blank-separated dynamic ORDER BY** -- `ORDER BY (lv)`
+19. **transpiler: a blank-separated dynamic ORDER BY** -- `ORDER BY (lv)`
     with `lv = 'a b'` or `'a DESCENDING b'` is legal Open SQL and reached
     the database without commas. Fixed at the source in the pin
     `local/osd-build-4k` (`abap.dynamicOrderBy`, cherry-picked from the
-    milestone-3 branch, tests kept). The same PR as item 15 or one beside
+    milestone-3 branch, tests kept). The same PR as item 18 or one beside
     it; with the pin, the host-side comma pass (#947's `tools/osd-order-by.mjs`)
     is removed, and the twin's ORDER BY tests pass through the pin alone.
     A follow-up on the same pin keeps PRIMARY KEY inside a longer list one
