@@ -288,6 +288,12 @@ CLASS zcl_zstg_demo_mpc IMPLEMENTATION.
       EXPORTING
         iv_key      = 'label'
         iv_value    = 'Flight date' ).
+* a date shown as a date: the model says so (a system derives no
+* sap:display-format from the dictionary; stg-compile writes the same)
+    lo_property->/iwbep/if_mgw_odata_annotatabl~create_annotation( 'sap' )->add(
+      EXPORTING
+        iv_key      = 'display-format'
+        iv_value    = 'Date' ).
 
     lo_entity_type->bind_structure( iv_structure_name   = 'ZCL_ZSTG_DEMO_MPC=>TS_BOOKING'
                                     iv_bind_conversions = abap_true ).

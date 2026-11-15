@@ -258,6 +258,12 @@ CLASS cl_sadl_gw_model_exposure IMPLEMENTATION.
 * filter by it, and SADL says so in $metadata
       lo_property->set_sortable( boolc( ls_field-virtual = abap_false ) ).
       lo_property->set_filterable( boolc( ls_field-virtual = abap_false ) ).
+* sap:unicode="false" as this exposure has always written it: the writer
+* now prints it only where the model says so (a system writes none for a
+* property without the annotation); unmeasured for a SADL service, so the
+* earlier output is kept
+      lo_property->/iwbep/if_mgw_odata_annotatabl~create_annotation( 'sap' )->add( iv_key   = 'unicode'
+                                                                                   iv_value = 'false' ).
 
 * analytics: measures carry an aggregation, everything else is a dimension
       IF lv_aggregate = abap_true.
@@ -288,6 +294,16 @@ CLASS cl_sadl_gw_model_exposure IMPLEMENTATION.
 
     lo_entity_type->bind_structure( iv_structure_name   = ls_entity-sql_view
                                     iv_bind_conversions = abap_true ).
+* a date of the view is shown as a date: SADL writes sap:display-format=
+* "Date" for it, as this exposure always has (bind_structure no longer
+* does: a SEGW model on a system gets none, measured in milestone 3)
+    LOOP AT ls_entity-fields INTO ls_field.
+      lv_prop_name = ls_field-name.
+      lo_oao ?= lo_entity_type->get_property( lv_prop_name ).
+      IF lo_oao->mv_is_date = abap_true AND lo_oao->mv_edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-datetime.
+        lo_oao->mv_display_format = 'Date'.
+      ENDIF.
+    ENDLOOP.
 
     lv_set_name = zcl_stg_sadl_def=>set_name_of( is_structure-name ).
     lo_entity_set = lo_entity_type->create_entity_set( lv_set_name ).

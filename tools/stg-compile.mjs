@@ -58,6 +58,7 @@ import yaml from "js-yaml";
 import {generate} from "./segw-gen.mjs";
 import {AnnotationWriter} from "./stg-compile-annotations.mjs";
 import {loadFunctionGroups} from "./segw-gen-mapping.mjs";
+import {dictionaryDates} from "./osd-ddic-info-registry.mjs";
 import SPEC from "./segw-tables.json" with {type: "json"};
 
 // ------------------------------------------------------------- the model
@@ -858,7 +859,7 @@ export function compile(text, opts = {}) {
     [versionedFile(m.model, ".iwmo.xml")]: iwmoXml(m),
   };
   const warnings = [];
-  const generated = generate(iwpr, {functionModules: opts.functionModules ?? new Map(), warnings, labelAnnotations: true, ...(opts.generateOptions ?? {})});
+  const generated = generate(iwpr, {functionModules: opts.functionModules ?? new Map(), warnings, labelAnnotations: true, dateDisplayFormat: opts.dates ?? true, ...(opts.generateOptions ?? {})});
   const classes = {...generated.files, ...annotationsClass(m)};
   const ext = {...generated.ext};
   if (m.annotations.length > 0) {
@@ -918,13 +919,14 @@ export function compileAll(root = "src", out = "gen/stg", libs = [], extraRoots 
     .map((file) => [objectOf(file), file]));
   const existing = new Set(existingPaths.keys());
   const functionModules = loadFunctionGroups([...libs, ...roots]);
+  const dates = dictionaryDates(roots);
   const report = [];
   // The configured layer order also applies to models another generator wrote
   // (a CDS view published with @OData.publish, gen/cds/*.stg.yaml).
   const files = winningByLayer(roots, (dir) => walk(dir).filter((p) => p.endsWith(".stg.yaml")),
     (file) => readModel(readFileSync(file, "utf8"), basename(file)).project);
   for (const file of files) {
-    const result = compile(readFileSync(file, "utf8"), {file: basename(file), functionModules});
+    const result = compile(readFileSync(file, "utf8"), {file: basename(file), functionModules, dates});
     const target = join(out, result.model.project.toLowerCase().replaceAll("/", "#"));
     const written = [];
     const kept = [];
@@ -1006,7 +1008,7 @@ export function writeCompiled(result, out) {
 /** Compile one `.stg.yaml` into a folder, the way the command does. */
 export function compileFile(file, out, libs = []) {
   const result = compile(readFileSync(file, "utf8"),
-    {file: basename(file), functionModules: loadFunctionGroups([...libs, dirname(file)])});
+    {file: basename(file), functionModules: loadFunctionGroups([...libs, dirname(file)]), dates: dictionaryDates([...libs, dirname(file)])});
   if (out !== undefined) {
     writeCompiled(result, out);
   }

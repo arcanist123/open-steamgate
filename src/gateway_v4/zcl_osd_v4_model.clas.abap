@@ -73,7 +73,10 @@ CLASS zcl_osd_v4_model IMPLEMENTATION.
     rs_info-edm_type = v4_type( io_property->mv_edm_type ).
     rs_info-is_etag = io_property->mv_etag.
     rs_info-is_computed = boolc( io_property->mv_creatable = abap_false AND io_property->mv_updatable = abap_false ).
-    IF io_property->mv_edm_type = 'Edm.DateTime' AND io_property->mv_display_format = 'Date'.
+* a dictionary date: bind_structure marks it (mv_is_date); an explicit
+* sap:display-format="Date" says the same
+    IF io_property->mv_edm_type = 'Edm.DateTime'
+        AND ( io_property->mv_display_format = 'Date' OR io_property->mv_is_date = abap_true ).
       rs_info-edm_type = 'Edm.Date'.
     ENDIF.
     CASE rs_info-edm_type.
