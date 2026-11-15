@@ -23,11 +23,6 @@ CLASS zcl_osd_h5x_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_m
              changed_at TYPE p LENGTH 11 DECIMALS 7,
            END OF ts_partner.
     TYPES tt_partner TYPE STANDARD TABLE OF ts_partner WITH DEFAULT KEY.
-* a value-help type of the class, typed by a data element: RTTI names it
-    TYPES: BEGIN OF ts_vh_currency,
-             code TYPE zosd_h5x_currency,
-             text TYPE c LENGTH 40,
-           END OF ts_vh_currency.
     TYPES: BEGIN OF ts_vh_category,
              category TYPE c LENGTH 20,
            END OF ts_vh_category.
@@ -42,6 +37,11 @@ CLASS zcl_osd_h5x_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_m
              ltxt TYPE c LENGTH 30,
            END OF ts_vh_unit.
     TYPES tt_vh_unit TYPE STANDARD TABLE OF ts_vh_unit WITH DEFAULT KEY.
+* a value-help type of the class, typed by a data element: RTTI names it
+    TYPES: BEGIN OF ts_vh_currency,
+             code TYPE zosd_h5x_currency,
+             text TYPE c LENGTH 40,
+           END OF ts_vh_currency.
     TYPES: BEGIN OF ts_order,
              order_id   TYPE c LENGTH 10,
              buyer_id   TYPE c LENGTH 10,
