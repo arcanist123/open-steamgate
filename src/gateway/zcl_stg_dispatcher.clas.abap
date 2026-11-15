@@ -350,6 +350,20 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
 * -- or, where the key names no attribute, from the key's text itself,
 * which is how a SEGW sample's "key '&1' does not exist" reads its key on
 * a system (M3 oracle: 400, code class/number, the key in the text)
+* an error answer: JSON, or -- for a /$count request that did not ask for
+* JSON -- the XML error document a system answers there (M3 oracle 09-c1:
+* the same code and text, as application/xml)
+    CLASS-METHODS error_response
+      IMPORTING
+        iv_status          TYPE i
+        iv_code            TYPE string
+        iv_message         TYPE string
+        it_messages        TYPE bapirettab OPTIONAL
+        iv_path            TYPE string
+        it_options         TYPE tihttpnvp
+      RETURNING
+        VALUE(rs_response) TYPE ty_response.
+
     CLASS-METHODS t100_of
       IMPORTING
         ix_busi    TYPE REF TO /iwbep/cx_mgw_busi_exception
@@ -416,13 +430,17 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                            iv_content_type = iv_content_type
                            it_headers = it_headers ).
       CATCH zcx_stg_error INTO lx_stg.
-        rs_response = json_response( iv_status = lx_stg->status
-                                     iv_body   = zcl_stg_json=>error( iv_code    = lx_stg->code
-                                                                      iv_message = lx_stg->message ) ).
+        rs_response = error_response( iv_status  = lx_stg->status
+                                      iv_code    = lx_stg->code
+                                      iv_message = lx_stg->message
+                                      iv_path    = iv_path
+                                      it_options = it_options ).
       CATCH /iwbep/cx_mgw_not_impl_exc INTO lx_not.
-        rs_response = json_response( iv_status = 501
-                                     iv_body   = zcl_stg_json=>error( iv_code    = 'STG/NOT_IMPLEMENTED'
-                                                                      iv_message = |DPC method not implemented: { lx_not->method }| ) ).
+        rs_response = error_response( iv_status  = 501
+                                      iv_code    = 'STG/NOT_IMPLEMENTED'
+                                      iv_message = |DPC method not implemented: { lx_not->method }|
+                                      iv_path    = iv_path
+                                      it_options = it_options ).
       CATCH /iwbep/cx_mgw_busi_exception INTO lx_busi.
         t100_of( EXPORTING ix_busi    = lx_busi
                  IMPORTING ev_code    = lv_code
@@ -441,14 +459,18 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * way a Gateway carries them: innererror.errordetails
         lo_msg ?= /iwbep/cl_mgw_msg_container=>get_mgw_msg_container( ).
         lt_msg  = lo_msg->get_messages( ).
-        rs_response = json_response( iv_status = 400
-                                     iv_body   = zcl_stg_json=>error( iv_code    = lv_code
-                                                                      iv_message = lv_message
-                                                                      it_messages = lt_msg ) ).
+        rs_response = error_response( iv_status   = 400
+                                      iv_code     = lv_code
+                                      iv_message  = lv_message
+                                      it_messages = lt_msg
+                                      iv_path     = iv_path
+                                      it_options  = it_options ).
       CATCH /iwbep/cx_mgw_base_exception INTO lx_gateway.
-        rs_response = json_response( iv_status = 500
-                                     iv_body   = zcl_stg_json=>error( iv_code    = 'STG/TECHNICAL'
-                                                                      iv_message = lx_gateway->get_text( ) ) ).
+        rs_response = error_response( iv_status  = 500
+                                      iv_code    = 'STG/TECHNICAL'
+                                      iv_message = lx_gateway->get_text( )
+                                      iv_path    = iv_path
+                                      it_options = it_options ).
       CLEANUP.
         IF lv_logon IS NOT INITIAL.
           zcl_osd_session_langu=>switch( lv_logon ).
@@ -456,6 +478,35 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ENDTRY.
     IF lv_logon IS NOT INITIAL.
       zcl_osd_session_langu=>switch( lv_logon ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD error_response.
+    DATA lv_path   TYPE string.
+    DATA ls_option TYPE ihttpnvp.
+    DATA lv_xml    TYPE abap_bool.
+
+    rs_response = json_response( iv_status = iv_status
+                                 iv_body   = zcl_stg_json=>error( iv_code     = iv_code
+                                                                  iv_message  = iv_message
+                                                                  it_messages = it_messages ) ).
+    lv_path = iv_path.
+    WHILE lv_path CP '*/'.
+      lv_path = substring( val = lv_path len = strlen( lv_path ) - 1 ).
+    ENDWHILE.
+    IF lv_path NP '*/$count'.
+      RETURN.
+    ENDIF.
+    lv_xml = abap_true.
+    LOOP AT it_options INTO ls_option.
+      IF ls_option-name = '$format' AND to_lower( ls_option-value ) CS 'json'.
+        lv_xml = abap_false.
+      ENDIF.
+    ENDLOOP.
+    IF lv_xml = abap_true.
+      rs_response-content_type = 'application/xml'.
+      rs_response-body = zcl_stg_json=>error_xml( iv_code    = iv_code
+                                                  iv_message = iv_message ).
     ENDIF.
   ENDMETHOD.
 

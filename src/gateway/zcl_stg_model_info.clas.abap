@@ -23,6 +23,11 @@ CLASS zcl_stg_model_info DEFINITION PUBLIC CREATE PUBLIC.
 * set_conversion_exit in the MPC and not disable_conversion'ed: the exit
 * the serializer runs on output (ISOLA: E -> EN), empty otherwise
              conv_exit  TYPE string,
+* from the dictionary (bind_structure): the property bound to the
+* reference field of a quantity or an amount, and the dictionary type
+* (QUAN, CURR, ...)
+             unit_property TYPE string,
+             ddic_type     TYPE string,
            END OF ty_property.
     TYPES ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
 
@@ -294,6 +299,8 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         IF lo_property->mv_conversion = abap_true.
           ls_info-conv_exit = to_upper( lo_property->mv_conv_exit ).
         ENDIF.
+        ls_info-unit_property = lo_property->mv_unit_property.
+        ls_info-ddic_type     = lo_property->mv_ddic_datatype.
         IF ls_info-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
           ls_info-max_length = lo_property->mv_maxlength.
         ENDIF.
@@ -559,6 +566,8 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
       IF lo_property->mv_conversion = abap_true.
         ls_row-conv_exit = to_upper( lo_property->mv_conv_exit ).
       ENDIF.
+      ls_row-unit_property = lo_property->mv_unit_property.
+      ls_row-ddic_type     = lo_property->mv_ddic_datatype.
       IF ls_row-edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
         ls_row-max_length = lo_property->mv_maxlength.
       ENDIF.

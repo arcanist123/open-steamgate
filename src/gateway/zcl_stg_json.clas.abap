@@ -14,6 +14,12 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       IMPORTING
         it_sets TYPE zcl_stg_model_info=>ty_entity_sets.
 
+* the table the decimals of a unit of measure are read from (MSEHI, DECAN,
+* client-dependent): T006 on a system; a twin's own table in its tests
+    CLASS-METHODS unit_table
+      IMPORTING
+        iv_table TYPE csequence DEFAULT 'T006'.
+
 * The ETag of a row, for the entries of a type that declares one: the same
 * ZCL_OSD_V4_MODEL the V4 facade builds, so both protocols answer the same
 * tag for the same row byte for byte (one implementation, not a V2 copy).
@@ -124,6 +130,15 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_json) TYPE string.
 
+* the same error as the XML document of the V2 error format: what a
+* system answers where the request takes no JSON (a /$count)
+    CLASS-METHODS error_xml
+      IMPORTING
+        iv_code       TYPE string
+        iv_message    TYPE string
+      RETURNING
+        VALUE(rv_xml) TYPE string.
+
 * One JSON object -> name/value pairs. Accepts the v2 {"d":{...}} wrapper,
 * skips __metadata, keeps numbers, booleans and null as their literal text.
 * A nested object or array (deep insert, navigation payload) is kept as its
@@ -149,6 +164,33 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
   PRIVATE SECTION.
     CLASS-DATA gt_sets TYPE zcl_stg_model_info=>ty_entity_sets.
     CLASS-DATA go_etag_model TYPE REF TO zcl_osd_v4_model.
+    TYPES: BEGIN OF ty_unit,
+             unit     TYPE string,
+             decimals TYPE i,
+           END OF ty_unit.
+    CLASS-DATA gt_units TYPE STANDARD TABLE OF ty_unit WITH DEFAULT KEY.
+    CLASS-DATA gv_unit_table TYPE string VALUE 'T006'.
+
+* the decimals a unit of measure is displayed with; -1 when the unit (or
+* the table) is not there. Read once per request and unit
+    CLASS-METHODS unit_decimals
+      IMPORTING
+        iv_unit            TYPE string
+      RETURNING
+        VALUE(rv_decimals) TYPE i.
+
+* a quantity in its unit's decimals, as a system writes it (M3 oracle,
+* the line items' Quantity and the products' dimensions): the decimals the
+* field has beyond the unit's are cut when they are all zero -- 3.000 EA is
+* 3, 0.650 M is 0.65 -- and kept otherwise (WRITE ... UNIT; a non-zero
+* digit beyond the unit's decimals is not in the oracle). A unit the table
+* does not hold keeps the field's scale
+    CLASS-METHODS quantity_text
+      IMPORTING
+        iv_text        TYPE string
+        iv_unit        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
 
     CLASS-METHODS nested
       IMPORTING
@@ -273,6 +315,82 @@ CLASS zcl_stg_json IMPLEMENTATION.
     rv_json = rv_json && '}}'.
   ENDMETHOD.
 
+  METHOD error_xml.
+    DATA lv_code    TYPE string.
+    DATA lv_message TYPE string.
+
+* & first, so the entities the others become are not escaped again
+    lv_code = iv_code.
+    lv_message = iv_message.
+    REPLACE ALL OCCURRENCES OF '&' IN lv_code WITH '&amp;'.
+    REPLACE ALL OCCURRENCES OF '<' IN lv_code WITH '&lt;'.
+    REPLACE ALL OCCURRENCES OF '>' IN lv_code WITH '&gt;'.
+    REPLACE ALL OCCURRENCES OF '&' IN lv_message WITH '&amp;'.
+    REPLACE ALL OCCURRENCES OF '<' IN lv_message WITH '&lt;'.
+    REPLACE ALL OCCURRENCES OF '>' IN lv_message WITH '&gt;'.
+    rv_xml = |<?xml version="1.0" encoding="utf-8"?>|
+          && |<error xmlns="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata">|
+          && |<code>{ lv_code }</code><message xml:lang="{ zcl_osd_session_langu=>iso( ) }">{ lv_message }</message>|
+          && |</error>|.
+  ENDMETHOD.
+
+  METHOD unit_table.
+    gv_unit_table = to_upper( iv_table ).
+    CLEAR gt_units.
+  ENDMETHOD.
+
+  METHOD unit_decimals.
+    DATA ls_unit   TYPE ty_unit.
+    DATA lv_decan  TYPE i.
+    DATA lv_msehi  TYPE c LENGTH 3.
+
+    READ TABLE gt_units INTO ls_unit WITH KEY unit = iv_unit.
+    IF sy-subrc = 0.
+      rv_decimals = ls_unit-decimals.
+      RETURN.
+    ENDIF.
+    rv_decimals = -1.
+    lv_msehi = iv_unit.
+    IF lv_msehi IS NOT INITIAL.
+      TRY.
+          SELECT SINGLE decan FROM (gv_unit_table) INTO lv_decan WHERE msehi = lv_msehi.
+          IF sy-subrc = 0.
+            rv_decimals = lv_decan.
+          ENDIF.
+        CATCH cx_root ##NO_HANDLER.
+* no unit table in this system: the field's own scale
+      ENDTRY.
+    ENDIF.
+    ls_unit-unit     = iv_unit.
+    ls_unit-decimals = rv_decimals.
+    APPEND ls_unit TO gt_units.
+  ENDMETHOD.
+
+  METHOD quantity_text.
+    DATA lv_decimals TYPE i.
+    DATA lv_int      TYPE string.
+    DATA lv_frac     TYPE string.
+    DATA lv_cut      TYPE string.
+
+    rv_text = iv_text.
+    lv_decimals = unit_decimals( iv_unit ).
+    IF lv_decimals < 0 OR iv_text NS '.'.
+      RETURN.
+    ENDIF.
+    SPLIT iv_text AT '.' INTO lv_int lv_frac.
+    IF strlen( lv_frac ) <= lv_decimals.
+      RETURN.
+    ENDIF.
+    lv_cut = substring( val = lv_frac off = lv_decimals ).
+    IF lv_cut CO '0'.
+      IF lv_decimals = 0.
+        rv_text = lv_int.
+      ELSE.
+        rv_text = |{ lv_int }.{ substring( val = lv_frac len = lv_decimals ) }|.
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+
   METHOD nested.
     DATA ls_target TYPE zcl_stg_model_info=>ty_entity_set.
     DATA lv_kind   TYPE c LENGTH 1.
@@ -312,6 +430,8 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD register_sets.
     gt_sets = it_sets.
+* a new request: units are read again (the table may have changed)
+    CLEAR gt_units.
   ENDMETHOD.
 
   METHOD complex.
@@ -1096,7 +1216,10 @@ CLASS zcl_stg_json IMPLEMENTATION.
     DATA ls_nav_json LIKE LINE OF it_nav_json.
     DATA lv_nested   TYPE string.
     DATA lv_converted TYPE string.
+    DATA ls_unit_property LIKE LINE OF is_set-properties.
+    DATA lv_unit     TYPE string.
     FIELD-SYMBOLS <lv_field> TYPE any.
+    FIELD-SYMBOLS <lv_unit>  TYPE any.
 
     lv_uri = |{ iv_base_url }/{ is_set-name }({ key_predicate( is_data = is_data is_set = is_set ) })|.
 
@@ -1127,6 +1250,22 @@ CLASS zcl_stg_json IMPLEMENTATION.
         lv_fields = |{ lv_fields },"{ ls_property-name }":{ value( iv_value    = lv_converted
                                                                    iv_edm_type = ls_property-edm_type ) }|.
         CONTINUE.
+      ENDIF.
+      IF ls_property-ddic_type = 'QUAN' AND ls_property-unit_property IS NOT INITIAL
+          AND ls_property-edm_type = 'Edm.Decimal'.
+        READ TABLE is_set-properties INTO ls_unit_property WITH KEY name = ls_property-unit_property.
+        IF sy-subrc = 0.
+          ASSIGN COMPONENT ls_unit_property-fieldname OF STRUCTURE is_data TO <lv_unit>.
+          IF sy-subrc = 0.
+            lv_converted = value( iv_value    = <lv_field>
+                                  iv_edm_type = ls_property-edm_type ).
+            lv_converted = substring( val = lv_converted off = 1 len = strlen( lv_converted ) - 2 ).
+            lv_unit = <lv_unit>.
+            lv_fields = |{ lv_fields },"{ ls_property-name }":"{ quantity_text( iv_text = lv_converted
+                                                                                iv_unit = lv_unit ) }"|.
+            CONTINUE.
+          ENDIF.
+        ENDIF.
       ENDIF.
       lv_fields = |{ lv_fields },"{ ls_property-name }":{ value( iv_value    = <lv_field>
                                                                  iv_edm_type = ls_property-edm_type ) }|.

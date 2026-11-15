@@ -112,6 +112,11 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
         es_response_context TYPE /iwbep/if_mgw_appl_srv_runtime=>ty_s_mgw_response_context
       RAISING
         /iwbep/cx_mgw_busi_exception.
+* the dictionary-bound item type (milestone 3 B4) served with constant
+* rows: quantities in units of different display decimals (B3)
+    METHODS stock_items
+      EXPORTING
+        er_entityset TYPE REF TO data.
     METHODS contact_set
       IMPORTING
         iv_add              TYPE string OPTIONAL
@@ -305,6 +310,8 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
                             es_response_context = es_response_context ).
       WHEN c_contact.
         contact_set( IMPORTING er_entityset = er_entityset ).
+      WHEN 'Item'.
+        stock_items( IMPORTING er_entityset = er_entityset ).
     ENDCASE.
   ENDMETHOD.
 
@@ -664,6 +671,36 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     ENDTRY.
 
     copy_data_to_ref( EXPORTING is_data = lt_entityset
+                      CHANGING  cr_data = er_entityset ).
+  ENDMETHOD.
+
+  METHOD stock_items.
+    DATA lt_items TYPE STANDARD TABLE OF zosd_h5x_s_item WITH DEFAULT KEY.
+    DATA ls_item  TYPE zosd_h5x_s_item.
+
+    ls_item-currency = 'EUR'.
+    ls_item-amount   = '12.50'.
+    ls_item-item_no  = '1'.
+    ls_item-quantity = '3'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '2'.
+    ls_item-quantity = '0.65'.
+    ls_item-unit     = 'MTR'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '3'.
+    ls_item-quantity = '24.8'.
+    ls_item-unit     = 'CMT'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '4'.
+    ls_item-quantity = '2.5'.
+    ls_item-unit     = 'ZZZ'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '5'.
+    ls_item-quantity = '1.25'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    copy_data_to_ref( EXPORTING is_data = lt_items
                       CHANGING  cr_data = er_entityset ).
   ENDMETHOD.
 

@@ -423,6 +423,21 @@ CLASS zcl_stg_filter IMPLEMENTATION.
         ENDWHILE.
         lv_count = lv_off - lv_start.
         ls_token-value = iv_filter+lv_start(lv_count).
+* the type suffix of an OData V2 literal: 100.00m / M (Edm.Decimal),
+* 1.5d (Edm.Double), 1.5f (Edm.Single), 42L (Edm.Int64). The value is the
+* number without it (M3 oracle 06-03, 06-10: Price ge 100.00m); any other
+* letter after a number stays a token of its own, which the grammar
+* refuses
+        IF lv_off < lv_len AND iv_filter+lv_off(1) CA 'mMdDfFlL'.
+          lv_next = ' '.
+          IF lv_off + 1 < lv_len.
+            lv_start = lv_off + 1.
+            lv_next = iv_filter+lv_start(1).
+          ENDIF.
+          IF NOT ( to_upper( lv_next ) CA sy-abcde OR lv_next CA '0123456789_' ).
+            lv_off = lv_off + 1.
+          ENDIF.
+        ENDIF.
       ELSEIF to_upper( lv_char ) CA sy-abcde OR lv_char = '_' OR lv_char = '$'.
         ls_token-kind = 'IDENT'.
         lv_start = lv_off.

@@ -46,6 +46,9 @@ CLASS ltcl_read DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
     METHODS batch_part_length FOR TESTING RAISING cx_static_check.
     METHODS select_unknown_property FOR TESTING RAISING cx_static_check.
     METHODS select_below_expansion FOR TESTING RAISING cx_static_check.
+    METHODS quantity_in_unit_decimals FOR TESTING RAISING cx_static_check.
+    METHODS count_error_is_xml FOR TESTING RAISING cx_static_check.
+    METHODS decimal_literal_suffix FOR TESTING RAISING cx_static_check.
 
     METHODS get
       IMPORTING
@@ -910,6 +913,94 @@ CLASS ltcl_read IMPLEMENTATION.
            iv_text = `"BuyerID"` ).
     lacks( iv_body = ls_response-body
            iv_text = `"Name"` ).
+  ENDMETHOD.
+
+  METHOD quantity_in_unit_decimals.
+* a quantity is written with its unit's display decimals when the digits
+* beyond them are zero (M3 oracle: line items' Quantity, the products'
+* dimensions); a unit the table does not hold, or a non-zero digit, keeps
+* the field's scale. Units here are the twin's own (ZOSD_H5X_UOM)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lt_unit     TYPE STANDARD TABLE OF zosd_h5x_uom WITH DEFAULT KEY.
+    DATA ls_unit     TYPE zosd_h5x_uom.
+
+    DELETE FROM zosd_h5x_uom.
+    ls_unit-client = sy-mandt.
+    ls_unit-msehi = 'PC'.
+    ls_unit-decan = 0.
+    APPEND ls_unit TO lt_unit.
+    ls_unit-msehi = 'MTR'.
+    ls_unit-decan = 2.
+    APPEND ls_unit TO lt_unit.
+    ls_unit-msehi = 'CMT'.
+    ls_unit-decan = 3.
+    APPEND ls_unit TO lt_unit.
+    INSERT zosd_h5x_uom FROM TABLE lt_unit.
+    zcl_stg_json=>unit_table( 'ZOSD_H5X_UOM' ).
+
+    ls_response = get( `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/ItemSet` ).
+    zcl_stg_json=>unit_table( ).
+    ok( ls_response ).
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"3","QuantityUnit":"PC"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"0.65","QuantityUnit":"MTR"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"24.800","QuantityUnit":"CMT"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"2.500","QuantityUnit":"ZZZ"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"1.250","QuantityUnit":"PC"` ).
+* an amount keeps its scale (the oracle's amounts are in a currency of the
+* field's own decimals: nothing to tell apart)
+    has( iv_body = ls_response-body
+         iv_text = `"Amount":"12.50"` ).
+  ENDMETHOD.
+
+  METHOD count_error_is_xml.
+* an error on /$count is the XML error document, same code and text (M3
+* oracle 09-c1); with $format=json it stays JSON
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = c_base && '/$count'
+                       iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-content_type
+                                        exp = 'application/xml' ).
+    has( iv_body = ls_response-body
+         iv_text = `<code>ZOSD_H5X/001</code><message xml:lang="en">Filter on CHANGED_AT is not supported</message>` ).
+    ls_response = get( iv_path  = c_base
+                       iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'` ).
+    has( iv_body = ls_response-body
+         iv_text = `"code":"ZOSD_H5X/001"` ).
+  ENDMETHOD.
+
+  METHOD decimal_literal_suffix.
+* 100.00m is an Edm.Decimal literal, 1d a double, 1f a single, 9L an int64
+* (M3 oracle 06-03: Price ge 100.00m); another letter after a number is
+* still refused
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$filter=ItemPosition ge 10m and ItemPosition le 9999999999M` ).
+    ok( ls_response ).
+    cl_abap_unit_assert=>assert_equals(
+      act = zcl_stg_filter=>osql_where( iv_filter = `Note eq 1.5d or Note eq 2f or Note eq 9L`
+                                        is_set    = zcl_stg_model_info=>find_set( is_service    = zcl_stg_model_info=>get( 'ZOSD_H5X_SRV' )
+                                                                                  iv_entity_set = 'OrderItemSet' ) )
+      exp = `( ( NOTE = '1.5' OR NOTE = '2' ) OR NOTE = '9' )` ).
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$filter=ItemPosition ge 10x` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$filter=ItemPosition ge 10mm` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
   ENDMETHOD.
 
 ENDCLASS.
