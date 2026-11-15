@@ -3,7 +3,7 @@ import {mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {createServer} from "node:http";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {capture, compareAnswers, compareFolders, main, manifestFromIndex, normalisedLine, options} from "../tools/odata-read-diff.mjs";
+import {capture, compareAnswers, compareFolders, main, manifestFromIndex, normalisedLine, options, readAnswer} from "../tools/odata-read-diff.mjs";
 
 // tools/odata-read-diff.mjs on small synthetic bodies. Every case is a way
 // the comparison could call two different answers equal, or hide a
@@ -13,6 +13,9 @@ import {capture, compareAnswers, compareFolders, main, manifestFromIndex, normal
 // check in compareAnswers removed (the `else if (emptyOurs && emptyOracle)`
 // branch) -> "two empty answers do not match" and "compares two files from
 // the command line" go red (2 failing); with it back, green.
+// The index fixes (measured pass, 2026-11-14), each checked red against the
+// previous tools/odata-read-diff.mjs: the status by column name, and the
+// derived manifest keeping language, client, HEAD and request headers.
 const entry = (origin, key, extra = {}) => ({
   __metadata: {id: `${origin}/sap/opu/odata/sap/ZOSD_H5X_SRV/PartnerSet('${key}')`, uri: `${origin}/sap/opu/odata/sap/ZOSD_H5X_SRV/PartnerSet('${key}')`, type: "ZOSD_H5X.Partner"},
   PartnerID: key, Name: `Name ${key}`, ...extra,
@@ -190,7 +193,8 @@ describe("odata-read-diff: capture folders and a manifest", () => {
 
   it("reads an index.tsv oracle and makes a manifest of it without the logon options", async () => {
     const index = "n\tstatus\twall_s\tbytes\taccept\turl\n03-list\t200\t0.1\t10\t-\thttps://oracle.invalid:44300/sap/opu/odata/NS/S/PartnerSet?$top=5&$format=json&sap-client=001&sap-language=EN\n";
-    expect(manifestFromIndex(index)).to.deep.equal({normalise: [], requests: [{id: "03-list", method: "GET", url: "/sap/opu/odata/NS/S/PartnerSet?$top=5&$format=json", status: 200}]});
+    expect(manifestFromIndex(index)).to.deep.equal({normalise: [], logon: {"sap-client": "001", "sap-language": "EN"},
+      requests: [{id: "03-list", method: "GET", url: "/sap/opu/odata/NS/S/PartnerSet?$top=5&$format=json", status: 200}]});
     const r = mkdtempSync(join(dir, "idx-"));
     const o = mkdtempSync(join(dir, "idx-ours-"));
     writeFileSync(join(r, "index.tsv"), index);
@@ -209,6 +213,46 @@ describe("odata-read-diff: capture folders and a manifest", () => {
     const strict = [];
     expect(await main(["--manifest", manifestFile, "--ours", o, "--oracle", r], (l) => strict.push(l))).to.equal(1);
     expect(strict).to.include("normalised: nothing (no rule declared)");
+  });
+
+  // the milestone-3 capture layout: method in the second column, the
+  // status in the third, request headers as JSON (the measured pass found
+  // the status read off the method column -- every status NaN -- and the
+  // derived manifest losing what changes a request)
+  const m3Index = [
+    "n\tmethod\tstatus\twall_s\tbytes\trequest_headers\turl",
+    "01-list\tGET\t200\t0.1\t10\t{}\thttps://oracle.invalid/sap/opu/odata/NS/S/PartnerSet?$top=5&sap-client=001&sap-language=EN",
+    "02-list\tGET\t200\t0.1\t10\t{}\thttps://oracle.invalid/sap/opu/odata/NS/S/OrderSet?sap-client=001&sap-language=EN",
+    "03-de\tGET\t200\t0.1\t10\t{}\thttps://oracle.invalid/sap/opu/odata/NS/S/$metadata?sap-client=001&sap-language=DE",
+    "04-client\tGET\t401\t0.1\t10\t{}\thttps://oracle.invalid/sap/opu/odata/NS/S/PartnerSet?$top=1&sap-client=002&sap-language=EN",
+    "05-head\tHEAD\t200\t0.1\t0\t{\"x-csrf-token\": \"Fetch\"}\thttps://oracle.invalid/sap/opu/odata/NS/S/?sap-client=001&sap-language=EN",
+    "06-etag\tGET\t304\t0.1\t0\t{\"If-None-Match\": \"W/\\\"x\\\"\"}\thttps://oracle.invalid/sap/opu/odata/NS/S/PartnerSet('1')?sap-client=001&sap-language=EN",
+    "07-batch\tPOST\t202\t0.1\t10\t{\"Content-Type\": \"multipart/mixed; boundary=b\"}\thttps://oracle.invalid/sap/opu/odata/NS/S/$batch?sap-client=001&sap-language=EN",
+  ].join("\n") + "\n";
+
+  it("reads the status of an index by its column name, in either layout", () => {
+    const folder = mkdtempSync(join(dir, "m3-"));
+    writeFileSync(join(folder, "index.tsv"), m3Index);
+    writeFileSync(join(folder, "04-client.body"), "{}");
+    writeFileSync(join(folder, "01-list.body"), "{}");
+    expect(readAnswer(folder, "04-client").status).to.equal(401);
+    expect(readAnswer(folder, "01-list").status).to.equal(200);
+  });
+
+  it("keeps in a derived manifest what changes the request: another language or client, HEAD, request headers", () => {
+    const manifest = manifestFromIndex(m3Index);
+    expect(manifest.logon).to.deep.equal({"sap-client": "001", "sap-language": "EN"});
+    const byId = Object.fromEntries(manifest.requests.map((r) => [r.id, r]));
+    // the capture's own logon is dropped, another value is kept
+    expect(byId["01-list"]).to.deep.equal({id: "01-list", method: "GET", url: "/sap/opu/odata/NS/S/PartnerSet?$top=5", status: 200});
+    expect(byId["03-de"].url).to.equal("/sap/opu/odata/NS/S/$metadata?sap-language=DE");
+    expect(byId["04-client"].url).to.equal("/sap/opu/odata/NS/S/PartnerSet?$top=1&sap-client=002");
+    expect(byId["04-client"].status).to.equal(401);
+    expect(byId["05-head"]).to.deep.include({method: "HEAD", headers: {"x-csrf-token": "Fetch"}});
+    expect(byId["06-etag"].headers).to.deep.equal({"If-None-Match": "W/\"x\""});
+    // a POST is not sent by --capture and not dropped silently either
+    expect(byId["07-batch"]).to.equal(undefined);
+    expect(manifest.left_out.map((r) => [r.id, r.method, r.reason])).to.deep.equal([["07-batch", "POST", "--capture sends GET and HEAD only"]]);
   });
 
   it("compares two files from the command line", async () => {

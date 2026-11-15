@@ -25,9 +25,15 @@ carries (a `$select` that was not applied is a difference); `__count`;
     node tools/odata-read-diff.mjs --capture <base-url> --manifest <m.json> --out <dir>
     node tools/odata-read-diff.mjs --manifest-from-index <index.tsv> > m.json
 
-A capture folder holds `<id>.body` and `<id>.meta.json` per request (or an
-`index.tsv` with the id and the status, the form the milestone-2 captures
-have). `--capture` sends GET and HEAD only, with the URL as written.
+A capture folder holds `<id>.body` and `<id>.meta.json` per request, or an
+`index.tsv` whose columns are found by their header names (`n`, `status`,
+`method`, `request_headers` or `accept`, `url`: the milestone-2 and the
+milestone-3 captures have different layouts). `--capture` sends GET and
+HEAD only, with the URL as written. `--manifest-from-index` keeps what
+changes a request: the method (HEAD), the request headers, and a
+`sap-client` / `sap-language` that differs from the capture's own logon
+(the value most requests carry, written to the manifest as `logon`); a
+request `--capture` cannot send is listed under `left_out`, not dropped.
 
 Nothing is normalised unless declared, and every declared normalisation is
 counted in the output: `normalised: uri-host 105, etag-form 22,

@@ -257,25 +257,73 @@ export function readAnswer(dir, id) {
   }
   const index = join(dir, "index.tsv");
   if (existsSync(index)) {
-    const row = readFileSync(index, "utf8").split("\n").map((l) => l.split("\t")).find((cols) => cols[0] === id);
-    if (row !== undefined) return {status: Number(row[1]), body};
+    const {rows, column} = readIndex(readFileSync(index, "utf8"));
+    const row = rows.find((cols) => cols[column.id] === id);
+    if (row !== undefined) return {status: column.status < 0 ? undefined : Number(row[column.status]), body};
   }
   return {status: undefined, body};
 }
 
-/** a manifest out of an index.tsv (n, status, ..., url) */
-export function manifestFromIndex(text) {
-  const lines = text.trim().split("\n");
+/** An index.tsv: its rows and its columns BY HEADER NAME. Two layouts
+ *  exist (milestone 2: n, status, wall_s, bytes, accept, url; milestone 3:
+ *  n, method, status, wall_s, bytes, request_headers, url), so a position
+ *  is never assumed: a status read from the second column of the second
+ *  layout is the method, and every status is NaN. */
+export function readIndex(text) {
+  const lines = String(text).replace(/\r/g, "").split("\n").filter((l) => l !== "");
   const header = lines[0].split("\t");
-  const urlAt = header.indexOf("url");
-  const statusAt = header.indexOf("status");
-  const requests = lines.slice(1).map((line) => {
-    const cols = line.split("\t");
-    const [path, query = ""] = cols[urlAt].replace(ORIGIN, "").split("?");
-    const kept = query.split("&").filter((p) => p !== "" && !/^sap-(client|language)=/.test(p)).join("&");
-    return {id: cols[0], method: "GET", url: `${path}${kept === "" ? "" : "?" + kept}`, status: Number(cols[statusAt])};
-  });
-  return {normalise: [], requests};
+  const at = (name) => header.indexOf(name);
+  const column = {id: Math.max(at("n"), at("id"), 0), method: at("method"), status: at("status"), url: at("url"),
+    accept: at("accept"), headers: at("request_headers")};
+  if (column.url < 0) throw new UsageError(`index.tsv has no url column (columns: ${header.join(", ")})`);
+  return {header, column, rows: lines.slice(1).map((l) => l.split("\t"))};
+}
+
+/** The value of sap-client / sap-language most requests of an index use:
+ *  the logon the capture ran with. A request with that value loses the
+ *  option (the host under test has its own logon); one with ANOTHER value
+ *  keeps it, because that value is what the request is about. */
+function dominant(urls, name) {
+  const counts = new Map();
+  for (const url of urls) {
+    const value = new RegExp(`[?&]${name}=([^&]*)`).exec(url)?.[1];
+    if (value !== undefined) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
+}
+
+/** A manifest out of an index.tsv. Kept: the method (HEAD included), the
+ *  request headers (`request_headers` as JSON, or the older `accept`
+ *  column), the status by its column name, and every query option but a
+ *  sap-client / sap-language equal to the capture's own logon. A request
+ *  --capture cannot send (anything but GET and HEAD) is not dropped
+ *  silently: it is listed under `left_out` with the reason. */
+export function manifestFromIndex(text) {
+  const {column, rows} = readIndex(text);
+  const urls = rows.map((cols) => cols[column.url]);
+  const logon = {"sap-client": dominant(urls, "sap-client"), "sap-language": dominant(urls, "sap-language")};
+  const requests = [];
+  const leftOut = [];
+  for (const cols of rows) {
+    const [path, query = ""] = cols[column.url].replace(ORIGIN, "").split("?");
+    const kept = query.split("&").filter((p) => {
+      if (p === "") return false;
+      const [name, value = ""] = p.split("=");
+      return !(name in logon) || value !== logon[name];
+    }).join("&");
+    const request = {id: cols[column.id], method: column.method < 0 ? "GET" : String(cols[column.method]).toUpperCase(),
+      url: `${path}${kept === "" ? "" : "?" + kept}`};
+    if (column.status >= 0) request.status = Number(cols[column.status]);
+    const headers = {};
+    if (column.accept >= 0 && cols[column.accept] !== "-" && cols[column.accept] !== "") headers.accept = cols[column.accept];
+    if (column.headers >= 0 && cols[column.headers] !== "-" && cols[column.headers] !== "") {
+      Object.assign(headers, JSON.parse(cols[column.headers]));
+    }
+    if (Object.keys(headers).length > 0) request.headers = headers;
+    if (request.method !== "GET" && request.method !== "HEAD") leftOut.push({...request, reason: "--capture sends GET and HEAD only"});
+    else requests.push(request);
+  }
+  return {normalise: [], logon, requests, ...(leftOut.length > 0 ? {left_out: leftOut} : {})};
 }
 
 /** Compare a manifest's requests across two capture folders. */
