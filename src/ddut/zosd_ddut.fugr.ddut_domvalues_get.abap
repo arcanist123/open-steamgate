@@ -7,7 +7,11 @@ FUNCTION ddut_domvalues_get.
 * in LANGU (SY-LANGU when not passed). TEXTS_ONLY = 'X' reads the entries
 * of the text table only: a value without a text in LANGU is left out.
 * Otherwise every value comes back, its text blank where LANGU has none.
-* ILLEGAL_INPUT: no name, or a name with no fixed values (unknown domain).
+* A name with no fixed values (an unknown domain) answers an empty table
+* with sy-subrc 0, no exception: measured on a system 2026-11-14.
+* ILLEGAL_INPUT is raised only for an empty NAME -- unmeasured, kept from
+* the documented exception text ("invalid combination of input
+* parameters").
 * Both tables are client-independent; over an existing HANA schema they
 * are read through the shadow schema like any other table.
   DATA lv_langu TYPE sylangu.
@@ -31,7 +35,7 @@ FUNCTION ddut_domvalues_get.
     WHERE domname = name AND as4local = 'A' AND as4vers = '0000'
     ORDER BY valpos.
   IF lt_values IS INITIAL.
-    RAISE illegal_input.
+    RETURN.
   ENDIF.
 
   SELECT valpos ddtext domval_ld domval_hd

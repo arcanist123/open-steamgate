@@ -940,3 +940,280 @@ CLASS ltcl_value_help IMPLEMENTATION.
   ENDMETHOD.
 
 ENDCLASS.
+
+CLASS ltcl_annotations DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
+* The $metadata annotations a SEGW model gets from its text pool and from
+* the dictionary structure it binds (milestone 3 B4, measured on a SEGW
+* sample's $metadata against its system). The twin's Item type is bound to
+* ZOSD_H5X_S_ITEM by name; its class XML carries a text pool (001, 002 in
+* English, 002 in German too), its data elements carry field labels, two
+* of them a German one.
+  PRIVATE SECTION.
+    CONSTANTS c_metadata TYPE string VALUE '/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/$metadata'.
+
+    METHODS setup.
+    METHODS text_pool_labels FOR TESTING RAISING cx_static_check.
+    METHODS dictionary_labels FOR TESTING RAISING cx_static_check.
+    METHODS units_and_semantics FOR TESTING RAISING cx_static_check.
+    METHODS unicode_as_the_model_says FOR TESTING RAISING cx_static_check.
+    METHODS labels_in_the_request_language FOR TESTING RAISING cx_static_check.
+    METHODS class_pool_container FOR TESTING RAISING cx_static_check.
+    METHODS accept_language FOR TESTING RAISING cx_static_check.
+
+    METHODS metadata
+      IMPORTING
+        iv_language    TYPE string OPTIONAL
+      RETURNING
+        VALUE(rv_body) TYPE string.
+* the element <Property Name="..." .../> (or <Parameter ...>) of the body
+    METHODS element
+      IMPORTING
+        iv_body        TYPE string
+        iv_start       TYPE string
+      RETURNING
+        VALUE(rv_xml)  TYPE string.
+    METHODS has
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+    METHODS lacks
+      IMPORTING
+        iv_body TYPE string
+        iv_text TYPE string.
+    METHODS utf8
+      IMPORTING
+        iv_hex         TYPE xstring
+      RETURNING
+        VALUE(rv_text) TYPE string.
+ENDCLASS.
+
+CLASS ltcl_annotations IMPLEMENTATION.
+
+  METHOD setup.
+    zcl_oao_registry=>register( iv_service = 'ZOSD_H5X_SRV'
+                                iv_mpc     = 'ZCL_OSD_H5X_MPC'
+                                iv_dpc     = 'ZCL_OSD_H5X_DPC' ).
+    zcl_stg_model_info=>clear( ).
+  ENDMETHOD.
+
+  METHOD metadata.
+    DATA lt_options  TYPE tihttpnvp.
+    DATA ls_option   TYPE ihttpnvp.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    IF iv_language IS NOT INITIAL.
+      ls_option-name  = 'sap-language'.
+      ls_option-value = iv_language.
+      APPEND ls_option TO lt_options.
+    ENDIF.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_metadata
+                                                it_options = lt_options ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    rv_body = ls_response-body.
+  ENDMETHOD.
+
+  METHOD element.
+    DATA lv_from TYPE i.
+    DATA lv_end  TYPE i.
+    DATA lv_rest TYPE string.
+
+    FIND FIRST OCCURRENCE OF iv_start IN iv_body MATCH OFFSET lv_from.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = |{ iv_start } not in $metadata| ).
+    lv_rest = iv_body+lv_from.
+    FIND FIRST OCCURRENCE OF '>' IN lv_rest MATCH OFFSET lv_end.
+    rv_xml = lv_rest(lv_end).
+  ENDMETHOD.
+
+  METHOD has.
+    cl_abap_unit_assert=>assert_true( act = boolc( iv_body CS iv_text )
+                                      msg = |expected { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD lacks.
+    cl_abap_unit_assert=>assert_false( act = boolc( iv_body CS iv_text )
+                                       msg = |did not expect { iv_text } in { iv_body }| ).
+  ENDMETHOD.
+
+  METHOD utf8.
+    rv_text = cl_abap_codepage=>convert_from( iv_hex ).
+  ENDMETHOD.
+
+  METHOD text_pool_labels.
+* set_label_from_text_element resolves the class's text symbol: 001 on a
+* property, 002 on a function import parameter -- not the ABAP field name
+* the library used to write, and not the data element's label either
+    DATA lv_body TYPE string.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="ItemNo"` )
+         iv_text = `sap:label="Line Item"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Item to Release"` ).
+  ENDMETHOD.
+
+  METHOD dictionary_labels.
+* no text element: the medium field label of the component's data element,
+* through an include too; a component without a data element has none --
+* never the ABAP field name (a system writes no sap:label then)
+    DATA lv_body TYPE string.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Amount"` )
+         iv_text = `sap:label="Gross Amount"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="ChangedBy"` )
+         iv_text = `sap:label="Changed By"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Note"` )
+           iv_text = `sap:label=` ).
+* the twin's address type is bound to a local type: nothing to derive
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="City"` )
+           iv_text = `sap:label=` ).
+  ENDMETHOD.
+
+  METHOD units_and_semantics.
+* an amount or a quantity: sap:unit names the property bound to its
+* reference field; a currency key and a unit get their semantics; a date
+* gets no sap:display-format (the system writes none)
+    DATA lv_body     TYPE string.
+    DATA lv_currency TYPE string.
+    DATA lv_from     TYPE i.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Amount"` )
+         iv_text = `sap:unit="Currency"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Quantity"` )
+         iv_text = `sap:unit="QuantityUnit"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Currency"` )
+         iv_text = `sap:semantics="currency-code"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="QuantityUnit"` )
+         iv_text = `sap:semantics="unit-of-measure"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Currency"` )
+           iv_text = `sap:unit=` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="DeliveryDate"` )
+           iv_text = `sap:display-format` ).
+* a type of the class: RTTI names the data element of the component
+* (searched from VH_Currency on: VH_Country has a Code property too)
+    FIND FIRST OCCURRENCE OF `<EntityType Name="VH_Currency"` IN lv_body MATCH OFFSET lv_from.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = `VH_Currency not in $metadata` ).
+    lv_currency = lv_body+lv_from.
+    has( iv_body = element( iv_body  = lv_currency
+                            iv_start = `<Property Name="Code"` )
+         iv_text = `sap:semantics="currency-code"` ).
+    lacks( iv_body = element( iv_body  = lv_currency
+                              iv_start = `<Property Name="Text"` )
+           iv_text = `sap:semantics` ).
+  ENDMETHOD.
+
+  METHOD unicode_as_the_model_says.
+* sap:unicode="false" where the model added the annotation, nothing where
+* it did not (a complex type's properties on a system)
+    DATA lv_body TYPE string.
+
+    lv_body = metadata( ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="ItemNo"` )
+         iv_text = `sap:unicode="false"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Note"` )
+           iv_text = `sap:unicode` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="City"` )
+           iv_text = `sap:unicode` ).
+  ENDMETHOD.
+
+  METHOD labels_in_the_request_language.
+* sap-language=DE: the texts that exist in German, and nothing for those
+* that do not -- no English, and a text symbol without German does not
+* fall back to the data element's German label (measured on the system)
+    DATA lv_body TYPE string.
+    DATA lv_langu TYPE sy-langu.
+
+    lv_langu = sy-langu.
+    lv_body = metadata( 'DE' ).
+    has( iv_body = lv_body
+         iv_text = `xml:lang="de"` ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Property Name="Currency"` )
+         iv_text = |sap:label="W{ utf8( 'C3A4' ) }hrung"| ).
+    has( iv_body = element( iv_body  = lv_body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Freizugebende Position"` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="ItemNo"` )
+           iv_text = `sap:label=` ).
+    lacks( iv_body = element( iv_body  = lv_body
+                              iv_start = `<Property Name="Amount"` )
+           iv_text = `sap:label=` ).
+* the request's language ends with the request
+    cl_abap_unit_assert=>assert_equals( act = sy-langu
+                                        exp = lv_langu ).
+    has( iv_body = element( iv_body  = metadata( )
+                            iv_start = `<Property Name="Currency"` )
+         iv_text = `sap:label="Currency"` ).
+    has( iv_body = metadata( )
+         iv_text = `xml:lang="en"` ).
+  ENDMETHOD.
+
+  METHOD accept_language.
+* without sap-language the first tag of Accept-Language; sap-language wins;
+* a wildcard or an unknown language is none
+    DATA lt_options  TYPE tihttpnvp.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_pair     TYPE ihttpnvp.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_pair-name  = 'Accept-Language'.
+    ls_pair-value = 'de-DE,de;q=0.9,en;q=0.8'.
+    APPEND ls_pair TO lt_headers.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_headers = lt_headers )
+                                        exp = 'D' ).
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+                                                iv_path    = c_metadata
+                                                it_headers = lt_headers ).
+    has( iv_body = element( iv_body  = ls_response-body
+                            iv_start = `<Parameter Name="ItemNo"` )
+         iv_text = `sap:label="Freizugebende Position"` ).
+    ls_pair-name  = 'sap-language'.
+    ls_pair-value = 'EN'.
+    APPEND ls_pair TO lt_options.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_options = lt_options
+                                                                                it_headers = lt_headers )
+                                        exp = 'E' ).
+    CLEAR lt_headers.
+    ls_pair-name  = 'accept-language'.
+    ls_pair-value = '*'.
+    APPEND ls_pair TO lt_headers.
+    cl_abap_unit_assert=>assert_initial( zcl_osd_session_langu=>requested( it_headers = lt_headers ) ).
+  ENDMETHOD.
+
+  METHOD class_pool_container.
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_textpool=>program_of( 'ZCL_OSD_H5X_MPC===============CP' )
+                                        exp = `ZCL_OSD_H5X_MPC` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_textpool=>program_of( 'ZOSD_TEST_DEMO_PROG' )
+                                        exp = `ZOSD_TEST_DEMO_PROG` ).
+    cl_abap_unit_assert=>assert_equals( act = zcl_osd_textpool=>text_symbol( iv_container = 'ZCL_OSD_H5X_MPC===============CP'
+                                                                             iv_symbol    = '001'
+                                                                             iv_langu     = 'E' )
+                                        exp = `Line Item` ).
+    cl_abap_unit_assert=>assert_initial( zcl_osd_textpool=>text_symbol( iv_container = 'ZCL_OSD_H5X_MPC===============CP'
+                                                                        iv_symbol    = '001'
+                                                                        iv_langu     = 'D' ) ).
+  ENDMETHOD.
+
+ENDCLASS.

@@ -84,6 +84,8 @@ export const GENERATORS = [
   // picks up the *.tran.xml this writes
   ["osd-gui-convert.mjs"],
   ["osd-tran-registry.mjs"],
+  ["osd-textpool-registry.mjs"],
+  ["osd-ddic-info-registry.mjs"],
 ];
 
 const TOOLS = fileURLToPath(new URL(".", import.meta.url));
