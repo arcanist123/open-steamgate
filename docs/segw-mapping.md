@@ -95,7 +95,11 @@ implementing `zif_oao_shlp_source`: a static Open SQL `LEFT OUTER JOIN`
 from the base table, each further table bound on its whole key -- the
 client to the parent's client, the `LANGUFLAG` field to the session
 language (`iv_langu`), the rest to the parent's key by position, or for a
-check table (`FORDIR E`) to the field it checks -- with the view's
+check table (`FORDIR E`) to the field it checks; when the view carries
+`DD28J` rows (a help view has none, its joins are foreign keys), those rows
+give the ON condition instead, each pairing a field with one of a table
+before it, `EQ` only, the language field still bound to the session's --
+with the view's
 `DD28V` selection conditions in the static WHERE and the request's
 selection options, written against the joined column (`column( )`), in the
 dynamic one. A secondary table bound on its whole key that gives no field
@@ -124,7 +128,12 @@ internal form as the search help runtime answers them: a conversion exit
 (the language help's ISOLA) belongs to the OData property, not to the
 help (measured offline: converted in the help, `SR` became `S` in the
 one-character entity field). The
-synthetic twin in `test/hana-m2` has one value help set per kind.
+synthetic twin in `test/hana-m2` has one value help set per kind; its help
+view file is in the dump converter's shape (DD26V with the first table's
+own `FORTABNAME`, DD27P without `OBJPOS`, DD28V keyed by `CONDNAME` with an
+entity-quoted constant, no DD28J), checked against the converter's real
+output for a sample service's three unit helps, which register over one
+generated join from that file alone.
 Not served yet: selection through an exit function (`SELMEXIT`, the exit's
 interface needs `SHLP_DESCR`, `DDSHF4CTRL`, `SEAHLPRES`), collective search
 helps; those come back as an E message.

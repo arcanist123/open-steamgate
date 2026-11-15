@@ -178,10 +178,14 @@ describe("hana-closure: the dependency closure, by iteration", () => {
     expect(tadirKinds("clas", "f")).to.deep.equal(["CLAS"]);
     expect(tadirKinds("intf", "f")).to.deep.equal(["INTF"]);
     expect(tadirKinds("fugr", "f")).to.deep.equal(["FUGR"]);
+    // milestone 3: a search help named to the /IWBEP/ API, and what it selects from
+    expect(tadirKinds("shlp", "f")).to.deep.equal(["SHLP"]);
+    expect(tadirKinds("view", "f")).to.deep.equal(["VIEW"]);
+    expect(tadirKinds("ttyp", "f")).to.deep.equal(["TTYP"]);
   });
 
   it("the request is schema 1, exactly what the dumper's reader reads", () => {
-    const kinds = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "CLAS", "INTF", "FUGR", "PROG"];
+    const kinds = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW", "CLAS", "INTF", "FUGR", "PROG"];
     const asked = {ZOSD_H5C_ROLE: {kinds: ["TABL", "DTEL", "TTYP"], iteration: 2, finding: "old finding"}};
     const gaps = [{name: "ZOSD_H5C_UUID", kind: "DOMA", first_finding: "f", iterations_requested: 3}];
     const fresh = [
@@ -201,7 +205,7 @@ describe("hana-closure: the dependency closure, by iteration", () => {
     expect(request.iteration).to.equal(3);
     expect(request.generation, "the hash from the merge's manifest").to.equal("h5c_sha");
     expect(request.source).to.equal("transpile validate() findings");
-    expect(Object.keys(request.requested), "the nine upper-case TADIR kinds").to.deep.equal(kinds);
+    expect(Object.keys(request.requested), "the ten upper-case TADIR kinds (VIEW since milestone 3)").to.deep.equal(kinds);
     expect(Object.keys(request.seen)).to.deep.equal(kinds);
     expect(request.requested.TABL).to.deep.equal(["ZOSD_H5C_BPA", "ZOSD_H5C_SHLP_EXIT", "ZOSD_H5C_FILEONLY"]);
     expect(request.requested.DTEL).to.deep.equal(["ZOSD_H5C_SHLP_EXIT", "ZOSD_H5C_FILEONLY"]);
@@ -4504,6 +4508,313 @@ process.exit(0);
           else process.env[n] = savedEnv[n];
         }
       }
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // milestone 3: the search helps a service hands to the /IWBEP/ API by NAME
+  // (a string, so no finding ever named them: on the bed the seven table /
+  // help-view helps outside the service's package never reached the island)
+
+  const shlpRegistry = async (files) => {
+    const abaplint = await import("@abaplint/core");
+    const reg = new abaplint.Registry(new abaplint.Config(JSON.stringify({
+      global: {files: "/**/*.*"}, syntax: {version: abaplint.Version.OpenABAP, errorNamespace: "."}, rules: {}})));
+    for (const [name, source] of Object.entries(files)) reg.addFile(new abaplint.MemoryFile(name, source));
+    reg.parse();
+    return reg;
+  };
+  const SHLP_API_INTF = `INTERFACE /iwbep/if_sb_gendpc_shlp_data PUBLIC.
+  METHODS get_search_help_values IMPORTING iv_shlp_name TYPE string iv_maxrows TYPE i OPTIONAL.
+ENDINTERFACE.`;
+  const SHLP_SHAPES = `CLASS zcl_osd_h5x_vh_dpc DEFINITION PUBLIC CREATE PUBLIC.
+  PUBLIC SECTION.
+    INTERFACES /iwbep/if_sb_gendpc_shlp_data.
+    CONSTANTS gc_cty TYPE string VALUE 'ZOSD_H5X_SH_CTY'.
+    METHODS vh_literal.
+    METHODS vh_constants.
+    METHODS vh_dynamic IMPORTING iv_name TYPE string.
+ENDCLASS.
+CLASS zcl_osd_h5x_vh_dpc IMPLEMENTATION.
+  METHOD vh_literal.
+    me->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values( EXPORTING iv_shlp_name = 'ZOSD_H5X_SH_UN' iv_maxrows = 1 ).
+    CALL METHOD me->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values EXPORTING iv_shlp_name = \`zosd_h5x_sh_bt\`.
+    me->zif_osd_h5x_other~get_search_help_values( iv_shlp_name = 'ZOSD_H5X_SH_NOT_THE_API' ).
+  ENDMETHOD.
+  METHOD vh_constants.
+    CONSTANTS lc_cat TYPE c LENGTH 30 VALUE 'ZOSD_H5X_SH_CAT'.
+    DATA lo_sh TYPE REF TO /iwbep/if_sb_gendpc_shlp_data.
+    lo_sh->get_search_help_values( iv_shlp_name = gc_cty ).
+    lo_sh->get_search_help_values( iv_shlp_name = zcl_osd_h5x_vh_dpc=>gc_cty ).
+    lo_sh->get_search_help_values( iv_shlp_name = lc_cat ).
+    lo_sh->get_search_help_values( iv_shlp_name = zcl_osd_h5x_vh_consts=>gc_other ).
+  ENDMETHOD.
+  METHOD vh_dynamic.
+    DATA lo_sh TYPE REF TO /iwbep/if_sb_gendpc_shlp_data.
+    lo_sh->get_search_help_values( iv_shlp_name = iv_name ).
+  ENDMETHOD.
+  METHOD /iwbep/if_sb_gendpc_shlp_data~get_search_help_values.
+    DATA lo_sh TYPE REF TO /iwbep/if_sb_gendpc_shlp_data.
+    lo_sh->/iwbep/if_sb_gendpc_shlp_data~get_search_help_values( EXPORTING iv_shlp_name = iv_shlp_name ).
+  ENDMETHOD.
+ENDCLASS.`;
+  const SHLP_CONSTS = `CLASS zcl_osd_h5x_vh_consts DEFINITION PUBLIC CREATE PUBLIC.
+  PUBLIC SECTION.
+    CONSTANTS gc_other TYPE string VALUE 'ZOSD_H5X_SH_OTHER'.
+ENDCLASS.
+CLASS zcl_osd_h5x_vh_consts IMPLEMENTATION.
+ENDCLASS.`;
+
+  const SHLP_SUB = `CLASS zcl_osd_h5x_vh_sub DEFINITION PUBLIC INHERITING FROM zcl_osd_h5x_vh_consts CREATE PUBLIC.
+  PUBLIC SECTION.
+    METHODS vh_inherited.
+ENDCLASS.
+CLASS zcl_osd_h5x_vh_sub IMPLEMENTATION.
+  METHOD vh_inherited.
+    DATA lo_sh TYPE REF TO /iwbep/if_sb_gendpc_shlp_data.
+    lo_sh->get_search_help_values( iv_shlp_name = gc_other ).
+  ENDMETHOD.
+ENDCLASS.`;
+
+  it("references(): a literal or constant search-help name handed to the /IWBEP/ API is an SHLP ask; a dynamic one, the forwarder and another interface's method are not (milestone 3)", async () => {
+    const graph = await import("../tools/hana-closure-graph.mjs");
+    const {searchHelpCalls} = await import("../tools/hana-closure-shlp.mjs");
+    // with the API interface in the build and without it (an island whose
+    // syntax stops early records no scope: the statements still carry it)
+    for (const withApi of [true, false]) {
+      const reg = await shlpRegistry({"zcl_osd_h5x_vh_dpc.clas.abap": SHLP_SHAPES, "zcl_osd_h5x_vh_consts.clas.abap": SHLP_CONSTS,
+        "zcl_osd_h5x_vh_sub.clas.abap": SHLP_SUB,
+        ...(withApi === true ? {"#iwbep#if_sb_gendpc_shlp_data.intf.abap": SHLP_API_INTF} : {})});
+      const asks = graph.references(reg, "zcl_osd_h5x_vh_dpc.clas.abap").filter((r) => r.kind === "shlp");
+      expect(asks.map((r) => `${r.method}:${r.name}:${r.line}`), `with the API interface: ${withApi}`).to.deep.equal([
+        "VH_LITERAL:ZOSD_H5X_SH_UN:11",
+        "VH_LITERAL:ZOSD_H5X_SH_BT:12",
+        "VH_CONSTANTS:ZOSD_H5X_SH_CTY:18",
+        "VH_CONSTANTS:ZOSD_H5X_SH_CTY:19",
+        "VH_CONSTANTS:ZOSD_H5X_SH_CAT:20",
+        "VH_CONSTANTS:ZOSD_H5X_SH_OTHER:21",
+      ]);
+      expect(asks.every((r) => r.level === "method" && r.via === "search-help")).to.equal(true);
+      // an inherited constant named bare: only the checker's scope knows it
+      // -- so only when the object's syntax runs through (the API is there)
+      const inherited = graph.references(reg, "zcl_osd_h5x_vh_sub.clas.abap").filter((r) => r.kind === "shlp");
+      expect(inherited.map((r) => r.name), `inherited, with the API interface: ${withApi}`).to.deep.equal(withApi === true ? ["ZOSD_H5X_SH_OTHER"] : []);
+      // the dynamic call is a site, never an ask; the forwarder is neither
+      const calls = [...searchHelpCalls(reg, reg.getObject("CLAS", "ZCL_OSD_H5X_VH_DPC")).values()].flat();
+      expect(calls.filter((c) => c.dynamic === true)).to.deep.equal([{dynamic: true, line: 25, method: "VH_DYNAMIC"}]);
+      expect(calls.some((c) => c.method === "/IWBEP/IF_SB_GENDPC_SHLP_DATA~GET_SEARCH_HELP_VALUES")).to.equal(false);
+    }
+  });
+
+  it("a search-help name that is no object name is reported once, JSON-encoded, never asked -- from a call and from arrived XML (critic S-1)", async () => {
+    const graph = await import("../tools/hana-closure-graph.mjs");
+    const {islandSearchHelps, followAsks, reportUnasked, searchHelpSummary, isObjectName} = await import("../tools/hana-closure-shlp.mjs");
+    expect(["ZOSD_H5X_SH_A", "/ZNS/ZOSD_H5X_SH", "Z".repeat(30)].every(isObjectName)).to.equal(true);
+    expect(["FOO BAR", "X(Y)Z DROP TABLE", "A') OR (1'=1", "Z".repeat(31), "/ZNS/", "", "ZOSD-H5X"].some(isObjectName)).to.equal(false);
+    const source = `CLASS zcl_osd_h5x_vh_bad DEFINITION PUBLIC CREATE PUBLIC.
+  PUBLIC SECTION.
+    CONSTANTS gc_evil TYPE string VALUE 'A'') OR (1''=1'.
+    METHODS vh_bad.
+ENDCLASS.
+CLASS zcl_osd_h5x_vh_bad IMPLEMENTATION.
+  METHOD vh_bad.
+    DATA lo_sh TYPE REF TO /iwbep/if_sb_gendpc_shlp_data.
+    lo_sh->get_search_help_values( iv_shlp_name = 'X(Y)Z DROP TABLE' ).
+    lo_sh->get_search_help_values( iv_shlp_name = 'foo bar' ).
+    lo_sh->get_search_help_values( iv_shlp_name = gc_evil ).
+    lo_sh->get_search_help_values( iv_shlp_name = 'ZOSD_H5X_SH_GOOD' ).
+  ENDMETHOD.
+ENDCLASS.`;
+    const reg = await shlpRegistry({"zcl_osd_h5x_vh_bad.clas.abap": source, "#iwbep#if_sb_gendpc_shlp_data.intf.abap": SHLP_API_INTF});
+    expect(graph.references(reg, "zcl_osd_h5x_vh_bad.clas.abap").filter((r) => r.kind === "shlp").map((r) => r.name)).to.deep.equal(["ZOSD_H5X_SH_GOOD"]);
+    const found = islandSearchHelps(reg, [{object: "ZCL_OSD_H5X_VH_BAD", kind: "CLAS"}]);
+    expect(found.names.map((n) => n.name)).to.deep.equal(["ZOSD_H5X_SH_GOOD"]);
+    expect(found.invalid.map((i) => i.shown)).to.deep.equal(['"X(Y)Z DROP TABLE"', '"FOO BAR"', `"A') OR (1'=1"`]);
+    // and from an arrived file: a text table that is no object name
+    const root = mkdtempSync(join(tmpdir(), "hana-closure-shlp-bad-"));
+    const src = join(root, "gen", "hana-src", "000-h5c-main", "src");
+    mkdirSync(src, {recursive: true});
+    try {
+      writeFileSync(join(src, "zosd_h5x_sh_tx.shlp.xml"), `<abapGit><asx:values><DD30V><SHLPNAME>ZOSD_H5X_SH_TX</SHLPNAME><SELMETHOD>ZOSD_H5X_TB</SELMETHOD><TEXTTAB>${"ZOSD_H5X_".repeat(6)}</TEXTTAB></DD30V></asx:values></abapGit>`);
+      const asks = followAsks(root, islandBasenames(root), new Set(), found.invalid);
+      expect(asks.map((a) => a.name)).to.deep.equal(["ZOSD_H5X_TB"]);
+      expect(found.invalid[3]).to.deep.equal({where: "search help ZOSD_H5X_SH_TX", shown: `"${"ZOSD_H5X_".repeat(6).slice(0, 40)}"...`});
+      const said = [];
+      const reported = new Set();
+      reportUnasked(found, reported, (m) => said.push(m));
+      reportUnasked(found, reported, (m) => said.push(m));
+      expect(said, "once per run").to.have.lengthOf(4);
+      expect(said[0]).to.equal('search help name is not an object name in ZCL_OSD_H5X_VH_BAD=>VH_BAD: "X(Y)Z DROP TABLE" -- not asked');
+      expect(searchHelpSummary({found, islandFiles: islandBasenames(root)}).invalid).to.equal(4);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("the search-help scan reuses the structural pass's scope: one SyntaxLogic pass per object (critic S-2)", async () => {
+    const abaplint = await import("@abaplint/core");
+    const graph = await import("../tools/hana-closure-graph.mjs");
+    const {islandSearchHelps} = await import("../tools/hana-closure-shlp.mjs");
+    const reg = await shlpRegistry({"zcl_osd_h5x_vh_dpc.clas.abap": SHLP_SHAPES, "zcl_osd_h5x_vh_consts.clas.abap": SHLP_CONSTS,
+      "#iwbep#if_sb_gendpc_shlp_data.intf.abap": SHLP_API_INTF});
+    // the seam: every SyntaxLogic run, counted (abaplint caches the result on
+    // the object, so a second run is cheap -- the count is of the passes asked)
+    const original = abaplint.SyntaxLogic.prototype.run;
+    let runs = 0;
+    abaplint.SyntaxLogic.prototype.run = function (...args) {
+      runs += 1;
+      return original.apply(this, args);
+    };
+    try {
+      const classPaths = new Map([["zcl_osd_h5x_vh_dpc.clas.abap", ["/r/zcl_osd_h5x_vh_dpc.clas.abap"]], ["zcl_osd_h5x_vh_consts.clas.abap", ["/r/zcl_osd_h5x_vh_consts.clas.abap"]]]);
+      const analysis = graph.analyseIsland({reg, root: "/r", classPaths});
+      const afterAnalysis = runs;
+      expect(afterAnalysis).to.equal(2);
+      const found = islandSearchHelps(reg, analysis.objects);
+      expect(runs - afterAnalysis, "the scan runs no pass of its own").to.equal(0);
+      expect(found.names.map((n) => n.name)).to.include("ZOSD_H5X_SH_OTHER");
+      // a caller without the record's scope still gets one pass per object
+      islandSearchHelps(reg, analysis.objects.map((o) => ({object: o.object, kind: o.kind})));
+      expect(runs - afterAnalysis).to.equal(2);
+    } finally {
+      abaplint.SyntaxLogic.prototype.run = original;
+    }
+  });
+
+  it("followAsks: an arrived help names its selection method (a view for a help view), its text table, its included helps and data elements -- never what the island holds or a dump resolved (milestone 3)", async () => {
+    const {followAsks, searchHelpSummary} = await import("../tools/hana-closure-shlp.mjs");
+    const root = mkdtempSync(join(tmpdir(), "hana-closure-shlp-"));
+    const src = join(root, "gen", "hana-src", "000-h5c-main", "src");
+    mkdirSync(src, {recursive: true});
+    const shlp = (name, body) => `<abapGit><asx:values><DD30V><SHLPNAME>${name}</SHLPNAME>${body}</DD30V></asx:values></abapGit>`;
+    try {
+      writeFileSync(join(src, "zosd_h5x_sh_hv.shlp.xml"), shlp("ZOSD_H5X_SH_HV", "<ISSIMPLE>X</ISSIMPLE><SELMETHOD>ZOSD_H5X_HV</SELMETHOD><SELMTYPE>H</SELMTYPE>").replace("</DD30V>",
+        "</DD30V><DD32P_TABLE><DD32P><FIELDNAME>UNIT</FIELDNAME><ROLLNAME>ZOSD_H5X_UNIT_DE</ROLLNAME></DD32P><DD32P><FIELDNAME>DIM</FIELDNAME><ROLLNAME>ZOSD_H5X_DIM_DE</ROLLNAME></DD32P></DD32P_TABLE>"));
+      writeFileSync(join(src, "zosd_h5x_sh_tx.shlp.xml"), shlp("ZOSD_H5X_SH_TX", "<ISSIMPLE>X</ISSIMPLE><SELMETHOD>ZOSD_H5X_TB</SELMETHOD><SELMTYPE>X</SELMTYPE><TEXTTAB>ZOSD_H5X_TBT</TEXTTAB>"));
+      writeFileSync(join(src, "zosd_h5x_sh_co.shlp.xml"), shlp("ZOSD_H5X_SH_CO", "").replace("</DD30V>", "</DD30V><DD31S_TABLE><DD31S><SUBSHLP>ZOSD_H5X_SH_TX</SUBSHLP></DD31S><DD31S><SUBSHLP>ZOSD_H5X_SH_SUB</SUBSHLP></DD31S></DD31S_TABLE>"));
+      writeFileSync(join(src, "zosd_h5x_tbt.tabl.xml"), "<abapGit/>");
+      writeFileSync(join(src, "zosd_h5x_hv2.view.xml"), `<abapGit><asx:values><DD25V><VIEWNAME>ZOSD_H5X_HV2</VIEWNAME><VIEWCLASS>H</VIEWCLASS></DD25V><DD26V_TABLE><DD26V><TABNAME>ZOSD_H5X_VT1</TABNAME><TABPOS>0001</TABPOS></DD26V><DD26V><TABNAME>ZOSD_H5X_VT2</TABNAME><TABPOS>0002</TABPOS></DD26V></DD26V_TABLE></asx:values></abapGit>`);
+      const asks = followAsks(root, islandBasenames(root), new Set(["ZOSD_H5X_DIM_DE"]));
+      expect(asks.map((a) => `${a.kind}:${a.name}`).sort()).to.deep.equal([
+        "dtel:ZOSD_H5X_UNIT_DE", "shlp:ZOSD_H5X_SH_SUB", "tabl:ZOSD_H5X_TB", "tabl:ZOSD_H5X_VT1", "tabl:ZOSD_H5X_VT2", "view:ZOSD_H5X_HV"]);
+      expect(asks.find((a) => a.name === "ZOSD_H5X_HV").finding).to.contain("SELMTYPE H");
+      // the request takes the kinds as they are
+      expect(requestFor({iteration: 2, fresh: asks, asked: {}, gaps: []}).requested.VIEW).to.deep.equal(["ZOSD_H5X_HV"]);
+      // the summary: a seed's set whose help is missing is listed, not failed
+      const found = {names: [{name: "ZOSD_H5X_SH_TX"}, {name: "ZOSD_H5X_SH_MISS"}],
+        sites: [{object: "ZCL_SEED_DPC", method: "VH_A", name: "ZOSD_H5X_SH_TX"}, {object: "ZCL_SEED_DPC", method: "VH_B", name: "ZOSD_H5X_SH_MISS"},
+          {object: "ZCL_OTHER", method: "VH_C", name: "ZOSD_H5X_SH_MISS"}], dynamic: [{object: "ZCL_SEED_DPC", method: "VH_D"}], invalid: []};
+      expect(searchHelpSummary({found, islandFiles: islandBasenames(root), seeds: new Set(["ZCL_SEED_DPC"])})).to.deep.equal({
+        asked: 2, resolved: 1, missing: 1, dynamic: 1, invalid: 0, unserved: [{class: "ZCL_SEED_DPC", method: "VH_B", search_help: "ZOSD_H5X_SH_MISS"}]});
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  // the loop: a seed DPC naming the twin's three helps -- one by literal, one
+  // by the class's constant, one by a local constant; the fake dumper resolves
+  // them, the fake converter delivers the twin's own .shlp.xml, its tables and
+  // text table and its help view (the converter's shape) -- and segw-shlp over
+  // the island registers exactly the classes the twin's value-help sets are
+  // served by in ABAP Unit (test/hana-m2, zcl_osd_h5x_test ltcl_value_help)
+  const VH_API_LOCAL = `INTERFACE zif_osd_h5x_vh_data PUBLIC.
+  METHODS get_search_help_values IMPORTING iv_shlp_name TYPE string.
+ENDINTERFACE.
+`;
+  const VH_SEED = (body) => [
+    `CLASS zcl_osd_h5x_vh_dpc DEFINITION PUBLIC CREATE PUBLIC.`,
+    `  PUBLIC SECTION.`,
+    `    CONSTANTS gc_cty TYPE string VALUE 'ZOSD_H5X_SH_CTY'.`,
+    `    METHODS vh_unitset_get_entityset.`,
+    `    METHODS vh_countryset_get_entityset.`,
+    `    METHODS vh_categoryset_get_entityset.`,
+    `ENDCLASS.`,
+    `CLASS zcl_osd_h5x_vh_dpc IMPLEMENTATION.`,
+    ...body,
+    `ENDCLASS.`,
+    ``,
+  ].join("\n");
+  const vhMethod = (name, call, decl = []) => [`  METHOD ${name}.`, `    DATA lo_sh TYPE REF TO zif_osd_h5x_vh_data.`, ...decl, `    lo_sh->get_search_help_values( iv_shlp_name = ${call} ).`, `  ENDMETHOD.`];
+  const TWIN_HELP_FILES = ["zosd_h5x_sh_un.shlp.xml", "zosd_h5x_uv.view.xml", "zosd_h5x_un.tabl.xml", "zosd_h5x_unt.tabl.xml",
+    "zosd_h5x_sh_cty.shlp.xml", "zosd_h5x_cty.tabl.xml", "zosd_h5x_ctyt.tabl.xml", "zosd_h5x_sh_cat.shlp.xml", "zosd_h5x_cat.tabl.xml"];
+
+  it("the loop asks for the search helps the seed DPC names, the dumper's helps arrive, and segw-shlp registers what the twin's value-help sets are served by (milestone 3)", async function () {
+    this.timeout(300000);
+    const root = scratch(VH_SEED([
+      ...vhMethod("vh_unitset_get_entityset", "'ZOSD_H5X_SH_UN'"),
+      ...vhMethod("vh_countryset_get_entityset", "gc_cty"),
+      ...vhMethod("vh_categoryset_get_entityset", "lc_cat", [`    CONSTANTS lc_cat TYPE string VALUE 'ZOSD_H5X_SH_CAT'.`]),
+    ]), "zcl_osd_h5x_vh_dpc");
+    writeFileSync(join(root, "src", "zif_osd_h5x_vh_data.intf.abap"), VH_API_LOCAL);
+    for (const f of TWIN_HELP_FILES) copyFileSync(join(REPO, "test", "hana-m2", f), join(root, "island", f));
+    mkdirSync(join(root, ".git"));
+    const dump = join(root, "dump-001");
+    fixtureDump(dump);
+    const env = writeFakes(root, envFor(root, {island: "zcl_osd_h5x_vh_dpc.clas.abap", convBFiles: TWIN_HELP_FILES}));
+    const said = [];
+    try {
+      const result = await run(["--dump", dump, "--system", "h5c", "--stub-unresolved"], {root, env, say: (m) => said.push(m)});
+      expect(result.stopped, said.join("\n")).to.equal("fixed-point");
+      expect(result.iteration).to.equal(2);
+      // iteration 1 asked the three under SHLP, and only under SHLP
+      const asked = dumperCalls(root);
+      expect(asked).to.have.lengthOf(1);
+      const state = JSON.parse(readFileSync(outFile(root, "state.json"), "utf8"));
+      expect(Object.keys(state.asked).sort()).to.deep.equal(["ZOSD_H5X_SH_CAT", "ZOSD_H5X_SH_CTY", "ZOSD_H5X_SH_UN"]);
+      for (const name of Object.keys(state.asked)) {
+        expect(state.asked[name].kinds, name).to.deep.equal(["SHLP"]);
+        expect(state.asked[name].iteration).to.equal(2);
+        expect(state.asked[name].finding).to.match(/^structural: search help ZOSD_H5X_SH_\w+ handed to GET_SEARCH_HELP_VALUES in ZCL_OSD_H5X_VH_DPC=>VH_/);
+      }
+      // the help view arrived as a .view.xml beside its help, and resolved
+      // everything the helps select from: nothing was asked a second time
+      const island = join(root, "gen", "hana-src", "000-h5c-main", "src");
+      expect(existsSync(join(island, "zosd_h5x_uv.view.xml"))).to.equal(true);
+      expect(JSON.parse(readFileSync(outFile(root, "closure-gaps.json"), "utf8")).gaps).to.deep.equal([]);
+      const summary = JSON.parse(readFileSync(outFile(root, "closure-summary.json"), "utf8"));
+      expect(summary.search_helps).to.deep.equal({asked: 3, resolved: 3, missing: 0, dynamic: 0, invalid: 0});
+      expect(summary.failures).to.deep.equal([]);
+      // registered by segw-shlp over the island alone, and the classes are the
+      // twin's own: the value-help sets of test/hana-m2 run on them
+      const {generate} = await import("../tools/segw-shlp.mjs");
+      const {files} = generate([join(root, "gen", "hana-src")], {className: "zcl_osd_h5x_shlp_registry"});
+      expect([...files.keys()].sort()).to.deep.equal([
+        "zcl_osd_h5x_shlp_registry.clas.abap", "zcl_osd_shlp_zosd_h5x_cty.clas.abap", "zcl_osd_shlp_zosd_h5x_uv.clas.abap"]);
+      for (const [name, abap] of files) expect(abap, name).to.equal(readFileSync(join(REPO, "test", "hana-m2", name), "utf8"));
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("a search help the dictionary lacks is an SHLP gap and its seed set is listed unserved; a dynamic name is reported once and never asked (milestone 3)", async function () {
+    this.timeout(300000);
+    const root = scratch(VH_SEED([
+      ...vhMethod("vh_unitset_get_entityset", "'ZOSD_H5X_SH_MISS'"),
+      ...vhMethod("vh_countryset_get_entityset", "lv_name", [`    DATA lv_name TYPE string.`]),
+      `  METHOD vh_categoryset_get_entityset.`, `  ENDMETHOD.`,
+    ]), "zcl_osd_h5x_vh_dpc");
+    writeFileSync(join(root, "src", "zif_osd_h5x_vh_data.intf.abap"), VH_API_LOCAL);
+    mkdirSync(join(root, ".git"));
+    const dump = join(root, "dump-001");
+    fixtureDump(dump);
+    const env = writeFakes(root, envFor(root, {island: "zcl_osd_h5x_vh_dpc.clas.abap", missingNames: "ZOSD_H5X_SH_MISS"}));
+    const said = [];
+    try {
+      const result = await run(["--dump", dump, "--system", "h5c"], {root, env, say: (m) => said.push(m)});
+      expect(result.stopped, said.join("\n")).to.equal("fixed-point");
+      const request = JSON.parse(readFileSync(outFile(root, "closure-request.json"), "utf8"));
+      expect(request.requested.SHLP, "the literal is asked, the variable never").to.deep.equal(["ZOSD_H5X_SH_MISS"]);
+      expect(JSON.stringify(request)).to.not.include("LV_NAME");
+      const dynamic = said.filter((l) => l.startsWith("search help named dynamically in ZCL_OSD_H5X_VH_DPC=>VH_COUNTRYSET_GET_ENTITYSET"));
+      expect(dynamic, "reported once over two iterations").to.have.lengthOf(1);
+      expect(result.gaps.map((g) => `${g.kind}:${g.name}`)).to.deep.equal(["SHLP:ZOSD_H5X_SH_MISS"]);
+      const summary = JSON.parse(readFileSync(outFile(root, "closure-summary.json"), "utf8"));
+      expect(summary.search_helps).to.deep.equal({asked: 1, resolved: 0, missing: 1, dynamic: 1, invalid: 0,
+        unserved: [{class: "ZCL_OSD_H5X_VH_DPC", method: "VH_UNITSET_GET_ENTITYSET", search_help: "ZOSD_H5X_SH_MISS"}]});
+      expect(summary.failures, "an unserved value-help set is listed, never a failure").to.deep.equal([]);
+      expect(summary.gaps).to.deep.include({name: "ZOSD_H5X_SH_MISS", kind: "SHLP"});
     } finally {
       rmSync(root, {recursive: true, force: true});
     }
