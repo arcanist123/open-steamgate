@@ -56,3 +56,12 @@ do not travel to SAP.
   function import parameter; and no longer derives
   `sap:display-format="Date"` (the date mark `mv_is_date` stays for the V4
   facade; the SADL exposure sets the display format itself).
+- `zcl_oao_shlp_ddic.clas` + `zif_oao_shlp_source.intf` -- search helps
+  whose selection is a join (milestone 3 B5.2, docs/segw-mapping.md "Text
+  tables and help views"): the provider reads through a
+  `zif_oao_shlp_source` that `tools/segw-shlp.mjs` generates for a table
+  with a text table and for a help view, writes each selection option
+  against the joined column, takes a parameter with a list position as a
+  list field, and applies a literal default value to a field the request
+  leaves open. One small PR to open-abap-odata after a critic pass (the interface
+  with it, the generator stays here).

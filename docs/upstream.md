@@ -181,6 +181,28 @@ copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
     Workaround: the closure's structure pre-pass
     (`tools/hana-closure-stubs.mjs` structureStubs).
 
+The three below came out of milestone 3 B5.2 (#952, search helps).
+
+15. **open-abap-odata: search helps over a join** --
+    `ANOMALY-2026-11-14-shlp-joins`. `zcl_oao_shlp_ddic` selects from one
+    table: no text table, no help view, a list field only when exported, no
+    default values. Carried here as the overlay
+    `src/gateway/compat/zcl_oao_shlp_ddic.clas.abap` with the new
+    `zif_oao_shlp_source` (compat README); the generator that writes the
+    joins stays here (`tools/segw-shlp.mjs`). Proof: the generated join
+    classes frozen in `test/hana-m2`, `ZCL_OSD_H5X_TEST` ltcl_value_help,
+    `ZCL_STG_SHLP_TEST`. One small PR to open-abap-odata (provider +
+    interface); then drop the overlay and its exclusion.
+
+16. **transpiler: a help view becomes a database view** --
+    `ANOMALY-2026-11-14-help-view-schema`. Needs an issue (skip
+    `VIEWCLASS H` in the schema). Workaround: `dropHelpViews`
+    (`tools/osd-warm-order.mjs`, on every path that orders a registry).
+
+17. **transpiler runtime: CREATE DATA ... TYPE STANDARD TABLE OF a class's
+    type** -- `ANOMALY-2026-11-14-create-data-table-of-class-type`. Needs
+    a reduced reproducer and an issue. Workaround: a named table type.
+
 ## What we carry, and what we wait for
 
 *Decided 2026-09-17, after the performance work made the question real.*
