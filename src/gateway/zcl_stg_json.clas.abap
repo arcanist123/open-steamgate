@@ -15,7 +15,9 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         it_sets TYPE zcl_stg_model_info=>ty_entity_sets.
 
 * the table the decimals of a unit of measure are read from (MSEHI, DECAN,
-* client-dependent): T006 on a system; a twin's own table in its tests
+* client-dependent): T006 on a system (public table of units of measure,
+* https://www.sapdatasheet.org/abap/tabl/t006.html); a twin's own table in
+* its tests
     CLASS-METHODS unit_table
       IMPORTING
         iv_table TYPE csequence DEFAULT 'T006'.
@@ -387,6 +389,10 @@ CLASS zcl_stg_json IMPLEMENTATION.
         rv_text = lv_int.
       ELSE.
         rv_text = |{ lv_int }.{ substring( val = lv_frac len = lv_decimals ) }|.
+      ENDIF.
+* a value that is zero once cut is no negative number: never -0 or -0.00
+      IF rv_text CP '-*' AND substring( val = rv_text off = 1 ) CO '0.'.
+        rv_text = substring( val = rv_text off = 1 ).
       ENDIF.
     ENDIF.
   ENDMETHOD.

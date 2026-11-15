@@ -951,6 +951,13 @@ CLASS ltcl_read IMPLEMENTATION.
          iv_text = `"Quantity":"2.500","QuantityUnit":"ZZZ"` ).
     has( iv_body = ls_response-body
          iv_text = `"Quantity":"1.250","QuantityUnit":"PC"` ).
+* a negative quantity keeps its sign, and never becomes -0
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"-2","QuantityUnit":"PC"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Quantity":"-0.500","QuantityUnit":"PC"` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Quantity":"-0"` ).
 * an amount keeps its scale (the oracle's amounts are in a currency of the
 * field's own decimals: nothing to tell apart)
     has( iv_body = ls_response-body
@@ -973,6 +980,13 @@ CLASS ltcl_read IMPLEMENTATION.
          iv_text = `<code>ZOSD_H5X/001</code><message xml:lang="en">Filter on CHANGED_AT is not supported</message>` ).
     ls_response = get( iv_path  = c_base
                        iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'` ).
+    has( iv_body = ls_response-body
+         iv_text = `"code":"ZOSD_H5X/001"` ).
+* $format=json asked for, its $ encoded or not: JSON on /$count too
+    ls_response = get( iv_path  = c_base && '/$count'
+                       iv_query = `$filter=ChangedAt ge datetime'2021-01-01T00:00:00'&%24format=json` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-content_type
+                                        exp = 'application/json' ).
     has( iv_body = ls_response-body
          iv_text = `"code":"ZOSD_H5X/001"` ).
   ENDMETHOD.
@@ -998,6 +1012,17 @@ CLASS ltcl_read IMPLEMENTATION.
                                         msg = ls_response-body ).
     ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
                        iv_query = `$filter=ItemPosition ge 10mm` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+* a number ending in its decimal point is malformed, suffix or not
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$filter=ItemPosition ge 1.` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400
+                                        msg = ls_response-body ).
+    ls_response = get( iv_path  = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/OrderItemSet`
+                       iv_query = `$filter=ItemPosition ge 1.m` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 400
                                         msg = ls_response-body ).

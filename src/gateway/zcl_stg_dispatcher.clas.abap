@@ -482,9 +482,8 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD error_response.
-    DATA lv_path   TYPE string.
-    DATA ls_option TYPE ihttpnvp.
-    DATA lv_xml    TYPE abap_bool.
+    DATA lv_path    TYPE string.
+    DATA ls_request TYPE zcl_stg_url=>ty_request.
 
     rs_response = json_response( iv_status = iv_status
                                  iv_body   = zcl_stg_json=>error( iv_code     = iv_code
@@ -497,13 +496,10 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     IF lv_path NP '*/$count'.
       RETURN.
     ENDIF.
-    lv_xml = abap_true.
-    LOOP AT it_options INTO ls_option.
-      IF ls_option-name = '$format' AND to_lower( ls_option-value ) CS 'json'.
-        lv_xml = abap_false.
-      ENDIF.
-    ENDLOOP.
-    IF lv_xml = abap_true.
+* $format read as zcl_stg_url reads any option: %24format is $format
+    ls_request-options = it_options.
+    IF to_lower( zcl_stg_url=>option( is_request = ls_request
+                                      iv_name    = '$format' ) ) NS 'json'.
       rs_response-content_type = 'application/xml'.
       rs_response-body = zcl_stg_json=>error_xml( iv_code    = iv_code
                                                   iv_message = iv_message ).

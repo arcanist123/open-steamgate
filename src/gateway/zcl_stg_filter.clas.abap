@@ -423,6 +423,15 @@ CLASS zcl_stg_filter IMPLEMENTATION.
         ENDWHILE.
         lv_count = lv_off - lv_start.
         ls_token-value = iv_filter+lv_start(lv_count).
+* a number that ends in its decimal point (1. or 1.m) is no literal: a
+* system refuses the malformed decimal, so does this parser
+        IF ls_token-value CP '*.'.
+          RAISE EXCEPTION TYPE zcx_stg_error
+            EXPORTING
+              status  = 400
+              code    = 'STG/BAD_FILTER'
+              message = |Malformed number { ls_token-value } in $filter|.
+        ENDIF.
 * the type suffix of an OData V2 literal: 100.00m / M (Edm.Decimal),
 * 1.5d (Edm.Double), 1.5f (Edm.Single), 42L (Edm.Int64). The value is the
 * number without it (M3 oracle 06-03, 06-10: Price ge 100.00m); any other

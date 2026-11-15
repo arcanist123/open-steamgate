@@ -882,6 +882,14 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     ls_item-quantity = '1.25'.
     ls_item-unit     = 'PC'.
     APPEND ls_item TO lt_items.
+    ls_item-item_no  = '6'.
+    ls_item-quantity = '-2'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '7'.
+    ls_item-quantity = '-0.5'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
     copy_data_to_ref( EXPORTING is_data = lt_items
                       CHANGING  cr_data = er_entityset ).
   ENDMETHOD.
