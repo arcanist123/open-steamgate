@@ -178,9 +178,12 @@ CLASS zcl_osd_m4g_dpc IMPLEMENTATION.
       WHEN 'M4TAMPER'.
         WRITE '@KERNEL globalThis.osdNotActivated = () => {};'.
       WHEN 'M4RAW'.
-        WRITE '@KERNEL await (await import("node:dns")).promises.lookup("m4-raw-target.invalid");'.
+* the specifier is built, so no bundler resolves it (the preview has no dns)
+        WRITE '@KERNEL const m4dns = ["node", "dns"].join(":");'.
+        WRITE '@KERNEL await (await import(/* webpackIgnore: true */ m4dns)).promises.lookup("m4-raw-target.invalid");'.
       WHEN 'M4LISTEN'.
-        WRITE '@KERNEL (await import("node:net")).createServer().listen(0, "127.0.0.1");'.
+        WRITE '@KERNEL const m4net = ["node", "net"].join(":");'.
+        WRITE '@KERNEL (await import(/* webpackIgnore: true */ m4net)).createServer().listen(0, "127.0.0.1");'.
     ENDCASE.
   ENDMETHOD.
 

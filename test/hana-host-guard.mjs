@@ -307,6 +307,69 @@ describe("hana-host-guard: the outbound guard in this process", function () {
   });
 });
 
+describe("hana-host-guard: the locked guard in a process of its own (the host's install)", function () {
+  this.timeout(30000);
+  // The critic's reproducer (round 2): net.Server.prototype._listen2 binds by
+  // itself, below listen(); called directly it listened on all interfaces
+  // and an external process delivered data. The child installs the guard
+  // exactly as the host does ({lock: true}) and reports what opened; this
+  // process is the outside that tries to connect.
+  const child = (body, onData = () => undefined) => new Promise((resolve) => {
+    const script = `const {installOutboundGuard, installStubHook, createHostRecord} = await import(${JSON.stringify(new URL("../tools/hana-host-guard.mjs", import.meta.url).href)});
+const lines = [];
+const record = createHostRecord({log: (l) => lines.push(l)});
+installOutboundGuard(record, {lock: true});
+installStubHook(record, {lock: true});
+const net = await import("node:net");
+const report = (name, f) => { try { console.log(name + " OPEN " + (f() ?? "")); } catch (e) { console.log(name + " REFUSED " + (e.code ?? e.message)); } };
+${body}
+setTimeout(() => { for (const l of lines) console.log("LOG " + l); process.exit(0); }, 1500);`;
+    const proc = spawnChild(process.execPath, ["--input-type=module", "-e", script], {stdio: ["ignore", "pipe", "pipe"]});
+    let out = "";
+    proc.stdout.on("data", (c) => { out += c; onData(out); });
+    proc.stderr.on("data", (c) => { out += c; });
+    proc.on("exit", () => resolve(out));
+  });
+
+  it("refuses _listen2 called directly: no port, nothing an outside process can reach, the record says listen", async () => {
+    // the outside: connect to whatever port the child says it opened
+    let connected = false;
+    const out = await child(`report("_listen2", () => { const s = new net.Server((c) => c.on("data", (d) => console.log("ACCEPTED " + d))); s._listen2(0); console.log("PORT=" + s.address().port); });`,
+      (text) => {
+        const m = /PORT=(\d+)/.exec(text);
+        if (m === null || connected === true) return;
+        connected = true;
+        const socket = net.connect(Number(m[1]), "127.0.0.1", () => socket.end("exfil-marker"));
+        socket.on("error", () => undefined);
+      });
+    expect(out).to.not.match(/ACCEPTED/);
+    expect(out).to.not.match(/PORT=/);
+    expect(connected).to.equal(false);
+    expect(out).to.match(/_listen2 REFUSED OSD_OUTBOUND_REFUSED/);
+    expect(out).to.match(/LOG hana-serve: refused outbound listen/);
+  });
+
+  it("refuses the siblings: listen(path), listen({fd}), http2 (plain and secure), cluster.fork, dgram bind, a subclass's own listen", async () => {
+    const out = await child(`
+report("path", () => net.createServer().listen(${JSON.stringify(join(tmpdir(), `m4-guard-${process.pid}.sock`))}));
+report("fd", () => net.createServer().listen({fd: 0}));
+const http2 = await import("node:http2");
+report("http2", () => http2.createServer().listen(0));
+report("http2s", () => http2.createSecureServer({}).listen(0));
+const cluster = (await import("node:cluster")).default;
+report("cluster", () => { cluster.setupPrimary({exec: "/dev/null"}); cluster.fork(); });
+const dgram = (await import("node:dgram")).default;
+report("udp", () => dgram.createSocket("udp4").bind(0));
+const http = (await import("node:http")).default;
+Object.defineProperty(http.Server.prototype, "listen", {configurable: true, writable: true, value: function () { return this._listen2(null, 0, 4, 511); }});
+report("shadow", () => http.createServer().listen());
+http.Server.prototype.listen = undefined;
+`);
+    for (const name of ["path", "fd", "http2", "http2s", "cluster", "udp", "shadow"]) expect(out, name).to.match(new RegExp(`^${name} REFUSED OSD_OUTBOUND_REFUSED$`, "m"));
+    expect(out).to.not.match(/ OPEN /);
+  });
+});
+
 describe("hana-serve with the guard and the stub trace (twin ZOSD_M4G_SRV)", function () {
   this.timeout(180000);
   let dir;

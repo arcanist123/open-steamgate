@@ -1559,9 +1559,15 @@ A service delivered by somebody else runs in this process, so the host
 promises two more things, both installed by `tools/hana-serve.mjs` before a
 class module of the generation loads (a class constructor runs at load).
 
-**The threat model, first.** These nets cover what delivered code *does*
-through the ABAP layer and the libraries under it: an HTTP client, a
-destination, a lookup, a job, a stub it runs into and swallows. They are
+**The threat model, first.** The in-process guard is a defence against
+what delivered code *does* -- through the ABAP layer and the libraries
+under it: an HTTP client, a destination, a lookup, a job, a stub it runs
+into and swallows -- and against accidents. No list of patched entry points
+inside the process is ever known to be complete, so it claims no
+completeness. Against hostile delivered *source* the controls are two, and
+neither lives in this module: (i) refusing kernel splices when the island
+is merged, and (ii) running the host in an operating-system sandbox with no
+network except loopback to the database and its own port. The guard is
 **not a sandbox against hostile delivered *source***. A `WRITE '@KERNEL
 …'` line is spliced into the transpiled module as JavaScript (the
 transpiler's `WRITE` turns such a literal into code, by design: our own
@@ -1583,11 +1589,15 @@ a name can carry data), callback and promise forms and the `Resolver`s;
 `child_process` (all seven, the ESM named exports synced) and
 `worker_threads.Worker`, since a child or a worker has modules nothing here
 patched; `process.binding` for the socket and process bindings; `fetch` and
-`WebSocket` once more to name the URL. The ways *in* are closed by the same
-seam: `net.Server.prototype.listen` (every http, https, tls and http2
-server listens through it) answers only for the one server the host marked
-(`allowListener`, by object, not by a port generated code could reuse), UDP
-`bind` is refused, and so are `process.dlopen` (an addon opens sockets below
+`WebSocket` once more to name the URL. For the ways *in*, what is patched
+is `net.Server.prototype.listen` and `net.Server.prototype._listen2` (the
+step below it that does the bind; every `listen` variant measured -- a
+port, a path, `{fd}`, a handle, http/https/tls/http2 servers, a subclass's
+own `listen` -- reaches one of the two), each answering only for the one
+server the host marked (`allowListener`, by object, not by a port generated
+code could reuse) and for the window of the host's own start (osd-bind's
+`::1` twin, opened and closed inside one `listening` event); UDP `bind` is
+refused, and so are `process.dlopen` (an addon opens sockets below
 every seam here), `inspector.open`, `process._debugProcess` and
 `process.kill(…, 'SIGUSR1')` (a debugger that listens is somebody else
 taking the process). Each refuses by throwing `OSD_OUTBOUND_REFUSED` before
@@ -1638,6 +1648,14 @@ it refuses the start.
 What stays open at the process level, all of it reachable only from
 delivered *source* (a kernel splice) and all of it closed by the two
 measures above, not by this module:
+- an in-process patch list can always be incomplete: a Node entry point
+  not named above (an internal path a later Node release adds, a module
+  this list never looked at) is open until somebody finds it -- round 2 of
+  the review found `_listen2` that way. Not closed here, by class:
+  `node:fs` and every other file or pipe API, `node:vm`/`eval` (the same
+  patched modules, but no further restriction), timers and `process.on`
+  hooks that outlive a request, `process.exit`/`abort`, environment and
+  memory reads (`process.env` holds the database password);
 - `node:fs` directly: a file written, read or replaced anywhere the
   process may (the ABAP's own `OPEN DATASET` is refused outside its roots,
   `tools/osd-dataset.mjs`; a direct import is not);

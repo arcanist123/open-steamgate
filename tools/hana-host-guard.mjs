@@ -31,7 +31,8 @@
 // option each event is still one line on stderr and nothing is kept.
 //
 // The threat model, said plainly: this covers what delivered code DOES
-// through the ABAP layer and the libraries under it. It is not a sandbox
+// through the ABAP layer and the libraries under it, and accidents; no
+// in-process patch list is known to be complete. It is not a sandbox
 // against hostile delivered SOURCE: a `WRITE '@KERNEL ...'` line is spliced
 // into the transpiled module as JavaScript, and JavaScript in this process
 // can do what this process can (write files through node:fs, for one). The
@@ -358,7 +359,19 @@ export function installOutboundGuard(record, {lock = false} = {}) {
   // tls and http2 servers all listen through net.Server
   patch(net.Server.prototype, "listen", (original) => function (...args) {
     if (listeners.has(this) === false && window.open !== true) throw refuse("listen", describe(connectTarget(args)));
+    // a server admitted by the start window stays admitted: its bind
+    // (_listen2, below) runs a tick later, after the window has closed
+    listeners.add(this);
     return original.apply(this, args);
+  });
+  // and the step below it: listen() hands every variant -- a port, a path
+  // (a local socket), a handle, {fd}, a cluster worker's handle -- to
+  // _listen2, which binds by itself through the internal TCP/pipe wrap
+  // (no process.binding on the way). Called directly it is a listener on
+  // all interfaces, so it gets the same check (critic round 2)
+  patch(net.Server.prototype, "_listen2", (original) => function (address, port, ...rest) {
+    if (listeners.has(this) === false && window.open !== true) throw refuse("listen", `${address ?? "*"}:${port ?? "?"}`);
+    return original.call(this, address, port, ...rest);
   });
   // UDP: no connection to refuse, so every datagram is, and every bind
   const dgram = require("node:dgram");
