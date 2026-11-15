@@ -331,10 +331,19 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     DATA lv_message TYPE string.
     DATA lo_msg     TYPE REF TO zcl_oao_msg_container.
     DATA lt_msg     TYPE bapirettab.
+    DATA lv_logon   TYPE c LENGTH 1.
+    DATA lv_langu   TYPE c LENGTH 1.
 
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
+* sap-language (else Accept-Language): the request runs in that language
+* and the session's own comes back after it (ZCL_OSD_SESSION_LANGU)
+    lv_langu = zcl_osd_session_langu=>requested( it_options = it_options
+                                                 it_headers = it_headers ).
+    IF lv_langu IS NOT INITIAL.
+      lv_logon = zcl_osd_session_langu=>switch( lv_langu ).
+    ENDIF.
     TRY.
         rs_response = run( iv_method  = iv_method
                            iv_path    = iv_path
@@ -372,7 +381,14 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
         rs_response = json_response( iv_status = 500
                                      iv_body   = zcl_stg_json=>error( iv_code    = 'STG/TECHNICAL'
                                                                       iv_message = lx_gateway->get_text( ) ) ).
+      CLEANUP.
+        IF lv_logon IS NOT INITIAL.
+          zcl_osd_session_langu=>switch( lv_logon ).
+        ENDIF.
     ENDTRY.
+    IF lv_logon IS NOT INITIAL.
+      zcl_osd_session_langu=>switch( lv_logon ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD json_response.

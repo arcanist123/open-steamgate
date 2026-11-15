@@ -84,6 +84,8 @@ export const GENERATORS = [
   // picks up the *.tran.xml this writes
   ["osd-gui-convert.mjs"],
   ["osd-tran-registry.mjs"],
+  ["osd-textpool-registry.mjs"],
+  ["osd-ddic-info-registry.mjs"],
 ];
 
 const TOOLS = fileURLToPath(new URL(".", import.meta.url));
@@ -755,7 +757,7 @@ export async function build(options = {}) {
     // again -- the transpile still does not.
     if (manifest.gen !== undefined && manifest.gen !== genHash(root)) {
       log(`generation ${hash} is already built, but gen/ has drifted from it -- regenerating`);
-      const unlockAgain = lock(paths);
+      const unlockAgain = options.lockHeld === true ? () => {} : lock(paths);
       try {
         runGenerators(root, log, options.overlay);
       } finally {
@@ -772,7 +774,7 @@ export async function build(options = {}) {
     return {ok: true, hash, cached: true, live: liveHash(root) === hash, ms: Date.now() - started, objects: manifest.objects, digests};
   }
 
-  const unlock = lock(paths);
+  const unlock = options.lockHeld === true ? () => {} : lock(paths); // lockHeld: the caller holds it (osd-build-lock-wait.mjs)
   const tmp = join(paths.tmp, `${hash}.${process.pid}`);
   const readsLog = join(tmp, "generator-reads.jsonl");
   const readEntries = [];
