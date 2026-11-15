@@ -16,10 +16,12 @@ const starting = new Map();
 export async function ensureSourceBuild(root, env = process.env) {
   if (env.OSD_OUTPUT || env.OSD_GENERATION) return;
   if (starting.has(root)) return starting.get(root);
-  const {build} = await import("./osd-build.mjs");
+  const {build, layout} = await import("./osd-build.mjs");
+  const {whenLockFree} = await import("./osd-build-lock-wait.mjs");
   // Another start may have reached the import while it was loading.
   if (starting.has(root)) return starting.get(root);
-  const work = build({root});
+  // a start that meets a verifier's momentary lock waits for it, as a save does
+  const work = whenLockFree({}, held => build({root, ...held}), {paths: layout(root)});
   starting.set(root, work);
   try { return await work; }
   finally { if (starting.get(root) === work) starting.delete(root); }

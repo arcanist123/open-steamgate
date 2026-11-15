@@ -1,12 +1,12 @@
 import {transpileIssues, withoutHostPaths} from "./osd-build-issues.mjs";
 import {acceptView, captureView} from "./osd-store-compile-view.mjs";
-import {genHash, liveHash} from "./osd-build.mjs";
+import {genHash, layout, liveHash} from "./osd-build.mjs";
+import {whenLockFree} from "./osd-build-lock-wait.mjs";
 import {forgetRegistry} from "./osd-store-registry.mjs";
 import {relative, sep} from "node:path";
 import {warmOperation} from "./osd-store-warm.mjs";
 import {describe, measureSpeed, saveWait} from "./warm-deadline/warm-deadline.mjs";
 const WARM_REPRIME_MS = Number(process.env.OSD_WARM_REPRIME_MS ?? 5000);
-
 export async function transpileStore(store, options, activating, built) {
   const started = Date.now();
   const w = store.warm();
@@ -30,7 +30,7 @@ export async function transpileStore(store, options, activating, built) {
     if (w.on === true && !w.disabled && options.force !== true && !past) {
       if (w.compiler?.primed === true) {
         try {
-          const r = await warmOperation(store, () => w.compiler.build(activating, view));
+          const r = await warmOperation(store, () => whenLockFree(store, () => w.compiler.build(activating, view)));
           await acceptView(store, view, activating, r);
           if (w.compiler.recycleDue) w.primeDue = true;
           return {ok: true, ms: Date.now() - started, objects: r.objects, hash: r.hash, cached: r.cached, warm: true,
@@ -60,7 +60,8 @@ export async function transpileStore(store, options, activating, built) {
     let generatedRefreshed = false;
     try {
       const {build} = await import("./osd-build.mjs");
-      const r = await build({...store.buildOptions, root: store.root, force: options.force === true, replace: options.replace === true, overlay, switch: false, expectedHash: view.hash});
+      const r = await whenLockFree(store, held => build({...store.buildOptions, root: store.root, force: options.force === true, replace: options.replace === true, overlay, switch: false, expectedHash: view.hash, ...held}),
+        {paths: layout(store.root)});
       let updated;
       if (genHash(store.root) !== view.gen || w.on === true && !w.disabled && w.compiler?.primed) {
         updated = await captureView(store, activating);

@@ -66,6 +66,7 @@
     "test/sxml-contract.mjs",
     "test/adt-lifecycle-report.mjs",
     "test/warm-update-timeout.mjs",
+    "test/build-lock-wait.mjs",
     "test/rap-bdef-parse.mjs",
     "test/rap-derived-types.mjs",
     "test/rap-runtime-gen.mjs"
