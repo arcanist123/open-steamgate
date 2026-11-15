@@ -19,6 +19,20 @@ CLASS zcl_osd_h5x_mpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_m
              changed_at TYPE p LENGTH 11 DECIMALS 7,
            END OF ts_partner.
     TYPES tt_partner TYPE STANDARD TABLE OF ts_partner WITH DEFAULT KEY.
+    TYPES: BEGIN OF ts_vh_category,
+             category TYPE c LENGTH 20,
+           END OF ts_vh_category.
+    TYPES tt_vh_category TYPE STANDARD TABLE OF ts_vh_category WITH DEFAULT KEY.
+    TYPES: BEGIN OF ts_vh_country,
+             code TYPE c LENGTH 3,
+             name TYPE c LENGTH 40,
+           END OF ts_vh_country.
+    TYPES tt_vh_country TYPE STANDARD TABLE OF ts_vh_country WITH DEFAULT KEY.
+    TYPES: BEGIN OF ts_vh_unit,
+             unit TYPE c LENGTH 3,
+             ltxt TYPE c LENGTH 30,
+           END OF ts_vh_unit.
+    TYPES tt_vh_unit TYPE STANDARD TABLE OF ts_vh_unit WITH DEFAULT KEY.
 * a value-help type of the class, typed by a data element: RTTI names it
     TYPES: BEGIN OF ts_vh_currency,
              code TYPE zosd_h5x_currency,
@@ -168,6 +182,41 @@ CLASS zcl_osd_h5x_mpc IMPLEMENTATION.
     lo_type = model->get_entity_type( 'Contact' ).
     lo_type->create_navigation_property( iv_property_name    = 'ToPartner'
                                          iv_association_name = 'Assoc_Partner_Contacts' ).
+
+* one value help set per kind of search help: a plain table, a table with
+* a text table, a help view (test/hana-m2/zosd_h5x_sh_*.shlp.xml)
+    lo_type = model->create_entity_type( iv_entity_type_name = 'VH_Category'
+                                         iv_def_entity_set   = abap_false ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'Category'
+                                        iv_abap_fieldname = 'CATEGORY' ).
+    lo_prop->set_type_edm_string( ).
+    lo_prop->set_is_key( ).
+    lo_type->bind_structure( 'ZCL_OSD_H5X_MPC=>TS_VH_CATEGORY' ).
+    lo_type->create_entity_set( 'VH_CategorySet' ).
+
+    lo_type = model->create_entity_type( iv_entity_type_name = 'VH_Country'
+                                         iv_def_entity_set   = abap_false ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'Code'
+                                        iv_abap_fieldname = 'CODE' ).
+    lo_prop->set_type_edm_string( ).
+    lo_prop->set_is_key( ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'Name'
+                                        iv_abap_fieldname = 'NAME' ).
+    lo_prop->set_type_edm_string( ).
+    lo_type->bind_structure( 'ZCL_OSD_H5X_MPC=>TS_VH_COUNTRY' ).
+    lo_type->create_entity_set( 'VH_CountrySet' ).
+
+    lo_type = model->create_entity_type( iv_entity_type_name = 'VH_Unit'
+                                         iv_def_entity_set   = abap_false ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'Unit'
+                                        iv_abap_fieldname = 'UNIT' ).
+    lo_prop->set_type_edm_string( ).
+    lo_prop->set_is_key( ).
+    lo_prop = lo_type->create_property( iv_property_name  = 'Ltxt'
+                                        iv_abap_fieldname = 'LTXT' ).
+    lo_prop->set_type_edm_string( ).
+    lo_type->bind_structure( 'ZCL_OSD_H5X_MPC=>TS_VH_UNIT' ).
+    lo_type->create_entity_set( 'VH_UnitSet' ).
 
     lo_action = model->create_action( 'Partner_Touch' ).
     lo_action->set_return_entity_type( 'Partner' ).

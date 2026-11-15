@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_FUGR" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <AREAT>Clean room dictionary utilities: domain fixed values</AREAT>
+   <INCLUDES><SOBJ_NAME>SAPLZOSD_DDUT</SOBJ_NAME></INCLUDES>
+   <FUNCTIONS>
+    <item>
+     <FUNCNAME>DDUT_DOMVALUES_GET</FUNCNAME>
+     <SHORT_TEXT>DD: Read Domain Fixed Values</SHORT_TEXT>
+     <IMPORT>
+      <RSIMP>
+       <PARAMETER>NAME</PARAMETER>
+       <TYP>DDOBJNAME</TYP>
+      </RSIMP>
+      <RSIMP>
+       <PARAMETER>LANGU</PARAMETER>
+       <TYP>SYLANGU</TYP>
+       <OPTIONAL>X</OPTIONAL>
+      </RSIMP>
+      <RSIMP>
+       <PARAMETER>TEXTS_ONLY</PARAMETER>
+       <TYP>CHAR1</TYP>
+       <OPTIONAL>X</OPTIONAL>
+      </RSIMP>
+     </IMPORT>
+     <TABLES>
+      <RSTBL>
+       <PARAMETER>DD07V_TAB</PARAMETER>
+       <DBSTRUCT>DD07V</DBSTRUCT>
+      </RSTBL>
+     </TABLES>
+     <EXCEPTION>
+      <RSEXC>
+       <EXCEPTION>ILLEGAL_INPUT</EXCEPTION>
+      </RSEXC>
+     </EXCEPTION>
+    </item>
+   </FUNCTIONS>
+  </asx:values>
+ </asx:abap>
+</abapGit>
