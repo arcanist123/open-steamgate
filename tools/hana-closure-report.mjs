@@ -148,9 +148,10 @@ export function unstubbedGlob(glob) {
  *  `excluded` -- the excluded objects; `stubs` -- the unique stub list;
  *  `lifted` -- the stubs this run lifted ({object, class, method}, see
  *  trackLifted); `gaps` -- [{name, kind}]; `requireUnstubbed` -- the
- *  globs; `load` -- {loads, error, built?} from the load check (B6).
+ *  globs; `load` -- {loads, error, built?} from the load check (B6);
+ *  `searchHelps` -- the summary's search_helps block, passed through.
  *  Pure. */
-export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, lifted = [], gaps, requireUnstubbed = [], load}) {
+export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, lifted = [], gaps, requireUnstubbed = [], load, searchHelps}) {
   const seedList = [...(seeds ?? [])].map((s) => String(s).toUpperCase()).sort();
   const seedSet = new Set(seedList);
   const excludedList = [...(excluded ?? [])].map((s) => String(s).toUpperCase()).sort();
@@ -190,6 +191,10 @@ export function closureSummary({fixedPoint = true, iterations, islandObjects, se
     excluded: excludedList,
     gaps: (gaps ?? []).map((g) => ({name: g.name, kind: g.kind})),
     seed: {classes: seedList, stubbed_methods: seedStubs},
+    // milestone 3: the search helps the island names (tools/hana-closure-shlp.mjs
+    // searchHelpSummary); a seed's value-help set whose help is missing is
+    // listed under `unserved`, never a failure
+    ...(searchHelps !== undefined ? {search_helps: searchHelps} : {}),
     ...(requireUnstubbed.length > 0 ? {require_unstubbed: [...requireUnstubbed]} : {}),
     failures,
   };

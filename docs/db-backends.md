@@ -1066,6 +1066,40 @@ TABL 25/25, DTEL 156/153`), so a writer-of-record hole — resolved names
 without an island XML — is visible on every iteration line, before
 anything asks.
 
+A search help a service names reaches the island by **name**, not by a
+finding (milestone 3). The generated DPC hands it to the /IWBEP/ search-help
+data API as a string -- `get_search_help_values( iv_shlp_name = '...' )` --
+and a string resolves, so no carrier above ever named one: measured on the
+bed, of a sample service's eleven value-help sets only the four whose helps
+sit in the service's own package arrived, and the seven others answered
+"no search-help provider". `tools/hana-closure-shlp.mjs` reads the call off
+abaplint's parsed statements (the functional form and CALL METHOD, the method
+bare or qualified by the API interface, its `IV_SHLP_NAME` parameter): a
+literal, or a constant with a literal value (local, the class's own, another
+class's, inherited through the checker's scope), is asked under SHLP;
+anything else is reported once as `search help named dynamically in
+<class>=><method>` and never asked; the generator's forwarder (the
+implementing method passing its own `IV_SHLP_NAME` on) is neither. The asks
+ride `references()` too. The dumper closes a help on the server (DD31S, DD32S,
+DD30L+DD02L, then DD26S/DD27S for a view); the loop's backstop reads what
+arrived -- a help's selection method (a VIEW for SELMTYPE H/V/D, else a
+TABL), its text table, its included helps, its parameters' data elements, a
+view's tables -- and asks only what neither the island holds nor a dump
+resolved. A help whose `.shlp.xml` is in the island is resolved; a missing
+one is a gap of kind SHLP. A help view arrives as `.view.xml` (VIEWCLASS H)
+and never becomes a database object -- the build drops it
+(`tools/osd-warm-order.mjs`) and `tools/segw-shlp.mjs` reads it as a join
+(DD26V's foreign-key path, or DD28J's rows when a view has them).
+A name is asked only when it is an object name (letters, digits,
+underscores, an optional /NAMESPACE/, at most 30 characters), from a call or
+from an arrived file alike; anything else is reported once, JSON-encoded and
+truncated, as `search help name is not an object name in <where>` and never
+handed to the dumper. The scan reuses the structural pass's scope result
+(carried on the analysis record): one SyntaxLogic pass per object.
+`closure-summary.json` carries `search_helps: {asked, resolved, missing,
+dynamic, invalid}` and, under `unserved`, every value-help method of a seed class
+whose help is missing -- listed, never a failure.
+
 The dumper runs only where its credentials are, with the argv its CLI
 refuses to run without:
 
@@ -1089,7 +1123,8 @@ in the by-hand command the loop prints when no dumper is configured, and
 in the child's environment. The request travels as a file (`--ddic-closure`,
 schema 1: `schema`, `iteration`, `generation` — the hash the merge's
 manifest carries of the dump's own manifest —, `source`,
-`requested`/`seen` under the nine upper-case TADIR kinds, and the `gaps`),
+`requested`/`seen` under the ten upper-case TADIR kinds -- VIEW since
+milestone 3 -- and the `gaps`),
 `seen` holds every name an earlier iteration requested so the dumper skips
 it, and the dump lands in `.local/hana-closure/dump-<NNN>/` — gitignored,
 and inside the working tree, which the dumper refuses, hence
