@@ -1,3 +1,5 @@
+import {splitLiterals} from "./osd-sql-literals.mjs";
+
 // Trailing blanks on the way into the database, in one place.
 //
 // ABAP pads a CHAR to its field length, so the runtime hands over
@@ -26,26 +28,29 @@
  *  touched: a column name, a keyword and the spacing of the statement mean
  *  what they meant. */
 export function trimLiterals(sql) {
-  // A scan, not a regular expression: /'((?:[^']|'')*)'/ recursed once per
-  // character of a literal and overflowed the stack on a long one (a class
-  // source written into a table, abapiti case 038).
+  // The literals come from the one scanner (osd-sql-literals.mjs), not from
+  // a regular expression: /'((?:[^']|'')*)'/ recursed once per character of
+  // a literal and overflowed the stack on a long one (a class source written
+  // into a table, abapiti case 038). An unterminated literal is left as it is.
   let out = "";
-  let from = 0;
-  for (let i = sql.indexOf("'"); i >= 0; i = sql.indexOf("'", from)) {
-    let j = i + 1;
-    for (;;) {
-      j = sql.indexOf("'", j);
-      if (j < 0 || sql[j + 1] !== "'") break;
-      j += 2;
+  for (const {literal, text} of splitLiterals(sql)) {
+    if (!literal || text.length < 2 || !text.endsWith("'") || (text.endsWith("''") && !closes(text))) {
+      out += text;
+      continue;
     }
-    // an unterminated literal is left as it is
-    if (j < 0) break;
-    let end = j;
-    while (end > i + 1 && sql[end - 1] === " ") end--;
-    out += sql.slice(from, end) + "'";
-    from = j + 1;
+    let end = text.length - 1;
+    while (end > 1 && text[end - 1] === " ") end--;
+    out += text.slice(0, end) + "'";
   }
-  return out + sql.slice(from);
+  return out;
+}
+
+// whether a literal ending in '' is closed: the quotes after the opening one
+// pair up as escapes except the last, so a closed literal has an even count
+function closes(text) {
+  let n = 0;
+  for (let i = text.length - 1; i > 0 && text[i] === "'"; i--) n++;
+  return n % 2 === 1;
 }
 
 /**

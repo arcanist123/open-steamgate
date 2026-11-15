@@ -4,6 +4,7 @@
 import {createDuckDB, BROWSER_RUNTIME, VoidLogger} from "@duckdb/duckdb-wasm/blocking";
 import {bindValue} from "./abap-types.mjs";
 import {trimLiterals} from "./sql-literals.mjs";
+import {abapSelectToSql} from "./osd-sql-literals.mjs";
 import {osqlSemanticsError} from "./osql-error.mjs";
 
 function plain(value) {
@@ -128,11 +129,8 @@ export class DuckDBWasmClient {
   }
 
   rewrite(select, primaryKey) {
-    let sql = select.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1");
-    sql = primaryKey ? sql.replace(/ ORDER BY PRIMARY KEY/i, ` ORDER BY ${primaryKey.join(", ")}`)
-      : sql.replace(/ ORDER BY PRIMARY KEY/i, "");
-    return trimLiterals(sql.replace(/ ASCENDING/ig, " ASC").replace(/ DESCENDING/ig, " DESC")
-      .replace(/~/g, ".").replace(/ LIMIT 0/g, ""));
+    // on the code only: a value is sent as it was written (osd-sql-literals)
+    return trimLiterals(abapSelectToSql(select, {primaryKey}));
   }
 
   async query(sql) {

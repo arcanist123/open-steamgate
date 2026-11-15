@@ -11,6 +11,7 @@
 // second one beside it: OSD has exactly one system, and a read through the
 // façade sees what a program running inside sees.
 import {singleSelect, selectSQLiteOne} from './adt-single-select.mjs';
+import {abapSelectToSql, outsideLiterals} from './osd-sql-literals.mjs';
 import {existsSync} from "node:fs";
 import {join} from "node:path";
 import {runsAs} from "./osd-main.mjs";
@@ -49,11 +50,11 @@ export function openSqlToSql(text) {
       out = keyword + list.trim().split(/\s+/).join(", ") + from + out.slice(head[0].length);
     }
   }
-  const upTo = /\s+up\s+to\s+(\d+)\s+rows\b/i.exec(out);
-  if (upTo !== null) {
-    out = out.replace(upTo[0], "") + ` LIMIT ${upTo[1]}`;
-  }
-  return out;
+  // UP TO is read off the code, never off a value: 'x up to 1 rows' is data
+  return outsideLiterals(out, (code) => {
+    const upTo = /\s+up\s+to\s+(\d+)\s+rows\b/i.exec(code);
+    return upTo ? code.replace(upTo[0], "") + ` LIMIT ${upTo[1]}` : code;
+  });
 }
 
 export class Data {
@@ -170,14 +171,7 @@ export class Data {
     // predates this optional seam, but exposes SQLite's prepare primitive;
     // mirror its SELECT rewrites and free the compiled statement immediately.
     if (client.name === "sqlite" && typeof client.sqlite?.prepare === "function") {
-      const sqlite = text.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1")
-        .replace(/ ORDER BY PRIMARY KEY/i, "")
-        .replace(/ ASCENDING/ig, " ASC")
-        .replace(/ DESCENDING/ig, " DESC")
-        .replace(/ LIMIT 0/g, "")
-        .replace(/~/g, ".")
-        .replace(/\bLEFT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, "substr($1, 1, $2)")
-        .replace(/\bRIGHT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, "substr($1, -$2)");
+      const sqlite = abapSelectToSql(text, {substr: true});
       const statement = client.sqlite.prepare(sqlite);
       statement.free?.();
       return;

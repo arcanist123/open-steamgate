@@ -16,6 +16,7 @@
 import {DatabaseSync} from "node:sqlite";
 import {bindValue, abapTypeLetter} from "./abap-types.mjs";
 import {trimLiterals} from "./sql-literals.mjs";
+import {abapSelectToSql} from "./osd-sql-literals.mjs";
 import {existsSync, mkdirSync, renameSync, rmSync} from "node:fs";
 import {dirname} from "node:path";
 import {fingerprintOf} from "./osd-persist.mjs";
@@ -113,16 +114,10 @@ export function forkDatabase(from, to) {
   return to;
 }
 
+// the reference client's rewrites, on the code only: a value is sent as it
+// was written (osd-sql-literals)
 function rewriteSelect(select, primaryKey) {
-  let s = select.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1");
-  s = primaryKey
-    ? s.replace(/ ORDER BY PRIMARY KEY/i, " ORDER BY " + primaryKey.join(", "))
-    : s.replace(/ ORDER BY PRIMARY KEY/i, "");
-  s = s.replace(/ ASCENDING/ig, " ASC").replace(/ DESCENDING/ig, " DESC");
-  s = s.replace(/~/g, ".").replace(/ LIMIT 0/g, ""); // the same hack the reference carries
-  s = s.replace(/\bLEFT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, "substr($1, 1, $2)");
-  s = s.replace(/\bRIGHT\s*\(\s*(.+?)\s*,\s*(\d+)\s*\)/ig, "substr($1, -$2)");
-  return s;
+  return abapSelectToSql(select, {primaryKey, substr: true});
 }
 
 // node:sqlite hands integers back as numbers (or bigints past 2^53) and
