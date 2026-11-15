@@ -12,6 +12,7 @@
 // registered by hand.
 //
 // Three kinds of selection (docs/segw-mapping.md, "Text tables and help views"):
+// (the view's DD28J rows, when it has any, give the joins instead of DD26V)
 //   - one table: zcl_oao_shlp_ddic selects from it by name, as before;
 //   - a table with a text table (TEXTTAB), and a help view (SELMTYPE H,
 //     a join that has no database object): a read class is generated per
@@ -40,7 +41,7 @@ import {basename, join} from "node:path";
 const OUT = "gen/segw";
 const SOURCE_PREFIX = "zcl_osd_shlp_";
 
-const ARRAYS = new Set(["DD03P", "DD26V", "DD27P", "DD28V", "DD31S", "DD31V", "DD32P", "DD33V"]);
+const ARRAYS = new Set(["DD03P", "DD26V", "DD27P", "DD28J", "DD28V", "DD31S", "DD31V", "DD32P", "DD33V"]);
 const parser = new XMLParser({ignoreAttributes: true, parseTagValue: false, trimValues: true, isArray: (name) => ARRAYS.has(name)});
 
 /** the first value under `key`, at any depth (the fragments the tests
@@ -124,6 +125,7 @@ export function parseSearchHelp(xml, file) {
     selmexit: text(head.SELMEXIT).toUpperCase(),
     texttab: text(head.TEXTTAB).toUpperCase(),
     collective: subs.some((s) => s !== "" && s.toUpperCase() !== name.toUpperCase()),
+    subhelps: [...new Set(subs.filter((s) => s !== "").map((s) => s.toUpperCase()))],
     parameters,
     file,
   };
@@ -160,6 +162,13 @@ export function parseView(xml) {
     fields: rows(doc, "DD27P_TABLE", "DD27P")
       .map((f) => ({viewfield: text(f.VIEWFIELD).toUpperCase(), table: text(f.TABNAME).toUpperCase(), field: text(f.FIELDNAME).toUpperCase(),
         position: parseInt(text(f.OBJPOS) || "0", 10)}))
+      .sort((a, b) => a.position - b.position),
+    // explicit join conditions (abapGit's DD28J: LTAB-LFIELD = RTAB-RFIELD);
+    // a help view has none -- its joins are the foreign keys DD26V names --
+    // and the converter writes the table only when the dictionary has rows
+    joins: rows(doc, "DD28J_TABLE", "DD28J")
+      .map((j) => ({ltab: text(j.LTAB).toUpperCase(), lfield: text(j.LFIELD).toUpperCase(), operator: text(j.OPERATOR).toUpperCase() || "EQ",
+        rtab: text(j.RTAB).toUpperCase(), rfield: text(j.RFIELD).toUpperCase(), position: parseInt(text(j.POSITION) || "0", 10)}))
       .sort((a, b) => a.position - b.position),
     conditions: rows(doc, "DD28V_TABLE", "DD28V")
       .map((c) => ({table: text(c.TABNAME).toUpperCase(), field: text(c.FIELDNAME).toUpperCase(), operator: text(c.OPERATOR).toUpperCase(),
@@ -268,6 +277,27 @@ function bindKey(dict, child, parent, forfield, fordir) {
   return {on, bound};
 }
 
+/** the ON condition of `child` from DD28J rows, when the view has them: each
+ *  row pairing one of its fields with a field of a table before it (EQ only;
+ *  a row to a table after it is read on that table's turn),
+ *  its language key field, when no row binds it, to the session language */
+function bindJoins(joins, child, aliasOf) {
+  const on = [];
+  for (const j of joins) {
+    const [mine, other, otherTable] = j.rtab === child.name ? [j.rfield, j.lfield, j.ltab]
+      : j.ltab === child.name ? [j.lfield, j.rfield, j.rtab] : [];
+    // a row to a table after it is that table's join, read on its turn
+    if (mine === undefined || otherTable === child.name || !aliasOf.has(otherTable)) continue;
+    if (j.operator !== "EQ") return {reason: `${child.name}: DD28J operator ${j.operator} is not served`};
+    on.push({field: mine, parentField: other, parentAlias: aliasOf.get(otherTable)});
+  }
+  if (on.length === 0) return {reason: `${child.name}: the view's DD28J rows join it to no table before it`};
+  const language = languageOf(child);
+  if (language && !on.some((c) => c.field === language.name)) on.push({field: language.name, language: true});
+  const bound = child.fields.filter((f) => f.key).every((f) => on.some((c) => c.field === f.name));
+  return {on, bound};
+}
+
 const OPERATORS = {EQ: "=", NE: "<>", LT: "<", LE: "<=", GT: ">", GE: ">=", LIKE: "LIKE"};
 
 // What reaches generated ABAP and SQL out of dictionary XML is checked here,
@@ -340,6 +370,13 @@ export function joinPlan(help, dict) {
     if (i === 0) {
       tables.push({alias, table});
     } else {
+      if (view.joins.length > 0) {
+        const bound = bindJoins(view.joins, table, aliasOf);
+        if (bound.reason) return {reason: `help view ${help.selmethod}: ${bound.reason}`};
+        tables.push({alias, table, parent: bound.on.find((c) => c.parentAlias)?.parentAlias, on: bound.on, bound: bound.bound});
+        aliasOf.set(t.table, alias);
+        continue;
+      }
       const parentAlias = aliasOf.get(t.fortable);
       if (!parentAlias) return {reason: `help view ${help.selmethod}: ${t.table} is joined to ${t.fortable || "(nothing)"}, which is not before it`};
       const parent = tables.find((x) => x.alias === parentAlias).table;
@@ -380,7 +417,7 @@ function needed(plan, used) {
     const keep = tables.filter((t, i) => i === 0 || !t.bound
       || used.some((f) => plan.fields.get(f)?.alias === t.alias)
       || plan.conditions.some((c) => c.alias === t.alias)
-      || tables.some((o) => o.parent === t.alias));
+      || tables.some((o) => o.parent === t.alias || (o.on ?? []).some((c) => c.parentAlias === t.alias)));
     if (keep.length === tables.length) return tables;
     tables = keep;
   }
@@ -402,7 +439,7 @@ export function sourceClass(className, plan, used) {
   const select = columns.map((c) => `${c.alias}~${lower(c.field)} AS ${lower(c.name)}`);
   const from = [`      FROM ${lower(tables[0].table.name)} AS ${tables[0].alias}`];
   for (const t of tables.slice(1)) {
-    const on = t.on.map((c) => `${t.alias}~${lower(c.field)} = ${c.language ? "iv_langu" : `${t.parent}~${lower(c.parentField)}`}`);
+    const on = t.on.map((c) => `${t.alias}~${lower(c.field)} = ${c.language ? "iv_langu" : `${c.parentAlias ?? t.parent}~${lower(c.parentField)}`}`);
     from.push(`        LEFT OUTER JOIN ${lower(t.table.name)} AS ${t.alias}`);
     from.push(`          ON ${on.join(`\n         AND `)}`);
   }

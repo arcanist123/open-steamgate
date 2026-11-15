@@ -248,4 +248,109 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
     expect(orderRegistry(reg, core, files)).to.deep.equal([]);
     expect([...reg.getObjects()].map((o) => o.getName())).to.deep.equal(["ZCL_KEEP"]);
   });
+  // milestone 3: the help view as the dump converter writes it (DD25V with
+  // AS4LOCAL, DD26V with VIEWNAME and the first table's own FORTABNAME,
+  // DD27P without OBJPOS, DD28V keyed by CONDNAME with an entity-quoted
+  // constant, no DD28J) -- the shape of the real file, synthetic names: a unit
+  // table, its text table, its dimension check table and that one's texts;
+  // three helps over the one view, as on the sample service
+  const converterView = ({joins = ""} = {}) => `<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_VIEW" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <DD25V><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><AS4LOCAL>A</AS4LOCAL><DDLANGUAGE>E</DDLANGUAGE><AGGTYPE>V</AGGTYPE><ROOTTAB>ZOSD_H5X_CU</ROOTTAB><DDTEXT>help view</DDTEXT><VIEWCLASS>H</VIEWCLASS><VIEWGRANT>R</VIEWGRANT></DD25V>
+   <DD26V_TABLE>
+    <DD26V><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><TABNAME>ZOSD_H5X_CU</TABNAME><TABPOS>0001</TABPOS><FORTABNAME>ZOSD_H5X_CU</FORTABNAME></DD26V>
+    <DD26V><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><TABNAME>ZOSD_H5X_CUT</TABNAME><TABPOS>0002</TABPOS><FORTABNAME>ZOSD_H5X_CU</FORTABNAME><FORFIELD>UNIT</FORFIELD><FORDIR>I</FORDIR></DD26V>
+    <DD26V><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><TABNAME>ZOSD_H5X_CD</TABNAME><TABPOS>0003</TABPOS><FORTABNAME>ZOSD_H5X_CU</FORTABNAME><FORFIELD>DIM</FORFIELD><FORDIR>E</FORDIR></DD26V>
+    <DD26V><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><TABNAME>ZOSD_H5X_CDT</TABNAME><TABPOS>0004</TABPOS><FORTABNAME>ZOSD_H5X_CD</FORTABNAME><FORFIELD>DIMID</FORFIELD><FORDIR>I</FORDIR></DD26V>
+   </DD26V_TABLE>
+   <DD27P_TABLE>
+    <DD27P><VIEWFIELD>MANDT</VIEWFIELD><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>MANDT</FIELDNAME><KEYFLAG>X</KEYFLAG><CHECKTABLE>T000</CHECKTABLE><SHLPORIGIN>P</SHLPORIGIN></DD27P>
+    <DD27P><VIEWFIELD>SHORT</VIEWFIELD><TABNAME>ZOSD_H5X_CUT</TABNAME><FIELDNAME>SHORT</FIELDNAME></DD27P>
+    <DD27P><VIEWFIELD>UNIT</VIEWFIELD><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>UNIT</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P>
+    <DD27P><VIEWFIELD>LTXT</VIEWFIELD><TABNAME>ZOSD_H5X_CUT</TABNAME><FIELDNAME>LTXT</FIELDNAME></DD27P>
+    <DD27P><VIEWFIELD>DIM</VIEWFIELD><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>DIM</FIELDNAME><CHECKTABLE>ZOSD_H5X_CD</CHECKTABLE><SHLPORIGIN>P</SHLPORIGIN></DD27P>
+   </DD27P_TABLE>${joins}
+   <DD28V_TABLE>
+    <DD28V><CONDNAME>ZOSD_H5X_CV</CONDNAME><POSITION>0001</POSITION><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>EXT</FIELDNAME><OPERATOR>EQ</OPERATOR><CONSTANTS>&apos;X&apos;</CONSTANTS></DD28V>
+   </DD28V_TABLE>
+  </asx:values>
+ </asx:abap>
+</abapGit>
+`;
+  const unitHelp = (name, dim) => `<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_SHLP" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <DD30V><SHLPNAME>${name}</SHLPNAME><DDLANGUAGE>E</DDLANGUAGE><DDTEXT>units</DDTEXT><ISSIMPLE>X</ISSIMPLE><SELMETHOD>ZOSD_H5X_CV</SELMETHOD><SELMTYPE>H</SELMTYPE><DIALOGTYPE>D</DIALOGTYPE></DD30V>
+   <DD31V_TABLE><DD31V><SHLPNAME>${name}</SHLPNAME><SUBSHLP>${name}</SUBSHLP><SHPOSITION>0001</SHPOSITION></DD31V></DD31V_TABLE>
+   <DD32P_TABLE>
+    <DD32P><SHLPNAME>${name}</SHLPNAME><FIELDNAME>UNIT</FIELDNAME><FLPOSITION>0001</FLPOSITION><SHLPINPUT>X</SHLPINPUT><SHLPOUTPUT>X</SHLPOUTPUT><SHLPSELPOS>01</SHLPSELPOS><SHLPLISPOS>01</SHLPLISPOS></DD32P>
+    <DD32P><SHLPNAME>${name}</SHLPNAME><FIELDNAME>LTXT</FIELDNAME><FLPOSITION>0002</FLPOSITION><SHLPSELPOS>02</SHLPSELPOS><SHLPLISPOS>02</SHLPLISPOS></DD32P>
+    <DD32P><SHLPNAME>${name}</SHLPNAME><FIELDNAME>DIM</FIELDNAME><FLPOSITION>0003</FLPOSITION><SHLPSELPOS>03</SHLPSELPOS>${dim ? `<DEFAULTVAL>&apos;${dim}&apos;</DEFAULTVAL><DEFAULTTYP>L</DEFAULTTYP>` : ""}</DD32P>
+   </DD32P_TABLE>
+   <DD33V_TABLE><DD33V><SHLPNAME>${name}</SHLPNAME><FIELDNAME>UNIT</FIELDNAME><SUBSHLP>${name}</SUBSHLP><SUBFIELD>UNIT</SUBFIELD><VALUEDIREC>C</VALUEDIREC></DD33V></DD33V_TABLE>
+  </asx:values>
+ </asx:abap>
+</abapGit>
+`;
+  const unitLayer = (view) => layer({
+    "zosd_h5x_cu.tabl.xml": tabl("ZOSD_H5X_CU", [["MANDT", true, "CLNT"], ["UNIT", true, "CHAR"], ["DIM", false, "CHAR"], ["EXT", false, "CHAR"]]),
+    "zosd_h5x_cut.tabl.xml": tabl("ZOSD_H5X_CUT", [["MANDT", true, "CLNT"], ["SPRAS", true, "LANG", true], ["UNIT", true, "CHAR"], ["SHORT", false, "CHAR"], ["LTXT", false, "CHAR"]]),
+    "zosd_h5x_cd.tabl.xml": tabl("ZOSD_H5X_CD", [["MANDT", true, "CLNT"], ["DIMID", true, "CHAR"]]),
+    "zosd_h5x_cdt.tabl.xml": tabl("ZOSD_H5X_CDT", [["MANDT", true, "CLNT"], ["SPRAS", true, "LANG", true], ["DIMID", true, "CHAR"], ["TXT", false, "CHAR"]]),
+    "zosd_h5x_cv.view.xml": view,
+    "zosd_h5x_ch.shlp.xml": unitHelp("ZOSD_H5X_CH"),
+    "zosd_h5x_ch_ma.shlp.xml": unitHelp("ZOSD_H5X_CH_MA", "MASS"),
+    "zosd_h5x_ch_le.shlp.xml": unitHelp("ZOSD_H5X_CH_LE", "LENGTH"),
+  });
+
+  it("registers three helps over the converter's help-view file alone: one join class, no hand-written view XML (milestone 3)", async () => {
+    const root = unitLayer(converterView());
+    try {
+      const {files} = generate([root]);
+      const registry = files.get("zcl_stg_shlp_registry.clas.abap");
+      for (const name of ["ZOSD_H5X_CH", "ZOSD_H5X_CH_MA", "ZOSD_H5X_CH_LE"]) {
+        expect(registry).to.contain(`iv_shlp_name = '${name}'`);
+      }
+      expect(registry.match(/CREATE OBJECT lo_source TYPE zcl_osd_shlp_zosd_h5x_cv\./g)).to.have.length(3);
+      expect(registry).to.contain("iv_default         = 'MASS'");
+      expect(registry).to.contain("iv_default         = 'LENGTH'");
+      expect(registry).not.to.contain("not registered");
+      const join = files.get("zcl_osd_shlp_zosd_h5x_cv.clas.abap");
+      // the text table on its key, the language to the session's; the check
+      // table and its texts give no help field and leave the read
+      expect(join).to.contain("FROM zosd_h5x_cu AS t1\n        LEFT OUTER JOIN zosd_h5x_cut AS t2\n          ON t2~mandt = t1~mandt\n         AND t2~spras = iv_langu\n         AND t2~unit = t1~unit");
+      expect(join).not.to.contain("zosd_h5x_cd");
+      // the DD28V row, its &apos; constant decoded
+      expect(join).to.contain("WHERE ( t1~ext = 'X' ) AND (lv_where)");
+      // and the file leaves the transpiler's registry: no database object
+      const {dropHelpViews} = await import("../tools/osd-warm-order.mjs");
+      const core = await import("@abaplint/core");
+      const reg = new core.Registry();
+      reg.addFile(new core.MemoryFile("zosd_h5x_cv.view.xml", converterView()));
+      expect(dropHelpViews(reg, core)).to.deep.equal(["ZOSD_H5X_CV"]);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("takes a view's joins from its DD28J rows when it has any, and refuses one that names no join of a table", () => {
+    const row = (pos, ltab, lfield, rtab, rfield) => `<DD28J><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><POSITION>${pos}</POSITION><LTAB>${ltab}</LTAB><LFIELD>${lfield}</LFIELD><OPERATOR>EQ</OPERATOR><RTAB>${rtab}</RTAB><RFIELD>${rfield}</RFIELD></DD28J>`;
+    const all = `\n   <DD28J_TABLE>${row("0001", "ZOSD_H5X_CU", "MANDT", "ZOSD_H5X_CUT", "MANDT")}${row("0002", "ZOSD_H5X_CU", "UNIT", "ZOSD_H5X_CUT", "UNIT")}${
+      row("0003", "ZOSD_H5X_CU", "MANDT", "ZOSD_H5X_CD", "MANDT")}${row("0004", "ZOSD_H5X_CU", "DIM", "ZOSD_H5X_CD", "DIMID")}${
+      row("0005", "ZOSD_H5X_CD", "MANDT", "ZOSD_H5X_CDT", "MANDT")}${row("0006", "ZOSD_H5X_CD", "DIMID", "ZOSD_H5X_CDT", "DIMID")}</DD28J_TABLE>`;
+    const joined = unitLayer(converterView({joins: all}));
+    const short = unitLayer(converterView({joins: `\n   <DD28J_TABLE>${row("0001", "ZOSD_H5X_CU", "UNIT", "ZOSD_H5X_CUT", "UNIT")}</DD28J_TABLE>`}));
+    try {
+      const join = generate([joined]).files.get("zcl_osd_shlp_zosd_h5x_cv.clas.abap");
+      expect(join).to.contain("ON t2~mandt = t1~mandt\n         AND t2~unit = t1~unit\n         AND t2~spras = iv_langu");
+      expect(generate([short]).files.get("zcl_stg_shlp_registry.clas.abap"))
+        .to.contain("* ZOSD_H5X_CH: not registered, help view ZOSD_H5X_CV: ZOSD_H5X_CD: the view's DD28J rows join it to no table before it");
+    } finally {
+      rmSync(joined, {recursive: true, force: true});
+      rmSync(short, {recursive: true, force: true});
+    }
+  });
 });

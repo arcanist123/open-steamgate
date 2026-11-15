@@ -53,6 +53,7 @@ import * as abaplint from "@abaplint/core";
 import {loadFiles, loadLibs} from "./osd-transpile.mjs";
 import {excludePatterns, layers} from "./osd-inputs.mjs";
 import {orderRegistry} from "./osd-warm-order.mjs";
+import {searchHelpReferences} from "./hana-closure-shlp.mjs";
 
 const ST = abaplint.ScopeType;
 const UnknownType = abaplint.BasicTypes.UnknownType;
@@ -383,7 +384,8 @@ export function analyseObject(reg, filename) {
 export function references(reg, filename) {
   const analysis = analyseObject(reg, filename);
   const base = baseName(filename);
-  return (analysis?.perFile.get(base)?.unknowns ?? []).map((u) => ({
+  // + the search helps the object hands to the /IWBEP/ API by name (kind shlp)
+  return [...(analysis?.perFile.get(base)?.unknowns ?? []).map((u) => ({
     name: u.name, kind: u.kind, line: u.line, level: u.level,
     ...(u.method !== undefined ? {method: u.method} : {}),
     ...(u.via !== undefined ? {via: u.via} : {}),
@@ -391,7 +393,7 @@ export function references(reg, filename) {
     ...(u.fix !== undefined ? {fix: u.fix} : {}),
     ...(u.var !== undefined ? {var: u.var} : {}),
     ...(u.reason !== undefined ? {reason: u.reason} : {}),
-  }));
+  })), ...searchHelpReferences(reg, filename)];
 }
 
 const rangeRows = (from, to) => {

@@ -214,7 +214,7 @@
 // kinds' `missing` is not "does not exist" and never makes it a gap. No
 // fresh names is the fixed point. Otherwise the request goes to
 // closure-request.json -- schema 1, the file the dumper's reader reads:
-// requested/seen under the nine upper-case TADIR kinds, seen = every name
+// requested/seen under the ten upper-case TADIR kinds, seen = every name
 // an earlier iteration asked (so the dumper skips it), gaps = the current
 // gaps, generation = the hash the merge's manifest carries of the dump's
 // own manifest -- and the dumper runs:
@@ -278,6 +278,8 @@ import {buildCheck, ddicWritten, ensureLayers, generationOf, islandBasenames, is
 import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana-closure-dumper.mjs";
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
+import {TADIR, requestFor, tadirKinds} from "./hana-closure-request.mjs";
+import {followAsks, islandSearchHelps, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
 // ------------------------------------------------------------ findings ----
@@ -292,90 +294,10 @@ export {parseFindings, classifyFindings, nameFromAbapFile} from "./hana-closure-
 // every reader -- the tests, the probes -- keeps one import path
 export {islandBasenames} from "./hana-closure-merge.mjs";
 
-// ------------------------------------------------------------- request ----
-
-// the nine TADIR kinds, in the order the request file lists them
-const TADIR = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "CLAS", "INTF", "FUGR", "PROG"];
-
-/** the TADIR kinds a classified name is requested under. A `ddic` name has
- *  no kind of its own -- the transpiler's wording says only that the type
- *  is unknown -- so it is asked under every dictionary kind the dumper
- *  resolves by name: TABL, DTEL and TTYP, plus SHLP when the finding's
- *  message says search help -- the message only, never the raw line (the
- *  raw ends in the file name, and a file called *searchhelpexits* must not
- *  classify). The dumper resolves what exists and reports
- *  the rest in its manifest's `closure.missing`, which the loop reads into
- *  the gaps. Pure. */
-export function tadirKinds(kind, finding) {
-  if (kind === "ddic") {
-    // H5x-2: the structural ask carries no DOMA precision (the UnknownType's
-    // error text says `lookup` for every kind-less miss), so the kind-less
-    // triple grew DOMA -- the dumper answers what exists, per kind
-    const kinds = ["TABL", "DTEL", "TTYP", "DOMA"];
-    if (/search[ -]?help/i.test(String(finding ?? ""))) kinds.push("SHLP");
-    return kinds;
-  }
-  const of = {tabl: "TABL", dtel: "DTEL", doma: "DOMA", clas: "CLAS", intf: "INTF", fugr: "FUGR"};
-  return [of[kind] ?? "PROG"];
-}
-
-/** the request file's content, schema 1 -- exactly the keys the dumper's
- *  reader reads (`schema`, `iteration`, `requested`, `seen`; the rest is
- *  provenance for the walk): the fresh names per kind, every name an
- *  earlier iteration asked under the kinds it was requested under (so the
- *  dumper skips it), and the current gaps. `deferred` -- the stubbed
- *  methods' code names, only with --stub-unresolved -- and `excluded` --
- *  the definition-level exclusions' objects, never under deferred -- are
- *  OPTIONAL keys: the dumper's reader takes requested/seen and ignores
- *  unknown keys, so the file stays schema 1 with them beside. Pure. */
-export function requestFor({iteration, generation, fresh, asked, gaps, deferred, excluded}) {
-  const perKind = () => {
-    const kinds = {};
-    for (const kind of TADIR) kinds[kind] = [];
-    return kinds;
-  };
-  const requested = perKind();
-  for (const n of fresh ?? []) {
-    for (const kind of tadirKinds(n.kind, n.message ?? n.finding)) {
-      if (requested[kind].includes(n.name) === false) requested[kind].push(n.name);
-    }
-  }
-  const seen = perKind();
-  for (const [name, a] of Object.entries(asked ?? {})) {
-    const kinds = a.kinds ?? [String(a.kind ?? "").toUpperCase()].filter((k) => k !== "");
-    for (const kind of kinds) {
-      if (seen[kind] !== undefined && seen[kind].includes(name) === false) seen[kind].push(name);
-    }
-  }
-  const result = {
-    schema: 1,
-    iteration,
-    generation: generation ?? "",
-    source: "transpile validate() findings",
-    requested,
-    seen,
-    gaps: (gaps ?? []).map((g) => ({name: g.name, kind: g.kind, first_finding: g.first_finding, iterations_requested: g.iterations_requested})),
-  };
-  if (deferred !== undefined) {
-    const list = perKind();
-    for (const n of deferred) {
-      for (const kind of tadirKinds(n.kind, n.message ?? n.finding)) {
-        if (list[kind].includes(n.name) === false) list[kind].push(n.name);
-      }
-    }
-    result.deferred = list;
-  }
-  if (excluded !== undefined && excluded.length > 0) {
-    const list = perKind();
-    for (const n of excluded) {
-      for (const kind of tadirKinds(n.kind, n.message ?? n.finding)) {
-        if (list[kind].includes(n.name) === false) list[kind].push(n.name);
-      }
-    }
-    result.excluded = list;
-  }
-  return result;
-}
+// the request (the TADIR kinds and the schema-1 file) lives in
+// tools/hana-closure-request.mjs since milestone 3; re-exported here so every
+// reader keeps one import path
+export {requestFor, tadirKinds} from "./hana-closure-request.mjs";
 
 // ---------------------------------------------------------------- loop ----
 
@@ -482,6 +404,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
   const liftedMap = new Map();
   let liftedNow = 0;
   const stubRecords = () => stubList(stubMap);
+  const reportedDynamic = new Set();
   for (;;) {
     // what the dump's own manifest says the dictionary answered, read on
     // every continuation: every name in closure.missing (the requested
@@ -588,8 +511,8 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // the structural pass (H5x-2): one SyntaxLogic pass per island object
     // over the build's own file set -- the names' primary source and the
     // graph decision's input, in both modes
-    const analysis = analyseIsland({reg: await structuralRegistry(root, say),
-      root, classPaths: islandClassPaths(root)});
+    const reg = await structuralRegistry(root, say);
+    const analysis = analyseIsland({reg, root, classPaths: islandClassPaths(root)});
     let all = parseFindings(await validationMessage(root, join(out, "closure-stubs.json")));
     let findings = all.filter((f) => island.has(f.file));
     // FIX-1: this iteration's analysis errors, keyed by file ("red, unknown
@@ -904,13 +827,21 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const {names: structuralNames, structuralCount, rest} = mergeNames(
       {analysis: analysisForNames, findings, classPaths: islandClassPaths(root)});
     const classified = classifyFindings(rest);
+    // the search helps the island hands to the /IWBEP/ API by name, and what
+    // the helps and views that arrived still name (tools/hana-closure-shlp.mjs)
+    const shlpFound = islandSearchHelps(reg, analysisForNames.objects);
+    for (const d of shlpFound.dynamic.filter((x) => reportedDynamic.has(`${x.object}=>${x.method}`) === false)) {
+      reportedDynamic.add(`${d.object}=>${d.method}`);
+      say(`search help named dynamically in ${d.object}=>${d.method} -- not asked (no name exists before run time)`);
+    }
+    const followed = followAsks(root, island, new Set(Object.values(state.resolved ?? {}).flat()));
     // H5x-1: a name whose object is in the island -- by file name for
     // CLAS/INTF, by the XML present for the DDIC kinds -- is never
     // requested and never a gap, whatever asked for it before: the finding
     // is a CASCADE of that object's own findings, counted below as
     // "cascade (present)". An object excluded this run is out of the
     // build; its name rides the request's excluded key instead.
-    const {names, present} = dropPresentNames([...structuralNames, ...classified.names], island, excludedObjects);
+    const {names, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...classified.names], island, excludedObjects);
     const cascades = classified.cascades;
     const unclassified = classified.unclassified;
     // and the stubs' eager DDIC names (H5x-1): asked like any classified name
@@ -987,7 +918,8 @@ export async function run(args = process.argv.slice(2), options = {}) {
       say(`fixed point: every unresolved name has been asked and nothing new is named; ${gaps.length + refusedGaps.length} gap(s) -> ${join(out, "closure-gaps.json")}`);
       const seeds = seedClasses(root);
       writeClosureSummary(out, closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
-        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load}));
+        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load,
+        searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}));
       return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }

@@ -518,6 +518,7 @@ const FILE_SUFFIXES = {
   doma: [".doma.xml"],
   ttyp: [".ttyp.xml"],
   shlp: [".shlp.xml"],
+  view: [".view.xml"],
   ddic: [".tabl.xml", ".dtel.xml", ".ttyp.xml", ".shlp.xml"],
 };
 
