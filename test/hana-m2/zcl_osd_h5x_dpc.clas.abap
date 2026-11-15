@@ -25,6 +25,15 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
 *   and $orderby is concatenated the same way: legal Open SQL that SQL only
 *   takes with commas (ANORMALIES "dynamic-order-by-blanks").
 *
+* Milestone 3 (B3), the wire form:
+* - the partner set refuses a condition on CHANGED_AT itself, with a
+*   business exception carrying a T100 key whose attr1 is a text, not an
+*   attribute name (the sample's way of raising "filter not supported" and
+*   "key '&1' does not exist"); an unknown partner is the same, 002;
+* - an OR across two properties is read from get_osql_where_clause_convert
+*   like every other filter: there is no select-option form of it;
+* - an order's note is read in sy-langu, the session language, and its
+*   language key is handed over as stored (E): the exit is the framework's.
 * The value help sets read through the search help runtime the way a
 * generated DPC does: the filter and the key as selection options, top +
 * skip as the maximum, the first skip records dropped, the record / field
@@ -75,6 +84,22 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
         iv_string        TYPE string
       RETURNING
         VALUE(rv_string) TYPE string.
+* a field name of the condition onto the join's alias, outside the quoted
+* literals only: Name eq 'ADDRESS-CITY' is a value, not the column. The
+* SEGW sample replaces over the whole text; the twin does not copy that
+* (a DPC written from it would inherit it)
+    CLASS-METHODS map_field
+      IMPORTING
+        iv_string        TYPE string
+        iv_from          TYPE string
+        iv_to            TYPE string
+      RETURNING
+        VALUE(rv_string) TYPE string.
+    CLASS-METHODS outside_literals
+      IMPORTING
+        iv_string        TYPE string
+      RETURNING
+        VALUE(rv_string) TYPE string.
     CLASS-METHODS orderby_of
       IMPORTING
         io_ctx          TYPE REF TO /iwbep/if_mgw_req_entityset
@@ -86,6 +111,9 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
         iv_add          TYPE string
       RETURNING
         VALUE(rv_where) TYPE string.
+    CLASS-METHODS order_note
+      CHANGING
+        cs_order TYPE zcl_osd_h5x_mpc=>ts_order.
     CLASS-METHODS not_found
       IMPORTING
         iv_what TYPE string
@@ -120,6 +148,11 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
         es_response_context TYPE /iwbep/if_mgw_appl_srv_runtime=>ty_s_mgw_response_context
       RAISING
         /iwbep/cx_mgw_busi_exception.
+* the dictionary-bound item type (milestone 3 B4) served with constant
+* rows: quantities in units of different display decimals (B3)
+    METHODS stock_items
+      EXPORTING
+        er_entityset TYPE REF TO data.
     METHODS contact_set
       IMPORTING
         iv_add              TYPE string OPTIONAL
@@ -303,11 +336,63 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
   METHOD to_sql.
 * no name here is a part of another, so the order does not matter
     rv_string = iv_string.
-    REPLACE ALL OCCURRENCES OF 'PARTNER_ID' IN rv_string WITH 'b~PARTNER_ID'.
-    REPLACE ALL OCCURRENCES OF 'NAME' IN rv_string WITH 'b~NAME'.
-    REPLACE ALL OCCURRENCES OF 'CHANGED_AT' IN rv_string WITH 'b~CHANGED_AT'.
-    REPLACE ALL OCCURRENCES OF 'ADDRESS-CITY' IN rv_string WITH 'a~CITY'.
-    REPLACE ALL OCCURRENCES OF 'ADDRESS-COUNTRY' IN rv_string WITH 'a~COUNTRY'.
+    rv_string = map_field( iv_string = rv_string iv_from = 'PARTNER_ID' iv_to = 'b~PARTNER_ID' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'NAME' iv_to = 'b~NAME' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'CHANGED_AT' iv_to = 'b~CHANGED_AT' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'ADDRESS-CITY' iv_to = 'a~CITY' ).
+    rv_string = map_field( iv_string = rv_string iv_from = 'ADDRESS-COUNTRY' iv_to = 'a~COUNTRY' ).
+  ENDMETHOD.
+
+  METHOD map_field.
+* walk the text: a quote toggles "inside a literal" (a doubled quote toggles
+* twice); the name is replaced in each stretch outside one
+    DATA lv_len     TYPE i.
+    DATA lv_off     TYPE i.
+    DATA lv_char    TYPE string.
+    DATA lv_outside TYPE string.
+    DATA lv_inside  TYPE abap_bool.
+
+    lv_len = strlen( iv_string ).
+    WHILE lv_off < lv_len.
+      lv_char = substring( val = iv_string off = lv_off len = 1 ).
+      IF lv_char = |'|.
+        IF lv_inside = abap_false.
+          REPLACE ALL OCCURRENCES OF iv_from IN lv_outside WITH iv_to.
+          rv_string = rv_string && lv_outside.
+          CLEAR lv_outside.
+          lv_inside = abap_true.
+        ELSE.
+          lv_inside = abap_false.
+        ENDIF.
+        rv_string = rv_string && lv_char.
+      ELSEIF lv_inside = abap_true.
+        rv_string = rv_string && lv_char.
+      ELSE.
+        lv_outside = lv_outside && lv_char.
+      ENDIF.
+      lv_off = lv_off + 1.
+    ENDWHILE.
+    REPLACE ALL OCCURRENCES OF iv_from IN lv_outside WITH iv_to.
+    rv_string = rv_string && lv_outside.
+  ENDMETHOD.
+
+  METHOD outside_literals.
+    DATA lv_len    TYPE i.
+    DATA lv_off    TYPE i.
+    DATA lv_char   TYPE string.
+    DATA lv_inside TYPE abap_bool.
+
+    lv_len = strlen( iv_string ).
+    WHILE lv_off < lv_len.
+      lv_char = substring( val = iv_string off = lv_off len = 1 ).
+      IF lv_char = |'|.
+        lv_inside = boolc( lv_inside = abap_false ).
+        rv_string = rv_string && ` `.
+      ELSEIF lv_inside = abap_false.
+        rv_string = rv_string && lv_char.
+      ENDIF.
+      lv_off = lv_off + 1.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD orderby_of.
@@ -342,6 +427,12 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     ELSE.
       rv_where = |( { rv_where } ) AND { iv_add }|.
     ENDIF.
+  ENDMETHOD.
+
+  METHOD order_note.
+    SELECT SINGLE note spras FROM zosd_h5x_sot
+      INTO (cs_order-note, cs_order-note_langu)
+      WHERE order_id = cs_order-order_id AND spras = sy-langu.
   ENDMETHOD.
 
   METHOD not_found.
@@ -394,6 +485,8 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
                             es_response_context = es_response_context ).
       WHEN c_contact.
         contact_set( IMPORTING er_entityset = er_entityset ).
+      WHEN 'Item'.
+        stock_items( IMPORTING er_entityset = er_entityset ).
     ENDCASE.
   ENDMETHOD.
 
@@ -597,8 +690,17 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     DATA lv_skip      TYPE i.
     DATA lv_maxrows   TYPE i.
     DATA lv_count     TYPE i.
+    DATA ls_t100      TYPE scx_t100key.
 
     lv_where = to_sql( io_ctx->get_osql_where_clause_convert( ) ).
+    IF outside_literals( lv_where ) CS 'CHANGED_AT'.
+      ls_t100-msgid = 'ZOSD_H5X'.
+      ls_t100-msgno = '001'.
+      ls_t100-attr1 = 'CHANGED_AT'.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          textid = ls_t100.
+    ENDIF.
     lv_orderby = to_sql( orderby_of( io_ctx ) ).
     IF lv_orderby IS INITIAL.
       lv_orderby = 'b~PARTNER_ID'.
@@ -650,14 +752,15 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     DATA lv_where     TYPE string.
     DATA lv_orderby   TYPE string.
     DATA lv_count     TYPE i.
+    FIELD-SYMBOLS <ls_order> TYPE zcl_osd_h5x_mpc=>ts_order.
 
     IF io_ctx IS BOUND.
       lv_where = io_ctx->get_osql_where_clause_convert( ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_where WITH 's~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'BUYER_ID' IN lv_where WITH 's~BUYER_ID'.
+      lv_where = map_field( iv_string = lv_where iv_from = 'ORDER_ID' iv_to = 's~ORDER_ID' ).
+      lv_where = map_field( iv_string = lv_where iv_from = 'BUYER_ID' iv_to = 's~BUYER_ID' ).
       lv_orderby = orderby_of( io_ctx ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_orderby WITH 's~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'BUYER_ID' IN lv_orderby WITH 's~BUYER_ID'.
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'ORDER_ID' iv_to = 's~ORDER_ID' ).
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'BUYER_ID' iv_to = 's~BUYER_ID' ).
     ENDIF.
     lv_where = add_where( iv_where = lv_where
                           iv_add   = iv_add ).
@@ -679,6 +782,9 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
       ORDER BY (lv_orderby).
       APPEND ls_entity TO lt_entityset.
     ENDSELECT.
+    LOOP AT lt_entityset ASSIGNING <ls_order>.
+      order_note( CHANGING cs_order = <ls_order> ).
+    ENDLOOP.
 
     copy_data_to_ref( EXPORTING is_data = lt_entityset
                       CHANGING  cr_data = er_entityset ).
@@ -698,13 +804,13 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
 
     IF io_ctx IS BOUND.
       lv_where = io_ctx->get_osql_where_clause_convert( ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_where WITH 'i~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'ITEM_POS' IN lv_where WITH 'i~ITEM_POS'.
-      REPLACE ALL OCCURRENCES OF 'NOTE' IN lv_where WITH 'i~NOTE'.
+      lv_where = map_field( iv_string = lv_where iv_from = 'ORDER_ID' iv_to = 'i~ORDER_ID' ).
+      lv_where = map_field( iv_string = lv_where iv_from = 'ITEM_POS' iv_to = 'i~ITEM_POS' ).
+      lv_where = map_field( iv_string = lv_where iv_from = 'NOTE' iv_to = 'i~NOTE' ).
       lv_orderby = orderby_of( io_ctx ).
-      REPLACE ALL OCCURRENCES OF 'ORDER_ID' IN lv_orderby WITH 'i~ORDER_ID'.
-      REPLACE ALL OCCURRENCES OF 'ITEM_POS' IN lv_orderby WITH 'i~ITEM_POS'.
-      REPLACE ALL OCCURRENCES OF 'NOTE' IN lv_orderby WITH 'i~NOTE'.
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'ORDER_ID' iv_to = 'i~ORDER_ID' ).
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'ITEM_POS' iv_to = 'i~ITEM_POS' ).
+      lv_orderby = map_field( iv_string = lv_orderby iv_from = 'NOTE' iv_to = 'i~NOTE' ).
       lv_top  = io_ctx->get_top( ).
       lv_skip = io_ctx->get_skip( ).
     ENDIF.
@@ -750,6 +856,44 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
                       CHANGING  cr_data = er_entityset ).
   ENDMETHOD.
 
+  METHOD stock_items.
+    DATA lt_items TYPE STANDARD TABLE OF zosd_h5x_s_item WITH DEFAULT KEY.
+    DATA ls_item  TYPE zosd_h5x_s_item.
+
+    ls_item-currency = 'EUR'.
+    ls_item-amount   = '12.50'.
+    ls_item-item_no  = '1'.
+    ls_item-quantity = '3'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '2'.
+    ls_item-quantity = '0.65'.
+    ls_item-unit     = 'MTR'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '3'.
+    ls_item-quantity = '24.8'.
+    ls_item-unit     = 'CMT'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '4'.
+    ls_item-quantity = '2.5'.
+    ls_item-unit     = 'ZZZ'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '5'.
+    ls_item-quantity = '1.25'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '6'.
+    ls_item-quantity = '-2'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    ls_item-item_no  = '7'.
+    ls_item-quantity = '-0.5'.
+    ls_item-unit     = 'PC'.
+    APPEND ls_item TO lt_items.
+    copy_data_to_ref( EXPORTING is_data = lt_items
+                      CHANGING  cr_data = er_entityset ).
+  ENDMETHOD.
+
   METHOD contact_set.
     DATA ls_entity    TYPE zcl_osd_h5x_mpc=>ts_contact.
     DATA lt_entityset TYPE zcl_osd_h5x_mpc=>tt_contact.
@@ -770,6 +914,8 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD partner_single.
+    DATA ls_t100 TYPE scx_t100key.
+
     SELECT b~partner_id b~name b~changed_at a~city a~country
       INTO (rs_entity-partner_id, rs_entity-name, rs_entity-changed_at,
             rs_entity-address-city, rs_entity-address-country)
@@ -779,7 +925,12 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
       WHERE b~partner_id = iv_partner_id.
     ENDSELECT.
     IF sy-subrc <> 0.
-      not_found( |Partner { iv_partner_id }| ).
+      ls_t100-msgid = 'ZOSD_H5X'.
+      ls_t100-msgno = '002'.
+      ls_t100-attr1 = iv_partner_id.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          textid = ls_t100.
     ENDIF.
   ENDMETHOD.
 
@@ -790,6 +941,7 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     IF sy-subrc <> 0.
       not_found( |Order { iv_order_id }| ).
     ENDIF.
+    order_note( CHANGING cs_order = rs_entity ).
   ENDMETHOD.
 
   METHOD item_single.

@@ -694,10 +694,13 @@ CLASS ltcl_filter IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_option-low
                                         exp = '*3' ).
 
+* tolower( ) keeps its folding since M3 B3 (security review of #951,
+* finding 2): a range cannot hold it, so a folded comparison has no
+* select-options at all and the OSQL condition carries LOWER( STATUS ).
+* Before, it was the range Status = 'a' -- the folding silently dropped,
+* and `ne` answered the row the request excluded
     lt_filter = parse( `tolower(Status) eq 'a'` ).
-    ls_option = option( it_filter = lt_filter iv_property = 'Status' ).
-    cl_abap_unit_assert=>assert_equals( act = ls_option-low
-                                        exp = 'a' ).
+    cl_abap_unit_assert=>assert_initial( lt_filter ).
   ENDMETHOD.
 
   METHOD ne_and_not.

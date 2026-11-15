@@ -503,18 +503,24 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     DATA lv_crlf TYPE string.
     DATA ls_hdr  TYPE ihttpnvp.
 
+    DATA lv_inner TYPE string.
+
     lv_crlf = cl_abap_char_utilities=>cr_lf.
-    rv_string = |Content-Type: application/http{ lv_crlf }Content-Transfer-Encoding: binary{ lv_crlf }{ lv_crlf }| &&
-                |HTTP/1.1 { is_response-status } { is_response-reason }{ lv_crlf }|.
+    lv_inner = |HTTP/1.1 { is_response-status } { is_response-reason }{ lv_crlf }|.
     IF is_response-content_type IS NOT INITIAL.
-      rv_string = rv_string && |Content-Type: { is_response-content_type }{ lv_crlf }|.
+      lv_inner = lv_inner && |Content-Type: { is_response-content_type }{ lv_crlf }|.
     ENDIF.
-    rv_string = rv_string && |Content-Length: { byte_length( is_response-body ) }{ lv_crlf }| &&
-                |DataServiceVersion: 2.0{ lv_crlf }|.
+    lv_inner = lv_inner && |Content-Length: { byte_length( is_response-body ) }{ lv_crlf }| &&
+               |DataServiceVersion: 2.0{ lv_crlf }|.
     LOOP AT is_response-headers INTO ls_hdr.
-      rv_string = rv_string && |{ ls_hdr-name }: { ls_hdr-value }{ lv_crlf }|.
+      lv_inner = lv_inner && |{ ls_hdr-name }: { ls_hdr-value }{ lv_crlf }|.
     ENDLOOP.
-    rv_string = rv_string && lv_crlf && is_response-body && lv_crlf.
+    lv_inner = lv_inner && lv_crlf && is_response-body.
+* the part says how long the HTTP message inside it is, the status line to
+* the end of the body, as the system's parts do (M3 oracle 08-01-batch:
+* Content-Type, Content-Length, content-transfer-encoding)
+    rv_string = |Content-Type: application/http{ lv_crlf }Content-Length: { byte_length( lv_inner ) }{ lv_crlf }| &&
+                |Content-Transfer-Encoding: binary{ lv_crlf }{ lv_crlf }{ lv_inner }{ lv_crlf }|.
   ENDMETHOD.
 
   METHOD handle.

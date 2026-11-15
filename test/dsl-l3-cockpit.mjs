@@ -374,7 +374,8 @@ describe("DSL L3 run cockpit", function () {
     // on, and a filter on it is refused in words rather than ignored (count and paging included)
     async function refusesComputedFilters() {
       const r = await action("StartRun", {CheckDate: "20261001", Mode: "S"});
-      const status = async (path) => {const x = await fetch(`${BASE}/${path}`); return [x.status, x.status === 200 ? null : (await x.json()).error.message.value];};
+      // a V2 /$count error follows the requested format: the system answers XML to */*, so ask for JSON as UI5 does
+      const status = async (path) => {const x = await fetch(`${BASE}/${path}`, {headers: {Accept: "application/json"}}); return [x.status, x.status === 200 ? null : (await x.json()).error.message.value];};
       for (const [path, name] of [["RunSet?$filter=Open eq true", "Open"], ["RunSet/$count?$filter=Open eq false", "Open"],
         ["RunSet?$filter=substringof('fleet2', Title)", "Title"], ["RunSet?$filter=Status eq 'DONE' or PilesDone gt 3", "PilesDone"], ["RunSet?$top=1&$filter=PilesDone gt 3", "PilesDone"],
         ["PileSet?$filter=CanRelease eq true", "CanRelease"], ["StageSet?$filter=StatusCriticality eq 3", "StatusCriticality"],

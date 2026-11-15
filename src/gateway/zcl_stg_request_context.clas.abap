@@ -34,6 +34,21 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
     DATA mt_orderby       TYPE /iwbep/t_mgw_tech_order.
     DATA mt_filter        TYPE /iwbep/t_mgw_select_option.
     DATA mv_filter_string TYPE string.
+* the $filter as one condition from its expression tree, set only when the
+* select-options cannot carry it (an OR across two properties): what
+* get_osql_where_clause answers then, instead of nothing (M3-B3)
+    DATA mv_filter_where  TYPE string.
+* whether the provider asked for the filter in a form that carries all of
+* it (the OSQL condition or the string): a filter only the tree can carry,
+* given to a provider that read neither, would be dropped -- the
+* dispatcher refuses that answer instead of returning every row.
+* "Applied" means ASKED for a whole form, nothing more: a provider that
+* reads the string (to log it, or to refuse part of it) passes, whatever it
+* then does with it; one that reads only iv_filter_string, the importing
+* parameter, is refused (the safe direction); and a provider that ignores
+* select-options the filter does have (a filter ranges can carry) is not
+* seen at all -- that is the provider's answer, as on a system
+    DATA mv_filter_asked  TYPE abap_bool.
 * the "search" URL option (Gateway's full-text search, iv_search_string)
     DATA mv_search_string TYPE string.
     DATA mt_key_tab       TYPE /iwbep/t_mgw_name_value_pair.
@@ -323,6 +338,11 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
     DATA lv_include  TYPE string.
     DATA lv_exclude  TYPE string.
 
+    mv_filter_asked = abap_true.
+    IF mt_filter IS INITIAL AND mv_filter_where IS NOT INITIAL.
+      rv_osql_where_clause = mv_filter_where.
+      RETURN.
+    ENDIF.
     LOOP AT mt_filter INTO ls_filter.
       READ TABLE ms_set-properties INTO ls_property WITH KEY name = ls_filter-property.
       IF sy-subrc <> 0.
@@ -385,6 +405,7 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_req_filter~get_filter_string.
+    mv_filter_asked = abap_true.
     rv_filter_string = mv_filter_string.
   ENDMETHOD.
 
