@@ -72,6 +72,30 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
     expect(abap).to.contain("CREATE OBJECT lo_source TYPE zcl_osd_shlp_zosd_h5x_uv.");
   });
 
+  it("sorts a list field by its conversion exit's output, except a language (M3 oracle 02-12a, 02-15a)", () => {
+    // the unit help view's units come in the order of their external form
+    // (a sign before the letters), the language help's in the order of
+    // their internal keys, though both domains carry an exit
+    const root = mkdtempSync(join(tmpdir(), "osd-shlp-sort-"));
+    try {
+      const doma = (name, type, exit) => `<abapGit><asx:values><DD01V><DOMNAME>${name}</DOMNAME><DATATYPE>${type}</DATATYPE><CONVEXIT>${exit}</CONVEXIT></DD01V></asx:values></abapGit>`;
+      const dtel = (name, domain) => `<abapGit><asx:values><DD04V><ROLLNAME>${name}</ROLLNAME><DOMNAME>${domain}</DOMNAME></DD04V></asx:values></abapGit>`;
+      writeFileSync(join(root, "zmeins.doma.xml"), doma("ZMEINS", "UNIT", "CUNIT"));
+      writeFileSync(join(root, "zmsehi.dtel.xml"), dtel("ZMSEHI", "ZMEINS"));
+      writeFileSync(join(root, "zspras.doma.xml"), doma("ZSPRAS", "LANG", "ISOLA"));
+      writeFileSync(join(root, "zspras.dtel.xml"), dtel("ZSPRAS", "ZSPRAS"));
+      const dict = dictionary([root]);
+      expect(dict.sortExit("ZMSEHI")).to.equal("CUNIT");
+      expect(dict.sortExit("ZSPRAS")).to.equal("");
+      expect(dict.sortExit("ZNONE")).to.equal("");
+      const help = (rollname) => parseSearchHelp(`<abapGit><DD30V><SHLPNAME>ZH</SHLPNAME><ISSIMPLE>X</ISSIMPLE><SELMETHOD>ZT</SELMETHOD></DD30V><DD31V_TABLE><DD31V><SUBSHLP>ZH</SUBSHLP></DD31V></DD31V_TABLE><DD32P_TABLE><DD32P><FIELDNAME>K</FIELDNAME><ROLLNAME>${rollname}</ROLLNAME><SHLPOUTPUT>X</SHLPOUTPUT><SHLPLISPOS>01</SHLPLISPOS></DD32P></DD32P_TABLE></abapGit>`, "x");
+      expect(shlpRegistryClass([help("ZMSEHI")], {dict})).to.contain("iv_sort_exit       = 'CUNIT'");
+      expect(shlpRegistryClass([help("ZSPRAS")], {dict})).not.to.contain("iv_sort_exit");
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
   const layer = (files) => {
     const root = mkdtempSync(join(tmpdir(), "osd-shlp-join-"));
     for (const [name, xml] of Object.entries(files)) writeFileSync(join(root, name), xml);

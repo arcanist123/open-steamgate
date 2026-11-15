@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_FUGR" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <AREAT>Clean room conversion exit CUNIT: units of measure</AREAT>
+   <INCLUDES><SOBJ_NAME>SAPLZOSD_CUNIT</SOBJ_NAME></INCLUDES>
+   <FUNCTIONS>
+    <item>
+     <FUNCNAME>CONVERSION_EXIT_CUNIT_INPUT</FUNCNAME>
+     <SHORT_TEXT>Conversion exit: unit of measure, external to internal</SHORT_TEXT>
+     <IMPORT>
+      <RSIMP>
+       <PARAMETER>INPUT</PARAMETER>
+      </RSIMP>
+      <RSIMP>
+       <PARAMETER>LANGUAGE</PARAMETER>
+       <TYP>SYLANGU</TYP>
+       <OPTIONAL>X</OPTIONAL>
+      </RSIMP>
+     </IMPORT>
+     <EXPORT>
+      <RSEXP>
+       <PARAMETER>OUTPUT</PARAMETER>
+      </RSEXP>
+     </EXPORT>
+     <EXCEPTION>
+      <RSEXC>
+       <EXCEPTION>UNIT_NOT_FOUND</EXCEPTION>
+      </RSEXC>
+     </EXCEPTION>
+    </item>
+    <item>
+     <FUNCNAME>CONVERSION_EXIT_CUNIT_OUTPUT</FUNCNAME>
+     <SHORT_TEXT>Conversion exit: unit of measure, internal to external</SHORT_TEXT>
+     <IMPORT>
+      <RSIMP>
+       <PARAMETER>INPUT</PARAMETER>
+      </RSIMP>
+      <RSIMP>
+       <PARAMETER>LANGUAGE</PARAMETER>
+       <TYP>SYLANGU</TYP>
+       <OPTIONAL>X</OPTIONAL>
+      </RSIMP>
+     </IMPORT>
+     <EXPORT>
+      <RSEXP>
+       <PARAMETER>LONG_TEXT</PARAMETER>
+      </RSEXP>
+      <RSEXP>
+       <PARAMETER>OUTPUT</PARAMETER>
+      </RSEXP>
+      <RSEXP>
+       <PARAMETER>SHORT_TEXT</PARAMETER>
+      </RSEXP>
+     </EXPORT>
+     <EXCEPTION>
+      <RSEXC>
+       <EXCEPTION>UNIT_NOT_FOUND</EXCEPTION>
+      </RSEXC>
+     </EXCEPTION>
+    </item>
+   </FUNCTIONS>
+  </asx:values>
+ </asx:abap>
+</abapGit>

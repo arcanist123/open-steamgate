@@ -43,13 +43,17 @@
 //   - an error answer (status >= 400 on either side, or an `error` member)
 //     is compared by status, `error.code` and `error.message.value`, and only
 //     those: the rest (transaction id, timestamp, inner error) is per call.
-//     This is said in the output for every error comparison.
+//     This is said in the output for every error comparison. An error a
+//     system writes as XML (a /$count, a request that takes no JSON:
+//     <error><code>..</code><message xml:lang="..">..</message>..</error>)
+//     is read the same way, its code and message text compared.
 //
 // Exit 0 when every request matched, 1 when one did not, 2 on usage errors.
 // --capture sends GET and HEAD only and refuses a manifest naming anything
 // else: it is a recorder, not a client.
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
+import {XMLParser} from "fast-xml-parser";
 import {runsAs} from "./osd-main.mjs";
 
 export const RULES = ["uri-host", "uri-prefix", "etag-form", "member-order"];
@@ -174,6 +178,24 @@ function parse(text) {
   try { return JSON.parse(text); } catch { return undefined; }
 }
 
+const xmlParser = new XMLParser({ignoreAttributes: true, parseTagValue: false, trimValues: true, removeNSPrefix: true});
+
+/** the error of an answer as {code, message}: the JSON `error` member, or
+ *  the XML document of the V2 error format; undefined for anything else */
+export function errorOf(json, text) {
+  if (json?.error !== undefined) {
+    const e = json.error;
+    return {code: e.code, message: e.message?.value ?? e.message};
+  }
+  if (json !== undefined || typeof text !== "string" || !text.trimStart().startsWith("<")) return undefined;
+  let doc;
+  try { doc = xmlParser.parse(text); } catch { return undefined; }
+  const e = doc?.error;
+  if (e === undefined || e === null || typeof e !== "object") return undefined;
+  const value = (v) => (v !== null && typeof v === "object" ? v["#text"] : v);
+  return {code: value(e.code), message: value(e.message)};
+}
+
 /** Compare one request's two answers.
  *  ours/oracle: {status, body (string)}; request: {id, empty}; opts from options(). */
 export function compareAnswers(ours, oracle, request = {}, opts = options()) {
@@ -188,18 +210,16 @@ export function compareAnswers(ours, oracle, request = {}, opts = options()) {
   }
   const ja = parse(ours.body);
   const jb = parse(oracle.body);
-  const isError = Number(ours.status) >= 400 || Number(oracle.status) >= 400 || ja?.error !== undefined || jb?.error !== undefined;
+  const ea = errorOf(ja, ours.body);
+  const eb = errorOf(jb, oracle.body);
+  const isError = Number(ours.status) >= 400 || Number(oracle.status) >= 400 || ea !== undefined || eb !== undefined;
   if (isError) {
-    notes.push("error body: status, error.code and error.message.value compared, the rest of it is per call and is not");
-    const ea = ja?.error;
-    const eb = jb?.error;
+    notes.push("error body: status, error.code and error.message.value compared (of a JSON or an XML error), the rest of it is per call and is not");
     if (ea === undefined || eb === undefined) {
       if (ours.body !== oracle.body) out.push(`error body: ours ${ea === undefined ? "has no error member" : "has one"}, oracle ${eb === undefined ? "has no error member" : "has one"} (ours ${short(String(ours.body).slice(0, 200))} | oracle ${short(String(oracle.body).slice(0, 200))})`);
     } else {
       if (ea.code !== eb.code) out.push(`error.code: ours ${short(ea.code)} | oracle ${short(eb.code)}`);
-      const ma = ea.message?.value ?? ea.message;
-      const mb = eb.message?.value ?? eb.message;
-      if (ma !== mb) out.push(`error.message: ours ${short(ma)} | oracle ${short(mb)}`);
+      if (ea.message !== eb.message) out.push(`error.message: ours ${short(ea.message)} | oracle ${short(eb.message)}`);
     }
     return {ok: out.length === 0, differences: out, counts, notes, keys: {ours: [], oracle: []}};
   }

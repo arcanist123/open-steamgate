@@ -196,6 +196,19 @@ export function dictionaryOf(files) {
   return {
     table: (name) => read("tabl", name, parseTable),
     view: (name) => read("view", name, parseView),
+    /** the conversion exit a hit list is sorted by for a parameter typed by
+     *  this data element: the element's CONVEXIT, else its domain's. None
+     *  for a language (LANG): the system sorts the unit help view by the
+     *  external unit and the language help by the internal key, though
+     *  both domains carry an exit (M3 oracle 02-12a, 02-15a) */
+    sortExit: (rollname) => {
+      const name = String(rollname ?? "").toUpperCase();
+      if (name === "") return "";
+      const domain = (value("dtel", name, "DOMNAME") || "").toUpperCase();
+      const datatype = (value("dtel", name, "DATATYPE") || (domain ? value("doma", domain, "DATATYPE") : "") || "").toUpperCase();
+      if (datatype === "LANG") return "";
+      return (value("dtel", name, "CONVEXIT") || (domain ? value("doma", domain, "CONVEXIT") : "") || "").toUpperCase();
+    },
     /** the data type of a field, through its data element when DD03P has none */
     datatype: (field) => {
       if (field.datatype) return field.datatype;
@@ -577,6 +590,8 @@ export function shlpRegistryClass(helps, {dict, className = "zcl_stg_shlp_regist
     for (const p of h.parameters) {
       const extra = [];
       if (p.default !== undefined) extra.push(`iv_default         = ${q(p.default)}`);
+      const sortExit = dict && (p.listPosition > 0 || p.output) ? dict.sortExit(p.rollname) : "";
+      if (sortExit !== "") extra.push(`iv_sort_exit       = ${q(sortExit)}`);
       if (p.defaultType !== "" && p.defaultType !== "L") {
         lines.push(`* ${comment(p.name)}: default of kind ${comment(p.defaultType)} (${comment(p.defaultValue)}) is not applied here`);
       }

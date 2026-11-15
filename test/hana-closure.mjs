@@ -4738,7 +4738,9 @@ ENDINTERFACE.
   ].join("\n");
   const vhMethod = (name, call, decl = []) => [`  METHOD ${name}.`, `    DATA lo_sh TYPE REF TO zif_osd_h5x_vh_data.`, ...decl, `    lo_sh->get_search_help_values( iv_shlp_name = ${call} ).`, `  ENDMETHOD.`];
   const TWIN_HELP_FILES = ["zosd_h5x_sh_un.shlp.xml", "zosd_h5x_uv.view.xml", "zosd_h5x_un.tabl.xml", "zosd_h5x_unt.tabl.xml",
-    "zosd_h5x_sh_cty.shlp.xml", "zosd_h5x_cty.tabl.xml", "zosd_h5x_ctyt.tabl.xml", "zosd_h5x_sh_cat.shlp.xml", "zosd_h5x_cat.tabl.xml"];
+    "zosd_h5x_sh_cty.shlp.xml", "zosd_h5x_cty.tabl.xml", "zosd_h5x_ctyt.tabl.xml", "zosd_h5x_sh_cat.shlp.xml", "zosd_h5x_cat.tabl.xml",
+    // the unit parameter's data element and its domain (the CUNIT sort exit)
+    "zosd_h5x_msehi.dtel.xml", "zosd_h5x_meins.doma.xml"];
 
   it("the loop asks for the search helps the seed DPC names, the dumper's helps arrive, and segw-shlp registers what the twin's value-help sets are served by (milestone 3)", async function () {
     this.timeout(300000);

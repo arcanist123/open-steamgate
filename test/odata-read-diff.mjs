@@ -3,7 +3,7 @@ import {mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {createServer} from "node:http";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {capture, compareAnswers, compareFolders, main, manifestFromIndex, normalisedLine, options, readAnswer} from "../tools/odata-read-diff.mjs";
+import {capture, compareAnswers, compareFolders, errorOf, main, manifestFromIndex, normalisedLine, options, readAnswer} from "../tools/odata-read-diff.mjs";
 
 // tools/odata-read-diff.mjs on small synthetic bodies. Every case is a way
 // the comparison could call two different answers equal, or hide a
@@ -108,6 +108,26 @@ describe("odata-read-diff: one answer against another", () => {
     const half = compareAnswers({status: 200, body: list(OURS, ["1"])}, {status: 400, body: error("X/1", "no")});
     expect(half.ok).to.equal(false);
     expect(half.differences[0]).to.equal("status: ours 200 | oracle 400");
+  });
+
+  it("compares an XML error by its code and message text, as a JSON one", () => {
+    // a /$count error is XML on a system and here; read as "no error member"
+    // on both sides it was a difference whatever the two said
+    const xml = (code, text, inner = "") => `<?xml version="1.0" encoding="utf-8"?><error xmlns="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata"><code>${code}</code><message xml:lang="en">${text}</message>${inner}</error>`;
+    const same = compareAnswers({status: 400, body: xml("X/007", "Filter &amp; more")},
+      {status: 400, body: xml("X/007", "Filter &amp; more", "<innererror><transactionid>T1</transactionid></innererror>")});
+    expect(same.differences).to.deep.equal([]);
+    expect(same.ok).to.equal(true);
+    const other = compareAnswers({status: 400, body: xml("STG/X", "Filter not supported")}, {status: 400, body: xml("X/007", "Filter not supported here")});
+    expect(other.differences).to.deep.equal([
+      "error.code: ours \"STG/X\" | oracle \"X/007\"",
+      "error.message: ours \"Filter not supported\" | oracle \"Filter not supported here\"",
+    ]);
+    // an XML error against a JSON one: compared by the same two fields
+    const mixed = compareAnswers({status: 400, body: JSON.stringify({error: {code: "X/007", message: {lang: "en", value: "Filter & more"}}})},
+      {status: 400, body: xml("X/007", "Filter &amp; more")});
+    expect(mixed.ok).to.equal(true);
+    expect(errorOf(undefined, "<feed/>")).to.equal(undefined);
   });
 
   it("counts etag-form and member-order only when declared", () => {

@@ -75,6 +75,7 @@ CLASS zcl_osd_h5x_dpc DEFINITION PUBLIC INHERITING FROM /iwbep/cl_mgw_push_abs_d
       IMPORTING
         iv_entity_set_name TYPE string
         it_key_tab         TYPE /iwbep/t_mgw_name_value_pair
+        io_ctx             TYPE REF TO /iwbep/if_mgw_req_entity
       EXPORTING
         er_entity          TYPE REF TO data
       RAISING
@@ -306,19 +307,39 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
                       CHANGING  cr_data = er_entityset ).
   ENDMETHOD.
   METHOD vh_single.
+* the key as a SEGW sample's generated DPC reads it: get_converted_keys,
+* the value after the property's input conversion (a unit's external form
+* becomes its internal key), into the set's own structure
     DATA lt_selopt TYPE ddshselops.
     DATA ls_selopt LIKE LINE OF lt_selopt.
     DATA ls_key    LIKE LINE OF it_key_tab.
     DATA lr_rows   TYPE REF TO data.
+    DATA lr_keys   TYPE REF TO data.
     FIELD-SYMBOLS <lt_rows> TYPE STANDARD TABLE.
     FIELD-SYMBOLS <ls_row>  TYPE any.
+    FIELD-SYMBOLS <ls_keys> TYPE any.
+    FIELD-SYMBOLS <lv_key>  TYPE any.
 
+    CASE iv_entity_set_name.
+      WHEN 'VH_CategorySet'.
+        CREATE DATA lr_keys TYPE zcl_osd_h5x_mpc=>ts_vh_category.
+      WHEN 'VH_CountrySet'.
+        CREATE DATA lr_keys TYPE zcl_osd_h5x_mpc=>ts_vh_country.
+      WHEN OTHERS.
+        CREATE DATA lr_keys TYPE zcl_osd_h5x_mpc=>ts_vh_unit.
+    ENDCASE.
+    ASSIGN lr_keys->* TO <ls_keys>.
+    io_ctx->get_converted_keys( IMPORTING es_key_values = <ls_keys> ).
     LOOP AT it_key_tab INTO ls_key.
+      ASSIGN COMPONENT to_upper( ls_key-name ) OF STRUCTURE <ls_keys> TO <lv_key>.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
       ls_selopt-shlpname  = search_help_of( iv_entity_set_name ).
       ls_selopt-shlpfield = to_upper( ls_key-name ).
       ls_selopt-sign      = 'I'.
       ls_selopt-option    = 'EQ'.
-      ls_selopt-low       = ls_key-value.
+      ls_selopt-low       = <lv_key>.
       APPEND ls_selopt TO lt_selopt.
     ENDLOOP.
     lr_rows = value_help( iv_entity_set_name = iv_entity_set_name
@@ -510,6 +531,7 @@ CLASS zcl_osd_h5x_dpc IMPLEMENTATION.
     IF search_help_of( iv_entity_set_name ) IS NOT INITIAL.
       vh_single( EXPORTING iv_entity_set_name = iv_entity_set_name
                            it_key_tab         = it_key_tab
+                           io_ctx             = io_tech_request_context
                  IMPORTING er_entity          = er_entity ).
       RETURN.
     ENDIF.

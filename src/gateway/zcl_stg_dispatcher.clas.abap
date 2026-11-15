@@ -933,8 +933,10 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
                                                                       iv_namespace = is_service-namespace
                                                                       iv_base_url  = iv_base_url ) ).
         ls_header-name  = 'location'.
-        lv_location = zcl_stg_url=>escape_key( zcl_stg_json=>key_predicate( is_data = <ls_data>
-                                                                             is_set  = is_set ) ).
+* the same key the entry's own uri carries: converted and percent-encoded
+* by key_predicate, once
+        lv_location = zcl_stg_json=>key_predicate( is_data = <ls_data>
+                                                   is_set  = is_set ).
         ls_header-value = |{ iv_base_url }/{ is_set-name }({ lv_location })|.
         APPEND ls_header TO rs_response-headers.
         IF io_etag_model IS BOUND.

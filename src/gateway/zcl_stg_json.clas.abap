@@ -14,7 +14,8 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       IMPORTING
         it_sets TYPE zcl_stg_model_info=>ty_entity_sets.
 
-* the table the decimals of a unit of measure are read from (MSEHI, DECAN,
+* the table the decimals of a unit of measure are read from (MSEHI, ANDEC
+* -- the decimals for rounding, not DECAN, the display decimals --,
 * client-dependent): T006 on a system (public table of units of measure,
 * https://www.sapdatasheet.org/abap/tabl/t006.html); a twin's own table in
 * its tests
@@ -104,6 +105,13 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_text) TYPE string.
 
+* the key of an entry as its URI carries it (__metadata id and uri, the
+* deferred links, the Location of a created entry): each value in its
+* converted form when its property has a conversion exit (a language key
+* in its ISO form, not its one-character key; a unit in its external form)
+* and percent-encoded the way a system writes it (zcl_stg_url=>escape_key;
+* M3 oracle 02-08a, 02-15a). The names, the = and the , between two keys
+* stay
     CLASS-METHODS key_predicate
       IMPORTING
         is_data          TYPE any
@@ -173,8 +181,9 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-DATA gt_units TYPE STANDARD TABLE OF ty_unit WITH DEFAULT KEY.
     CLASS-DATA gv_unit_table TYPE string VALUE 'T006'.
 
-* the decimals a unit of measure is displayed with; -1 when the unit (or
-* the table) is not there. Read once per request and unit
+* the decimals a quantity of a unit of measure is written with (the unit's
+* rounding decimals); -1 when the unit (or the table) is not there. Read
+* once per request and unit
     CLASS-METHODS unit_decimals
       IMPORTING
         iv_unit            TYPE string
@@ -245,10 +254,9 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_text) TYPE string.
 
 * the output conversion exit of a property (CONVERSION_EXIT_<x>_OUTPUT),
-* as the framework runs it on a system before the value is written; an
-* exit with no module here leaves the value as it is (CUNIT is not in
-* open-abap-core: units come out as stored, which equals the converted
-* form in the logon language for the oracle's units, M3-B0 section 3)
+* as the framework runs it on a system before the value is written
+* (ZCL_OSD_CONV_EXIT: an exit with no module, or one that declines the
+* value, leaves it as it is)
     CLASS-METHODS converted
       IMPORTING
         iv_value        TYPE any
@@ -343,7 +351,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD unit_decimals.
     DATA ls_unit   TYPE ty_unit.
-    DATA lv_decan  TYPE i.
+    DATA lv_andec  TYPE i.
     DATA lv_msehi  TYPE c LENGTH 3.
 
     READ TABLE gt_units INTO ls_unit WITH KEY unit = iv_unit.
@@ -355,9 +363,13 @@ CLASS zcl_stg_json IMPLEMENTATION.
     lv_msehi = iv_unit.
     IF lv_msehi IS NOT INITIAL.
       TRY.
-          SELECT SINGLE decan FROM (gv_unit_table) INTO lv_decan WHERE msehi = lv_msehi.
+* ANDEC: a system writes a quantity to the unit's rounding decimals. Its
+* display decimals (DECAN) are 0 for every unit of the M3 oracle while it
+* writes three, two or no decimals by unit, each time the unit's ANDEC
+* (milestone 3, second measured pass)
+          SELECT SINGLE andec FROM (gv_unit_table) INTO lv_andec WHERE msehi = lv_msehi.
           IF sy-subrc = 0.
-            rv_decimals = lv_decan.
+            rv_decimals = lv_andec.
           ENDIF.
         CATCH cx_root ##NO_HANDLER.
 * no unit table in this system: the field's own scale
@@ -1018,10 +1030,16 @@ CLASS zcl_stg_json IMPLEMENTATION.
           lv_literal = uri_literal( iv_value    = <lv_field>
                                     iv_edm_type = ls_property-edm_type ).
         WHEN OTHERS.
-          lv_value = <lv_field>.
+          IF ls_property-conv_exit IS NOT INITIAL.
+            lv_value = converted( iv_value = <lv_field>
+                                  iv_exit  = ls_property-conv_exit ).
+          ELSE.
+            lv_value = <lv_field>.
+          ENDIF.
           REPLACE ALL OCCURRENCES OF lv_quote IN lv_value WITH lv_two.
           lv_literal = |'{ lv_value }'|.
       ENDCASE.
+      lv_literal = zcl_stg_url=>escape_key( lv_literal ).
       IF lv_keys = 1.
         rv_string = lv_literal.
       ELSEIF rv_string IS INITIAL.
@@ -1033,20 +1051,8 @@ CLASS zcl_stg_json IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD converted.
-    DATA lv_module TYPE string.
-    DATA lv_output TYPE c LENGTH 255.
-
-    lv_module = |CONVERSION_EXIT_{ iv_exit }_OUTPUT|.
-    TRY.
-        CALL FUNCTION lv_module
-          EXPORTING
-            input  = iv_value
-          IMPORTING
-            output = lv_output.
-        rv_value = lv_output.
-      CATCH cx_sy_dyn_call_illegal_func.
-        rv_value = iv_value.
-    ENDTRY.
+    rv_value = zcl_osd_conv_exit=>output( iv_value = iv_value
+                                          iv_exit  = iv_exit ).
   ENDMETHOD.
 
   METHOD selected.
@@ -1277,9 +1283,9 @@ CLASS zcl_stg_json IMPLEMENTATION.
                                                                  iv_edm_type = ls_property-edm_type ) }|.
     ENDLOOP.
 
-* the key values are part of the URI: a quote or a backslash in one
-* (SEGW's DS_ATT_PATH, IT_RANGE\HIGH, or any key a POST made) must be
-* escaped like any other string, before the deferred links are built of it
+* the key values are part of the URI, percent-encoded by key_predicate; the
+* base URL is not, and a quote or a backslash in it must be escaped like any
+* other string, before the deferred links are built of it
     lv_uri = escape( lv_uri ).
 
 * navigation properties: expanded content when the caller supplies it, a
