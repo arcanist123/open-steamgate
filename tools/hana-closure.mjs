@@ -279,7 +279,7 @@ import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
 import {TADIR, requestFor, tadirKinds} from "./hana-closure-request.mjs";
-import {followAsks, islandSearchHelps, searchHelpSummary} from "./hana-closure-shlp.mjs";
+import {followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
 // ------------------------------------------------------------ findings ----
@@ -830,11 +830,8 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // the search helps the island hands to the /IWBEP/ API by name, and what
     // the helps and views that arrived still name (tools/hana-closure-shlp.mjs)
     const shlpFound = islandSearchHelps(reg, analysisForNames.objects);
-    for (const d of shlpFound.dynamic.filter((x) => reportedDynamic.has(`${x.object}=>${x.method}`) === false)) {
-      reportedDynamic.add(`${d.object}=>${d.method}`);
-      say(`search help named dynamically in ${d.object}=>${d.method} -- not asked (no name exists before run time)`);
-    }
-    const followed = followAsks(root, island, new Set(Object.values(state.resolved ?? {}).flat()));
+    const followed = followAsks(root, island, new Set(Object.values(state.resolved ?? {}).flat()), shlpFound.invalid);
+    reportUnasked(shlpFound, reportedDynamic, say); // dynamic and non-object names, once per run
     // H5x-1: a name whose object is in the island -- by file name for
     // CLAS/INTF, by the XML present for the DDIC kinds -- is never
     // requested and never a gap, whatever asked for it before: the finding

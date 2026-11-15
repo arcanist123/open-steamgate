@@ -379,7 +379,7 @@
    "reason": "lowered 2026-10-02: the YAML line index went to tools/dsl-yaml-lines.mjs; holds the range: of L3 slice 3a"
   },
   "tools/hana-closure.mjs": {
-   "lines": 982,
+   "lines": 979,
    "reason": "H5x-3 (fix round 1): the loop's test-code seeding -- a class whose OWN definition is the ABAP unit-test framework's (FOR TESTING, or inheriting from or implementing its classes/interfaces; never a class that merely references one -- the transitive closure killed bed run 19 on the seed guard) leaves the build before the machinery decides, recorded in the seam the build already reads; its dependents fall as #934 cascades through the decision's seeds. The classification itself is pure and lives in tools/hana-closure-graph.mjs; this is the wiring beside the stub rounds, where the record, the hold and the seam writes already live. Carve the loop's iteration line and state handling into their own package when it next grows. Milestone 3 (the search helps): the request -- the TADIR kinds and the schema-1 file -- moved to tools/hana-closure-request.mjs and the search-help names to tools/hana-closure-shlp.mjs; the ceiling went down with them."
   },
   "tools/hana-client.mjs": {

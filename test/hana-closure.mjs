@@ -4608,6 +4608,81 @@ ENDCLASS.`;
     }
   });
 
+  it("a search-help name that is no object name is reported once, JSON-encoded, never asked -- from a call and from arrived XML (critic S-1)", async () => {
+    const graph = await import("../tools/hana-closure-graph.mjs");
+    const {islandSearchHelps, followAsks, reportUnasked, searchHelpSummary, isObjectName} = await import("../tools/hana-closure-shlp.mjs");
+    expect(["ZOSD_H5X_SH_A", "/ZNS/ZOSD_H5X_SH", "Z".repeat(30)].every(isObjectName)).to.equal(true);
+    expect(["FOO BAR", "X(Y)Z DROP TABLE", "A') OR (1'=1", "Z".repeat(31), "/ZNS/", "", "ZOSD-H5X"].some(isObjectName)).to.equal(false);
+    const source = `CLASS zcl_osd_h5x_vh_bad DEFINITION PUBLIC CREATE PUBLIC.
+  PUBLIC SECTION.
+    CONSTANTS gc_evil TYPE string VALUE 'A'') OR (1''=1'.
+    METHODS vh_bad.
+ENDCLASS.
+CLASS zcl_osd_h5x_vh_bad IMPLEMENTATION.
+  METHOD vh_bad.
+    DATA lo_sh TYPE REF TO /iwbep/if_sb_gendpc_shlp_data.
+    lo_sh->get_search_help_values( iv_shlp_name = 'X(Y)Z DROP TABLE' ).
+    lo_sh->get_search_help_values( iv_shlp_name = 'foo bar' ).
+    lo_sh->get_search_help_values( iv_shlp_name = gc_evil ).
+    lo_sh->get_search_help_values( iv_shlp_name = 'ZOSD_H5X_SH_GOOD' ).
+  ENDMETHOD.
+ENDCLASS.`;
+    const reg = await shlpRegistry({"zcl_osd_h5x_vh_bad.clas.abap": source, "#iwbep#if_sb_gendpc_shlp_data.intf.abap": SHLP_API_INTF});
+    expect(graph.references(reg, "zcl_osd_h5x_vh_bad.clas.abap").filter((r) => r.kind === "shlp").map((r) => r.name)).to.deep.equal(["ZOSD_H5X_SH_GOOD"]);
+    const found = islandSearchHelps(reg, [{object: "ZCL_OSD_H5X_VH_BAD", kind: "CLAS"}]);
+    expect(found.names.map((n) => n.name)).to.deep.equal(["ZOSD_H5X_SH_GOOD"]);
+    expect(found.invalid.map((i) => i.shown)).to.deep.equal(['"X(Y)Z DROP TABLE"', '"FOO BAR"', `"A') OR (1'=1"`]);
+    // and from an arrived file: a text table that is no object name
+    const root = mkdtempSync(join(tmpdir(), "hana-closure-shlp-bad-"));
+    const src = join(root, "gen", "hana-src", "000-h5c-main", "src");
+    mkdirSync(src, {recursive: true});
+    try {
+      writeFileSync(join(src, "zosd_h5x_sh_tx.shlp.xml"), `<abapGit><asx:values><DD30V><SHLPNAME>ZOSD_H5X_SH_TX</SHLPNAME><SELMETHOD>ZOSD_H5X_TB</SELMETHOD><TEXTTAB>${"ZOSD_H5X_".repeat(6)}</TEXTTAB></DD30V></asx:values></abapGit>`);
+      const asks = followAsks(root, islandBasenames(root), new Set(), found.invalid);
+      expect(asks.map((a) => a.name)).to.deep.equal(["ZOSD_H5X_TB"]);
+      expect(found.invalid[3]).to.deep.equal({where: "search help ZOSD_H5X_SH_TX", shown: `"${"ZOSD_H5X_".repeat(6).slice(0, 40)}"...`});
+      const said = [];
+      const reported = new Set();
+      reportUnasked(found, reported, (m) => said.push(m));
+      reportUnasked(found, reported, (m) => said.push(m));
+      expect(said, "once per run").to.have.lengthOf(4);
+      expect(said[0]).to.equal('search help name is not an object name in ZCL_OSD_H5X_VH_BAD=>VH_BAD: "X(Y)Z DROP TABLE" -- not asked');
+      expect(searchHelpSummary({found, islandFiles: islandBasenames(root)}).invalid).to.equal(4);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
+  it("the search-help scan reuses the structural pass's scope: one SyntaxLogic pass per object (critic S-2)", async () => {
+    const abaplint = await import("@abaplint/core");
+    const graph = await import("../tools/hana-closure-graph.mjs");
+    const {islandSearchHelps} = await import("../tools/hana-closure-shlp.mjs");
+    const reg = await shlpRegistry({"zcl_osd_h5x_vh_dpc.clas.abap": SHLP_SHAPES, "zcl_osd_h5x_vh_consts.clas.abap": SHLP_CONSTS,
+      "#iwbep#if_sb_gendpc_shlp_data.intf.abap": SHLP_API_INTF});
+    // the seam: every SyntaxLogic run, counted (abaplint caches the result on
+    // the object, so a second run is cheap -- the count is of the passes asked)
+    const original = abaplint.SyntaxLogic.prototype.run;
+    let runs = 0;
+    abaplint.SyntaxLogic.prototype.run = function (...args) {
+      runs += 1;
+      return original.apply(this, args);
+    };
+    try {
+      const classPaths = new Map([["zcl_osd_h5x_vh_dpc.clas.abap", ["/r/zcl_osd_h5x_vh_dpc.clas.abap"]], ["zcl_osd_h5x_vh_consts.clas.abap", ["/r/zcl_osd_h5x_vh_consts.clas.abap"]]]);
+      const analysis = graph.analyseIsland({reg, root: "/r", classPaths});
+      const afterAnalysis = runs;
+      expect(afterAnalysis).to.equal(2);
+      const found = islandSearchHelps(reg, analysis.objects);
+      expect(runs - afterAnalysis, "the scan runs no pass of its own").to.equal(0);
+      expect(found.names.map((n) => n.name)).to.include("ZOSD_H5X_SH_OTHER");
+      // a caller without the record's scope still gets one pass per object
+      islandSearchHelps(reg, analysis.objects.map((o) => ({object: o.object, kind: o.kind})));
+      expect(runs - afterAnalysis).to.equal(2);
+    } finally {
+      abaplint.SyntaxLogic.prototype.run = original;
+    }
+  });
+
   it("followAsks: an arrived help names its selection method (a view for a help view), its text table, its included helps and data elements -- never what the island holds or a dump resolved (milestone 3)", async () => {
     const {followAsks, searchHelpSummary} = await import("../tools/hana-closure-shlp.mjs");
     const root = mkdtempSync(join(tmpdir(), "hana-closure-shlp-"));
@@ -4630,9 +4705,9 @@ ENDCLASS.`;
       // the summary: a seed's set whose help is missing is listed, not failed
       const found = {names: [{name: "ZOSD_H5X_SH_TX"}, {name: "ZOSD_H5X_SH_MISS"}],
         sites: [{object: "ZCL_SEED_DPC", method: "VH_A", name: "ZOSD_H5X_SH_TX"}, {object: "ZCL_SEED_DPC", method: "VH_B", name: "ZOSD_H5X_SH_MISS"},
-          {object: "ZCL_OTHER", method: "VH_C", name: "ZOSD_H5X_SH_MISS"}], dynamic: [{object: "ZCL_SEED_DPC", method: "VH_D"}]};
+          {object: "ZCL_OTHER", method: "VH_C", name: "ZOSD_H5X_SH_MISS"}], dynamic: [{object: "ZCL_SEED_DPC", method: "VH_D"}], invalid: []};
       expect(searchHelpSummary({found, islandFiles: islandBasenames(root), seeds: new Set(["ZCL_SEED_DPC"])})).to.deep.equal({
-        asked: 2, resolved: 1, missing: 1, dynamic: 1, unserved: [{class: "ZCL_SEED_DPC", method: "VH_B", search_help: "ZOSD_H5X_SH_MISS"}]});
+        asked: 2, resolved: 1, missing: 1, dynamic: 1, invalid: 0, unserved: [{class: "ZCL_SEED_DPC", method: "VH_B", search_help: "ZOSD_H5X_SH_MISS"}]});
     } finally {
       rmSync(root, {recursive: true, force: true});
     }
@@ -4699,7 +4774,7 @@ ENDINTERFACE.
       expect(existsSync(join(island, "zosd_h5x_uv.view.xml"))).to.equal(true);
       expect(JSON.parse(readFileSync(outFile(root, "closure-gaps.json"), "utf8")).gaps).to.deep.equal([]);
       const summary = JSON.parse(readFileSync(outFile(root, "closure-summary.json"), "utf8"));
-      expect(summary.search_helps).to.deep.equal({asked: 3, resolved: 3, missing: 0, dynamic: 0});
+      expect(summary.search_helps).to.deep.equal({asked: 3, resolved: 3, missing: 0, dynamic: 0, invalid: 0});
       expect(summary.failures).to.deep.equal([]);
       // registered by segw-shlp over the island alone, and the classes are the
       // twin's own: the value-help sets of test/hana-m2 run on them
@@ -4736,7 +4811,7 @@ ENDINTERFACE.
       expect(dynamic, "reported once over two iterations").to.have.lengthOf(1);
       expect(result.gaps.map((g) => `${g.kind}:${g.name}`)).to.deep.equal(["SHLP:ZOSD_H5X_SH_MISS"]);
       const summary = JSON.parse(readFileSync(outFile(root, "closure-summary.json"), "utf8"));
-      expect(summary.search_helps).to.deep.equal({asked: 1, resolved: 0, missing: 1, dynamic: 1,
+      expect(summary.search_helps).to.deep.equal({asked: 1, resolved: 0, missing: 1, dynamic: 1, invalid: 0,
         unserved: [{class: "ZCL_OSD_H5X_VH_DPC", method: "VH_UNITSET_GET_ENTITYSET", search_help: "ZOSD_H5X_SH_MISS"}]});
       expect(summary.failures, "an unserved value-help set is listed, never a failure").to.deep.equal([]);
       expect(summary.gaps).to.deep.include({name: "ZOSD_H5X_SH_MISS", kind: "SHLP"});

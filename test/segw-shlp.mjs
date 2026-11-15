@@ -266,7 +266,7 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
     <DD26V><VIEWNAME>ZOSD_H5X_CV</VIEWNAME><TABNAME>ZOSD_H5X_CDT</TABNAME><TABPOS>0004</TABPOS><FORTABNAME>ZOSD_H5X_CD</FORTABNAME><FORFIELD>DIMID</FORFIELD><FORDIR>I</FORDIR></DD26V>
    </DD26V_TABLE>
    <DD27P_TABLE>
-    <DD27P><VIEWFIELD>MANDT</VIEWFIELD><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>MANDT</FIELDNAME><KEYFLAG>X</KEYFLAG><CHECKTABLE>T000</CHECKTABLE><SHLPORIGIN>P</SHLPORIGIN></DD27P>
+    <DD27P><VIEWFIELD>MANDT</VIEWFIELD><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>MANDT</FIELDNAME><KEYFLAG>X</KEYFLAG><CHECKTABLE>ZOSD_H5X_CL</CHECKTABLE><SHLPORIGIN>P</SHLPORIGIN></DD27P>
     <DD27P><VIEWFIELD>SHORT</VIEWFIELD><TABNAME>ZOSD_H5X_CUT</TABNAME><FIELDNAME>SHORT</FIELDNAME></DD27P>
     <DD27P><VIEWFIELD>UNIT</VIEWFIELD><TABNAME>ZOSD_H5X_CU</TABNAME><FIELDNAME>UNIT</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P>
     <DD27P><VIEWFIELD>LTXT</VIEWFIELD><TABNAME>ZOSD_H5X_CUT</TABNAME><FIELDNAME>LTXT</FIELDNAME></DD27P>
@@ -343,14 +343,18 @@ describe("tools/segw-shlp: text tables and help views (milestone 3 B5.2)", () =>
       row("0005", "ZOSD_H5X_CD", "MANDT", "ZOSD_H5X_CDT", "MANDT")}${row("0006", "ZOSD_H5X_CD", "DIMID", "ZOSD_H5X_CDT", "DIMID")}</DD28J_TABLE>`;
     const joined = unitLayer(converterView({joins: all}));
     const short = unitLayer(converterView({joins: `\n   <DD28J_TABLE>${row("0001", "ZOSD_H5X_CU", "UNIT", "ZOSD_H5X_CUT", "UNIT")}</DD28J_TABLE>`}));
+    const notEq = unitLayer(converterView({joins: all.replace("<OPERATOR>EQ</OPERATOR><RTAB>ZOSD_H5X_CD</RTAB><RFIELD>DIMID</RFIELD>", "<OPERATOR>GT</OPERATOR><RTAB>ZOSD_H5X_CD</RTAB><RFIELD>DIMID</RFIELD>")}));
     try {
       const join = generate([joined]).files.get("zcl_osd_shlp_zosd_h5x_cv.clas.abap");
       expect(join).to.contain("ON t2~mandt = t1~mandt\n         AND t2~unit = t1~unit\n         AND t2~spras = iv_langu");
       expect(generate([short]).files.get("zcl_stg_shlp_registry.clas.abap"))
         .to.contain("* ZOSD_H5X_CH: not registered, help view ZOSD_H5X_CV: ZOSD_H5X_CD: the view's DD28J rows join it to no table before it");
+      expect(generate([notEq]).files.get("zcl_stg_shlp_registry.clas.abap"))
+        .to.contain("* ZOSD_H5X_CH: not registered, help view ZOSD_H5X_CV: ZOSD_H5X_CD: DD28J operator GT is not served");
     } finally {
       rmSync(joined, {recursive: true, force: true});
       rmSync(short, {recursive: true, force: true});
+      rmSync(notEq, {recursive: true, force: true});
     }
   });
 });

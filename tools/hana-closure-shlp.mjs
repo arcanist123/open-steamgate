@@ -46,6 +46,16 @@ export const SEARCH_HELP_API = {
 };
 
 const kindOf = (node) => node.get().constructor.name;
+
+// what may become an ask: an ABAP object name -- letters, digits, underscores,
+// an optional /NAMESPACE/ prefix, at most 30 characters (the doctrine of
+// tools/segw-shlp.mjs: the generator is the validator of last resort). A
+// literal or a constant carries any string; such a string is reported (JSON-
+// encoded, truncated) and never handed to the dumper.
+const OBJECT_NAME = /^(?:\/[A-Z0-9_]+\/)?[A-Z0-9_]+$/;
+export const isObjectName = (name) => typeof name === "string" && name.length <= 30 && OBJECT_NAME.test(name);
+/** a name as a report may show it: JSON-encoded, at most 40 characters of it */
+export const shownName = (name) => JSON.stringify(String(name).slice(0, 40)) + (String(name).length > 40 ? "..." : "");
 const up = (s) => String(s ?? "").toUpperCase();
 
 /** whether a parsed method name (`m`, `zif_x~m`) is the API's method */
@@ -136,19 +146,26 @@ function argumentName({source, reg, obj, all, local, enclosing, spaghetti, filen
 
 /** the search helps one object hands to the API, by file:
  *  Map(basename -> [{name?, line, method, via} | {dynamic: true, line, method}]).
- *  `spaghetti` is the object's scope result when the caller has one (the
- *  structural pass caches it on the object). Pure over the registry. */
-export function searchHelpCalls(reg, obj) {
+ *  A name that is no object name is {invalid: true, shown, line, method}.
+ *  `scope` is {spaghetti}, the object's scope result from the structural
+ *  pass (analyseObject keeps it on the analysis record): given, no second
+ *  SyntaxLogic pass runs -- even when that pass had none to give. Test code
+ *  (`*.testclasses.*`) is no island content and is not scanned. Pure over
+ *  the registry. */
+export function searchHelpCalls(reg, obj, scope = undefined) {
   const result = new Map();
   if (obj === undefined) return result;
-  let spaghetti;
-  try {
-    spaghetti = new abaplint.SyntaxLogic(reg, obj).run().spaghetti;
-  } catch {
-    spaghetti = undefined;
+  let spaghetti = scope?.spaghetti;
+  if (scope === undefined) {
+    try {
+      spaghetti = new abaplint.SyntaxLogic(reg, obj).run().spaghetti;
+    } catch {
+      spaghetti = undefined;
+    }
   }
-  const all = (obj.getABAPFiles?.() ?? []).flatMap((f) => f.getStatements());
-  for (const file of obj.getABAPFiles?.() ?? []) {
+  const files = (obj.getABAPFiles?.() ?? []).filter((f) => /\.testclasses\./.test(String(f.getFilename())) === false);
+  const all = files.flatMap((f) => f.getStatements());
+  for (const file of files) {
     const base = String(file.getFilename()).split("/").pop();
     const statements = file.getStatements();
     let enclosing;
@@ -190,7 +207,9 @@ export function searchHelpCalls(reg, obj) {
         const list = result.get(base) ?? [];
         list.push(named === undefined || named.name === ""
           ? {dynamic: true, line, method: enclosing ?? ""}
-          : {name: named.name, line, method: enclosing ?? "", via: named.via});
+          : isObjectName(named.name) === false
+            ? {invalid: true, shown: shownName(named.name), line, method: enclosing ?? ""}
+            : {name: named.name, line, method: enclosing ?? "", via: named.via});
         result.set(base, list);
       }
     });
@@ -199,32 +218,39 @@ export function searchHelpCalls(reg, obj) {
 }
 
 /** one object file's search-help asks in references()' shape */
-export function searchHelpReferences(reg, filename) {
+export function searchHelpReferences(reg, filename, scope = undefined) {
   const base = String(filename ?? "").split("/").pop() ?? "";
   const m = /^(.+?)\.(clas|intf)(?:\.locals_(?:imp|def))?\.abap$/.exec(base);
   if (m === null) return [];
   const name = up(m[1]).replace(/#/g, "/");
   const obj = reg.getObject(m[2] === "clas" ? "CLAS" : "INTF", name);
-  return (searchHelpCalls(reg, obj).get(base) ?? []).filter((c) => c.dynamic !== true)
+  return (searchHelpCalls(reg, obj, scope).get(base) ?? []).filter((c) => c.dynamic !== true && c.invalid !== true)
     .map((c) => ({name: c.name, kind: "shlp", line: c.line, level: "method", ...(c.method !== "" ? {method: c.method} : {}), via: "search-help"}));
 }
 
 /** the island's search-help names, for the request: every island object
  *  (its record from analyseIsland) read once. Returns {names: [{name, kind:
  *  "shlp", finding}], sites: [{object, method, name}], dynamic: [{object,
- *  method}]} -- names first-named, sites per call, dynamic once per
- *  object=>method. */
+ *  method}], invalid: [{where, shown}]} -- names first-named, sites per call,
+ *  dynamic once per object=>method, invalid once per place and name. A
+ *  record that carries the structural pass's `scope` is scanned without a
+ *  second SyntaxLogic pass. */
 export function islandSearchHelps(reg, objects) {
   const names = [];
   const seen = new Set();
   const sites = [];
   const dynamic = new Map();
+  const invalid = new Map();
   for (const o of objects) {
     const obj = reg.getObject(o.kind === "INTF" ? "INTF" : "CLAS", o.object);
-    for (const [base, calls] of searchHelpCalls(reg, obj)) {
+    for (const [base, calls] of searchHelpCalls(reg, obj, "scope" in o ? {spaghetti: o.scope} : undefined)) {
       for (const c of calls) {
         if (c.dynamic === true) {
           dynamic.set(`${o.object}=>${c.method}`, {object: o.object, method: c.method});
+          continue;
+        }
+        if (c.invalid === true) {
+          invalid.set(`${o.object}=>${c.method}|${c.shown}`, {where: `${o.object}=>${c.method}`, shown: c.shown});
           continue;
         }
         sites.push({object: o.object, method: c.method, name: c.name});
@@ -235,7 +261,25 @@ export function islandSearchHelps(reg, objects) {
       }
     }
   }
-  return {names, sites, dynamic: [...dynamic.values()]};
+  return {names, sites, dynamic: [...dynamic.values()], invalid: [...invalid.values()]};
+}
+
+/** the loop's lines for what is never asked, each said once per run
+ *  (`reported` is the run's memory): a dynamic name, and a name that is no
+ *  object name (shown JSON-encoded and truncated, never raw) */
+export function reportUnasked(found, reported, say) {
+  for (const d of found.dynamic) {
+    const key = `dynamic|${d.object}=>${d.method}`;
+    if (reported.has(key) === true) continue;
+    reported.add(key);
+    say(`search help named dynamically in ${d.object}=>${d.method} -- not asked (no name exists before run time)`);
+  }
+  for (const i of found.invalid) {
+    const key = `invalid|${i.where}|${i.shown}`;
+    if (reported.has(key) === true) continue;
+    reported.add(key);
+    say(`search help name is not an object name in ${i.where}: ${i.shown} -- not asked`);
+  }
 }
 
 const abapBase = (name) => up(name).toLowerCase().replace(/\//g, "#");
@@ -266,14 +310,18 @@ export function islandDictionaryFiles(root) {
 }
 
 // the selection method kinds that are a view (DD30L SELMTYPE: H a help view,
-// V a maintenance view, D a database view); T and an empty kind are a table
+// V a maintenance view, D a database view); T and an empty kind are a table.
+// An empty SELMTYPE over a view would be asked as TABL, come back missing and
+// stand as a (listed) gap: DD30L marks views, so that needs an odd dictionary
 const VIEW_SELMTYPES = new Set(["H", "V", "D"]);
 
 /** what the arrived helps and views still name: [{name, kind, finding}],
  *  kinds tabl/view/shlp/dtel -- a name the island holds (`islandFiles`, the
  *  basename set) or a dump already resolved (`resolved`, any kind) is not
- *  asked. Reads the files; otherwise pure. */
-export function followAsks(root, islandFiles, resolved = new Set()) {
+ *  asked, and neither is a name from the XML that is no object name: it
+ *  joins `invalid` ({where, shown}) when the caller passes that list. Reads
+ *  the files; otherwise pure. */
+export function followAsks(root, islandFiles, resolved = new Set(), invalid = undefined) {
   const {shlp, view} = islandDictionaryFiles(root);
   const out = [];
   const seen = new Set();
@@ -281,6 +329,11 @@ export function followAsks(root, islandFiles, resolved = new Set()) {
   const ask = (name, kind, finding) => {
     const n = up(name).trim();
     if (n === "" || seen.has(n) === true || resolved.has(n) === true) return;
+    if (isObjectName(n) === false) {
+      seen.add(n);
+      invalid?.push({where: /^structural: (search help \S+|view \S+)/.exec(finding)?.[1] ?? "an arrived file", shown: shownName(n)});
+      return;
+    }
     if (islandFiles.has(abapBase(n) + suffix[kind]) === true) return;
     seen.add(n);
     out.push({name: n, kind, finding});
@@ -318,7 +371,8 @@ export function followAsks(root, islandFiles, resolved = new Set()) {
 
 /** closure-summary.json's `search_helps`: the names the island hands to the
  *  API (`asked`), those whose .shlp.xml is in the island (`resolved`), the
- *  rest (`missing`), the dynamic call sites (`dynamic`), and every value-help
+ *  rest (`missing`), the dynamic call sites (`dynamic`), the names that are
+ *  no object name, from calls and from arrived XML (`invalid`), and every value-help
  *  method of a SEED class whose help is missing (`unserved`: listed, not a
  *  failure -- the set answers "no provider" until its help arrives). Pure. */
 export function searchHelpSummary({found, islandFiles, seeds = new Set()}) {
@@ -330,5 +384,5 @@ export function searchHelpSummary({found, islandFiles, seeds = new Set()}) {
     .filter((s, i, all) => all.findIndex((x) => x.class === s.class && x.method === s.method && x.search_help === s.search_help) === i)
     .sort((a, b) => (`${a.class}|${a.method}|${a.search_help}` < `${b.class}|${b.method}|${b.search_help}` ? -1 : 1));
   return {asked: asked.length, resolved: asked.length - missing.length, missing: missing.length,
-    dynamic: found.dynamic.length, ...(unserved.length > 0 ? {unserved} : {})};
+    dynamic: found.dynamic.length, invalid: (found.invalid ?? []).length, ...(unserved.length > 0 ? {unserved} : {})};
 }

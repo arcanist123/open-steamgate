@@ -277,7 +277,10 @@ function bindKey(dict, child, parent, forfield, fordir) {
   return {on, bound};
 }
 
-/** the ON condition of `child` from DD28J rows, when the view has them: each
+/** the ON condition of `child` from DD28J rows, when the view has them. Unlike
+ *  bindKey's refusals below, a partial key is kept here, on purpose: DD28J IS
+ *  the view's join definition (a view may join on part of a key), whereas
+ *  bindKey derives a join nobody wrote and refuses what it cannot pair. Each
  *  row pairing one of its fields with a field of a table before it (EQ only;
  *  a row to a table after it is read on that table's turn),
  *  its language key field, when no row binds it, to the session language */

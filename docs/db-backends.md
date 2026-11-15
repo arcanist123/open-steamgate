@@ -1090,8 +1090,14 @@ one is a gap of kind SHLP. A help view arrives as `.view.xml` (VIEWCLASS H)
 and never becomes a database object -- the build drops it
 (`tools/osd-warm-order.mjs`) and `tools/segw-shlp.mjs` reads it as a join
 (DD26V's foreign-key path, or DD28J's rows when a view has them).
+A name is asked only when it is an object name (letters, digits,
+underscores, an optional /NAMESPACE/, at most 30 characters), from a call or
+from an arrived file alike; anything else is reported once, JSON-encoded and
+truncated, as `search help name is not an object name in <where>` and never
+handed to the dumper. The scan reuses the structural pass's scope result
+(carried on the analysis record): one SyntaxLogic pass per object.
 `closure-summary.json` carries `search_helps: {asked, resolved, missing,
-dynamic}` and, under `unserved`, every value-help method of a seed class
+dynamic, invalid}` and, under `unserved`, every value-help method of a seed class
 whose help is missing -- listed, never a failure.
 
 The dumper runs only where its credentials are, with the argv its CLI

@@ -253,7 +253,7 @@ export function analyseObject(reg, filename) {
   // (top-down, so the declaring scope wins the level)
   let spaghetti;
   try {
-    spaghetti = new abaplint.SyntaxLogic(reg, obj).run().spaghetti;
+    spaghetti = result.scope = new abaplint.SyntaxLogic(reg, obj).run().spaghetti; // the one pass, kept for the search-help scan
   } catch {
     // no scope result: the statement carriers below still stand
     spaghetti = undefined;
@@ -393,7 +393,7 @@ export function references(reg, filename) {
     ...(u.fix !== undefined ? {fix: u.fix} : {}),
     ...(u.var !== undefined ? {var: u.var} : {}),
     ...(u.reason !== undefined ? {reason: u.reason} : {}),
-  })), ...searchHelpReferences(reg, filename)];
+  })), ...searchHelpReferences(reg, filename, analysis === undefined ? undefined : {spaghetti: analysis.scope})];
 }
 
 const rangeRows = (from, to) => {
@@ -456,7 +456,7 @@ export function analyseIsland({reg, root, classPaths}) {
     }
     const object = analysis.object;
     const record = {object, file: mainPath.slice(root.length + 1), kind: analysis.kind,
-      files: [...entry.files], ...merged};
+      files: [...entry.files], ...merged, scope: analysis.scope};
     objects.push(record);
     byObject.set(object, record);
   }
