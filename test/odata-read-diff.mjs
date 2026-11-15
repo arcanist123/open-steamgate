@@ -130,6 +130,19 @@ describe("odata-read-diff: one answer against another", () => {
     expect(errorOf(undefined, "<feed/>")).to.equal(undefined);
   });
 
+  it("calls a cut-off or doubled XML error a difference, even when both sides are broken the same way", () => {
+    const cut = `<?xml version="1.0" encoding="utf-8"?><error><code>X/007</code><message`;
+    expect(errorOf(undefined, cut)).to.have.property("invalid");
+    const both = compareAnswers({status: 400, body: cut}, {status: 400, body: cut});
+    expect(both.ok).to.equal(false);
+    expect(both.differences).to.have.length(2);
+    expect(both.differences[0]).to.match(/^error body: ours is not well-formed XML/);
+    const twice = `<error><code>X/007</code><message>a</message><message>a</message></error>`;
+    const good = `<error><code>X/007</code><message>a</message></error>`;
+    const doubled = compareAnswers({status: 400, body: good}, {status: 400, body: twice});
+    expect(doubled.differences).to.deep.equal(["error body: the oracle's is an XML error with more than one code or message"]);
+  });
+
   it("counts etag-form and member-order only when declared", () => {
     const tagged = (etag) => JSON.stringify({d: {results: [{...entry(OURS, "1"), __metadata: {...entry(OURS, "1").__metadata, etag}}], __count: "1"}});
     const reordered = JSON.stringify({d: {__count: "1", results: JSON.parse(tagged("W/\"datetime'2020-05-29T05%3A05%3A42.0000000'\"")).d.results}});

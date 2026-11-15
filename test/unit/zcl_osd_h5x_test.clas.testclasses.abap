@@ -1091,7 +1091,25 @@ CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS 
     METHODS external_unit_key_and_order FOR TESTING RAISING cx_static_check.
     METHODS external_unit_key_single FOR TESTING RAISING cx_static_check.
     METHODS entry_uri_key_encoded FOR TESTING RAISING cx_static_check.
+* the link an entry carries reads that entry back, through the dispatcher's
+* own URL parser: each key form the encoding writes
+    METHODS link_reads_the_entry_back FOR TESTING RAISING cx_static_check.
+    METHODS unit_link_reads_back FOR TESTING RAISING cx_static_check.
     METHODS teardown.
+* the first entry link of a body, from the set's name to its closing
+* parenthesis (an encoded key holds no parenthesis)
+    METHODS first_link
+      IMPORTING
+        iv_body        TYPE string
+        iv_set         TYPE string
+      RETURNING
+        VALUE(rv_path) TYPE string.
+* insert a category that sorts first, read it through its own link, check
+* the link's key form, remove it
+    METHODS category_round_trip
+      IMPORTING
+        iv_key     TYPE string
+        iv_encoded TYPE string.
 
     METHODS get
       IMPORTING
@@ -1417,6 +1435,82 @@ CLASS ltcl_value_help IMPLEMENTATION.
          iv_text = `VH_CategorySet('A%20b%2Fc''d%25e%26f')","uri"` ).
     has( iv_body = ls_response-body
          iv_text = `"Category":"A b/c'd%e&f"` ).
+  ENDMETHOD.
+
+  METHOD first_link.
+    DATA lv_off TYPE i.
+    DATA lv_len TYPE i.
+
+    FIND FIRST OCCURRENCE OF REGEX |{ iv_set }\\([^)]*\\)| IN iv_body MATCH OFFSET lv_off MATCH LENGTH lv_len.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = |no link of { iv_set } in { iv_body }| ).
+    rv_path = iv_body+lv_off(lv_len).
+  ENDMETHOD.
+
+  METHOD category_round_trip.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA ls_cat      TYPE zosd_h5x_cat.
+    DATA lv_path     TYPE string.
+
+    ls_cat-client = sy-mandt.
+    ls_cat-category = iv_key.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$top=1` ).
+    lv_path = first_link( iv_body = ls_response-body
+                          iv_set  = 'VH_CategorySet' ).
+    cl_abap_unit_assert=>assert_equals( act = lv_path
+                                        exp = |VH_CategorySet('{ iv_encoded }')| ).
+    ls_response = get( lv_path ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = |{ lv_path }: { ls_response-body }| ).
+    has( iv_body = ls_response-body
+         iv_text = |"Category":"{ zcl_stg_json=>escape( iv_key ) }"\}| ).
+    has( iv_body = ls_response-body
+         iv_text = |{ lv_path }","type"| ).
+    DELETE FROM zosd_h5x_cat WHERE category = ls_cat-category.
+  ENDMETHOD.
+
+  METHOD link_reads_the_entry_back.
+* every key sorts before the setup's rows (they start with A); the text is
+* 7-bit ASCII, so the characters beyond it are built from code points: a
+* Cyrillic letter (two UTF-8 bytes) and one outside the BMP (a surrogate
+* pair, four UTF-8 bytes)
+    DATA lv_zhe    TYPE string.
+    DATA lv_smiley TYPE string.
+
+    lv_zhe = cl_abap_conv_in_ce=>uccp( '0416' ).
+    lv_smiley = cl_abap_conv_in_ce=>uccp( 'D83D' ) && cl_abap_conv_in_ce=>uccp( 'DE00' ).
+    category_round_trip( iv_key     = `A b/c'd%e&f`
+                         iv_encoded = `A%20b%2Fc''d%25e%26f` ).
+    category_round_trip( iv_key     = `A#1?2+3`
+                         iv_encoded = `A%231%3F2%2B3` ).
+    category_round_trip( iv_key     = |A{ lv_zhe }b|
+                         iv_encoded = `A%D0%96b` ).
+    category_round_trip( iv_key     = |A{ lv_smiley }b|
+                         iv_encoded = `A%F0%9F%98%80b` ).
+  ENDMETHOD.
+
+  METHOD unit_link_reads_back.
+* the converted unit key: its link names the external form, and reading the
+* link converts it back to the internal key
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_path     TYPE string.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `sap-language=EN` ).
+    lv_path = first_link( iv_body = ls_response-body
+                          iv_set  = 'VH_UnitSet' ).
+    cl_abap_unit_assert=>assert_equals( act = lv_path
+                                        exp = `VH_UnitSet('%22')` ).
+    ls_response = get( iv_path  = lv_path
+                       iv_query = `sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"\"","Ltxt":"Twin unit"}` ).
   ENDMETHOD.
 
   METHOD default_yields_to_request.

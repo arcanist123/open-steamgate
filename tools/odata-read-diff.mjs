@@ -53,7 +53,7 @@
 // else: it is a recorder, not a client.
 import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
-import {XMLParser} from "fast-xml-parser";
+import {XMLParser, XMLValidator} from "fast-xml-parser";
 import {runsAs} from "./osd-main.mjs";
 
 export const RULES = ["uri-host", "uri-prefix", "etag-form", "member-order"];
@@ -181,17 +181,26 @@ function parse(text) {
 const xmlParser = new XMLParser({ignoreAttributes: true, parseTagValue: false, trimValues: true, removeNSPrefix: true});
 
 /** the error of an answer as {code, message}: the JSON `error` member, or
- *  the XML document of the V2 error format; undefined for anything else */
+ *  the XML document of the V2 error format; undefined for anything else.
+ *  An XML document that is not well-formed (cut off, unclosed), or an error
+ *  that carries its code or message twice, is {invalid: reason}: the
+ *  parser would recover something from it, and two broken bodies must not
+ *  read as equal */
 export function errorOf(json, text) {
   if (json?.error !== undefined) {
     const e = json.error;
     return {code: e.code, message: e.message?.value ?? e.message};
   }
   if (json !== undefined || typeof text !== "string" || !text.trimStart().startsWith("<")) return undefined;
+  // a document that is not well-formed is broken whatever it was meant to
+  // be; only a well-formed one is asked whether it is an error
+  const valid = XMLValidator.validate(text);
+  if (valid !== true) return {invalid: `not well-formed XML (${valid?.err?.msg ?? "unreadable"})`};
   let doc;
   try { doc = xmlParser.parse(text); } catch { return undefined; }
   const e = doc?.error;
   if (e === undefined || e === null || typeof e !== "object") return undefined;
+  if (Array.isArray(e.code) || Array.isArray(e.message)) return {invalid: "an XML error with more than one code or message"};
   const value = (v) => (v !== null && typeof v === "object" ? v["#text"] : v);
   return {code: value(e.code), message: value(e.message)};
 }
@@ -217,6 +226,9 @@ export function compareAnswers(ours, oracle, request = {}, opts = options()) {
     notes.push("error body: status, error.code and error.message.value compared (of a JSON or an XML error), the rest of it is per call and is not");
     if (ea === undefined || eb === undefined) {
       if (ours.body !== oracle.body) out.push(`error body: ours ${ea === undefined ? "has no error member" : "has one"}, oracle ${eb === undefined ? "has no error member" : "has one"} (ours ${short(String(ours.body).slice(0, 200))} | oracle ${short(String(oracle.body).slice(0, 200))})`);
+    } else if (ea.invalid !== undefined || eb.invalid !== undefined) {
+      if (ea.invalid !== undefined) out.push(`error body: ours is ${ea.invalid}`);
+      if (eb.invalid !== undefined) out.push(`error body: the oracle's is ${eb.invalid}`);
     } else {
       if (ea.code !== eb.code) out.push(`error.code: ours ${short(ea.code)} | oracle ${short(eb.code)}`);
       if (ea.message !== eb.message) out.push(`error.message: ours ${short(ea.message)} | oracle ${short(eb.message)}`);

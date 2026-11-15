@@ -184,6 +184,26 @@ describe("wire", () => {
     }
   });
 
+  // the uri an entry carries is the system's percent-encoded form (letters,
+  // digits, -._~ and the quote raw, the rest %XX): reading it back over HTTP
+  // must find the entry, for every character the encoding touches
+  it("an entry's own __metadata uri and its Location read it back over HTTP", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate", "if-match": "*"};
+    const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key.replace(/'/g, "''") + "'")})`;
+    for (const key of ["a b/c'd", "a%e&f", "a#1?2+3", "\u0416\u0443\u043a", "a\u{1F600}b"]) {
+      let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "link", Status: "A", Seats: 1})});
+      expect(res.status, key).to.equal(201);
+      const location = res.headers.get("location");
+      const uri = (await res.json()).d.__metadata.uri;
+      expect(location, key).to.equal(uri);
+      expect(uri, key).to.match(/^[A-Za-z0-9:/._~%'()-]+$/);
+      res = await fetch(uri + "?$format=json");
+      expect(res.status, key).to.equal(200);
+      expect((await res.json()).d.TravelId, key).to.equal(key);
+      expect((await fetch(keyUrl(key), {method: "DELETE", headers})).status, key).to.equal(204);
+    }
+  });
+
   it("a NUL in a key or a $filter literal is a 400 in V2 and V4, in the URL and in a POST body", async () => {
     const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
     expect((await fetch(`${BASE}/TravelSet('a%00b')?$format=json`)).status).to.equal(400);

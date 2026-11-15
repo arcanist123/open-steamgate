@@ -1039,6 +1039,9 @@ CLASS zcl_stg_json IMPLEMENTATION.
           REPLACE ALL OCCURRENCES OF lv_quote IN lv_value WITH lv_two.
           lv_literal = |'{ lv_value }'|.
       ENDCASE.
+* every literal form goes through the same encoding; for a non-string key
+* (datetime'..T..:..', guid'..') the colon becomes %3A unmeasured: no set of
+* the oracle has such a key
       lv_literal = zcl_stg_url=>escape_key( lv_literal ).
       IF lv_keys = 1.
         rv_string = lv_literal.
