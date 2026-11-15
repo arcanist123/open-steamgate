@@ -79,7 +79,34 @@ function viewsAfterWhatTheyRead(objects, bases) {
   return out;
 }
 
+// A help view (DD25V VIEWCLASS H) has no database object on a system: its
+// search helps read it as a join (tools/segw-shlp.mjs). Given to the
+// transpiler it became a CREATE VIEW over its DD28J rows -- a help view
+// has none, its joins are foreign keys -- whose columns name tables its
+// FROM lacks: SQLite takes it and fails on a read, an engine that checks
+// at CREATE fails the schema (ANORMALIES 2026-11-14-help-view-schema). So
+// it leaves the registry before the run, on every path that runs one: the
+// cold transpile, the warm compiler's kept registry and the warm verifier
+// all order their registry here (a cold/warm difference failed the warm
+// premise, PR #952 critic MUST-1). The names go back.
+export function dropHelpViews(reg, core) {
+  const dropped = [];
+  // the registry's own objects, not an earlier ordering's snapshot
+  delete reg.getObjects;
+  for (const obj of [...reg.getObjects()]) {
+    if (!(obj instanceof core.Objects.View)) continue;
+    obj.parseXML?.();
+    if (obj.parsedData?.header?.VIEWCLASS !== "H") continue;
+    for (const file of obj.getFiles()) reg.removeFile(file);
+    dropped.push(obj.getName());
+  }
+  return dropped.sort();
+}
+
+/** orders the registry as the cold transpiler would, after dropping its
+ *  help views; returns the names dropped */
 export function orderRegistry(reg, core, files, libs = []) {
+  const dropped = dropHelpViews(reg, core);
   // Let the same Registry used by the cold transpiler admit and group files.
   // In particular, tadir.json creates no object and must not move the library's
   // TADIR table ahead of T000/T100. Filename-derived ranks missed that rule.
@@ -95,4 +122,5 @@ export function orderRegistry(reg, core, files, libs = []) {
     (rank.get(key(a)) ?? Infinity) - (rank.get(key(b)) ?? Infinity));
   const bases = viewBases([...sources, ...library]);
   reg.getObjects = function* () { yield* viewsAfterWhatTheyRead(ordered, bases); };
+  return dropped;
 }
