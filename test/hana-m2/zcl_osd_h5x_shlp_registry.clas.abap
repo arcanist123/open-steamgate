@@ -47,7 +47,8 @@ CLASS zcl_osd_h5x_shlp_registry IMPLEMENTATION.
                             iv_input           = abap_true
                             iv_output          = abap_true
                             iv_list_position   = 1
-                            iv_select_position = 1 ).
+                            iv_select_position = 1
+                            iv_sort_exit       = 'CUNIT' ).
     lo_shlp->add_parameter( iv_name            = 'LTXT'
                             iv_input           = abap_false
                             iv_output          = abap_false

@@ -10,8 +10,15 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
 * the parameters with a list position as well as the export parameters;
 * a literal default value restricts its field when the request does not.
 * Values stay in internal form, as the search help runtime answers them
-* (a conversion exit is the OData property's business). Selection by exit function (SELMEXIT) and collective search helps
-* are not served yet; they come back as an E message.
+* (a conversion exit is the OData property's business), but the hit list
+* is sorted by the external form of a list field that has a sort exit:
+* the system answers a unit help view with a unit whose English form is a
+* sign first, before the letters, where its internal key sorts among them
+* (M3 oracle 02-12a; the language help, by contrast, comes in the order of
+* its internal keys, 02-15a: tools/segw-shlp.mjs gives a LANG field no
+* sort exit). Selection by exit
+* function (SELMEXIT) and collective search helps are not served yet; they
+* come back as an E message.
   PUBLIC SECTION.
     INTERFACES /iwbep/if_sb_gendpc_shlp_data.
 
@@ -23,6 +30,7 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
              select_position TYPE i,
              default         TYPE string,
              has_default     TYPE abap_bool,
+             sort_exit       TYPE string,
            END OF ty_parameter.
     TYPES ty_parameters TYPE STANDARD TABLE OF ty_parameter WITH DEFAULT KEY.
 
@@ -43,7 +51,9 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(ro_shlp) TYPE REF TO zcl_oao_shlp_ddic.
 
-* iv_default: a literal default value (DEFAULTTYP L) without its quotes
+* iv_default: a literal default value (DEFAULTTYP L) without its quotes;
+* iv_sort_exit: the conversion exit whose output form the hit list is
+* sorted by (the field's domain's exit, see the class comment)
     METHODS add_parameter
       IMPORTING
         iv_name            TYPE csequence
@@ -52,6 +62,7 @@ CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
         iv_list_position   TYPE i DEFAULT 0
         iv_select_position TYPE i DEFAULT 0
         iv_default         TYPE csequence OPTIONAL
+        iv_sort_exit       TYPE csequence OPTIONAL
       RETURNING
         VALUE(ro_shlp)     TYPE REF TO zcl_oao_shlp_ddic.
 
@@ -121,6 +132,7 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
     ls_parameter-output          = iv_output.
     ls_parameter-list_position   = iv_list_position.
     ls_parameter-select_position = iv_select_position.
+    ls_parameter-sort_exit       = to_upper( iv_sort_exit ).
     IF iv_default IS SUPPLIED.
       ls_parameter-default     = iv_default.
       ls_parameter-has_default = abap_true.
@@ -335,14 +347,20 @@ CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
       RETURN.
     ENDIF.
 
-* sort by the list fields, then cut to iv_maxrows
+* sort by the list fields, each in its external form when it has a sort
+* exit, then cut to iv_maxrows
     LOOP AT <lt_rows> ASSIGNING <ls_row>.
       CLEAR ls_sorted.
       ls_sorted-index = sy-tabix.
       LOOP AT lt_output INTO ls_output.
         ASSIGN COMPONENT ls_output-name OF STRUCTURE <ls_row> TO <lv_value>.
         IF sy-subrc = 0.
-          ls_sorted-key = |{ ls_sorted-key }{ <lv_value> }\||.
+          IF ls_output-sort_exit IS INITIAL.
+            ls_sorted-key = |{ ls_sorted-key }{ <lv_value> }\||.
+          ELSE.
+            ls_sorted-key = |{ ls_sorted-key }{ zcl_osd_conv_exit=>output( iv_value = <lv_value>
+                                                                          iv_exit  = ls_output-sort_exit ) }\||.
+          ENDIF.
         ENDIF.
       ENDLOOP.
       APPEND ls_sorted TO lt_sorted.

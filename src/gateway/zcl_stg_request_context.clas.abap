@@ -141,7 +141,14 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
 
   METHOD keys_to_structure.
 * by the ABAP field name the set gives the property: the caller's structure
-* may be the set's own type or another one with the same field
+* may be the set's own type or another one with the same field. A key of a
+* property with a conversion exit goes through its input conversion first:
+* the URL names a unit or a language in its external form, the provider
+* reads the internal key (M3 oracle 03-12a: a single read by a unit's
+* external form; without it a 404). get_converted_keys and
+* get_converted_source_keys both come here. A $filter value does not: the
+* system leaves it as written (M3 oracle 09-b0: an ALPHA field filtered
+* by its unpadded value finds nothing)
     DATA ls_key      LIKE LINE OF it_key_tab.
     DATA ls_property TYPE zcl_stg_model_info=>ty_property.
     FIELD-SYMBOLS <lv_target> TYPE any.
@@ -154,7 +161,9 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
       ENDIF.
       ASSIGN COMPONENT ls_property-fieldname OF STRUCTURE es_key_values TO <lv_target>.
       IF sy-subrc = 0.
-        <lv_target> = ls_key-value.
+        zcl_osd_conv_exit=>input( EXPORTING iv_value  = ls_key-value
+                                            iv_exit   = ls_property-conv_exit
+                                  CHANGING  cv_target = <lv_target> ).
       ENDIF.
     ENDLOOP.
   ENDMETHOD.

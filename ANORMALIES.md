@@ -4939,3 +4939,21 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Upstream issue: needs an issue in abaplint/transpiler after a critic pass (whether abaplint's statement parse or the transpiler's choice)
 - Regression-test location: none
 - Upstream version containing a fix: unknown
+
+## The SEGW sample's read over the bed, milestone 3 tail
+
+### ANOMALY-2026-11-15-cunit-missing -- open-abap-core has no CONVERSION_EXIT_CUNIT_OUTPUT / _INPUT
+
+- Status: `workaround`
+- Discovery date: `2026-11-15`
+- Affected versions: open-abap-core at the pin (libs.lock.json); its function group carries ALPHA and ISOLA, no CUNIT
+- Affected ABAP statement, runtime API or adapter: `CALL FUNCTION 'CONVERSION_EXIT_CUNIT_OUTPUT'` / `'CONVERSION_EXIT_CUNIT_INPUT'` (the exit of a Gateway property with `set_conversion_exit( 'CUNIT' )`, a unit of measure)
+- Minimal ABAP reproducer: `test/unit/zcl_osd_cunit_test` without `src/cunit` (the call is CX_SY_DYN_CALL_ILLEGAL_FUNC)
+- Exact command used to run it: the second measured pass of milestone 3 (private): the unit help sets answered the internal unit key where the system answers the external one
+- Expected SAP behaviour: the unit's commercial form in the logon language out (MSEH3 of the unit text table), the internal key back in; UNIT_NOT_FOUND for a unit without a row
+- Actual open-abap behaviour: no such function module; the gateway caught the dynamic call's exception and wrote the unit as stored -- two value-help answers silently wrong (other keys, another order) and a single read by the external key a 404
+- Impact on open-steamgate: every unit whose external form differs from its key, in a body, in an entry's URI, in a value help's order and as a key in a URL
+- Smallest safe workaround: a clean-room pair in `src/cunit` (`ZCL_OSD_CUNIT`, the unit text table T006A, a twin's table in tests); the gateway calls exits through `ZCL_OSD_CONV_EXIT`
+- Upstream issue: needs an issue (open-abap-core: the function pair) after a critic pass; until then the pair stays here
+- Regression-test location: `test/unit/zcl_osd_cunit_test`, `test/unit/zcl_osd_h5x_test` (ltcl_value_help: external_unit_key_and_order, external_unit_key_single)
+- Upstream version containing a fix: unknown

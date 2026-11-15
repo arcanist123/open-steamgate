@@ -916,10 +916,13 @@ CLASS ltcl_read IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD quantity_in_unit_decimals.
-* a quantity is written with its unit's display decimals when the digits
-* beyond them are zero (M3 oracle: line items' Quantity, the products'
-* dimensions); a unit the table does not hold, or a non-zero digit, keeps
-* the field's scale. Units here are the twin's own (ZOSD_H5X_UOM)
+* a quantity is written with its unit's rounding decimals (ANDEC) when the
+* digits beyond them are zero (M3 oracle: line items' Quantity, the
+* products' dimensions); a unit the table does not hold, or a non-zero
+* digit, keeps the field's scale. Units here are the twin's own
+* (ZOSD_H5X_UOM), their display decimals (DECAN) set to other values: read
+* from DECAN, PC wrote 3.000 and MTR 1 (M3 second measured pass: DECAN 0
+* for every unit, the system wrote each unit's ANDEC decimals)
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lt_unit     TYPE STANDARD TABLE OF zosd_h5x_uom WITH DEFAULT KEY.
     DATA ls_unit     TYPE zosd_h5x_uom.
@@ -927,13 +930,16 @@ CLASS ltcl_read IMPLEMENTATION.
     DELETE FROM zosd_h5x_uom.
     ls_unit-client = sy-mandt.
     ls_unit-msehi = 'PC'.
-    ls_unit-decan = 0.
+    ls_unit-decan = 3.
+    ls_unit-andec = 0.
     APPEND ls_unit TO lt_unit.
     ls_unit-msehi = 'MTR'.
-    ls_unit-decan = 2.
+    ls_unit-decan = 0.
+    ls_unit-andec = 2.
     APPEND ls_unit TO lt_unit.
     ls_unit-msehi = 'CMT'.
-    ls_unit-decan = 3.
+    ls_unit-decan = 0.
+    ls_unit-andec = 3.
     APPEND ls_unit TO lt_unit.
     INSERT zosd_h5x_uom FROM TABLE lt_unit.
     zcl_stg_json=>unit_table( 'ZOSD_H5X_UOM' ).
@@ -1079,6 +1085,31 @@ CLASS ltcl_value_help DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS 
     METHODS default_yields_to_request FOR TESTING RAISING cx_static_check.
     METHODS exit_only_is_not_served FOR TESTING RAISING cx_static_check.
     METHODS unknown_field_is_refused FOR TESTING RAISING cx_static_check.
+* milestone 3 tail: the unit key in its external form (CUNIT), the hit
+* list in the order of that form, a single read by it, and the key of an
+* entry's URI in the form the system writes
+    METHODS external_unit_key_and_order FOR TESTING RAISING cx_static_check.
+    METHODS external_unit_key_single FOR TESTING RAISING cx_static_check.
+    METHODS entry_uri_key_encoded FOR TESTING RAISING cx_static_check.
+* the link an entry carries reads that entry back, through the dispatcher's
+* own URL parser: each key form the encoding writes
+    METHODS link_reads_the_entry_back FOR TESTING RAISING cx_static_check.
+    METHODS unit_link_reads_back FOR TESTING RAISING cx_static_check.
+    METHODS teardown.
+* the first entry link of a body, from the set's name to its closing
+* parenthesis (an encoded key holds no parenthesis)
+    METHODS first_link
+      IMPORTING
+        iv_body        TYPE string
+        iv_set         TYPE string
+      RETURNING
+        VALUE(rv_path) TYPE string.
+* insert a category that sorts first, read it through its own link, check
+* the link's key form, remove it
+    METHODS category_round_trip
+      IMPORTING
+        iv_key     TYPE string
+        iv_encoded TYPE string.
 
     METHODS get
       IMPORTING
@@ -1104,6 +1135,7 @@ CLASS ltcl_value_help IMPLEMENTATION.
     DATA ls_ctyt TYPE zosd_h5x_ctyt.
     DATA ls_un   TYPE zosd_h5x_un.
     DATA ls_unt  TYPE zosd_h5x_unt.
+    DATA ls_uoma TYPE zosd_h5x_uoma.
 
     DELETE FROM zosd_h5x_cat.
     DELETE FROM zosd_h5x_cty.
@@ -1175,6 +1207,30 @@ CLASS ltcl_value_help IMPLEMENTATION.
     ls_unt-unit = 'KG'.
     ls_unt-ltxt = 'Kilogramm'.
     INSERT zosd_h5x_unt FROM ls_unt.
+* a unit whose external form is not its key: ZZ1 inside, " outside in
+* English -- a sign outside, which sorts before the letters, and a key
+* inside that sorts after them
+    ls_un-unit = 'ZZ1'.
+    ls_un-dim = 'MASS'.
+    ls_un-ext = 'X'.
+    INSERT zosd_h5x_un FROM ls_un.
+    ls_unt-langu = 'E'.
+    ls_unt-unit = 'ZZ1'.
+    ls_unt-ltxt = 'Twin unit'.
+    INSERT zosd_h5x_unt FROM ls_unt.
+    DELETE FROM zosd_h5x_uoma.
+    ls_uoma-client = sy-mandt.
+    ls_uoma-spras = 'E'.
+    ls_uoma-msehi = 'G'.
+    ls_uoma-mseh3 = 'G'.
+    INSERT zosd_h5x_uoma FROM ls_uoma.
+    ls_uoma-msehi = 'KG'.
+    ls_uoma-mseh3 = 'KG'.
+    INSERT zosd_h5x_uoma FROM ls_uoma.
+    ls_uoma-msehi = 'ZZ1'.
+    ls_uoma-mseh3 = '"'.
+    INSERT zosd_h5x_uoma FROM ls_uoma.
+    zcl_osd_cunit=>text_table( 'ZOSD_H5X_UOMA' ).
 
     zcl_oao_shlp_data=>clear( ).
     zcl_osd_h5x_shlp_registry=>register( ).
@@ -1302,7 +1358,159 @@ CLASS ltcl_value_help IMPLEMENTATION.
                                         exp = 200
                                         msg = ls_response-body ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-body
-                                        exp = '2' ).
+                                        exp = '3' ).
+  ENDMETHOD.
+
+  METHOD teardown.
+    zcl_osd_cunit=>text_table( ).
+  ENDMETHOD.
+
+  METHOD external_unit_key_and_order.
+* the key in its external form in the body and in the entry's URI, and the
+* rows in the order of that form: " before G before KG, where the keys
+* sort G, KG, ZZ1 (M3 oracle 02-12a: the sign first; without the output
+* conversion the key was ZZ1, without the sort exit " came last)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_first    TYPE i.
+    DATA lv_second   TYPE i.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `VH_UnitSet('%22')","type"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"\"","Ltxt":"Twin unit"}` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `ZZ1` ).
+    FIND FIRST OCCURRENCE OF `"Unit":"\""` IN ls_response-body MATCH OFFSET lv_first.
+    FIND FIRST OCCURRENCE OF `"Unit":"G"` IN ls_response-body MATCH OFFSET lv_second.
+    cl_abap_unit_assert=>assert_true( act = boolc( lv_first < lv_second )
+                                      msg = |the external form orders the list: { ls_response-body }| ).
+* $top cuts the sorted list: the first row is the one with "
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `$top=1&sap-language=EN` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"\""` ).
+    lacks( iv_body = ls_response-body
+           iv_text = `"Unit":"G"` ).
+  ENDMETHOD.
+
+  METHOD external_unit_key_single.
+* a single read names the external key; the provider reads the internal
+* one (M3 oracle 03-12a: a single read by the external form, 200; without
+* the input conversion a 404)
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    ls_response = get( iv_path  = `VH_UnitSet('"')`
+                       iv_query = `sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `VH_UnitSet('%22')","type"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"\"","Ltxt":"Twin unit"}` ).
+  ENDMETHOD.
+
+  METHOD entry_uri_key_encoded.
+* the key of an entry's URI percent-encoded as a system writes it: a blank
+* %20, & %26 (M3 oracle 02-08a), / %2F, % %25, the
+* quote doubled and raw like the delimiters (without the fix the key went
+* out raw: ('A b/c''d%e&f'))
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA ls_cat      TYPE zosd_h5x_cat.
+
+    ls_cat-client = sy-mandt.
+    ls_cat-category = `A b/c'd%e&f`.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$top=1` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `VH_CategorySet('A%20b%2Fc''d%25e%26f')","uri"` ).
+    has( iv_body = ls_response-body
+         iv_text = `"Category":"A b/c'd%e&f"` ).
+  ENDMETHOD.
+
+  METHOD first_link.
+    DATA lv_off TYPE i.
+    DATA lv_len TYPE i.
+
+    FIND FIRST OCCURRENCE OF REGEX |{ iv_set }\\([^)]*\\)| IN iv_body MATCH OFFSET lv_off MATCH LENGTH lv_len.
+    cl_abap_unit_assert=>assert_subrc( exp = 0
+                                       msg = |no link of { iv_set } in { iv_body }| ).
+    rv_path = iv_body+lv_off(lv_len).
+  ENDMETHOD.
+
+  METHOD category_round_trip.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA ls_cat      TYPE zosd_h5x_cat.
+    DATA lv_path     TYPE string.
+
+    ls_cat-client = sy-mandt.
+    ls_cat-category = iv_key.
+    INSERT zosd_h5x_cat FROM ls_cat.
+    ls_response = get( iv_path  = 'VH_CategorySet'
+                       iv_query = `$top=1` ).
+    lv_path = first_link( iv_body = ls_response-body
+                          iv_set  = 'VH_CategorySet' ).
+    cl_abap_unit_assert=>assert_equals( act = lv_path
+                                        exp = |VH_CategorySet('{ iv_encoded }')| ).
+    ls_response = get( lv_path ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = |{ lv_path }: { ls_response-body }| ).
+    has( iv_body = ls_response-body
+         iv_text = |"Category":"{ zcl_stg_json=>escape( iv_key ) }"\}| ).
+    has( iv_body = ls_response-body
+         iv_text = |{ lv_path }","type"| ).
+    DELETE FROM zosd_h5x_cat WHERE category = ls_cat-category.
+  ENDMETHOD.
+
+  METHOD link_reads_the_entry_back.
+* every key sorts before the setup's rows (they start with A); the text is
+* 7-bit ASCII, so the characters beyond it are built from code points: a
+* Cyrillic letter (two UTF-8 bytes) and one outside the BMP (a surrogate
+* pair, four UTF-8 bytes)
+    DATA lv_zhe    TYPE string.
+    DATA lv_smiley TYPE string.
+
+    lv_zhe = cl_abap_conv_in_ce=>uccp( '0416' ).
+    lv_smiley = cl_abap_conv_in_ce=>uccp( 'D83D' ) && cl_abap_conv_in_ce=>uccp( 'DE00' ).
+    category_round_trip( iv_key     = `A b/c'd%e&f`
+                         iv_encoded = `A%20b%2Fc''d%25e%26f` ).
+    category_round_trip( iv_key     = `A#1?2+3`
+                         iv_encoded = `A%231%3F2%2B3` ).
+    category_round_trip( iv_key     = |A{ lv_zhe }b|
+                         iv_encoded = `A%D0%96b` ).
+    category_round_trip( iv_key     = |A{ lv_smiley }b|
+                         iv_encoded = `A%F0%9F%98%80b` ).
+  ENDMETHOD.
+
+  METHOD unit_link_reads_back.
+* the converted unit key: its link names the external form, and reading the
+* link converts it back to the internal key
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_path     TYPE string.
+
+    ls_response = get( iv_path  = 'VH_UnitSet'
+                       iv_query = `sap-language=EN` ).
+    lv_path = first_link( iv_body = ls_response-body
+                          iv_set  = 'VH_UnitSet' ).
+    cl_abap_unit_assert=>assert_equals( act = lv_path
+                                        exp = `VH_UnitSet('%22')` ).
+    ls_response = get( iv_path  = lv_path
+                       iv_query = `sap-language=EN` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200
+                                        msg = ls_response-body ).
+    has( iv_body = ls_response-body
+         iv_text = `"Unit":"\"","Ltxt":"Twin unit"}` ).
   ENDMETHOD.
 
   METHOD default_yields_to_request.

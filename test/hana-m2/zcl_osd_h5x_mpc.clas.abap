@@ -226,6 +226,9 @@ CLASS zcl_osd_h5x_mpc IMPLEMENTATION.
                                         iv_abap_fieldname = 'UNIT' ).
     lo_prop->set_type_edm_string( ).
     lo_prop->set_is_key( ).
+* the unit key in its external form, as a SEGW sample's unit help sets
+* declare it (ZCL_OSD_CUNIT reads the forms)
+    lo_prop->set_conversion_exit( 'CUNIT' ).
     lo_prop = lo_type->create_property( iv_property_name  = 'Ltxt'
                                         iv_abap_fieldname = 'LTXT' ).
     lo_prop->set_type_edm_string( ).

@@ -72,9 +72,14 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         iv_where TYPE string
       RAISING
         zcx_stg_error.
-* a key predicate made fit for a URI in a header (Location): a character a
-* URI may not carry raw becomes its UTF-8 bytes as %XX, so a key outside
-* Latin-1, a blank or a percent sign survives the trip back
+* one key literal of an entry's URI ('A & B', guid'...') in the
+* form a system writes it: letters, digits, - . _ ~ and the literal's
+* quotes stay, every other character becomes its UTF-8 bytes as %XX with
+* upper-case digits. Measured (M3 oracle, VH sets): blank %20, & %26,
+* " %22, quotes raw. A / or a % follows the same rule unmeasured (%2F,
+* %25); a quote inside a value is doubled and stays raw, as the
+* delimiters do. A key outside Latin-1 or outside the BMP survives the
+* trip back (one code point, all its bytes)
     CLASS-METHODS escape_key
       IMPORTING
         iv_value        TYPE string
@@ -325,7 +330,7 @@ CLASS zcl_stg_url IMPLEMENTATION.
     WHILE lv_index < lv_len.
       lv_size = 1.
       lv_char = iv_value+lv_index(1).
-      IF lv_char CA 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&''()*+,;=:@/'.
+      IF lv_char CA 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'''.
         rv_value = rv_value && lv_char.
       ELSE.
 * a character outside the BMP is two UTF-16 units, a high and a low
