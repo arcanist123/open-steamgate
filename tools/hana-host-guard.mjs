@@ -24,13 +24,26 @@
 //      constructor calls the same hook from its load. installStubHook puts
 //      the hook in, naming the class and method off the stack.
 //
-// Both land in one per-request record (createHostRecord): {stubs, refused},
-// kept through AsyncLocalStorage so a provider that swallows the exception
-// and answers 200 still leaves its trace. The record goes to a private
-// JSON-lines file (--stub-trace), never into a response; without the option
-// each event is still one line on stderr and nothing is kept.
+// Both land in one per-request record (createHostRecord): {stubs, refused,
+// tampered}, kept through AsyncLocalStorage so a provider that swallows the
+// exception and answers 200 still leaves its trace. The record goes to a
+// private JSON-lines file (--stub-trace), never into a response; without the
+// option each event is still one line on stderr and nothing is kept.
+//
+// The threat model, said plainly: this covers what delivered code DOES
+// through the ABAP layer and the libraries under it. It is not a sandbox
+// against hostile delivered SOURCE: a `WRITE '@KERNEL ...'` line is spliced
+// into the transpiled module as JavaScript, and JavaScript in this process
+// can do what this process can (write files through node:fs, for one). The
+// cheap doors are locked as well -- a listener (only the host's own server
+// may listen), process.dlopen, the inspector (open, SIGUSR1,
+// _debugProcess), and with `lock` the hook and every patched entry point
+// cannot be replaced (an attempt is ignored and recorded as tampering) --
+// but what closes the rest is refusing such source at merge time and
+// running the host where the operating system gives it no route out
+// (docs/db-backends.md, "The host's two safety nets").
 import {AsyncLocalStorage} from "node:async_hooks";
-import {appendFileSync, mkdirSync, openSync, closeSync} from "node:fs";
+import {appendFileSync, closeSync, fchmodSync, mkdirSync, openSync} from "node:fs";
 import {createRequire, syncBuiltinESMExports} from "node:module";
 import {dirname} from "node:path";
 
@@ -39,19 +52,45 @@ const require = createRequire(import.meta.url);
 export const REFUSED_CODE = "OSD_OUTBOUND_REFUSED";
 export const PROBE_REASON = "OSD_STUB_TRACE_PROBE";
 
+/** whether an error is (or wraps) one of the guard's refusals */
+export const isRefusal = (e) => e?.code === REFUSED_CODE || e?.cause?.code === REFUSED_CODE;
+
+/** what a refusal records of its target: a URL by its origin only (no
+ *  user, path or query -- a service may put a credential there), anything
+ *  else cut at 120 characters */
+export function shortTarget(target) {
+  const text = String(target ?? "");
+  if (text.includes("://")) {
+    try {
+      const url = new URL(text);
+      return `${url.protocol}//${url.host}`;
+    } catch {
+      // not a URL after all: cut below
+    }
+  }
+  return text.length > 120 ? `${text.slice(0, 120)}...` : text;
+}
+
 // ------------------------------------------------------------ the record ----
 
 /** The per-request record and the trace file. `file` undefined: nothing is
  *  kept, each event is said on stderr only (`log`). */
 export function createHostRecord({file, log = (line) => console.error(line)} = {}) {
   const store = new AsyncLocalStorage();
-  const boot = {stubs: [], refused: []};
+  const boot = {stubs: [], refused: [], tampered: []};
   let booting = true;
   if (file !== undefined) {
-    mkdirSync(dirname(file), {recursive: true});
+    // a directory this creates is its owner's only
+    mkdirSync(dirname(file), {recursive: true, mode: 0o700});
     // this run's requests only, readable by its owner only: it names the
-    // classes and the addresses a delivered service tried
-    closeSync(openSync(file, "w", 0o600));
+    // classes and the addresses a delivered service tried. The mode is set
+    // on the open file, because open() keeps an existing file's own mode
+    const fd = openSync(file, "w", 0o600);
+    try {
+      fchmodSync(fd, 0o600);
+    } finally {
+      closeSync(fd);
+    }
   }
   const write = (entry) => {
     if (file !== undefined) appendFileSync(file, JSON.stringify(entry) + "\n");
@@ -60,33 +99,50 @@ export function createHostRecord({file, log = (line) => console.error(line)} = {
   return {
     file,
     tracing: file !== undefined,
-    /** one event: `kind` is "stubs" or "refused" */
+    /** one event: `kind` is "stubs", "refused" or "tampered" */
     note(kind, entry) {
       const ctx = store.getStore();
-      if (ctx?.quiet !== true) log(kind === "stubs" ? `not activated: ${entry.class ?? "?"}=>${entry.method ?? "?"}: ${entry.reason}` : `hana-serve: refused outbound ${entry.kind} ${entry.target ?? ""}`.trimEnd());
+      if (ctx?.quiet !== true) {
+        log(kind === "stubs" ? `not activated: ${entry.class ?? "?"}=>${entry.method ?? "?"}: ${entry.reason}`
+          : kind === "tampered" ? `hana-serve: TAMPERING: ${entry.what}`
+            : `hana-serve: refused outbound ${entry.kind} ${entry.target ?? ""}`.trimEnd());
+      }
       const record = target();
-      if (record !== undefined) record[kind].push(entry);
-      else if (file !== undefined) write({outside: true, stubs: kind === "stubs" ? [entry] : [], refused: kind === "refused" ? [entry] : []});
+      if (record !== undefined) (record[kind] ??= []).push(entry);
+      else if (file !== undefined) write({outside: true, stubs: [], refused: [], tampered: [], [kind]: [entry]});
     },
     /** run `work` with its own record; the record is returned beside the result */
     async within(record, work, extra = {}) {
       return store.run({...extra, record}, work);
     },
-    /** a request: run it under its record and write its line */
-    async request({method, path}, work, statusOf) {
+    /** a request: run it under its record and write its line -- when the
+     *  response ends, before the client can have it, or when the work
+     *  settles without ending it */
+    async request({method, path, res}, work) {
       if (file === undefined) return work();
-      const record = {method, path, status: undefined, stubs: [], refused: []};
+      const record = {method, path, status: undefined, stubs: [], refused: [], tampered: []};
+      let written = false;
+      const finish = () => {
+        if (written === true) return;
+        written = true;
+        record.status = res.statusCode;
+        write(record);
+      };
+      const end = res.end;
+      res.end = function (...args) {
+        finish();
+        return end.apply(this, args);
+      };
       try {
         return await store.run({record}, work);
       } finally {
-        record.status = statusOf();
-        write(record);
+        finish();
       }
     },
     /** the end of the boot: the load-time signals as one `boot` line */
     endBoot(extra = {}) {
       booting = false;
-      write({boot: true, ...extra, stubs: boot.stubs, refused: boot.refused});
+      write({boot: true, ...extra, stubs: boot.stubs, refused: boot.refused, tampered: boot.tampered});
       return boot;
     },
     boot,
@@ -129,10 +185,25 @@ export function stubSite(stack) {
   return undefined;
 }
 
+/** Put `value` on `object[name]` so it stays: an accessor that answers it,
+ *  not configurable, whose setter ignores an assignment and calls `onTamper`
+ *  (a `delete` throws in strict code and does nothing otherwise). */
+export function lockProperty(object, name, value, onTamper) {
+  const enumerable = Object.getOwnPropertyDescriptor(object, name)?.enumerable ?? false;
+  Object.defineProperty(object, name, {
+    configurable: false,
+    enumerable,
+    get: () => value,
+    set: () => onTamper(name),
+  });
+}
+
 /** Install globalThis.osdNotActivated: every stub raise (and every stubbed
  *  class constructor's signal) becomes a `stubs` entry of the current
- *  record. The stack is read only when a stub raises. Returns the hook. */
-export function installStubHook(record, {global = globalThis} = {}) {
+ *  record. The stack is read only when a stub raises. With `lock` the hook
+ *  cannot be replaced afterwards: an assignment is ignored and recorded as
+ *  tampering. Returns the hook. */
+export function installStubHook(record, {global = globalThis, lock = false} = {}) {
   const hook = (missing) => {
     const limit = Error.stackTraceLimit;
     Error.stackTraceLimit = 50;
@@ -142,8 +213,32 @@ export function installStubHook(record, {global = globalThis} = {}) {
     record.note("stubs", {class: site?.class, method: site?.method, reason: String(missing ?? "")});
   };
   hook.osdHost = true;
-  global.osdNotActivated = hook;
+  if (lock === true) lockProperty(global, "osdNotActivated", hook, (name) => record.note("tampered", {what: `assignment to globalThis.${name}, ignored`}));
+  else global.osdNotActivated = hook;
   return hook;
+}
+
+/** What of the host's safety is no longer what it installed: the hook and
+ *  the guard's entry points, by identity. Cheap; the host asks it per
+ *  request. */
+export function integrity({global = globalThis, hook, guard} = {}) {
+  const broken = [];
+  if (hook !== undefined && global.osdNotActivated !== hook) broken.push("globalThis.osdNotActivated");
+  if (guard !== undefined) broken.push(...guard.intact());
+  return broken;
+}
+
+/** The per-request check: when integrity() names anything, the request is
+ *  answered 500 without running, and its record says tampered. */
+export function tamperGate(record, check) {
+  return (req, res, next) => {
+    const broken = check();
+    if (broken.length === 0) return next();
+    record.note("tampered", {what: `not intact: ${broken.join(", ")}`});
+    res.status(500).type("application/json").send(JSON.stringify({error: {code: "OSD/TAMPERED",
+      message: {lang: "en", value: "hana-serve: the host's guard is no longer the one it installed; nothing is answered"}}}));
+    return undefined;
+  };
 }
 
 /** The positive control of the hook: raise one synthetic stub through the
@@ -153,7 +248,7 @@ export function installStubHook(record, {global = globalThis} = {}) {
 export async function probeStubHook(abap, record) {
   const cx = abap?.Classes?.ZCX_OSD_NOT_ACTIVATED;
   if (cx === undefined) return {ok: false, why: "the generation has no ZCX_OSD_NOT_ACTIVATED: no stub can raise, and none can be traced"};
-  const seen = {stubs: [], refused: []};
+  const seen = {stubs: [], refused: [], tampered: []};
   await record.within(seen, async () => {
     await new cx().constructor_({missing: new abap.types.String().set(PROBE_REASON)});
   }, {quiet: true});
@@ -182,23 +277,37 @@ const describe = (t) => (t.path !== undefined ? `local socket ${t.path}` : `${t.
 const DNS_METHODS = ["lookup", "lookupService", "resolve", "resolve4", "resolve6", "resolveAny", "resolveCaa", "resolveCname", "resolveMx",
   "resolveNaptr", "resolveNs", "resolvePtr", "resolveSoa", "resolveSrv", "resolveTxt", "reverse"];
 const PROCESS_METHODS = ["spawn", "exec", "execFile", "fork", "spawnSync", "execSync", "execFileSync"];
-const BINDINGS = new Set(["tcp_wrap", "udp_wrap", "pipe_wrap", "tls_wrap", "cares_wrap", "process_wrap", "spawn_sync", "stream_wrap", "js_stream"]);
+const BINDINGS = new Set(["tcp_wrap", "udp_wrap", "pipe_wrap", "tls_wrap", "cares_wrap", "process_wrap", "spawn_sync", "stream_wrap", "js_stream", "inspector"]);
+const DEBUG_SIGNALS = new Set(["SIGUSR1", "10"]);
 
 /** Install the guard in this process. `record` receives every refusal.
- *  Returns {asOwnDatabase, denyAll, own, uninstall}. Idempotent per process
- *  is NOT promised: install once, uninstall to give everything back. */
-export function installOutboundGuard(record) {
+ *  Returns {asOwnDatabase, denyAll, allowListener, intact, own, uninstall}.
+ *  With `lock` every patched entry point is locked (lockProperty): an
+ *  assignment is ignored and recorded as tampering, and there is no
+ *  uninstall -- the host's way; without it (tests in a shared process)
+ *  uninstall gives everything back. Install once per process. */
+export function installOutboundGuard(record, {lock = false} = {}) {
   const context = new AsyncLocalStorage();
   const own = {endpoints: new Set(), hosts: new Set()};
+  const listeners = new WeakSet();
+  const window = {open: false};
   const undo = [];
+  const installed = [];
+  const tampered = (name) => record.note("tampered", {what: `assignment to the guarded ${name}, ignored`});
   const patch = (object, name, make) => {
     const original = object[name];
     if (typeof original !== "function") return;
-    object[name] = make(original);
-    undo.push(() => { object[name] = original; });
+    const patched = make(original);
+    if (lock === true) lockProperty(object, name, patched, tampered);
+    else {
+      object[name] = patched;
+      undo.push(() => { object[name] = original; });
+    }
+    installed.push({object, name, patched});
   };
-  const refuse = (kind, target, extra = {}) => {
+  const refuse = (kind, rawTarget, extra = {}) => {
     const ctx = context.getStore();
+    const target = rawTarget === undefined ? undefined : shortTarget(rawTarget);
     const entry = {kind, target, ...extra};
     if (ctx?.entry !== undefined) {
       // inside a wrapped HTTP client send: its entry carries the address
@@ -207,7 +316,9 @@ export function installOutboundGuard(record) {
     } else {
       record.note("refused", entry);
     }
-    const error = new Error(`hana-serve refuses outbound network calls: ${kind} ${target ?? ""}`.trimEnd());
+    // the message names the kind only: an error can travel into a response
+    // (GET_LAST_ERROR, a 500's text), the target stays in the record
+    const error = new Error(`hana-serve refuses outbound network calls (${kind})`);
     error.code = REFUSED_CODE;
     return error;
   };
@@ -242,11 +353,18 @@ export function installOutboundGuard(record) {
     if (allowedConnect(t) === false) throw refuse("connect", describe(t));
     return original.apply(this, args);
   });
-  // UDP: no connection to refuse, so every datagram is
+  // a listener is a way in, and an accepted connection a way out: only the
+  // server the host itself marked (allowListener) may listen. http, https,
+  // tls and http2 servers all listen through net.Server
+  patch(net.Server.prototype, "listen", (original) => function (...args) {
+    if (listeners.has(this) === false && window.open !== true) throw refuse("listen", describe(connectTarget(args)));
+    return original.apply(this, args);
+  });
+  // UDP: no connection to refuse, so every datagram is, and every bind
   const dgram = require("node:dgram");
-  for (const name of ["send", "connect"]) {
+  for (const name of ["send", "connect", "bind"]) {
     patch(dgram.Socket.prototype, name, () => function (...args) {
-      throw refuse("udp", name === "connect" ? `${args[1] ?? "localhost"}:${args[0]}` : `${args.at(-2) ?? "?"}:${args.at(-3) ?? "?"}`);
+      throw refuse("udp", name === "send" ? `${args.at(-2) ?? "?"}:${args.at(-3) ?? "?"}` : `${typeof args[1] === "string" ? args[1] : "*"}:${typeof args[0] === "object" ? args[0]?.port : args[0]}`);
     });
   }
   // a name lookup is itself a packet to a resolver, and a name can carry data
@@ -284,6 +402,23 @@ export function installOutboundGuard(record) {
     if (BINDINGS.has(String(name))) throw refuse("binding", String(name));
     return original.call(this, name);
   });
+  // a native addon opens what it likes below every seam here
+  patch(process, "dlopen", () => function (module, file) {
+    throw refuse("dlopen", String(file));
+  });
+  // the inspector: a debugger that listens is somebody else taking the
+  // process; SIGUSR1 (to any node process) and _debugProcess open one
+  const inspector = require("node:inspector");
+  patch(inspector, "open", () => function (port) {
+    throw refuse("inspector", `port ${port ?? "default"}`);
+  });
+  patch(process, "_debugProcess", () => function (pid) {
+    throw refuse("inspector", `pid ${pid}`);
+  });
+  patch(process, "kill", (original) => function (pid, signal) {
+    if (DEBUG_SIGNALS.has(String(signal))) throw refuse("signal", `SIGUSR1 to pid ${pid}`);
+    return original.call(this, pid, signal);
+  });
   // fetch and WebSocket refuse at their socket already; this names the URL
   patch(globalThis, "fetch", (original) => function (input, ...rest) {
     const url = typeof input === "string" ? input : String(input?.url ?? input);
@@ -302,12 +437,24 @@ export function installOutboundGuard(record) {
     own,
     /** run the database client's connect: what it opens is the host's own */
     asOwnDatabase: (work) => context.run({ownDatabase: true}, work),
+    /** the host's own server: the one listener allowed */
+    allowListener: (server) => { listeners.add(server); return server; },
+    /** admit any listen until the returned function is called: the host's
+     *  own start, for a listener it does not hold (osd-bind's ::1 twin) */
+    openListenWindow: () => {
+      window.open = true;
+      return () => { window.open = false; };
+    },
+    /** the patched entry points that are no longer the patched function */
+    intact: () => installed.filter(({object, name, patched}) => object[name] !== patched).map(({name}) => name),
     /** run `work` with every connection refused, the database's included;
      *  a refusal fills `entry` instead of adding one of its own */
     denyAll: (work, entry) => context.run({deny: true, entry}, work),
     uninstall() {
+      if (lock === true) throw new Error("hana-host-guard: a locked guard is not uninstalled; it ends with the process");
       for (const one of undo.reverse()) one();
       undo.length = 0;
+      installed.length = 0;
       syncBuiltinESMExports();
     },
   };

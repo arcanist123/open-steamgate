@@ -463,10 +463,12 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   assertLoadable(output, {log: (m) => console.error(`hana-serve: ${m}`)});
   // milestone 4: the guard and the stub hook go in before a class module
   // loads -- a class constructor runs at load and may reach for either
-  const {createHostRecord, installStubHook, installOutboundGuard, installHttpClientGuard, probeStubHook} = await import("./hana-host-guard.mjs");
+  const {createHostRecord, installStubHook, installOutboundGuard, installHttpClientGuard, probeStubHook, integrity, tamperGate, isRefusal} = await import("./hana-host-guard.mjs");
   const record = createHostRecord({file: stubTrace === undefined ? undefined : resolve(root, stubTrace)});
-  guard = installOutboundGuard(record);
-  installStubHook(record);
+  // locked: generated code that assigns either is ignored and recorded as
+  // tampering, and the guard ends with the process (there is no uninstall)
+  guard = installOutboundGuard(record, {lock: true});
+  const hook = installStubHook(record, {lock: true});
   const from = (file) => import(pathToFileURL(join(output, file)).href);
   const {initializeABAP} = await from("init.mjs");
   const {cl_express_icf_shim} = await from("cl_express_icf_shim.clas.mjs");
@@ -505,6 +507,8 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   // exception class the generation loaded; a trace asked for and a hook
   // that did not see it is a trace that would read clean and be blind
   const hookProbe = await probeStubHook(abap, record);
+  const broken = integrity({hook, guard});
+  if (broken.length > 0) throw new Error(`hana-serve: refuses to start: not intact after the boot: ${broken.join(", ")}`);
   if (hookProbe.ok !== true) {
     if (record.tracing) throw new Error(`hana-serve: refuses to start: ${hookProbe.why} (--stub-trace asked for the trace)`);
     console.error(`hana-serve: WARNING: ${hookProbe.why}`);
@@ -531,7 +535,11 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   app.use("/app", mountStatic(rootWebappOf(root, env)));
   // one record per request, the refusals before the ABAP included: its
   // line names the status the client got, and nothing of it goes back
-  app.all(/^\/sap\/opu\/odata\/[^/]+\/[^/]+/, (req, res) => record.request({method: req.method, path: req.path}, () => odata(req, res), () => res.statusCode));
+  // and before each, the identity of the hook and of every guarded entry
+  // point: a host whose guard is not the one it installed answers nothing
+  const gate = tamperGate(record, () => integrity({hook, guard}));
+  app.all(/^\/sap\/opu\/odata\/[^/]+\/[^/]+/, (req, res) => record.request({method: req.method, path: req.path, res},
+    () => gate(req, res, () => odata(req, res))));
   async function odata(req, res) {
     const client = String(env.OSD_CLIENT);
     const otherClient = clientRefusal({query: req.query, headers: req.headers}, client);
@@ -569,7 +577,10 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
       }), `hana-serve: a ${isBatch ? "$batch of GETs" : req.method}`);
     } catch (e) {
       if (!res.headersSent) {
-        res.status(500).type("application/json").send(JSON.stringify({error: {code: "OSD/RUNTIME", message: {lang: "en", value: runtimeText(e)}}}));
+        // a refusal that crossed the ABAP as a plain error says so and no
+        // more: its target is the record's, never the response's
+        const text = isRefusal(e) ? "hana-serve: an outbound call was refused; the host's trace names it" : runtimeText(e);
+        res.status(500).type("application/json").send(JSON.stringify({error: {code: isRefusal(e) ? "OSD/REFUSED" : "OSD/RUNTIME", message: {lang: "en", value: text}}}));
       }
       console.error("hana-serve: runtime error:", e);
     }
@@ -582,16 +593,24 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     res.status(404).type("text/plain").send("hana-serve answers /sap/opu/odata/<namespace or sap>/<SERVICE>/... and the static files under /app/ only\n");
   });
 
-  const server = createServer(app);
+  const server = guard.allowListener(createServer(app));
+  // osd-bind opens a second loopback listener (::1) from the primary's
+  // "listening" event, a server this host never holds: the guard admits a
+  // listen for exactly that window, closed in the same event, before any
+  // connection can be read
+  const closeWindow = guard.openListenWindow();
   await new Promise((done, fail) => {
-    server.once("error", fail);
-    listenBound(server, port, env, done);
+    server.once("error", (error) => { closeWindow(); fail(error); });
+    listenBound(server, port, env, () => { closeWindow(); done(); });
   });
   const address = server.address();
   const url = `http://${address.family === "IPv6" ? `[${address.address}]` : address.address}:${address.port}`;
   log(`hana-serve: listening on ${url}/sap/opu/odata/  (bound to ${describeBind(env)})`);
   if (bindHint(env) !== undefined) log(bindHint(env));
-  const close = () => new Promise((done) => server.close(() => done())).then(() => guard.uninstall());
+  // the guard stays: it is locked and ends with the process, so a serve()
+  // started again in the same process runs under the same guard -- and
+  // cannot install a second one (its listener is the first serve's only)
+  const close = () => new Promise((done) => server.close(() => done()));
   return {server, url, close, stats, bindLog, traceFile, record};
 }
 

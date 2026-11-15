@@ -4,11 +4,11 @@ import * as childProcess from "node:child_process";
 import dns from "node:dns";
 import http from "node:http";
 import net from "node:net";
-import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
-import {abapMethodName, connectTarget, createHostRecord, installOutboundGuard, installStubHook, probeStubHook, PROBE_REASON, REFUSED_CODE, stubSite} from "../tools/hana-host-guard.mjs";
+import {abapMethodName, connectTarget, createHostRecord, installOutboundGuard, installStubHook, integrity, isRefusal, lockProperty, probeStubHook, PROBE_REASON, REFUSED_CODE, shortTarget, stubSite, tamperGate} from "../tools/hana-host-guard.mjs";
 import {closureSummary, serviceClasses, superClassOf} from "../tools/hana-closure-report.mjs";
 import {seedClasses} from "../tools/hana-closure-stubs.mjs";
 
@@ -32,7 +32,13 @@ import {seedClasses} from "../tools/hana-closure-stubs.mjs";
 //     suite's before() fails; the pure probe test below holds the same
 //     verdict without a host;
 //   - `services` dropped from closureSummary's --require-unstubbed: the
-//     hand-written and inherited cases below pass where they must fail.
+//     hand-written and inherited cases below pass where they must fail;
+//   - (critic round) the net.Server listen patch removed: M4LISTEN answers
+//     200 and the trace has no `listen` refusal; isRefusal() dropped from
+//     the host's 500 text: M4RAW's body would carry the refusal (the
+//     message no longer names a target, the record does); lockProperty
+//     not used for the hook: M4TAMPER replaces it and the stub after it
+//     goes untraced, and the per-request gate answers 500.
 const root = fileURLToPath(new URL("..", import.meta.url));
 const output = join(root, "output");
 const tool = join(root, "tools", "hana-serve.mjs");
@@ -51,6 +57,15 @@ async function listener() {
 }
 
 const settle = () => new Promise((done) => setTimeout(done, 150));
+
+/** an express-shaped response that only remembers */
+const fakeResponse = () => ({
+  statusCode: 200, body: undefined, ended: false,
+  status(code) { this.statusCode = code; return this; },
+  type() { return this; },
+  send(body) { this.body = body; this.end(); return this; },
+  end() { this.ended = true; },
+});
 
 describe("hana-host-guard: names off the stack", () => {
   it("reads an ABAP method name out of a transpiled one", () => {
@@ -91,20 +106,97 @@ describe("hana-host-guard: the record and the hook's positive control", () => {
       const record = createHostRecord({file, log: (l) => lines.push(l)});
       record.note("stubs", {class: "ZCL_X", method: "CLASS_CONSTRUCTOR", reason: "LOAD"});
       record.endBoot({probe: "seen"});
-      await record.request({method: "GET", path: "/a"}, async () => {
+      const res = fakeResponse();
+      await record.request({method: "GET", path: "/a", res}, async () => {
         await Promise.resolve();
         record.note("refused", {kind: "connect", target: "127.0.0.1:9"});
-      }, () => 200);
+        // the line is on disk when the response ends, before the client has it
+        res.status(200).end();
+        expect(readFileSync(file, "utf8").trim().split("\n")).to.have.length(2);
+        record.note("stubs", {class: "ZCL_X", method: "LATE", reason: "after the end"});
+      });
       const written = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
       expect(written).to.deep.equal([
-        {boot: true, probe: "seen", stubs: [{class: "ZCL_X", method: "CLASS_CONSTRUCTOR", reason: "LOAD"}], refused: []},
-        {method: "GET", path: "/a", status: 200, stubs: [], refused: [{kind: "connect", target: "127.0.0.1:9"}]},
+        {boot: true, probe: "seen", stubs: [{class: "ZCL_X", method: "CLASS_CONSTRUCTOR", reason: "LOAD"}], refused: [], tampered: []},
+        {method: "GET", path: "/a", status: 200, stubs: [], refused: [{kind: "connect", target: "127.0.0.1:9"}], tampered: []},
       ]);
-      expect(lines).to.deep.equal(["not activated: ZCL_X=>CLASS_CONSTRUCTOR: LOAD", "hana-serve: refused outbound connect 127.0.0.1:9"]);
+      expect(lines).to.deep.equal(["not activated: ZCL_X=>CLASS_CONSTRUCTOR: LOAD", "hana-serve: refused outbound connect 127.0.0.1:9", "not activated: ZCL_X=>LATE: after the end"]);
       // no file: the request runs as it is, and only stderr hears of it
       const quiet = createHostRecord({log: () => undefined});
-      expect(await quiet.request({method: "GET", path: "/b"}, async () => 7, () => 200)).to.equal(7);
+      expect(await quiet.request({method: "GET", path: "/b", res: fakeResponse()}, async () => 7)).to.equal(7);
       expect(readdirSync(join(dir, "trace"))).to.deep.equal(["stubs.ndjson"]);
+    } finally {
+      rmSync(dir, {recursive: true, force: true});
+    }
+  });
+
+  it("makes the trace its owner's only, a file left by an earlier run and a directory it creates", () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-guard-mode-"));
+    try {
+      const old = join(dir, "old.ndjson");
+      writeFileSync(old, "earlier run\n", {mode: 0o644});
+      expect(statSync(old).mode & 0o777).to.equal(0o644);
+      createHostRecord({file: old, log: () => undefined});
+      expect(statSync(old).mode & 0o777).to.equal(0o600);
+      expect(readFileSync(old, "utf8")).to.equal("");
+      const fresh = join(dir, "made", "trace.ndjson");
+      createHostRecord({file: fresh, log: () => undefined});
+      expect(statSync(join(dir, "made")).mode & 0o777).to.equal(0o700);
+      expect(statSync(fresh).mode & 0o777).to.equal(0o600);
+    } finally {
+      rmSync(dir, {recursive: true, force: true});
+    }
+  });
+
+  it("keeps a URL target to its origin and cuts a long one", () => {
+    expect(shortTarget("https://user:secret@example.invalid:8443/p?token=x")).to.equal("https://example.invalid:8443");
+    expect(shortTarget("x".repeat(200))).to.equal(`${"x".repeat(120)}...`);
+    expect(shortTarget("127.0.0.1:9")).to.equal("127.0.0.1:9");
+    expect(isRefusal({code: REFUSED_CODE})).to.equal(true);
+    expect(isRefusal(new TypeError("fetch failed", {cause: {code: REFUSED_CODE}}))).to.equal(true);
+    expect(isRefusal(new Error("other"))).to.equal(false);
+  });
+
+  it("locks the hook: an assignment is ignored and recorded as tampering", async () => {
+    const scope = {};
+    const lines = [];
+    const record = createHostRecord({log: (l) => lines.push(l)});
+    const hook = installStubHook(record, {lock: true, global: scope});
+    scope.osdNotActivated = () => undefined;
+    expect(scope.osdNotActivated).to.equal(hook);
+    expect(() => { "use strict"; delete scope.osdNotActivated; }).to.throw(TypeError);
+    expect(scope.osdNotActivated).to.equal(hook);
+    expect(record.boot.tampered).to.deep.equal([{what: "assignment to globalThis.osdNotActivated, ignored"}]);
+    expect(integrity({global: scope, hook})).to.deep.equal([]);
+    const plain = {};
+    lockProperty(plain, "f", 1, () => lines.push("tamper f"));
+    plain.f = 2;
+    expect(plain.f).to.equal(1);
+    expect(lines).to.include("tamper f");
+  });
+
+  it("answers 500 and records tampering when the hook is not the installed one (the per-request check)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "host-guard-gate-"));
+    try {
+      const file = join(dir, "t.ndjson");
+      const scope = {};
+      const record = createHostRecord({file, log: () => undefined});
+      record.endBoot();
+      const hook = installStubHook(record, {global: scope});
+      const gate = tamperGate(record, () => integrity({global: scope, hook}));
+      let ran = 0;
+      const ok = fakeResponse();
+      await record.request({method: "GET", path: "/ok", res: ok}, () => gate({}, ok, () => { ran += 1; ok.end(); }));
+      expect(ran).to.equal(1);
+      scope.osdNotActivated = () => undefined; // unlocked: replaced
+      const bad = fakeResponse();
+      await record.request({method: "GET", path: "/bad", res: bad}, () => gate({}, bad, () => { ran += 1; }));
+      expect(ran).to.equal(1);
+      expect(bad.statusCode).to.equal(500);
+      expect(JSON.parse(bad.body).error.code).to.equal("OSD/TAMPERED");
+      const last = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1);
+      expect(last).to.deep.include({path: "/bad", status: 500});
+      expect(last.tampered).to.deep.equal([{what: "not intact: globalThis.osdNotActivated"}]);
     } finally {
       rmSync(dir, {recursive: true, force: true});
     }
@@ -144,7 +236,7 @@ describe("hana-host-guard: the outbound guard in this process", function () {
     await target?.close();
   });
 
-  it("refuses a socket, an HTTP request, fetch, DNS, a child process and a worker", async () => {
+  it("refuses a socket, an HTTP request, fetch, DNS, a child process, a worker, a listener, dlopen and the inspector", async () => {
     let error;
     try { net.connect(target.port, "127.0.0.1"); } catch (e) { error = e; }
     expect(error?.code).to.equal(REFUSED_CODE);
@@ -158,13 +250,31 @@ describe("hana-host-guard: the outbound guard in this process", function () {
     const viaCallback = await new Promise((done) => dns.lookup("m4.example.invalid", (e) => done(e)));
     expect(viaCallback?.code).to.equal(REFUSED_CODE);
     // the ESM named export imported before the guard went in is patched too
-    expect(() => spawnChild("true")).to.throw(/refuses outbound network calls: process true/);
-    expect(() => childProcess.execSync("true")).to.throw(/process true/);
+    expect(() => spawnChild("true")).to.throw(/refuses outbound network calls \(process\)/);
+    expect(() => childProcess.execSync("true")).to.throw(/\(process\)/);
     const {Worker} = await import("node:worker_threads");
-    expect(() => new Worker("data:text/javascript,0")).to.throw(/worker/);
+    expect(() => new Worker("data:text/javascript,0")).to.throw(/\(worker\)/);
+    // the ways in: a listener (http's too), UDP, an addon, the inspector
+    expect(() => net.createServer().listen(0, "127.0.0.1")).to.throw(/\(listen\)/);
+    expect(() => http.createServer().listen(0)).to.throw(/\(listen\)/);
+    const {default: dgram} = await import("node:dgram");
+    const udp = dgram.createSocket("udp4");
+    expect(() => udp.bind(0)).to.throw(/\(udp\)/);
+    udp.close?.();
+    expect(() => process.dlopen({exports: {}}, "/nonexistent/m4.node")).to.throw(/\(dlopen\)/);
+    const inspector = await import("node:inspector");
+    expect(() => inspector.open(0)).to.throw(/\(inspector\)/);
+    expect(() => process.kill(process.pid, "SIGUSR1")).to.throw(/\(signal\)/);
+    // the message never names a target; the record does
+    expect(error.message).to.not.contain(String(target.port));
+    // the host's own listener is allowed by the server object, not a port
+    const own = guard.allowListener(net.createServer());
+    await new Promise((done) => own.listen(0, "127.0.0.1", done));
+    await new Promise((done) => own.close(done));
     await settle();
     expect(target.seen.connections).to.equal(0);
-    expect(lines.filter((l) => l.startsWith("hana-serve: refused outbound")).length).to.be.at.least(8);
+    expect(lines.filter((l) => l.startsWith("hana-serve: refused outbound")).length).to.equal(14);
+    expect(guard.intact()).to.deep.equal([]);
   });
 
   it("lets the database client's own connection through, and its endpoint again later -- but not for an HTTP send", async () => {
@@ -186,7 +296,7 @@ describe("hana-host-guard: the outbound guard in this process", function () {
     expect(target.seen.connections).to.equal(2);
   });
 
-  it("gives everything back on uninstall", async () => {
+  it("gives everything back on uninstall (unlocked; the host's is locked)", async () => {
     guard.uninstall();
     guard = undefined;
     const socket = net.connect(target.port, "127.0.0.1");
@@ -230,6 +340,24 @@ describe("hana-serve with the guard and the stub trace (twin ZOSD_M4G_SRV)", fun
   };
   const partners = (base, name) => fetch(`${base}/sap/opu/odata/sap/ZOSD_M4G_SRV/PartnerSet?$format=json&$filter=${encodeURIComponent(`Name eq '${name}'`)}`);
   const traceOf = (file) => readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  /** the trace lines, once `count` lines match `pred` (the line is written
+   *  when the response ends; this waits rather than reads the last line) */
+  const linesFor = async (pred, count = 1) => {
+    for (let i = 0; i < 40; i += 1) {
+      const found = traceOf(file).filter(pred);
+      if (found.length >= count) return found;
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    return traceOf(file).filter(pred);
+  };
+  let seenLines = 0;
+  /** the request lines written since the last call */
+  const nextLines = async (count) => {
+    const all = await linesFor((l) => l.boot !== true, seenLines + count);
+    const fresh = all.slice(seenLines);
+    seenLines = all.length;
+    return fresh;
+  };
 
   let traced;
   let file;
@@ -277,7 +405,7 @@ describe("hana-serve with the guard and the stub trace (twin ZOSD_M4G_SRV)", fun
     }
     await settle();
     expect(target.seen).to.deep.equal({connections: 0, bytes: 0});
-    const requests = traceOf(file).filter((l) => l.path?.endsWith("/PartnerSet"));
+    const requests = await nextLines(3);
     expect(requests.map((l) => [l.method, l.status])).to.deep.equal([["GET", 200], ["GET", 200], ["GET", 200]]);
     expect(requests[0].refused).to.deep.equal([{kind: "http", via: "CL_HTTP_CLIENT=>CREATE_BY_URL", target: `127.0.0.1:${target.port}`, socket: "refused before it opened"}]);
     expect(requests[1].refused).to.have.length(1);
@@ -290,17 +418,43 @@ describe("hana-serve with the guard and the stub trace (twin ZOSD_M4G_SRV)", fun
     const answer = await partners(traced.base, "M4STUB");
     expect(answer.status).to.equal(200);
     expect(await answer.text()).to.not.contain("ZOSD_M4G_REQUEST_GAP");
-    const last = traceOf(file).at(-1);
+    const [last] = await nextLines(1);
     expect(last).to.deep.include({method: "GET", path: "/sap/opu/odata/sap/ZOSD_M4G_SRV/PartnerSet", status: 200, refused: []});
     expect(last.stubs).to.deep.equal([{class: "ZCL_OSD_M4G_GAP", method: "NOT_HERE", reason: "ZOSD_M4G_REQUEST_GAP"}]);
   });
 
   it("writes a line for a request refused before the ABAP too, and the twin's own reads still answer", async () => {
     expect((await fetch(`${traced.base}/sap/opu/odata/sap/ZOSD_M4G_SRV/PartnerSet`, {method: "DELETE"})).status).to.equal(405);
-    expect(traceOf(file).at(-1)).to.deep.include({method: "DELETE", status: 405, stubs: [], refused: []});
+    expect((await nextLines(1))[0]).to.deep.include({method: "DELETE", status: 405, stubs: [], refused: []});
     const plain = await fetch(`${traced.base}/sap/opu/odata/sap/ZOSD_M4G_SRV/PartnerSet?$format=json&$top=1`);
     expect(plain.status).to.equal(200);
     expect((await plain.json()).d.results).to.have.length(1);
+    await nextLines(1);
+  });
+
+  it("keeps a refusal that crosses the ABAP as a plain error out of the 500's body (S1)", async () => {
+    for (const [name, kind, target] of [["M4RAW", "dns", "m4-raw-target.invalid"], ["M4LISTEN", "listen", "127.0.0.1:0"]]) {
+      const answer = await partners(traced.base, name);
+      expect(answer.status, name).to.equal(500);
+      const text = await answer.text();
+      expect(JSON.parse(text).error.code, name).to.equal("OSD/REFUSED");
+      expect(text, name).to.not.contain("m4-raw-target");
+      expect(text, name).to.not.match(/127\.0\.0\.1|dns|listen/);
+      const [line] = await nextLines(1);
+      expect(line, name).to.deep.include({status: 500});
+      expect(line.refused, name).to.deep.equal([{kind, target}]);
+    }
+  });
+
+  it("ignores and records an assignment to the stub hook, and still traces the next stub", async () => {
+    const answer = await partners(traced.base, "M4TAMPER");
+    expect(answer.status).to.equal(200);
+    const [line] = await nextLines(1);
+    expect(line.tampered).to.deep.equal([{what: "assignment to globalThis.osdNotActivated, ignored"}]);
+    expect((await partners(traced.base, "M4STUB")).status).to.equal(200);
+    const [after] = await nextLines(1);
+    expect(after.stubs).to.deep.equal([{class: "ZCL_OSD_M4G_GAP", method: "NOT_HERE", reason: "ZOSD_M4G_REQUEST_GAP"}]);
+    expect(after.tampered).to.deep.equal([]);
   });
 
   it("without --stub-trace: no file, the same answers, the events on stderr only", async () => {

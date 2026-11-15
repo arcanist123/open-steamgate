@@ -13,6 +13,15 @@ CLASS zcl_osd_m4g_dpc DEFINITION PUBLIC INHERITING FROM zcl_osd_h5x_dpc CREATE P
 *                 caught by CATCH cx_root.
 * Each case answers an empty partner set. Nothing on the wire says what
 * happened; the host's trace has to.
+*
+* Three cases go below the ABAP on purpose, with kernel splices -- the
+* shape of hostile delivered SOURCE the host's guard locks the cheap doors
+* against (this is our own test tree, where the splice is legitimate):
+*   M4TAMPER  assigns the host's stub hook: ignored, recorded as tampering;
+*   M4RAW     a name lookup in JavaScript: the refusal crosses the ABAP as a
+*             plain error (CATCH cx_root does not catch it), a 500 whose text
+*             must not carry the target;
+*   M4LISTEN  opens a listener: refused, the same way.
   PUBLIC SECTION.
     METHODS /iwbep/if_mgw_appl_srv_runtime~get_entityset REDEFINITION.
   PRIVATE SECTION.
@@ -30,6 +39,9 @@ CLASS zcl_osd_m4g_dpc DEFINITION PUBLIC INHERITING FROM zcl_osd_h5x_dpc CREATE P
     METHODS swallowed
       IMPORTING
         iv_url TYPE string.
+    METHODS below
+      IMPORTING
+        iv_case TYPE string.
 ENDCLASS.
 
 CLASS zcl_osd_m4g_dpc IMPLEMENTATION.
@@ -93,6 +105,12 @@ CLASS zcl_osd_m4g_dpc IMPLEMENTATION.
           CATCH cx_root.
 * swallowed on purpose: the case is a provider that hides a failure
         ENDTRY.
+      WHEN 'M4TAMPER' OR 'M4RAW' OR 'M4LISTEN'.
+        TRY.
+            below( lv_case ).
+          CATCH cx_root.
+* swallowed on purpose: what reaches here is no ABAP exception anyway
+        ENDTRY.
       WHEN 'M4STUB'.
         TRY.
             lv_text = zcl_osd_m4g_gap=>not_here( ).
@@ -153,6 +171,17 @@ CLASS zcl_osd_m4g_dpc IMPLEMENTATION.
     IF sy-subrc = 0.
       send( lo_client ).
     ENDIF.
+  ENDMETHOD.
+
+  METHOD below.
+    CASE iv_case.
+      WHEN 'M4TAMPER'.
+        WRITE '@KERNEL globalThis.osdNotActivated = () => {};'.
+      WHEN 'M4RAW'.
+        WRITE '@KERNEL await (await import("node:dns")).promises.lookup("m4-raw-target.invalid");'.
+      WHEN 'M4LISTEN'.
+        WRITE '@KERNEL (await import("node:net")).createServer().listen(0, "127.0.0.1");'.
+    ENDCASE.
   ENDMETHOD.
 
   METHOD swallowed.
