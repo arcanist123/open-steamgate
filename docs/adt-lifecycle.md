@@ -184,6 +184,19 @@ its timeout drops the compiler and re-primes instead, the warm status carries
 `disabled`, and `warmReady` fails at once with the reason when it is set
 (`test/warm-update-timeout.mjs`).
 
+A third red of 2026-11-14 (#946, a fast runner: speed factor 1.00,
+calibration 34.9 ms) was not a budget: VSP's explicit activation of the class
+failed in 1.6 s with "a build is already running". A frozen verification had
+just settled and the next one had started; a verifier takes the build lock for
+milliseconds to pin its generation and to settle its verdict, and a store
+build refused on the first BUSY. Store builds (warm and cold) and a host's
+start build now wait for the lock up to 10 s (`tools/osd-build-lock-wait.mjs`,
+`OSD_BUILD_LOCK_WAIT_MS`; an empty or non-positive value is the default) before
+they answer BUSY, and a build of another process still gets BUSY. The first
+attempt is unchanged; on BUSY only the lock is polled, and the cold build then
+runs once more under it (`lockHeld`), so its whole-tree hash runs twice at most
+rather than once per poll (`test/build-lock-wait.mjs` counts it).
+
 `test/adt-lifecycle-report.mjs` transcribes the real #635/#633/#636 tables as
 JSON fixtures (all QUIET), injects one 2x operation slowdown (WARN), uniform
 1.6x runner slowdown (QUIET), isolated sample outliers, and five-run history
