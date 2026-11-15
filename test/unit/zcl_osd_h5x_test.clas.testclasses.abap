@@ -1148,6 +1148,7 @@ CLASS ltcl_annotations IMPLEMENTATION.
 * reference field; a currency key and a unit get their semantics; a date
 * gets no sap:display-format (the system writes none)
     DATA lv_body TYPE string.
+    DATA lv_off  TYPE i.
 
     lv_body = metadata( ).
     has( iv_body = element( iv_body  = lv_body
@@ -1168,7 +1169,12 @@ CLASS ltcl_annotations IMPLEMENTATION.
     lacks( iv_body = element( iv_body  = lv_body
                               iv_start = `<Property Name="DeliveryDate"` )
            iv_text = `sap:display-format` ).
-* a type of the class: RTTI names the data element of the component
+* a type of the class: RTTI names the data element of the component.
+* Read inside VH_Currency: the twin's other value-help types (#952) have a
+* Code too, typed by no data element
+    FIND `<EntityType Name="VH_Currency"` IN lv_body MATCH OFFSET lv_off.
+    cl_abap_unit_assert=>assert_subrc( exp = 0 ).
+    lv_body = lv_body+lv_off.
     has( iv_body = element( iv_body  = lv_body
                             iv_start = `<Property Name="Code"` )
          iv_text = `sap:semantics="currency-code"` ).
