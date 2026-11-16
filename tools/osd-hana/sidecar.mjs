@@ -148,11 +148,12 @@ export async function handshake(path, {
   requiredCapabilities = [],
   pin,
   env = process.env,
+  extraEnv,
   runFn = runSidecarRaw,
 } = {}) {
   let line;
   try {
-    const answer = await runFn(path, ["--version", "--json"], {env});
+    const answer = await runFn(path, ["--version", "--json"], {env, extraEnv});
     // The real runner resolves {code, stdout, stderr}; an injected one may
     // hand over the line itself.
     line = typeof answer === "string" ? answer : answer.stdout;
@@ -182,18 +183,46 @@ export async function handshake(path, {
 
 // One child run: [path, ...args], no shell, credentials in the environment
 // only. Resolves with {code, stdout, stderr}.
-export function runSidecarRaw(path, args, {
-  env = process.env,
-  credentials,
-  timeoutMs = 60_000,
-  onStderr,
-} = {}) {
-  const childEnv = {...env};
+//
+// The child's environment is MINIMAL, by rule (critic S-2): an allowlist of
+// operational variables plus the two credential variables -- never the
+// parent's whole environment, where a shell may hold cloud keys, tokens or
+// another system's HANA_PASSWORD. The sidecar README (cmd/osd-hana-dump, vsp
+// branch feat/hana-dump) names no proxy or SSL variables and the binary's
+// source reads only OSD_HANA_USER / OSD_HANA_PASSWORD, so none are forwarded;
+// if a future build documents one, it enters this list by name.
+const CHILD_ENV_ALLOWLIST = ["PATH", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP", "SystemRoot", "LANG"];
+const LC_PATTERN = /^LC_/;
+
+function minimalChildEnv(env, {credentials, extraEnv}) {
+  const childEnv = {};
+  for (const key of CHILD_ENV_ALLOWLIST) {
+    if (typeof env[key] === "string" && env[key] !== "") childEnv[key] = env[key];
+  }
+  for (const key of Object.keys(env)) {
+    if (LC_PATTERN.test(key)) childEnv[key] = env[key];
+  }
   if (credentials !== undefined) {
     // The contract's only channel: environment, never argv, never a temp file.
     if (credentials.user !== undefined) childEnv.OSD_HANA_USER = credentials.user;
     if (credentials.password !== undefined) childEnv.OSD_HANA_PASSWORD = credentials.password;
   }
+  if (extraEnv !== undefined) {
+    // The test/extension seam: the doctor never passes this, the tests use it
+    // to hand the FAKE sidecar its scenario knobs.
+    Object.assign(childEnv, extraEnv);
+  }
+  return childEnv;
+}
+
+export function runSidecarRaw(path, args, {
+  env = process.env,
+  credentials,
+  timeoutMs = 60_000,
+  onStderr,
+  extraEnv,
+} = {}) {
+  const childEnv = minimalChildEnv(env, {credentials, extraEnv});
   const redact = makeRedactor([
     credentials?.password, credentials?.user, credentials?.host, credentials?.schema,
   ]);
@@ -247,12 +276,13 @@ export class SidecarRunError extends Error {
  *  by us (critic S-1). stdout must be the one JSON line the contract
  *  promises; anything else is an error, not a guess. */
 export class Sidecar {
-  constructor(path, {credentials, timeoutMs = 120_000, onStderr, env = process.env} = {}) {
+  constructor(path, {credentials, timeoutMs = 120_000, onStderr, env = process.env, extraEnv} = {}) {
     this.path = path;
     this.credentials = credentials;
     this.timeoutMs = timeoutMs;
     this.onStderr = onStderr;
     this.env = env;
+    this.extraEnv = extraEnv;
   }
 
   /** Returns {exit, outcome, summary} where outcome is the contract's named
@@ -265,6 +295,7 @@ export class Sidecar {
       credentials: this.credentials,
       timeoutMs: timeoutMs ?? this.timeoutMs,
       onStderr: this.onStderr,
+      extraEnv: this.extraEnv,
     });
     // The whole stdout passes the redactor BEFORE the JSON line is picked and
     // parsed: the summary is data we print and embed (error text, the probe

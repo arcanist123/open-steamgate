@@ -65,6 +65,7 @@ export async function doctorMain(argv, {
   store = defaultSecretStore(),
   clientFactory,
   prompt,
+  sidecarExtraEnv, // the test seam: extra child-env for the sidecar; the CLI never sets it
   sidecarTimeoutMs = 120_000,
 } = {}) {
   resetVerifiedSidecars(); // one CLI run verifies once; a long-lived host re-verifies per run
@@ -123,7 +124,7 @@ export async function doctorMain(argv, {
   }
   let handshakeInfo;
   try {
-    handshakeInfo = await handshake(path, {requiredCapabilities: ["probe"], pin: verified.pinned ? pin : undefined, env});
+    handshakeInfo = await handshake(path, {requiredCapabilities: ["probe"], pin: verified.pinned ? pin : undefined, env, extraEnv: sidecarExtraEnv});
   } catch (error) {
     if (error instanceof HandshakeError) return fail(error.message);
     return fail(`osd-hana: the sidecar handshake could not run: ${error.message}`);
@@ -151,6 +152,7 @@ export async function doctorMain(argv, {
     timeoutMs: sidecarTimeoutMs,
     onStderr: (text) => io.err(text.trimEnd()),
     env,
+    extraEnv: sidecarExtraEnv,
   });
   // The user and the password are credentials and travel in the child's
   // environment only (contract W0). Host, port, tenant database and an

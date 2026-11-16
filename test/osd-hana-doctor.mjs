@@ -14,7 +14,7 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {doctorMain} from "../tools/osd-hana/doctor.mjs";
-import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
+import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, runSidecarRaw, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
 import {makeRedactor} from "../tools/osd-hana/redact.mjs";
@@ -87,6 +87,16 @@ async function runDoctor(argv, {
     ...(handshakePatch !== undefined ? {FAKE_SIDECAR_HANDSHAKE: JSON.stringify(handshakePatch)} : {}),
     ...env,
   };
+  // The fake sidecar's knobs are TEST-ONLY env vars; with the child
+  // environment now an allowlist (critic S-2) they reach the child only
+  // through the doctor's explicit extraEnv seam -- the production doctor
+  // passes none.
+  const sidecarExtraEnv = {
+    FAKE_SIDECAR_PROBE: scenario,
+    ...(handshakePatch !== undefined ? {FAKE_SIDECAR_HANDSHAKE: JSON.stringify(handshakePatch)} : {}),
+    ...(env.FAKE_SIDECAR_RECORD !== undefined ? {FAKE_SIDECAR_RECORD: env.FAKE_SIDECAR_RECORD} : {}),
+    ...(env.FAKE_SIDECAR_ECHO_SCHEMA !== undefined ? {FAKE_SIDECAR_ECHO_SCHEMA: env.FAKE_SIDECAR_ECHO_SCHEMA} : {}),
+  };
   return doctorMain([
     "--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA,
     "--sidecar-pin", pin,
@@ -96,6 +106,7 @@ async function runDoctor(argv, {
     stdin: {isTTY},
     isTTY,
     sidecarTimeoutMs: 500,
+    sidecarExtraEnv,
     ...deps,
   });
 }
@@ -244,15 +255,40 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       expect(EXIT_OUTCOMES[5]).to.equal("unsupported");
       const cases = [["owner-tenant", 0, "done"], ["usage-error", 1, "usage"], ["connect-error", 2, "connection"], ["partial", 3, "partial"], ["refused", 4, "refused"], ["unsupported", 5, "unsupported"]];
       for (const [scenario, exit, outcome] of cases) {
-        const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: {...process.env, FAKE_SIDECAR_PROBE: scenario}});
+        const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: scenario}});
         const run = await sidecar.run("probe");
         expect(run.exit, scenario).to.equal(exit);
         expect(run.outcome, scenario).to.equal(outcome);
       }
     });
 
+    it("hands the child a MINIMAL environment: allowlist plus credentials, never the parent's env (critic S-2; mutation: childEnv = {...env} -> red)", async function () {
+      // a child that dumps its whole environment; the marker stands in for
+      // every unrelated secret exported in the parent's shell (cloud keys,
+      // tokens, another system's HANA_PASSWORD)
+      const dumpPath = join(root, "env-dump.mjs");
+      const dumpOut = join(root, "env-dump.json");
+      writeFileSync(dumpPath, `#!/usr/bin/env node
+import {writeFileSync} from "node:fs";
+writeFileSync(${JSON.stringify(dumpOut)}, JSON.stringify(process.env));
+process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
+`, {mode: 0o755});
+      await runSidecarRaw(dumpPath, ["probe"], {
+        env: {...process.env, PARENTS_UNRELATED_SECRET: "sk-live-marker-abcdef123456"},
+        credentials: {user: USER, password: PASSWORD},
+      });
+      const childEnv = JSON.parse(readFileSync(dumpOut, "utf8"));
+      expect(childEnv.PARENTS_UNRELATED_SECRET).to.equal(undefined);
+      // the two credential variables are the contract's only channel and do arrive
+      expect(childEnv.OSD_HANA_PASSWORD).to.equal(PASSWORD);
+      expect(childEnv.OSD_HANA_USER).to.equal(USER);
+      // the operational allowlist still reaches the child (PATH: the fake
+      // sidecar is a shebang script that must find node)
+      expect(childEnv.PATH).to.equal(process.env.PATH);
+    });
+
     it("refuses an exit code the contract does not define", async function () {
-      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: {...process.env, FAKE_SIDECAR_PROBE: "weird-exit"}});
+      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "weird-exit"}});
       await sidecar.run("probe").then(
         () => expect.fail("should refuse"),
         (error) => {
@@ -262,7 +298,7 @@ describe("tools/osd-hana: the osd hana doctor", function () {
     });
 
     it("kills a sidecar that never answers (timeout)", async function () {
-      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: {...process.env, FAKE_SIDECAR_PROBE: "hang"}, timeoutMs: 300});
+      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "hang"}, timeoutMs: 300});
       await sidecar.run("probe").then(
         () => expect.fail("should time out"),
         (error) => expect(error.message).to.include("did not finish within 300 ms"));
