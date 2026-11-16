@@ -227,6 +227,60 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
     expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`)).to.equal(true);
   });
 
+  it("the write probe answers 257 (a syntax error, not 258): that is NOT a proof -- the reader is dropped, no secret is stored, and the run fails loudly naming the outcome (critic M-1; mutation: any error counts as refused -> red)", async function () {
+    const {log, factory} = fakeClientFactory([
+      {match: /SET "PGMID" = "PGMID"/, error: 257, message: "sql syntax error: incorrect syntax near SET"},
+      ...SUCCESS_RULES.filter((r) => !/SET "PGMID" = "PGMID"/.test(r.match.source)),
+    ]);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    await createReader({
+      connection, schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: secretStore, clientFactory: factory,
+    }).then(
+      () => expect.fail("a 257 proves nothing -- the run must fail"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("COULD NOT PROVE");
+        expect(error.message).to.include("the database answered a DIFFERENT error");
+        expect(error.message).to.include("257");
+        expect(error.message).to.include(`UPDATE "${SCHEMA}"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`);
+        // only 258 proves the refusal: 257 is dropped without a hand-out
+        expect(error.message).to.not.include("proof the reader cannot write");
+      });
+    expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`)).to.equal(true);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME)), "no secret for a dropped reader").to.equal(undefined);
+  });
+
+  it("the write probe loses the connection (no SQL error at all): NOT a proof -- the reader is dropped, no secret is stored, the run says the connection died (critic M-1; mutation: a thrown probe counts as refused -> red)", async function () {
+    const base = fakeClientFactory(SUCCESS_RULES);
+    const factory = async (options) => {
+      const client = await base.factory(options);
+      const exec = client.exec;
+      client.exec = async (sql, params) => {
+        if (/SET "PGMID" = "PGMID"/.test(sql)) throw new Error("socket hang up ECONNRESET");
+        return exec(sql, params);
+      };
+      return client;
+    };
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    await createReader({
+      connection, schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: secretStore, clientFactory: factory,
+    }).then(
+      () => expect.fail("a lost connection proves nothing -- the run must fail"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("COULD NOT PROVE");
+        expect(error.message).to.include("no SQL error arrived");
+        expect(error.message).to.include("ECONNRESET");
+        expect(error.message).to.not.include("proof the reader cannot write");
+      });
+    expect(base.log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`)).to.equal(true);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME)), "no secret for a dropped reader").to.equal(undefined);
+  });
+
   it("after success, the write probe refused: the proof is said, with the exact statement shape (mutation: the write proof removed -> red)", async function () {
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const said = [];

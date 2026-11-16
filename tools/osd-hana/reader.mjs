@@ -670,17 +670,44 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
         let refusedText;
         try {
           await proofClient.exec(`UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0`, []);
-          // NOT refused: the reader can write. Drop it and fail loudly --
-          // a reader that can write is not the reader this tool promised.
+          // NOT refused (the probe SUCCEEDED): the reader can write. Drop it
+          // and fail loudly -- a reader that can write is not the reader this
+          // tool promised.
           const cleanup = await dropAgain();
           const note = cleanup.dropped
             ? `  The reader ${readerName} was dropped again; nothing was left behind.`
-            : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
+            : cleanup.absent
+              ? `  The reader ${readerName} is absent (HANA said 332 -- the drop found nothing to remove).`
+              : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
           throw new ReaderError(`osd hana: THE READER CAN WRITE -- the write probe\n` +
             `    UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0\n` +
             `  was NOT refused by the database. This tool refuses to hand out a reader that can write.\n${note}`);
         } catch (error) {
           if (error instanceof ReaderError) throw error;
+          // ONLY the insufficient-privilege code (258) proves the refusal
+          // (critic M-1). Anything else -- another SQL error, a lost
+          // connection -- proves NOTHING about the reader's privileges: a
+          // syntax error says the statement was wrong, a socket hang-up says
+          // the wire died. Neither may stand in for "the database refuses the
+          // reader's writes", so the reader is dropped and the run fails,
+          // naming which of the three outcomes it was.
+          const code = errorCode(error);
+          if (code !== 258) {
+            const outcome = code === undefined
+              ? `the connection to the database was LOST before an SQL error could arrive -- no SQL error arrived (${redact(sqlErrorText(error))})`
+              : `the database answered a DIFFERENT error -- an SQL error, not an insufficient-privilege refusal (${redact(sqlErrorText(error))})`;
+            const cleanup = await dropAgain();
+            const note = cleanup.dropped
+              ? `  The reader ${readerName} was dropped again; nothing was left behind.`
+              : cleanup.absent
+                ? `  The reader ${readerName} is absent (HANA said 332 -- the drop found nothing to remove).`
+                : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
+            throw new ReaderError(`osd hana: COULD NOT PROVE that the reader cannot write -- the write probe\n` +
+              `    UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0\n` +
+              `  did not come back with HANA error 258 (insufficient privilege): ${outcome}.\n` +
+              `  Only 258 proves the database refuses this reader's writes; this outcome proves nothing, so the reader is\n` +
+              `  not handed out and no secret is stored. Re-run the doctor to try again.\n${note}`);
+          }
           refusedText = redact(sqlErrorText(error));
         }
         say(`osd hana: proof the reader cannot write: the UPDATE probe on ${show(schema)}."TADIR" was refused by the database` +
