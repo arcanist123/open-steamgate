@@ -6,8 +6,12 @@
 import {expect} from "chai";
 import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
+import * as abaplint from "@abaplint/core";
+import {Transpiler} from "@abaplint/transpiler";
 import {run} from "../tools/hana-closure.mjs";
+import {buildCheck} from "../tools/hana-closure-merge.mjs";
 import {cycleName} from "../tools/hana-src-gen.mjs";
+import {kernelSplices} from "../tools/hana-closure-intake.mjs";
 import {objectNameInFinding} from "../tools/hana-closure-framework.mjs";
 import {seedServices} from "../tools/hana-closure-seed.mjs";
 import {dumperRequests, outFile, readJson, scratchClosure} from "./helpers/hana-closure-fakes.mjs";
@@ -205,4 +209,47 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(allRequested(root), "the dumper is not asked for function groups").to.deep.equal([]);
   });
 
+  it("6: a delivered class with a kernel splice is refused at the merge, reported, and never reaches the generated module", async () => {
+    const spliced = cls("zcl_osd_h5x_dep", ["CLASS-METHODS run."], {run: ["WRITE '@KERNEL globalThis.h5xSplice = 1;'."]});
+    expect(kernelSplices("zcl_osd_h5x_dep.clas.abap", spliced)).to.deep.equal([{line: 7, text: "WRITE '@KERNEL globalThis.h5xSplice = 1;'."}]);
+    expect(kernelSplices("zcl_osd_h5x_dep.clas.abap", spliced.replace("'@KERNEL", "'@kernel")), "a superset of the transpiler's case-sensitive test").to.have.lengthOf(1);
+    expect(kernelSplices("zcl_osd_h5x_dep.clas.abap", spliced.replace("WRITE '@KERNEL", "DATA(lv) = '@KERNEL")), "a literal outside WRITE is no splice").to.deep.equal([]);
+    // and a delivered object named like the runtime's own kernel classes
+    const kernelLock = cls("kernel_lock", ["CLASS-METHODS run."], {run: ["RETURN."]});
+    const {root, env, seedDump} = make({seed: {"zcl_osd_h5x_seed.clas.abap": SEED_NEEDS_DEP, "kernel_lock.clas.abap": kernelLock},
+      tenant: {"zcl_osd_h5x_dep.clas.abap": spliced}});
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    const gap = readJson(outFile(root, "closure-gaps.json")).gaps.find((g) => g.name === "ZCL_OSD_H5X_DEP");
+    expect(gap).to.deep.include({reason: "kernel splice", first_finding: "kernel splice, zcl_osd_h5x_dep.clas.abap:7"});
+    expect(readJson(outFile(root, "closure-summary.json")).refused.map((r) => [r.name, r.reason]))
+      .to.deep.equal([["KERNEL_LOCK", "kernel name"], ["ZCL_OSD_H5X_DEP", "kernel splice"]]);
+    const delivered = readdirSync(join(root, "gen", "hana-src")).filter((f) => f !== "manifest.json")
+      .flatMap((f) => readdirSync(join(root, "gen", "hana-src", f, "src")));
+    expect(delivered).to.deep.equal(["zcl_osd_h5x_seed.clas.abap"]);
+    // what the build would transpile: the island and this tree's src --
+    // the splice is in no generated module
+    const reg = new abaplint.Registry();
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, {withFileTypes: true})) {
+        if (e.isDirectory()) walk(join(dir, e.name));
+        else if (/\.abap$/.test(e.name)) reg.addFile(new abaplint.MemoryFile(e.name, readFileSync(join(dir, e.name), "utf8")));
+      }
+    };
+    walk(join(root, "gen", "hana-src"));
+    walk(join(root, "src"));
+    const output = await new Transpiler({ignoreSyntaxCheck: true, unknownTypes: "runtimeError"}).run(reg);
+    const js = output.objects.map((o) => o.chunk?.raw ?? o.js?.contents ?? "").join("\n");
+    expect(js).to.include("osdNotActivated", "the tree's own splice is honoured (the positive control)");
+    expect(js).to.not.include("h5xSplice");
+  });
+
+  it("6: a delivered layer already on disk with a kernel splice fails the build closed", () => {
+    const {root, env} = make({});
+    const dir = join(root, "gen", "hana-src", "000-h5x-old", "src");
+    mkdirSync(dir, {recursive: true});
+    writeFileSync(join(dir, "zcl_osd_h5x_old.clas.abap"), cls("zcl_osd_h5x_old", ["CLASS-METHODS run."], {run: ["WRITE '@KERNEL globalThis.h5xSplice = 1;'."]}));
+    expect(() => buildCheck({root, env, say})).to.throw(/refused: kernel splice in a delivered layer -- gen\/hana-src\/000-h5x-old\/src\/zcl_osd_h5x_old\.clas\.abap:7/);
+    expect(existsSync(join(root, "output")), "the build never ran").to.equal(false);
+  });
 });

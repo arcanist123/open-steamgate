@@ -43,6 +43,7 @@ import {basename, join} from "node:path";
 import {scriptCommandIn, toolCommandIn} from "./osd-host.mjs";
 import {parseFindings} from "./hana-closure.mjs";
 import {islandTestCode} from "./hana-src-gen.mjs";
+import {assertNoDeliveredSplice} from "./hana-closure-intake.mjs";
 
 const TOOLS = fileURLToPath(new URL(".", import.meta.url));
 
@@ -213,6 +214,10 @@ export function buildVerdict(status, output) {
  *  toolCommandIn like every tool of this tree. Returns the verdict (with
  *  the finding count for the report line); throws through buildVerdict. */
 export function buildCheck({root, env, say}) {
+  // milestone 4: a delivered layer with a kernel splice never reaches the
+  // transpiler -- the merge refuses such an object; an island an older merge
+  // left on disk fails closed here
+  assertNoDeliveredSplice(root);
   const [command, ...argv] = toolCommandIn(env, join(TOOLS, "osd-build.mjs"), []);
   say("build: osd-build.mjs (the fixed point's positive control)");
   const child = spawnSync(command, argv, {cwd: root, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024});
@@ -307,7 +312,7 @@ export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined, 
     ...(layersDdic > 0 ? [] : [["hana-ddic-gen.mjs", ["--from-dump", dump, "--out", join(root, "gen", "hana-ddic")]]]),
     // the union of every dump so far: ALL the layers dirs, later wins per object
     // milestone 4: a framework namespace is refused from every dump (the
-    // object is never merged)
+    // object is never merged), as is any object with a kernel splice
     ["hana-src-gen.mjs", [...layersDirs.flatMap((d) => ["--layers", d]), ...refuseNamespaces.flatMap((n) => ["--refuse-namespace", n]),
       "--out", join(root, "gen", "hana-src")]],
   ];

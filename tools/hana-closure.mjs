@@ -431,9 +431,13 @@ export async function run(args = process.argv.slice(2), options = {}) {
       ? {resolved: state.resolved, dumps: [...state.layers].reverse().map((l) => l.dump)}
       : undefined;
     const {refused, intake} = mergeInputs(root, dump, layersDirs, env, say, fill, fwNamespaces);
-    // what the merge refused to deliver (milestone 4): a framework-namespace
-    // object is a framework gap
-    const fwRefused = intake;
+    // what the merge refused to deliver (milestone 4): a kernel splice is a
+    // refusal gap of its object; a framework-namespace object a framework gap
+    for (const r of intake.filter((x) => x.reason.startsWith("kernel ") === true)) {
+      const reason = r.reason.split(":")[0];
+      state.refused[r.object] = {kind: r.file.split(".")[1].toUpperCase(), reason, first_finding: `${reason}, ${r.file}${r.line !== undefined ? `:${r.line}` : ""}`};
+    }
+    const fwRefused = intake.filter((x) => x.reason.startsWith("kernel ") === false);
     await registerSeed({root, dump: resolve(root, state.seed), say, quiet: state.iteration > 1});
     // the merge refusals join the state's (the gap stands while the object
     // is in no build) and leave when a dump the merge handled carries the
@@ -844,11 +848,13 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const gaps = [];
     const gapOf = (name, kind, a) => {
       gapNames.add(name);
-      const reason = state.missing[name]?.reason;
+      // a kernel splice refused at the merge (milestone 4) says so on its gap
+      const splice = state.refused[name]?.reason?.startsWith("kernel ") === true ? state.refused[name] : undefined;
+      const reason = splice?.reason ?? state.missing[name]?.reason;
       return {
         name,
         kind,
-        first_finding: a.finding,
+        first_finding: splice?.first_finding ?? a.finding,
         iterations_requested: state.iteration - a.iteration + 2,
         ...(reason !== undefined ? {reason} : {}),
       };
@@ -900,7 +906,8 @@ export async function run(args = process.argv.slice(2), options = {}) {
       writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
         present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps, ...modules.gaps], requireUnstubbed, load,
         searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
-      function_modules: modules.summary, framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {})});
+      function_modules: modules.summary, framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {}),
+      refused: Object.entries(state.refused).filter(([, r]) => r.reason?.startsWith("kernel ") === true).map(([name, r]) => ({name, ...r}))});
       return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps, ...modules.gaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }
