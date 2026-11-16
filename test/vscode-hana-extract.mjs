@@ -16,7 +16,7 @@ import {buildExtractFixtures} from "./osd-hana/extract-fixtures.mjs";
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
 
 const require = createRequire(import.meta.url);
-const {registerHanaExtractCommand, bundledSidecarPath, findModuleRoot, planItems, noSidecarText, SECRET_PREFIX} =
+const {registerHanaExtractCommand, findModuleRoot, planItems, SECRET_PREFIX} =
   require("../editors/vscode/hana-extract-command.js");
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -43,6 +43,8 @@ const makePin = (binary) => {
 const alive = (pid) => {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code === "EPERM"; }
 };
+// tests set OSD_HANA_DUMP: hana-sidecar.js's callerPathFor then answers undefined
+const noBundledSidecar = {callerPathFor: () => undefined};
 const recordLines = () => {
   try { return readFileSync(recordPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)); }
   catch { return []; }
@@ -92,10 +94,11 @@ function vscodeStub(script = {}) {
   const context = {
     subscriptions: [],
     extensionUri: {fsPath: path.join(root, "no-extension")},
+    extensionPath: path.join(root, "no-extension"),
     secrets: {
       get: async (key) => { rec.secretOps.push(["get", key]); return rec.secrets.get(key); },
       // SecretStorage is asynchronous (the OS keychain): the write lands a beat later
-      store: async (key, value) => { rec.secretOps.push(["store", key]); await new Promise((r) => setTimeout(r, 50)); rec.secrets.set(key, value); },
+      store: async (key, value) => { rec.secretOps.push(["store", key]); await new Promise((r) => setTimeout(r, 750)); rec.secrets.set(key, value); },
       delete: async (key) => { rec.secretOps.push(["delete", key]); rec.secrets.delete(key); },
     },
   };
@@ -136,7 +139,7 @@ function startCommand(script = {}, {sidecarExtraEnv = {}, pin = pinPath, dump = 
       FAKE_SIDECAR_RECORD: recordPath, FAKE_SIDECAR_LIST: fixtures.list, FAKE_SIDECAR_DUMP: fixtures.dump, ...sidecarExtraEnv}}),
   };
   delete env.OSD_HANA_PASSWORD;
-  registerHanaExtractCommand(stub.api, stub.context, stub.output, () => [ROOT], {hostScript: TEST_HOST, env, tmpdir: root});
+  registerHanaExtractCommand(stub.api, stub.context, stub.output, () => [ROOT], {hostScript: TEST_HOST, env, tmpdir: root, sidecar: noBundledSidecar});
   const from = recordLines().length;
   stub.runs = () => recordLines().slice(from).map((r) => r.argv[0]);
   stub.done = stub.rec.run();
@@ -179,27 +182,35 @@ after(function () {
 describe("VS Code: Extract my code from HANA", function () {
   this.timeout(60000);
 
-  it("bundledSidecarPath: bin/<platform>-<arch>/osd-hana-dump[.exe] when present, else undefined (mutation: the .exe suffix dropped)", () => {
-    const context = {extensionUri: {fsPath: "/ext"}};
-    const seen = [];
-    const exists = (file) => { seen.push(file); return true; };
-    expect(bundledSidecarPath(context, {platform: "linux", arch: "x64", exists})).to.equal(path.join("/ext", "bin", "linux-x64", "osd-hana-dump"));
-    expect(bundledSidecarPath(context, {platform: "win32", arch: "x64", exists})).to.equal(path.join("/ext", "bin", "win32-x64", "osd-hana-dump.exe"));
-    expect(bundledSidecarPath(context, {platform: "darwin", arch: "arm64", exists: () => false})).to.equal(undefined);
+  it("the sidecar comes from hana-sidecar.js's callerPathFor(context.extensionPath, {env}) and reaches the module as callerPath", async () => {
+    const calls = [];
+    const stub = vscodeStub({message: () => undefined});
+    const env = {...process.env, OSD_HANA_VSCODE_TEST: JSON.stringify({pinFile: pinPath, sidecarExtraEnv: {FAKE_SIDECAR_LIST: fixtures.list, FAKE_SIDECAR_DUMP: fixtures.dump}})};
+    delete env.OSD_HANA_DUMP;
+    // a "bundled" binary: the fake, handed in as callerPath (no OSD_HANA_DUMP anywhere)
+    registerHanaExtractCommand(stub.api, stub.context, stub.output, () => [ROOT], {hostScript: TEST_HOST, env, tmpdir: root,
+      sidecar: {callerPathFor: (extensionPath, options) => { calls.push([extensionPath, options.env]); return fakePath; }}});
+    await stub.rec.run();
+    expect(calls).to.have.lengthOf(1);
+    expect(calls[0][0]).to.equal(stub.context.extensionPath);
+    expect(calls[0][1]).to.equal(env);
+    expect(stub.rec.messages.find((m) => /is ready to extract/.test(m.text)), "the doctor ran on the handed-in binary").to.not.equal(undefined);
   });
+
+  for (const code of ["OSD_HANA_UNSUPPORTED_TARGET", "OSD_HANA_NO_SIDECAR"]) {
+    it(`${code} is shown as its plain message and nothing is asked (mutation: the locator's errors rethrown / the locator not consulted)`, async () => {
+      const stub = vscodeStub();
+      const failing = {callerPathFor: () => { throw Object.assign(new Error(`osd hana: plain text for ${code}`), {code}); }};
+      registerHanaExtractCommand(stub.api, stub.context, stub.output, () => [ROOT], {hostScript: TEST_HOST, env: {PATH: process.env.PATH}, tmpdir: root, sidecar: failing});
+      await stub.rec.run();
+      expect(stub.rec.inputs).to.have.lengthOf(0);
+      expect(stub.rec.messages.map((m) => [m.kind, m.text])).to.deep.equal([["error", `osd hana: plain text for ${code}`]]);
+    });
+  }
 
   it("finds the module in the first home that carries both verbs", () => {
     expect(findModuleRoot([undefined, "/nowhere", ROOT])).to.equal(path.join(ROOT, "tools", "osd-hana"));
     expect(findModuleRoot(["/nowhere"])).to.equal(undefined);
-  });
-
-  it("without a bundled or configured sidecar it explains how to get one and asks nothing (mutation: the pre-check removed)", async () => {
-    const stub = vscodeStub();
-    registerHanaExtractCommand(stub.api, stub.context, stub.output, () => [ROOT], {hostScript: TEST_HOST, env: {PATH: process.env.PATH}, tmpdir: root});
-    await stub.rec.run();
-    expect(stub.rec.inputs).to.have.lengthOf(0);
-    expect(stub.rec.messages.map((m) => m.text)).to.deep.equal([noSidecarText()]);
-    expect(noSidecarText()).to.match(/OSD_HANA_DUMP/).and.match(/no download/);
   });
 
   it("happy path: doctor, plan, folder, consent, extract; exit 0 opens the report, remembers the connection without a password (mutation: the plan's numbers not shown)", async () => {

@@ -31,21 +31,7 @@ const SETTING = "hanaExtract.connections"; // under "osd."
 const SECRET_PREFIX = "osd.hanaExtract.reader/";
 const READER_NAME = "OSD_READER";
 
-/** The sidecar this install carries for this machine:
- *  bin/<platform>-<arch>/osd-hana-dump[.exe] beside the extension, or
- *  undefined (the module then takes OSD_HANA_DUMP, or explains). */
-function bundledSidecarPath(context, {platform = process.platform, arch = process.arch, exists = fs.existsSync} = {}) {
-  const base = context?.extensionUri?.fsPath ?? context?.extensionPath;
-  if (typeof base !== "string") return undefined;
-  const file = path.join(base, "bin", `${platform}-${arch}`, platform === "win32" ? "osd-hana-dump.exe" : "osd-hana-dump");
-  return exists(file) ? file : undefined;
-}
-
-function noSidecarText(platform = process.platform, arch = process.arch) {
-  return `osd: The HANA reader (osd-hana-dump) is not bundled with this install for ${platform}-${arch}. ` +
-    "Set the environment variable OSD_HANA_DUMP to the path of the pinned osd-hana-dump binary " +
-    "(from the osd-hana-dump release) and restart VS Code. There is no download; the binary is checksum-verified before every use.";
-}
+const SIDECAR_ERRORS = new Set(["OSD_HANA_UNSUPPORTED_TARGET", "OSD_HANA_NO_SIDECAR"]);
 
 const MODULE_NEEDED = "osd: Extracting from HANA needs the osd-hana tools: an open-steamgate checkout (osd.home or the workspace folder), or the bundled system after its first Start.";
 
@@ -407,8 +393,17 @@ function registerHanaExtractCommand(vscode, context, output, homesOf, deps = {})
       const moduleRoot = findModuleRoot(homesOf());
       if (moduleRoot === undefined) return vscode.window.showErrorMessage(MODULE_NEEDED);
       const env = deps.env ?? process.env;
-      const callerPath = bundledSidecarPath(context);
-      if (callerPath === undefined && !env.OSD_HANA_DUMP) return vscode.window.showErrorMessage(noSidecarText());
+      // The bundled sidecar (hana-sidecar.js, the per-platform packaging):
+      // its path, or undefined when OSD_HANA_DUMP names one (the module's
+      // own precedence). A universal install or an unpinned platform is a
+      // plain message, before anything is asked.
+      let callerPath;
+      try {
+        callerPath = (deps.sidecar ?? require("./hana-sidecar.js")).callerPathFor(context.extensionPath, {env});
+      } catch (error) {
+        if (SIDECAR_ERRORS.has(error?.code)) return vscode.window.showErrorMessage(error.message);
+        throw error;
+      }
       return await extractFromHana(vscode, context, output, {moduleRoot, callerPath, env, hostScript: deps.hostScript, tmpdir: deps.tmpdir});
     } catch (error) {
       const message = `osd: ${String(error?.message ?? error)}`;
@@ -418,5 +413,5 @@ function registerHanaExtractCommand(vscode, context, output, homesOf, deps = {})
   }));
 }
 
-module.exports = {registerHanaExtractCommand, extractFromHana, bundledSidecarPath, findModuleRoot, planItems,
-  extractExitText, doctorExitText, reportSentence, noSidecarText, MODULE_NEEDED, COMMAND, SECRET_PREFIX};
+module.exports = {registerHanaExtractCommand, extractFromHana, findModuleRoot, planItems,
+  extractExitText, doctorExitText, reportSentence, MODULE_NEEDED, SIDECAR_ERRORS, COMMAND, SECRET_PREFIX};
