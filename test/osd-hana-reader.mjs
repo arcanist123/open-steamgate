@@ -872,8 +872,13 @@ describe("tools/osd-hana: the dedicated reader", function () {
   });
 
   it("S-D: through the doctor: --encrypt and --trust-server-certificate are CLI flags that reach the connections", async function () {
+    // the sidecar must advertise the tls capability for a TLS run to start
+    // at all (the doctor refuses --encrypt against a sidecar without it) --
+    // the hdb TLS options below are the READER path's own, threaded
+    // independently of the sidecar's capability
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const code = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
+      handshakePatch: {capabilities: ["probe", "list", "dump", "tls"]},
       deps: {clientFactory: factory},
     });
     expect(code, h.allText()).to.equal(0);

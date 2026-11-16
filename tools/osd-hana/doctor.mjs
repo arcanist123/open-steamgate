@@ -20,7 +20,7 @@ import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
-import {plainVerdict, jsonVerdict} from "./verdict.mjs";
+import {plainVerdict, jsonVerdict, tlsLine, ipSansExplanation} from "./verdict.mjs";
 import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
@@ -30,8 +30,8 @@ export const DOCTOR_EXIT = Object.freeze({
   noAbapSchema: 5,
 });
 
-const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "reader-name", "sidecar-pin"];
-const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "encrypt", "trust-server-certificate", "help"];
+const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "reader-name", "sidecar-pin", "ca-file", "tls-server-name"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "encrypt", "trust-server-certificate", "no-catalog-read", "help"];
 
 const USAGE = `Usage: osd hana doctor [--host H] [--port P] [--database NAME] [--user U]
                         [--schema NAME] [--env-file <file>] [--password-stdin]
@@ -165,6 +165,30 @@ export async function doctorMain(argv, {
     return fail(`osd-hana: the sidecar handshake could not run: ${error.message}`);
   }
 
+  // ---- TLS (W0-contract "Additions") --------------------------------------
+  // The sidecar advertises the `tls` capability; the reader path (hdb) has
+  // its own TLS story. When the user asked for TLS and the pinned sidecar
+  // cannot do it, the run REFUSES -- never a silent fall-back to clear text.
+  const tlsCapability = Array.isArray(handshakeInfo.capabilities) && handshakeInfo.capabilities.includes("tls");
+  const wantsTls = flags.encrypt === true || flags["trust-server-certificate"] === true
+    || flags["ca-file"] !== undefined || flags["tls-server-name"] !== undefined;
+  if (wantsTls && !tlsCapability) {
+    return fail(`osd hana: this sidecar (${handshakeInfo.version ?? "unknown version"}) does not list the "tls" capability -- ` +
+      `it cannot encrypt its connection, and you asked it to (--encrypt / --trust-server-certificate / --ca-file).\n` +
+      `  Refusing: the doctor will NOT connect in clear text when TLS was asked for. Use a sidecar build with the ` +
+      `tls capability (a newer pin), or re-run without the TLS flags on a network you trust.`);
+  }
+  // The TLS flags reach the sidecar's own connection as well (the probe and
+  // every later run of this doctor ride the sidecar's session, not hdb's):
+  // flags as the W0-contract "Additions" section defines them.
+  const sidecarTlsArgs = [];
+  if (tlsCapability) {
+    if (flags.encrypt === true) sidecarTlsArgs.push("--encrypt");
+    if (flags["trust-server-certificate"] === true) sidecarTlsArgs.push("--trust-server-certificate");
+    if (flags["ca-file"] !== undefined) sidecarTlsArgs.push("--ca-file", flags["ca-file"]);
+    if (flags["tls-server-name"] !== undefined) sidecarTlsArgs.push("--tls-server-name", flags["tls-server-name"]);
+  }
+
   // ---- connection --------------------------------------------------------
   let connection;
   try {
@@ -205,6 +229,7 @@ export async function doctorMain(argv, {
   const probeArgs = ["--host", connection.host, "--port", String(connection.port)];
   if (connection.database !== undefined) probeArgs.push("--database", connection.database);
   if (connection.schema !== undefined) probeArgs.push("--abap-schema", connection.schema);
+  probeArgs.push(...sidecarTlsArgs);
   const finishReader = async (verb) => {
     // --create-reader grants on an ABAP schema, so it needs one: from --schema
     // or, when the probe found exactly one, that one. --drop-reader needs NO
@@ -266,7 +291,11 @@ export async function doctorMain(argv, {
         // is quoted -- through the redactor holding this run's password
         // (critic note), because a driver text can repeat a value verbatim.
         const redact = makeRedactor([connection.password]);
-        io.err(redact(`osd hana: the database refused (${error.code}): ${error.message}`));
+        const text = redact(`osd hana: the database refused (${error.code}): ${error.message}`);
+        io.err(text);
+        // the "no IP SANs" TLS failure, explained the same way as on the
+        // sidecar's path (the hdb connection fails with the same fact)
+        if (/IP SAN/i.test(text)) io.err(ipSansExplanation());
         return DOCTOR_EXIT.connection;
       }
       io.err(`osd hana: ${error.message}`);
@@ -309,9 +338,15 @@ export async function doctorMain(argv, {
   switch (probeRun.outcome) {
     case "done":
       break;
-    case "connection":
-      io.err(`osd hana: cannot connect or log on: ${probeRun.summary.error ?? "the sidecar said so"}`);
+    case "connection": {
+      const errorText = probeRun.summary.error ?? "";
+      io.err(`osd hana: cannot connect or log on: ${errorText || "the sidecar said so"}`);
+      // The measured trial-image failure gets its own explanation (W0
+      // "Additions"): a verified TLS connection to an IP address is refused
+      // because the self-signed certificate carries no IP SANs.
+      if (/IP SAN/i.test(errorText)) io.err(ipSansExplanation());
       return DOCTOR_EXIT.connection;
+    }
     case "unsupported":
       io.err(`osd hana: no ABAP schema found on this database${probeRun.summary.error ? ` (${probeRun.summary.error})` : ""} -- there is no ABAP code to rescue here.`);
       return DOCTOR_EXIT.noAbapSchema;

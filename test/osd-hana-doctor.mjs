@@ -568,6 +568,95 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const firstLines = h.err.map((l) => l.split("\n")[0]).filter((l) => l.includes("WARNING") && l.includes("UNPINNED"));
       expect(firstLines).to.have.length(1);
     });
+
+    // ---------------- TLS capability (W0-contract "Additions") -------------
+    const TLS_HANDSHAKE = {capabilities: ["probe", "list", "dump", "tls"]};
+
+    it("TLS: the verdict says the probe's tls value, one plain sentence each (verified / unverified / off)", async function () {
+      for (const [scenario, sentence, absent] of [
+        ["tls-verified", "TLS: on -- the server's certificate was verified", "NOT"],
+        ["tls-unverified", "TLS: on -- but the server's certificate was NOT verified", "authenticated"],
+        ["tls-off", "TLS: off -- the connection is NOT encrypted", undefined],
+      ]) {
+        const code = await h.runDoctor([], {scenario, handshakePatch: TLS_HANDSHAKE});
+        expect(code, scenario).to.equal(0);
+        const text = h.allText();
+        expect(text).to.include(sentence);
+        if (absent === undefined) expect(text).to.not.include("TLS: on");
+        // and in --json the probe document carries the field itself
+        const code2 = await h.runDoctor(["--json"], {scenario, handshakePatch: TLS_HANDSHAKE});
+        expect(code2).to.equal(0);
+        const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
+        expect(document.probe.tls).to.equal(scenario === "tls-verified" ? "verified" : scenario === "tls-unverified" ? "unverified" : "off");
+      }
+      // without the field (the current pinned binary has no tls), no sentence
+      const code3 = await h.runDoctor([], {scenario: "owner-tenant"});
+      expect(code3).to.equal(0);
+      expect(h.allText()).to.not.include("TLS:");
+    });
+
+    it("TLS: when the sidecar lacks the capability and the user asked for TLS, the doctor REFUSES -- never a clear-text connection (mutation: connect anyway -> red)", async function () {
+      // the default fake handshake has no "tls" capability
+      for (const argv of [["--encrypt"], ["--trust-server-certificate"], ["--ca-file", join(h.root, "ca.pem")], ["--tls-server-name", "hana.example.test"]]) {
+        const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
+        expect(code, argv.join(" ")).to.equal(1);
+        expect(h.allText(), argv.join(" ")).to.include("tls");
+        expect(h.allText(), argv.join(" ")).to.include("NOT connect in clear text");
+        // nothing was said that looks like a verdict: no connection happened
+        expect(h.allText(), argv.join(" ")).to.not.include("Verdict for the ABAP rescue");
+      }
+      // and without a TLS ask, the same sidecar runs fine in clear
+      const code2 = await h.runDoctor([], {scenario: "owner-tenant"});
+      expect(code2).to.equal(0);
+    });
+
+    it("TLS: with the capability, the TLS flags are passed to the sidecar as well (mutation: keep them from the sidecar -> red)", async function () {
+      rmSync(h.recordPath, {force: true});
+      const code = await h.runDoctor(["--encrypt", "--ca-file", "/tmp/hana-ca.pem", "--tls-server-name", "hana.example.test"], {
+        scenario: "tls-verified",
+        handshakePatch: TLS_HANDSHAKE,
+        env: {FAKE_SIDECAR_RECORD: h.recordPath},
+      });
+      expect(code, h.allText()).to.equal(0);
+      const records = readFileSync(h.recordPath, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.argv[0] === "probe");
+      expect(records.length).to.be.at.least(1);
+      for (const record of records) {
+        expect(record.argv).to.include("--encrypt");
+        expect(record.argv).to.include("--ca-file");
+        expect(record.argv[record.argv.indexOf("--ca-file") + 1]).to.equal("/tmp/hana-ca.pem");
+        expect(record.argv).to.include("--tls-server-name");
+        expect(record.argv[record.argv.indexOf("--tls-server-name") + 1]).to.equal("hana.example.test");
+      }
+      // no TLS flags asked, none passed even with the capability present
+      rmSync(h.recordPath, {force: true});
+      const code2 = await h.runDoctor([], {scenario: "tls-verified", handshakePatch: TLS_HANDSHAKE, env: {FAKE_SIDECAR_RECORD: h.recordPath}});
+      expect(code2).to.equal(0);
+      const record2 = readFileSync(h.recordPath, "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((r) => r.argv[0] === "probe");
+      expect(record2.argv).to.not.include("--encrypt");
+    });
+
+    it("TLS: the 'no IP SANs' failure gets its own explanation, on the sidecar path and the reader path alike (mutation: drop the explanation -> red)", async function () {
+      // the sidecar's probe fails with the measured certificate error
+      const code = await h.runDoctor(["--encrypt"], {scenario: "ip-sans", handshakePatch: TLS_HANDSHAKE});
+      expect(code).to.equal(2);
+      expect(h.allText()).to.include("IP SAN");
+      expect(h.allText()).to.include("host NAME the certificate was issued for");
+      expect(h.allText()).to.include("--ca-file");
+      expect(h.allText()).to.include("--trust-server-certificate");
+      // and the hdb (reader-path) connection failing with the same fact
+      const {fakeClientFactory} = await import("./osd-hana/fake-client.mjs");
+      const factory = async () => {
+        throw Object.assign(new Error("connection failed: certificate doesn't contain any IP SANs"), {code: -10709});
+      };
+      const code2 = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
+        scenario: "tls-verified",
+        handshakePatch: TLS_HANDSHAKE,
+        deps: {clientFactory: factory},
+      });
+      expect(code2).to.equal(2);
+      expect(h.allText()).to.include("the database refused");
+      expect(h.allText()).to.include("host NAME the certificate was issued for");
+    });
   });
 
   // ---------------------------------------- redactor and defaults, directly

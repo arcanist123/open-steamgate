@@ -118,6 +118,24 @@ const PROBES = {
     },
   },
   "connect-error": {ok: false, exit: 2, error: "logon failed: the fake never lets anyone in"},
+  // TLS (W0 "Additions"): the probe reports tls verified | unverified | off
+  "tls-verified": {
+    ok: true, exit: 0,
+    probe: {db: "tenant", login_class: "schema_owner", non_select_on_schema: false, abap_attached: "no", tls: "verified",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}]},
+  },
+  "tls-unverified": {
+    ok: true, exit: 0,
+    probe: {db: "tenant", login_class: "schema_owner", non_select_on_schema: false, abap_attached: "no", tls: "unverified",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}]},
+  },
+  "tls-off": {
+    ok: true, exit: 0,
+    probe: {db: "tenant", login_class: "schema_owner", non_select_on_schema: false, abap_attached: "no", tls: "off",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}]},
+  },
+  // the measured trial-image failure: verified TLS to an IP address refused
+  "ip-sans": {ok: false, exit: 2, error: "connection failed: TLS handshake: certificate doesn't contain any IP SANs"},
   // Redactor fodder on STDOUT (critic S-1): a buggy or hostile binary repeats
   // a credential inside its one-line JSON answer; the doctor must still
   // print nothing.
