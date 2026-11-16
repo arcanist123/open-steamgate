@@ -95,7 +95,13 @@ function sha256File(path) {
  *  a file whose hash differs from the pin's hash for this target is a
  *  "mismatch" and is refused outright -- naming both hashes -- even with
  *  --allow-unpinned-sidecar, because that flag says "I know what I am running",
- *  and a mismatch says the opposite. */
+ *  and a mismatch says the opposite.
+ *
+ *  `fresh: true` skips the per-process cache and hashes again -- the re-check
+ *  immediately before a spawn (critic S-3): no gap between the verified bytes
+ *  and the executed bytes. The binary is ~7 MB, so a re-read is milliseconds;
+ *  that is the whole cost of closing the window in which a swapped file would
+ *  otherwise run under a cached "pinned: true". */
 export async function verifySidecar(path, {
   pin = loadPin(),
   allowUnpinned = false,
@@ -103,8 +109,9 @@ export async function verifySidecar(path, {
   arch = process.arch,
   loud = (line) => process.stderr.write(line),
   digest = sha256File,
+  fresh = false,
 } = {}) {
-  const cached = verifiedInProcess.get(path);
+  const cached = fresh ? undefined : verifiedInProcess.get(path);
   if (cached !== undefined) return cached;
   const target = targetKey(platform, arch);
   const expected = target === undefined ? undefined : pin.targets[target];
@@ -112,14 +119,14 @@ export async function verifySidecar(path, {
   try {
     actual = digest(path);
   } catch (error) {
-    throw new Error(`osd-hana: cannot read the sidecar at ${path}: ${error.message}`);
+    throw new SidecarVerifyError(`osd-hana: cannot read the sidecar at ${path}: ${error.message}`);
   }
   let result;
   if (expected !== undefined && expected === actual) {
     result = {path, sha256: actual, pinned: true, target};
   } else if (expected === undefined || pin.targets[target] === undefined) {
     if (!allowUnpinned) {
-      throw new Error(`osd-hana: the sidecar at ${path} is not covered by the pin file\n` +
+      throw new SidecarVerifyError(`osd-hana: the sidecar at ${path} is not covered by the pin file\n` +
         `  (no pinned hash for target ${target ?? "unknown"}). Refusing.\n` +
         `  The pinned ${SIDECAR_NAME} is ${pin.version} (${pin.commit.slice(0, 7)}).\n` +
         `  To run an unpinned sidecar deliberately, pass --allow-unpinned-sidecar.`);
@@ -128,7 +135,7 @@ export async function verifySidecar(path, {
     loud(`osd-hana: WARNING -- running an UNPINNED sidecar at ${path} (sha256 ${actual}, target ${target ?? "unknown"}).\n` +
       `  It is not the pinned ${SIDECAR_NAME} ${pin.version}; its output is not covered by any checksum.\n`);
   } else {
-    throw new Error(`osd-hana: refusing the sidecar at ${path}: checksum mismatch.\n` +
+    throw new SidecarVerifyError(`osd-hana: refusing the sidecar at ${path}: checksum mismatch.\n` +
       `  pinned (${target}): ${expected}\n` +
       `  actual         : ${actual}\n` +
       `  The binary on disk is not the pinned ${SIDECAR_NAME} ${pin.version}. Get the pinned build,\n` +
@@ -139,6 +146,10 @@ export async function verifySidecar(path, {
 }
 
 export class HandshakeError extends Error {}
+
+// A verification refusal (checksum mismatch, unpinned without the flag, unreadable
+// file) -- a setup failure, so the doctor maps it to exit 1, not 'cannot connect'.
+export class SidecarVerifyError extends Error {}
 
 /** `--version --json`, then the three questions: schema 1? read_only? does it
  *  carry the capabilities this verb needs? A pinned binary additionally has to
@@ -276,20 +287,25 @@ export class SidecarRunError extends Error {
  *  by us (critic S-1). stdout must be the one JSON line the contract
  *  promises; anything else is an error, not a guess. */
 export class Sidecar {
-  constructor(path, {credentials, timeoutMs = 120_000, onStderr, env = process.env, extraEnv} = {}) {
+  constructor(path, {credentials, timeoutMs = 120_000, onStderr, env = process.env, extraEnv, beforeSpawn} = {}) {
     this.path = path;
     this.credentials = credentials;
     this.timeoutMs = timeoutMs;
     this.onStderr = onStderr;
     this.env = env;
     this.extraEnv = extraEnv;
+    this.beforeSpawn = beforeSpawn;
   }
 
   /** Returns {exit, outcome, summary} where outcome is the contract's named
    *  outcome ("done", "usage", "connection", "partial", "refused",
    *  "unsupported"). The caller decides what an outcome means for its verb;
-   *  this layer only refuses to invent one for an unknown exit code. */
+   *  this layer only refuses to invent one for an unknown exit code.
+   *  `beforeSpawn`, when given, runs first and its rejection stops the spawn:
+   *  the doctor wires it to a fresh (uncached) re-hash so the bytes about to
+   *  run are the bytes that were verified (critic S-3). */
   async run(verb, {args = [], timeoutMs} = {}) {
+    if (this.beforeSpawn !== undefined) await this.beforeSpawn(verb);
     const {code, stdout, stderr} = await runSidecarRaw(this.path, [verb, ...args], {
       env: this.env,
       credentials: this.credentials,

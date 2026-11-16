@@ -14,7 +14,7 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {doctorMain} from "../tools/osd-hana/doctor.mjs";
-import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, runSidecarRaw, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
+import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, resetVerifiedSidecars, runSidecarRaw, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
 import {makeRedactor} from "../tools/osd-hana/redact.mjs";
@@ -285,6 +285,30 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       // the operational allowlist still reaches the child (PATH: the fake
       // sidecar is a shebang script that must find node)
       expect(childEnv.PATH).to.equal(process.env.PATH);
+    });
+
+    it("re-verifies the sidecar immediately before EVERY spawn: a swap after verification is refused (critic S-3; mutation: verify once, then spawn the path -> red)", async function () {
+      // verify, then overwrite the file in the window before the spawn (the
+      // doctor sits at a password prompt for minutes in that window) -- the
+      // swapped bytes must not run under the cached 'pinned: true' verdict
+      const path = join(root, "toctou-sidecar");
+      const original = "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ok:true,exit:0})+\"\\n\");\n";
+      const swapped = "#!/usr/bin/env node\nprocess.stderr.write(\"RAN THE SWAPPED BINARY\\n\");\n";
+      writeFileSync(path, original, {mode: 0o755});
+      const pin = makePin({targets: {[targetKey()]: sha256(path)}});
+      resetVerifiedSidecars();
+      const verified = await verifySidecar(path, {pin: loadPin(pin)});
+      expect(verified.pinned).to.equal(true);
+      writeFileSync(path, swapped, {mode: 0o755});
+      // exactly what doctorMain wires: the re-check runs fresh, per spawn
+      const sidecar = new Sidecar(path, {
+        credentials: {user: USER, password: PASSWORD},
+        env: process.env,
+        beforeSpawn: () => verifySidecar(path, {pin: loadPin(pin), fresh: true}),
+      });
+      await sidecar.run("probe").then(
+        () => expect.fail("the swapped binary ran -- nothing pins the verified bytes to the executed bytes"),
+        (error) => expect(error.message).to.include("checksum mismatch"));
     });
 
     it("refuses an exit code the contract does not define", async function () {

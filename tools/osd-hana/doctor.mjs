@@ -18,7 +18,7 @@ import {UsageError, parseFlags, collectConnection} from "./connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
-import {Sidecar, HandshakeError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
+import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict} from "./verdict.mjs";
 
 export const DOCTOR_EXIT = Object.freeze({
@@ -147,12 +147,23 @@ export async function doctorMain(argv, {
   }
 
   // ---- probe --------------------------------------------------------------
+  const beforeSpawn = () => verifySidecar(path, {
+    pin,
+    allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+    // Re-hash immediately before every spawn (critic S-3): after the initial
+    // verify the doctor may sit at a password prompt for minutes, and a swap
+    // in that window must not run unaudited bytes under the cached verdict.
+    // The binary is ~7 MB; a fresh sha256 read is milliseconds.
+    fresh: true,
+    loud: (line) => io.err(line.trimEnd()),
+  });
   const sidecar = new Sidecar(path, {
     credentials: {user: connection.user, password: connection.password, host: connection.host, schema: connection.schema},
     timeoutMs: sidecarTimeoutMs,
     onStderr: (text) => io.err(text.trimEnd()),
     env,
     extraEnv: sidecarExtraEnv,
+    beforeSpawn,
   });
   // The user and the password are credentials and travel in the child's
   // environment only (contract W0). Host, port, tenant database and an
@@ -165,6 +176,12 @@ export async function doctorMain(argv, {
   try {
     probeRun = await sidecar.run("probe", {args: probeArgs});
   } catch (error) {
+    if (error instanceof SidecarVerifyError) {
+      // The re-verification immediately before the spawn refused (a swap in
+      // the window after the first verify): a setup failure, not a connect
+      // problem -- the message names both hashes.
+      return fail(error.message);
+    }
     // A timeout or a child that could not start: it is a cannot-connect, not
     // a usage error -- the binary itself was verified and hand-shaken.
     io.err(error.message);
