@@ -105,6 +105,12 @@ function okDoc(top = {}, schema = {}) {
 function errorDoc(exit, error) {
   return {exit, document: {...structuredClone(AUTH_FAILED.document), exit, error}};
 }
+/** A document derived from source: a recording with values changed and the
+ *  sidecar's own notes added (contract/README.md, "Derived from source"). */
+function derived(name) {
+  const {exit, document} = recorded(name);
+  return {exit, document};
+}
 const SMALL = {clients: ["100"], reposrc_rows: 5, tadir_rows: 6};
 const OWNED = {owned_by_login: true, non_select_on_schema: true, non_select_kinds: ["OWNER"], abap_attached: "no", reposrc_rows: 1234, tadir_rows: 2345};
 
@@ -176,6 +182,14 @@ const PROBES = {
   partial: errorDoc(3, "partial: a probe cannot be partial, but the fake can"),
   refused: errorDoc(4, "refused: a probe cannot refuse, but the fake can"),
   "weird-exit": errorDoc(9, "the contract defines no exit 9"),
+  // DERIVED FROM SOURCE (contract/README.md): what probe.go writes when a
+  // value is not readable -- the zero value plus a note naming it
+  "counts-unreadable": derived("derived-probe-counts-unreadable"),
+  "privileges-unreadable": derived("derived-probe-privileges-unreadable"),
+  "system-privileges-unreadable": derived("derived-probe-system-privileges-unreadable"),
+  "owner-system-privileges-unreadable": derived("derived-probe-owner-system-privileges-unreadable"),
+  // a note this module does not recognise: printed verbatim, nothing marked
+  "unrecognised-note": okDoc({notes: ["TESTSCHEMA: something a newer sidecar says"]}),
 };
 
 // The contract test asks for every document this fake can serve.

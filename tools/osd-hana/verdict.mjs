@@ -15,7 +15,7 @@
 // reach the terminal raw. --json is safe on its own (JSON.stringify escapes).
 
 import {show} from "./reader.mjs";
-import {isAdministrator, ownsAbapSchema, readProbe} from "./probe-doc.mjs";
+import {administratorKnown, isAdministrator, ownsAbapSchema, readProbe} from "./probe-doc.mjs";
 
 // True when the login can do more than read on an ABAP schema the probe
 // reports: it owns one, holds a privilege other than SELECT on one (the real
@@ -34,11 +34,25 @@ export function writeAbilityKnown(probe = {}) {
   const p = readProbe(probe);
   if (canWrite(p)) return true;
   if (p.loginClass === undefined) return false;
+  // "system privileges not readable": an administrator would write
+  if (!administratorKnown(p)) return false;
   return p.schemas.every((s) => s.nonSelect !== undefined && s.ownedByLogin !== undefined);
 }
 
+/** True when write ability is open because the SIDECAR said it could not
+ *  read a privilege (its notes), as opposed to a field it did not report. */
+function privilegesUnreadable(p) {
+  return !administratorKnown(p) || p.schemas.some((s) => s.unknown.includes("non_select_on_schema"));
+}
+
 export function loginClassText(probe = {}) {
-  switch (readProbe(probe).loginClass) {
+  const p = readProbe(probe);
+  // login_class "other" only says no administrator privilege was SEEN; with
+  // the system privileges unreadable, nothing was looked at
+  if (p.loginClass === "other" && !administratorKnown(p)) {
+    return "a login that is not the ABAP schema's owner (whether it is an administrator could not be read with this login)";
+  }
+  switch (p.loginClass) {
     case "schema_owner": return "the ABAP schema's owner";
     case "admin": return "an administrator";
     case "other": return "another kind of login (not the schema owner, not an administrator)";
@@ -53,10 +67,14 @@ export function loginClassText(probe = {}) {
  *  real binary reports a login that owns the schema as login_class
  *  "schema_owner" even when it is an administrator too, and lists the
  *  administrator privileges beside it -- so "both" is read off
- *  admin_privileges + ownership, not off the class alone. */
+ *  admin_privileges + ownership, not off the class alone. "unknown": the
+ *  sidecar could not read the system privileges, so whether the login is an
+ *  administrator is open -- the doctor asks (ownsAbapSchema() still says
+ *  which half is known), it never assumes "owner" or "neither". */
 export function readerRoleFromProbe(probe = {}) {
   const p = readProbe(probe);
   const isAdmin = isAdministrator(p);
+  if (!isAdmin && !administratorKnown(p)) return "unknown";
   const ownsSchema = ownsAbapSchema(p);
   if (isAdmin && ownsSchema) return "both";
   if (isAdmin) return "admin";
@@ -127,7 +145,9 @@ export function schemaLines(probe = {}) {
     const clients = s.clients !== undefined && s.clients.length > 0 ? `, clients ${s.clients.map((c) => show(c)).join(", ")}` : "";
     const size = [];
     if (s.reposrcRows !== undefined) size.push(`${s.reposrcRows} source rows (REPOSRC)`);
+    else if (s.unknown.includes("reposrc_rows")) size.push("source rows (REPOSRC): not readable with this login");
     if (s.tadirRows !== undefined) size.push(`${s.tadirRows} repository objects (TADIR)`);
+    else if (s.unknown.includes("tadir_rows")) size.push("repository objects (TADIR): not readable with this login");
     const sizeText = size.length > 0 ? `, repository: ${size.join(", ")}` : "";
     const owned = s.ownedByLogin === true ? " (owned by this login)" : "";
     return `ABAP schema ${s.name === undefined ? "?" : show(String(s.name))}${owned}: found${release}${clients}${sizeText}.`;
@@ -156,12 +176,16 @@ export function plainVerdict(probe = {}, {connection, sidecar} = {}) {
   if (p.schemas.length > 0) lines.push(...attachedLines(p).map((l) => `  ${l}`));
   const ability = canWrite(p)
     ? " and can do more than read on the schema"
-    : (writeAbilityKnown(p) ? " and can only read" : "; whether it can do more than read, the sidecar did not report");
+    : writeAbilityKnown(p) ? " and can only read"
+      : privilegesUnreadable(p) ? "; the sidecar could not read its privileges, so osd hana could not determine whether this login can write"
+        : "; whether it can do more than read, the sidecar did not report";
   lines.push(`  This login is ${loginClassText(p)}${ability}.`);
   const tls = tlsLine(p);
   if (tls !== undefined) lines.push(`  ${tls}`);
   if (canWrite(p)) lines.push(`  ${safetyNote(sidecar)}`);
-  for (const note of p.notes) lines.push(`  Note from the sidecar: ${show(note)}`);
+  // the notes probe-doc.mjs recognised are said above (as "not readable");
+  // any other note is the sidecar's own words, printed verbatim
+  for (const note of p.unrecognisedNotes) lines.push(`  Note from the sidecar: ${show(note)}`);
   if (p.missing.length > 0) {
     lines.push(`  NOT REPORTED by the sidecar: ${p.missing.map((m) => show(m)).join(", ")} -- the verdict above is incomplete where it depends on these; nothing is assumed for them.`);
   }
@@ -192,14 +216,16 @@ export function jsonVerdict(probe, {connection, sidecar, warnings = []}) {
       reachable: true,
       db: p.db ?? "unknown",
       abapSchemas: p.schemas.map((s) => s.name ?? "?"),
-      loginClass: p.loginClass ?? "unknown",
+      loginClass: p.loginClass === "other" && !administratorKnown(p) ? "unknown" : (p.loginClass ?? "unknown"),
       canWrite: canWrite(p) ? true : (writeAbilityKnown(p) ? false : "unknown"),
       abapAttached: p.schemas.length === 1 ? (p.schemas[0].abapAttached ?? "unknown") : p.schemas.map((s) => s.abapAttached ?? "unknown"),
       tls: p.tls,
       readyToExtract: p.schemas.length > 0,
       safetyNote: canWrite(p) ? safetyNote(sidecar) : undefined,
       notes: p.notes,
+      unrecognisedNotes: p.unrecognisedNotes,
       missing: p.missing,
+      unknown: p.unknown,
     },
     warnings,
   };

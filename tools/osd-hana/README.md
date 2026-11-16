@@ -22,7 +22,7 @@ because the sidecar is read-only by construction and cannot create a user.
 | `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64), the capabilities, and the public release URL + asset name per target |
 | `fetch-sidecar.mjs` | the BUILD-time fetcher: downloads the pinned release asset per target, verifies SHA-256 against the pin, writes it atomically. Never reached from the `osd hana` verbs |
 | `connect.mjs` | connection input: `--host --port --database --user`, `--env-file`, `--password-stdin`, hidden TTY prompt. **No `--password` flag, ever** (argv is visible to every user of the machine). The password channels, in order: `--password-stdin` > `HANA_PASSWORD` in the env file > `$OSD_HANA_PASSWORD` > the hidden prompt (TTY only); a run with none of them is a refusal that names all four |
-| `probe-doc.mjs` | reads the sidecar's `probe` document, in ONE place, by the real binary's field names (`abap_schemas[].schema`, per-schema `non_select_on_schema` / `abap_attached`, `login_class`, `admin_privileges`, `notes`); records what the document did not report |
+| `probe-doc.mjs` | reads the sidecar's `probe` document, in ONE place, by the real binary's field names (`abap_schemas[].schema`, per-schema `non_select_on_schema` / `abap_attached`, `login_class`, `admin_privileges`, `notes`); records what the document did not report, and turns the sidecar's "... not readable" notes into UNKNOWN (never a 0 or a "can only read"); other notes are printed verbatim |
 | `verdict.mjs` | the plain-language verdict and the `--json` document, from one source so they cannot disagree |
 | `reader.mjs` | the dedicated read-only user: `--create-reader` / `--drop-reader` (the only non-SELECT statements in the module, sent over `hdb`, never the sidecar) |
 | `secret-store.mjs` | where the reader's credentials live: a `get/set/delete` interface; the CLI default is a file under the user's config directory, `0600` in a `0700` directory, enforced with fchmod even when it already existed. The extension will inject VS Code SecretStorage behind the same interface |
@@ -112,7 +112,17 @@ ABAP server still attached (informational); what kind of login this is
 `probe` is the sidecar's document as it came, `verdict` is what the doctor read
 from it, and `verdict.missing` names what the sidecar did not report.
 
-Three rules about the probe document (`probe-doc.mjs`):
+Four rules about the probe document (`probe-doc.mjs`):
+
+- **A value the sidecar could not read is unknown, not zero.** The sidecar
+  leaves it at `0` / `false` and adds a note (`<schema>: REPOSRC not
+  readable`, `<schema>: TADIR not readable`, `<schema>: privileges not
+  readable`, `system privileges not readable`). The doctor then says "not
+  readable with this login" for a count, "could not determine whether this
+  login can write" instead of "can only read", and the `--create-reader` flow
+  asks whether the login is an administrator instead of assuming
+  (`verdict.unknown` in `--json`). A note it does not recognise is printed
+  verbatim under the verdict.
 
 - **A missing field is said, not guessed.** When the document lacks something
   the verdict needs, the doctor prints "NOT REPORTED by the sidecar: ..." and

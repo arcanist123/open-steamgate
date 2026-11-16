@@ -31,3 +31,33 @@ README at the pinned tag. Keys marked `"announced"` are promised for a later ver
 and exist in no released binary this module pins. The document a database without a
 readable ABAP schema gets (`probe-no-schema`, exit 5: `ok` false, `abap_schemas` null,
 no `error`) is likewise read off the source, not recorded.
+
+## Derived from source
+
+The `derived-probe-*.json` files are NOT recordings. Each one is a recording above (named in
+its `derived_from`) with VALUES changed and `notes` added exactly as the sidecar's
+`cmd/osd-hana-dump/probe.go` at the pinned tag writes them -- derived from source, for the
+cases no recording login produced. They share the recordings' shape (`{"exit", "derived_from",
+"document"}`) and carry no key `fields.json` does not list.
+
+What `probe.go` does when a value is not readable: it leaves the value at its zero (`0`,
+`false`, an omitted list) and appends a note -- so a `0` or a `false` beside such a note is
+NOT a finding. The notes, verbatim (`<schema>` is the schema's name):
+
+| note | what it makes unknown |
+|---|---|
+| `system privileges not readable` | whether the login is an administrator (`admin_privileges`, and so `login_class` "admin") |
+| `<schema>: privileges not readable` | that schema's `non_select_on_schema` / `non_select_kinds` |
+| `<schema>: REPOSRC not readable` | that schema's `reposrc_rows` |
+| `<schema>: TADIR not readable` | that schema's `tadir_rows` |
+
+`connected to SYSTEMDB: connect to the tenant (its own port, or --database)` is the one other
+note `probe.go` writes; it marks nothing unknown. `tools/osd-hana/probe-doc.mjs` reads the four
+notes above; any note it does not recognise is printed verbatim under the verdict.
+
+| file | derived from | changed |
+|---|---|---|
+| `derived-probe-counts-unreadable.json` | `probe-ok` | both counts 0, the REPOSRC and TADIR notes |
+| `derived-probe-privileges-unreadable.json` | `probe-ok` | the schema privileges note |
+| `derived-probe-system-privileges-unreadable.json` | `probe-ok` | the system privileges note |
+| `derived-probe-owner-system-privileges-unreadable.json` | `probe-ok` | the login owns the schema (kind OWNER), the system privileges note |

@@ -19,6 +19,7 @@ import {join} from "node:path";
 import {readProbe, saysNoAbapSchema, isAdministrator} from "../tools/osd-hana/probe-doc.mjs";
 import {canWrite, jsonVerdict, plainVerdict, readerRoleFromProbe, SAFETY_NOTE} from "../tools/osd-hana/verdict.mjs";
 import {CONTRACT_DIR, FAKE_SIDECAR, SCHEMA, makeHarness} from "./osd-hana/harness.mjs";
+import {SUCCESS_RULES, fakeClientFactory} from "./osd-hana/fake-client.mjs";
 
 const load = (name) => JSON.parse(readFileSync(join(CONTRACT_DIR, `${name}.json`), "utf8"));
 const FIELDS = load("fields");
@@ -226,6 +227,134 @@ describe("tools/osd-hana: the recorded sidecar contracts", function () {
       d.abap_schemas[0].another = true;
       expect(readProbe(d).missing).to.deep.equal([]);
       expect(plainVerdict(d, {connection: {user: "U", host: "h"}}).join("\n")).to.include("Ready to extract: yes");
+    });
+  });
+
+  describe("a value the sidecar could not read is UNKNOWN, not zero (derived from source: probe.go writes 0/false plus a note)", function () {
+    const derivedFiles = () => readdirSync(CONTRACT_DIR).sort().filter((f) => f.startsWith("derived-probe-") && f.endsWith(".json"));
+    // the note texts, exactly as cmd/osd-hana-dump/probe.go at the pinned tag writes them
+    const PROBE_GO_NOTES = [/^system privileges not readable$/, /^.+: privileges not readable$/, /^.+: REPOSRC not readable$/, /^.+: TADIR not readable$/];
+
+    it("the derived fixtures are a recording with values changed: only listed keys, notes only in probe.go's own words, each named in the README", function () {
+      const files = derivedFiles();
+      expect(files.length).to.equal(4);
+      const readme = readFileSync(join(CONTRACT_DIR, "README.md"), "utf8");
+      expect(readme).to.include("derived from source");
+      for (const file of files) {
+        const fixture = load(file.slice(0, -5));
+        expect(readme, file).to.include(`\`${file}\``);
+        expect(fixture.derived_from, file).to.equal("probe-ok");
+        expect(unknownKeys(fixture.document), file).to.deep.equal([]);
+        expect(fixture.document.notes, file).to.be.an("array").that.is.not.empty;
+        for (const note of fixture.document.notes) expect(PROBE_GO_NOTES.some((re) => re.test(note)), `${file}: ${note}`).to.equal(true);
+      }
+    });
+
+    it("REPOSRC / TADIR not readable: the counts are 'not readable with this login', never '0 source rows' (mutation: the notes ignored -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "counts-unreadable"});
+      expect(code).to.equal(0);
+      const text = h.allText();
+      expect(text).to.include("source rows (REPOSRC): not readable with this login");
+      expect(text).to.include("repository objects (TADIR): not readable with this login");
+      expect(text).to.not.include("0 source rows");
+      expect(text).to.not.include("0 repository objects");
+      // recognised notes are said through the verdict, not repeated raw
+      expect(text).to.not.include("Note from the sidecar");
+      const p = readProbe(load("derived-probe-counts-unreadable").document);
+      expect(p.schemas[0].reposrcRows).to.equal(undefined);
+      expect(p.schemas[0].tadirRows).to.equal(undefined);
+      expect(p.unknown).to.deep.equal(["abap_schemas[0].reposrc_rows", "abap_schemas[0].tadir_rows"]);
+      expect(p.missing).to.deep.equal([]);
+    });
+
+    it("schema privileges not readable: never 'can only read' -- 'could not determine whether this login can write' (mutation: non_select_on_schema false taken at face value -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "privileges-unreadable"});
+      expect(code).to.equal(0);
+      const text = h.allText();
+      expect(text).to.include("could not determine whether this login can write");
+      expect(text).to.not.include("can only read");
+      expect(text).to.not.include("Note from the sidecar");
+      const code2 = await h.runDoctor(["--json"], {scenario: "privileges-unreadable"});
+      expect(code2).to.equal(0);
+      const document = JSON.parse(h.out.join("\n"));
+      expect(document.verdict.canWrite).to.equal("unknown");
+      expect(document.verdict.unknown).to.deep.equal(["abap_schemas[0].non_select_on_schema"]);
+    });
+
+    it("system privileges not readable: the login is not called 'not an administrator', and whether it can write is undetermined (mutation: login_class 'other' taken at face value -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "system-privileges-unreadable"});
+      expect(code).to.equal(0);
+      const text = h.allText();
+      expect(text).to.not.include("not an administrator)");
+      expect(text).to.include("whether it is an administrator could not be read with this login");
+      expect(text).to.include("could not determine whether this login can write");
+      expect(text).to.not.include("can only read");
+      const d = load("derived-probe-system-privileges-unreadable").document;
+      expect(readProbe(d).adminKnown).to.equal(false);
+      expect(readerRoleFromProbe(d)).to.equal("unknown");
+      expect(jsonVerdict(d, {connection: {}, sidecar: {}}).verdict.canWrite).to.equal("unknown");
+      // the owner is still the owner; only whether it is ALSO an administrator is open
+      const owner = load("derived-probe-owner-system-privileges-unreadable").document;
+      expect(readerRoleFromProbe(owner)).to.equal("unknown");
+      expect(canWrite(owner)).to.equal(true);
+    });
+
+    it("a note the parser does not recognise is printed verbatim and marks nothing (mutation: unknown notes dropped -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "unrecognised-note"});
+      expect(code).to.equal(0);
+      const text = h.allText();
+      expect(text).to.include(`Note from the sidecar: ${SCHEMA}: something a newer sidecar says`);
+      expect(text).to.include("can only read");
+      const p = readProbe({...load("probe-ok").document, notes: ["OTHERSCHEMA: REPOSRC not readable"]});
+      // a schema note for a schema the document does not list is not applied to another one
+      expect(p.unknown).to.deep.equal([]);
+      expect(p.unrecognisedNotes).to.deep.equal(["OTHERSCHEMA: REPOSRC not readable"]);
+    });
+
+    describe("the reader flow asks instead of assuming when system privileges were not readable", function () {
+      it("not the owner, admin unknown, no terminal: refuses and says why -- never 'neither an administrator', nothing sent (mutation: unknown treated as neither -> red)", async function () {
+        const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+        const code = await h.runDoctor(["--create-reader", "--yes"], {
+          scenario: "system-privileges-unreadable",
+          deps: {clientFactory: factory, store: h.store()},
+        });
+        expect(code).to.equal(1);
+        const text = h.allText();
+        expect(text).to.include("could not read this login's system privileges");
+        expect(text).to.not.include("neither an administrator");
+        expect(text).to.include("Nothing was sent");
+        expect(log.connections).to.have.length(0);
+      });
+
+      it("owner, admin unknown, on a terminal: the doctor asks; 'yes' makes it one login for both roles, nothing assumed before the answer (mutation: unknown treated as owner without asking -> red)", async function () {
+        const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+        const asked = [];
+        const code = await h.runDoctor(["--create-reader", "--yes"], {
+          scenario: "owner-system-privileges-unreadable",
+          isTTY: true,
+          deps: {clientFactory: factory, store: h.store(), stderr: {isTTY: true},
+            prompt: async (question) => { asked.push(question); return "y"; }},
+        });
+        expect(code, h.allText()).to.equal(0);
+        expect(asked.some((q) => q.includes("administrator") && q.includes("[y/n]"))).to.equal(true);
+        expect(asked.some((q) => q.includes("login:"))).to.equal(false);
+        // one login ran everything: no second login was opened
+        expect(new Set(log.connections.map((c) => c.user)).has("OWNERLOGIN")).to.equal(false);
+        expect(log.statements.some((s) => s.sql.startsWith("CREATE USER"))).to.equal(true);
+      });
+
+      it("owner, admin unknown, on a terminal, answered 'no': the doctor then asks for the administrator login", async function () {
+        const {factory} = fakeClientFactory(SUCCESS_RULES);
+        const asked = [];
+        await h.runDoctor(["--create-reader", "--yes"], {
+          scenario: "owner-system-privileges-unreadable",
+          isTTY: true,
+          deps: {clientFactory: factory, store: h.store(), stderr: {isTTY: true},
+            prompt: async (question) => { asked.push(question); return question.includes("[y/n]") ? "n" : ""; }},
+        });
+        expect(asked.some((q) => q.includes("[y/n]"))).to.equal(true);
+        expect(asked.some((q) => q.includes("administrator login"))).to.equal(true);
+      });
     });
   });
 

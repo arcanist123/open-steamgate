@@ -23,7 +23,7 @@ import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory,
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict, readerRoleFromProbe, ipSansExplanation} from "./verdict.mjs";
-import {readProbe, saysNoAbapSchema} from "./probe-doc.mjs";
+import {ownsAbapSchema, readProbe, saysNoAbapSchema} from "./probe-doc.mjs";
 import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
@@ -332,6 +332,10 @@ export async function doctorMain(argv, {
         // deliberately no --owner-password-stdin: non-interactive use names
         // the login with the flag and brings the password through the env).
         role = readerRoleFromProbe(probe);
+        if (role === "unknown") {
+          // the sidecar could not read the system privileges: ask, never assume
+          role = await askAdministratorRole({owns: ownsAbapSchema(probe), flags, canPrompt, promptVisible: promptVisibleFn});
+        }
         if (role === "neither") {
           io.err(describeNeitherRole(schemaName));
           return DOCTOR_EXIT.usage;
@@ -566,6 +570,31 @@ function describeSidecar(verified, handshakeInfo) {
     version: handshakeInfo?.version,
     commit: handshakeInfo?.commit,
   };
+}
+
+/** The probe said "system privileges not readable": whether the present
+ *  login is an administrator is UNKNOWN, so the role is asked, not assumed
+ *  (ownership is known either way). On a terminal one yes/no question; off a
+ *  terminal the second-login flag answers it -- --admin-user names the
+ *  administrator, so this login acts as the schema owner, --owner-user names
+ *  the owner, so this login acts as the administrator -- and without one the
+ *  doctor refuses with the reason. Nothing has been sent at that point. */
+async function askAdministratorRole({owns, flags, canPrompt, promptVisible}) {
+  if (owns && flags["admin-user"] !== undefined) return "owner";
+  if (!owns && flags["owner-user"] !== undefined) return "admin";
+  const why = "the sidecar could not read this login's system privileges, so whether it is an administrator (USER ADMIN) is not known";
+  if (!canPrompt) {
+    throw new ReaderError(`osd hana: ${why}.\n` +
+      (owns
+        ? "  This login owns the ABAP schema. Name an administrator login with --admin-user (its password in $OSD_HANA_ADMIN_PASSWORD), or re-run on a terminal to be asked.\n"
+        : "  If this login is an administrator, name the schema owner's login with --owner-user (its password in $OSD_HANA_OWNER_PASSWORD), or re-run on a terminal to be asked;\n" +
+          "  otherwise re-run with an administrator or the schema owner's login.\n") +
+      "  Nothing was sent.");
+  }
+  const answer = String(await promptVisible(`osd hana: ${why}. Is this login an administrator (holds USER ADMIN)? [y/n]: `)).trim().toLowerCase();
+  if (answer === "y" || answer === "yes") return owns ? "both" : "admin";
+  if (answer === "n" || answer === "no") return owns ? "owner" : "neither";
+  throw new ReaderError("osd hana: no answer to whether this login is an administrator (y or n). Nothing was sent.");
 }
 
 /** The second login of the guided two-login flow. `role` is the PRESENT

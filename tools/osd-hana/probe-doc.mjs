@@ -19,6 +19,14 @@
 //    the `abap_schemas` key is present and holds null or an empty list (the
 //    real binary prints null -- a Go nil slice -- with ok false, exit 5).
 //
+// 3. A value the sidecar could NOT READ is UNKNOWN. probe.go leaves such a
+//    value at its zero (0, false, an omitted list) and appends a note
+//    ("<schema>: REPOSRC not readable", "<schema>: privileges not readable",
+//    "system privileges not readable"); readNotes() below turns those notes
+//    into `unknown` and clears the zero, so the verdict never says "0 source
+//    rows" or "can only read" off a value nobody read. A note it does not
+//    recognise stays in `unrecognisedNotes`, printed verbatim.
+//
 // Unknown extra fields are ignored: the sidecar is a moving binary.
 
 const NORMALIZED = Symbol("osd-hana probe, read");
@@ -47,7 +55,49 @@ function readSchema(raw, index, missing) {
     reposrcRows: need("reposrc_rows", Number.isFinite),
     tadirRows: need("tadir_rows", Number.isFinite),
     abapAttached: need("abap_attached", (v) => v === "yes" || v === "no" || v === "unknown"),
+    unknown: [], // the keys of this schema the sidecar said it could not read
   };
+}
+
+// The notes cmd/osd-hana-dump/probe.go (pinned tag) writes for a value it
+// could not read, verbatim: the per-schema ones are "<schema>" + the suffix.
+const SYSTEM_PRIVILEGES_NOTE = "system privileges not readable";
+const SCHEMA_NOTES = [
+  {suffix: ": privileges not readable", fields: [["nonSelect", "non_select_on_schema"]], clear: (s) => { s.nonSelectKinds = []; }},
+  {suffix: ": REPOSRC not readable", fields: [["reposrcRows", "reposrc_rows"]]},
+  {suffix: ": TADIR not readable", fields: [["tadirRows", "tadir_rows"]]},
+];
+
+/** The one place the sidecar's notes are read. Marks what they say was not
+ *  readable as UNKNOWN on the matching schema (by exact name) or on the
+ *  login; returns the notes it did not recognise, for verbatim printing. A
+ *  schema note naming a schema the document does not list is not applied to
+ *  any other one -- it stays unrecognised. */
+function readNotes(notes, schemas, unknown) {
+  const unrecognised = [];
+  let adminKnown = true;
+  for (const note of notes) {
+    if (note === SYSTEM_PRIVILEGES_NOTE) {
+      adminKnown = false;
+      unknown.push("admin_privileges");
+      continue;
+    }
+    const kind = SCHEMA_NOTES.find((k) => note.endsWith(k.suffix) && note.length > k.suffix.length);
+    const name = kind === undefined ? undefined : note.slice(0, -kind.suffix.length);
+    const index = name === undefined ? -1 : schemas.findIndex((s) => s.name === name);
+    if (index < 0) {
+      unrecognised.push(note);
+      continue;
+    }
+    const schema = schemas[index];
+    for (const [field, key] of kind.fields) {
+      schema[field] = undefined;
+      schema.unknown.push(key);
+      unknown.push(`abap_schemas[${index}].${key}`);
+    }
+    kind.clear?.(schema);
+  }
+  return {unrecognised, adminKnown};
 }
 
 /** Reads the one-line JSON summary of `osd-hana-dump probe` into the model
@@ -55,7 +105,10 @@ function readSchema(raw, index, missing) {
  *
  *  schemasReported  the document carries the `abap_schemas` key at all
  *  schemas          [] when the key is absent, null or empty
- *  missing          the fields the verdict needs and the document lacks */
+ *  missing          the fields the verdict needs and the document lacks
+ *  unknown          the fields the sidecar said it could not read (notes)
+ *  adminKnown       false when the system privileges were not readable
+ *  unrecognisedNotes  notes readNotes() does not know, for verbatim printing */
 export function readProbe(document) {
   if (document !== null && typeof document === "object" && document[NORMALIZED] === true) return document;
   const raw = (document !== null && typeof document === "object") ? document : {};
@@ -69,17 +122,23 @@ export function readProbe(document) {
   if (db === undefined) missing.push("db");
   const loginClass = ["schema_owner", "admin", "other"].includes(raw.login_class) ? raw.login_class : undefined;
   if (loginClass === undefined) missing.push("login_class");
+  const notes = Array.isArray(raw.notes) ? raw.notes.map(String) : [];
+  const unknown = [];
+  const {unrecognised, adminKnown} = readNotes(notes, schemas, unknown);
   const read = {
     ok: raw.ok === true,
     db,
     loginClass,
     adminPrivileges: Array.isArray(raw.admin_privileges) ? raw.admin_privileges.map(String) : [],
-    notes: Array.isArray(raw.notes) ? raw.notes.map(String) : [],
+    notes,
+    unrecognisedNotes: unrecognised,
+    adminKnown,
     tls: ["verified", "unverified", "off"].includes(raw.tls) ? raw.tls : undefined,
     error: isText(raw.error) ? raw.error : undefined,
     schemasReported,
     schemas,
     missing,
+    unknown,
     raw,
   };
   Object.defineProperty(read, NORMALIZED, {value: true, enumerable: false});
@@ -100,6 +159,14 @@ export function saysNoAbapSchema(probe) {
 export function isAdministrator(probe) {
   const p = readProbe(probe);
   return p.loginClass === "admin" || p.adminPrivileges.length > 0;
+}
+
+/** False when the sidecar could not read the login's system privileges: then
+ *  "not an administrator" is not known, only "no administrator privilege
+ *  was seen". */
+export function administratorKnown(probe) {
+  const p = readProbe(probe);
+  return isAdministrator(p) || p.adminKnown;
 }
 
 /** The login owns an ABAP schema the probe reports. */
