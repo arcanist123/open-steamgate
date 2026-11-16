@@ -15,7 +15,6 @@
 // refusal messages and the README all quote it -- change it here or nowhere.
 import {createInterface} from "node:readline";
 import {SUPPORTED_TYPES} from "./convert/convert.mjs";
-import {GROUP_INCLUDE_SUFFIX_LENGTH, mainProgram} from "./convert/program.mjs";
 import {sanitizeText} from "./report.mjs";
 
 // A plan "above 5 000 objects or 200 MB" is LARGE (fix round 3, part B):
@@ -116,86 +115,53 @@ export function printPlan(io, plan) {
   }
 }
 
-// ---- the dump request (fix round 3, part A: one function, measured) --------
+// ---- the dump request (one function) ----------------------------------------
 // M-2 (critic round 2): nothing of the vendor's is fetched unless asked --
-// the dump request NAMES the in-scope objects of the listing (exact names,
-// LIKE-escaped, sorted, de-duplicated), never the user's patterns; the
-// unknown-class rows are not fetched at all.
+// the dump request NAMES the in-scope objects of the listing, never the
+// user's patterns; the unknown-class rows are not fetched at all.
 //
-// THE COMPOSITE-SOURCE RULE, measured on the real bed and CONFIRMED there
-// (fix round 3, w3fix3 run, sidecar v2.60.0-19-g0d5767b, pinned): an exact
-// name fetches the TADIR row, the DDIC rows and a flat program's source --
-// but NO sources for a class, interface or function group (11 052 objects
-// came back `no-source` in the round-2 measurement; the round-3 run with
-// these patterns brought every source back, 104 .abap files byte-identical
-// to the first extract round, 0 `no-source` on objects that had sources).
-// The sidecar's source fetch matches REPOSRC program names with the same
-// patterns, and the sources hide behind:
-//
-//   CLAS / INTF / BDEF  -- the 30-character '='-padded name plus a suffix
-//                          (ZCL_X==========================CS): send
-//                          `<name padded to 30 with =>%`;
-//   FUGR                -- the main program SAPL<grp> and the includes
-//                          L<grp> + 3 characters -- sent as the exact main
-//                          program and `L<grp>___` (round 6: see below).
-//
-// TADIR selection stays exact: a padded prefix names exactly one object, so
-// the selection cannot widen.
-//
-// The include patterns (fix round 6, CRITIC round 4 MUST-2): a function
-// group's include is EXACTLY L<grp> + 3 characters (TOP, UXX, U01, F01, ...
-// -- abapGit's and the function library's naming), so the request carries
-// the main program EXACTLY (`SAPL<grp>`, namespaced `/NS/SAPLGRP`) and ONE
-// include pattern, `L<grp>___` (namespaced `/NS/LGRP___`): three
-// single-character wildcards, no letter before them. Length pins the match:
-// `LZA___` is six characters and group ZAU's includes are seven, so a
-// sibling whose name extends the group's can never match (round 5's
-// `L<grp><letter>___` shapes did: `LZAU___` is exactly `LZAUTOP`). The
-// converter's resolver (convert/ownership.mjs) splits off the same 3
-// characters and nothing else -- request and ownership are one rule. The day
-// the sidecar selects objects exactly (its next release:
-// `requested: {TYPE: [names]}`), these patterns go away and ONLY this
-// function changes.
-//
-// `_` and `%` inside REAL object names never act as wildcards unnoticed:
-// every literal is LIKE-escaped (`\_`, `\%`, `\\`) -- the real sidecar
-// matches with `LIKE ? ESCAPE '\'` (checked in its binary's strings; the
-// fake mirrors it), so an escaped underscore matches exactly that name.
-// Only the wildcard `_`s appended HERE match one arbitrary character.
-const exactNamePattern = (name) => String(name).trim().replace(/([%_\\])/g, "\\$1");
-
-// A group's source patterns: the namespaced shape too -- /NS/GRP's main
-// program is /NS/SAPLGRP and its includes /NS/LGRP... (the converter knows
-// this; mainProgram is its helper) -- a group name carries its namespace.
-function fugrSourcePatterns(rawName) {
-  const m = /^(\/[^/]+\/)?(.+)$/.exec(rawName);
-  const inc = `${m?.[1] ?? ""}L${m?.[2] ?? rawName}`;
-  return [
-    exactNamePattern(mainProgram(rawName)),
-    `${exactNamePattern(inc)}${"_".repeat(GROUP_INCLUDE_SUFFIX_LENGTH)}`,
-  ];
-}
-
+// Since sidecar v2.62.1 the selection is EXACT: `requested: {TYPE: [names]}`
+// -- (type, name) pairs, no LIKE patterns. The sidecar selects TADIR per
+// type, expands the sources of CLAS / INTF / FUGR / PROG itself (a function
+// group: its main program and its L<grp> + three-character includes), takes
+// MSAG / DDLS / DDLX / SRVD / DCLS by name, and closes the dictionary kinds
+// over their dependencies -- the extra names it reached are listed in the
+// manifest's `closure.resolved`, and those, and only those, are the extras
+// the scope audit (extract.mjs) accepts. The include-name patterns of the
+// earlier rounds (`<name padded to 30 with =>%`, `SAPL<grp>`, `L<grp>___`)
+// are gone: the sidecar owns that rule now, and the source audit still
+// checks every REPOSRC row it delivered against an in-scope owner.
 export function buildDumpRequest({rows, inactive = false}) {
-  const sourcePatterns = [];
-  const exactNames = [];
+  const requested = {};
   for (const r of rows) {
+    const type = String(r.type).trim().toUpperCase();
     const name = String(r.name).trim().toUpperCase();
-    exactNames.push(exactNamePattern(name));
-    if (r.type === "CLAS" || r.type === "INTF" || r.type === "BDEF") {
-      sourcePatterns.push(exactNamePattern(name.padEnd(30, "=")) + "%");
-    } else if (r.type === "FUGR") {
-      sourcePatterns.push(...fugrSourcePatterns(name));
-    }
+    (requested[type] ??= new Set()).add(name);
   }
+  const sorted = {};
+  for (const type of Object.keys(requested).sort()) sorted[type] = [...requested[type]].sort();
   return {
     schema: 1,
-    names: [...new Set(exactNames.concat(sourcePatterns))].sort(),
+    requested: sorted,
     inactive,
     catalog: true,
     ddic: true,
     provenance: "osd hana extract", // stable: the reuse fingerprint is the whole request, so nothing per-run may enter it
   };
+}
+
+/** The requested map's (type, name) pairs, in request order. */
+export function requestedPairs(requested) {
+  const pairs = [];
+  for (const [type, names] of Object.entries(requested ?? {})) for (const name of names) pairs.push([type, name]);
+  return pairs;
+}
+
+/** Pairs back into a requested map (one chunk of a large selection). */
+export function requestedOf(pairs) {
+  const requested = {};
+  for (const [type, name] of pairs) (requested[type] ??= []).push(name);
+  return requested;
 }
 
 // ---- consent (fix round 3, part B) -----------------------------------------

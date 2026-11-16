@@ -17,7 +17,7 @@ import {PassThrough} from "node:stream";
 
 import {extractMain, accountsFor} from "../tools/osd-hana/extract.mjs";
 import {reusableDump, inGitTree} from "../tools/osd-hana/extract.mjs";
-import {buildDumpRequest, isLargePlan, largePlanNumbers} from "../tools/osd-hana/extract-plan.mjs";
+import {buildDumpRequest, requestedPairs, requestedOf, isLargePlan, largePlanNumbers} from "../tools/osd-hana/extract-plan.mjs";
 import {decideFolderLogic, folderPaths} from "../tools/osd-hana/convert/convert.mjs";
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
 import {buildExtractFixtures, addNamespacedFunctionGroup, addSiblingFunctionGroups} from "./osd-hana/extract-fixtures.mjs";
@@ -900,7 +900,7 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
   });
   const readOutReport = (out) => readFileSync(join(out, "extract-report.md"), "utf8");
 
-  it("M-2a: the dump request names the in-scope objects, not the user's patterns (mutation: the raw patterns go to the dump)", async function () {
+  it("M-2a: the dump request names the in-scope objects exactly -- requested {TYPE: [names]}, never the user's patterns (mutation: the raw patterns go to the dump)", async function () {
     const out = await fresh("m2a");
     const from = recordLines().length;
     const r = await runExtract(["--out", out, "--name", "Z%"], {});
@@ -909,33 +909,18 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(reqs.length).to.equal(1);
     const req = reqs[0];
     expect(req.packages).to.equal(undefined); // no pattern travels to the dump
-    expect(req.names).to.not.include("Z%");
-    expect(req.names).to.not.include("ZCL_SAP_XE"); // nothing of the vendor's
-    // exact names, LIKE-escaped (the sidecar matches with ESCAPE '\\')
-    expect(req.names).to.include("ZOSD\\_X3");
-    expect(req.names).to.include("ZCL\\_OSD\\_X1");
-    // composite objects carry the include-name pattern their sources hide
-    // behind: a class's REPOSRC names are the 30-character '='-padded name
-    // plus a suffix; a group's are the main program EXACTLY (SAPL<grp>) and
-    // the includes as L<grp> + exactly 3 wildcard characters (round 6) -- no
-    // bare `L<grp>%`, which would also prefix a longer sibling group's
-    // includes). TADIR selection stays exact (the padded prefix names exactly
-    // one object).
-    expect(req.names).to.include("ZCL\\_OSD\\_X1" + "=".repeat(20) + "%");
-    expect(req.names).to.include("SAPLZOSG\\_X4");
-    expect(req.names).to.not.include("SAPLZOSG\\_X4%");
-    // round 6 (CRITIC round 4 MUST-2): an include is EXACTLY L<grp> + 3
-    // characters -- one pattern, three single-character wildcards, no letter
-    expect(req.names).to.include("LZOSG\\_X4___");
-    expect(req.names.filter((n) => n.startsWith("LZOSG\\_X4") && n !== "LZOSG\\_X4___")).to.deep.equal([]);
-    expect(req.names).to.not.include("LZOSG\\_X4%");
-    // every in-scope name is there; the vendor's is not, in no spelling
-    const unescaped = req.names.map((n) => n.replace(/\\(.)/g, "$1"));
-    expect(unescaped.filter((n) => n.includes("SAP_XE"))).to.deep.equal([]);
+    expect(req.names, "no LIKE patterns at all since v2.62.1").to.equal(undefined);
+    const pairs = Object.entries(req.requested).flatMap(([t, ns]) => ns.map((n) => `${t}:${n}`));
+    // exact names, NOT LIKE-escaped (a (type, name) pair is no pattern)
+    expect(pairs).to.include("CLAS:ZCL_OSD_X1");
+    expect(pairs).to.include("FUGR:ZOSG_X4");
     for (const inScope of ["ZCL_OSD_X1", "ZOSD_X3", "ZOSG_X4", "ZTAB_X5", "ZSICF_XC"]) {
-      expect(unescaped).to.include(inScope);
+      expect(pairs.some((p) => p.endsWith(`:${inScope}`)), inScope).to.equal(true);
     }
-    expect(req.names.length).to.equal(18); // 14 exact + 2 padded class patterns + the group's 2 (SAPL<grp>, L<grp>___ -- round 6)
+    // nothing of the vendor's, and no include shapes: the sidecar expands sources
+    expect(pairs.filter((p) => p.includes("SAP_XE"))).to.deep.equal([]);
+    expect(pairs.filter((p) => /[%=]|:SAPL|:LZOSG/.test(p))).to.deep.equal([]);
+    expect(pairs.length).to.equal(14);
   });
 
   it("M-2b: a dump that delivers objects outside the scope fails the run and names the dump directory (mutation: the audit removed)", async function () {
@@ -962,6 +947,30 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(r2.code).to.equal(3);
   });
 
+  it("M-2b2: the audit allows EXACTLY the closure's extras -- a row object the manifest lists in closure.resolved passes, the same row unlisted (or listed under another kind) refuses the run (mutation: closure ignored / rows status not counted as content)", async function () {
+    const extra = {type: "DTEL", name: "ZCLOSURE_DTEL", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "rows", files: []};
+    const appendPath = join(root, `append-closure-${Math.random().toString(16).slice(2)}.jsonl`);
+    writeFileSync(appendPath, JSON.stringify(extra) + "\n");
+    // listed: legitimate
+    const ok = await fresh("m2b2-ok");
+    const r1 = await runExtract(["--out", ok], {extra: {FAKE_SIDECAR_DUMP_APPEND: appendPath, FAKE_SIDECAR_CLOSURE: JSON.stringify({rounds: 1, resolved: {DTEL: ["ZCLOSURE_DTEL"]}})}});
+    expect(r1.code, r1.lines.err.join("\n")).to.equal(3);
+    expect(existsSync(join(ok, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
+    // a closure extra is never written into the repository: it is not in scope
+    const files = [];
+    const walk = (d) => { for (const e of readdirSync(d, {withFileTypes: true})) { if (e.isDirectory()) walk(join(d, e.name)); else files.push(e.name); } };
+    walk(join(ok, "src"));
+    expect(files.filter((f) => f.includes("zclosure_dtel"))).to.deep.equal([]);
+    // unlisted: over-delivery
+    for (const closure of [undefined, JSON.stringify({rounds: 1, resolved: {DOMA: ["ZCLOSURE_DTEL"]}})]) {
+      const bad = await fresh("m2b2-bad");
+      const r2 = await runExtract(["--out", bad], {extra: {FAKE_SIDECAR_DUMP_APPEND: appendPath, ...(closure ? {FAKE_SIDECAR_CLOSURE: closure} : {})}});
+      expect(r2.code, `closure=${closure}`).to.equal(4);
+      expect(r2.lines.err.join("\n")).to.match(/outside the scope/).and.to.match(/DTEL:ZCLOSURE_DTEL/);
+      expect(existsSync(join(bad, "src"))).to.equal(false);
+    }
+  });
+
   it("M-2c: <out>/.gitignore carries .osd-hana/ -- the raw dump never belongs in the repository (mutation: the gitignore removed)", async function () {
     const out = await fresh("m2c");
     await runExtract(["--out", out]);
@@ -974,15 +983,19 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const r = await runExtract(["--out", out], {chunk: 5});
     expect(r.code).to.equal(3);
     const reqs = dumpRequests(from);
-    expect(reqs.length).to.equal(4); // ceil(18 / 5): 14 exact + 2 padded class patterns + the group's 2 patterns (round 6)
+    expect(reqs.length).to.equal(3); // ceil(14 / 5): one (type, name) pair per in-scope object
+    // every part carries a requested map, and the parts together are the scope
+    const parts = reqs.flatMap((q) => Object.entries(q.requested).flatMap(([t, ns]) => ns.map((n) => `${t}:${n}`)));
+    expect(parts.length).to.equal(14);
+    expect(new Set(parts).size).to.equal(14);
     const dumpDir = join(out, ".osd-hana", "dump");
-    for (const part of ["part-00001", "part-00002", "part-00003", "part-00004"]) {
+    for (const part of ["part-00001", "part-00002", "part-00003"]) {
       expect(existsSync(join(dumpDir, part, "objects.jsonl")), part).to.equal(true);
       expect(existsSync(join(dumpDir, part, "manifest.json")), part).to.equal(true);
     }
     // the aggregate manifest echoes the whole request and is what reuse reads
     const aggregate = JSON.parse(readFileSync(join(dumpDir, "manifest.json"), "utf8"));
-    expect(aggregate.sidecar.parts.length).to.equal(4);
+    expect(aggregate.sidecar.parts.length).to.equal(3);
     expect(aggregate.sidecar.errors).to.deep.equal([]);
     // the repository is complete across the parts
     expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
@@ -1496,28 +1509,30 @@ describe("osd hana extract -- fix round 3 (the default scope must not surprise)"
     expect(existsSync(join(out2, ".osd-hana", "dump", "refused.json")), "the dump is marked refused").to.equal(true);
   });
 
-  it("A: buildDumpRequest is the ONE place the request is built -- exact names, the measured pattern shapes (mutation: a pattern shape lost or a raw pattern sent)", async function () {
+  it("A: buildDumpRequest is the ONE place the request is built -- requested {TYPE: [sorted exact names]}, no pattern (mutation: a pattern or a raw user pattern sent)", async function () {
     const rows = [
       {type: "CLAS", name: "ZCL_A", package: "$OSD_X"},
       {type: "INTF", name: "ZIF_B", package: "$OSD_X"},
       {type: "FUGR", name: "ZOSG_C", package: "$OSD_X"},
+      {type: "FUGR", name: "/NS/GRP_Y2", package: "$OSD_X"},
       {type: "PROG", name: "ZOSD_D", package: "$OSD_X"},
       {type: "TABL", name: "ZTAB_E", package: "$OSD_X"},
+      {type: "TABL", name: "ZTAB_E", package: "$OSD_X"}, // a duplicate listing row: one pair
       {type: "DDLS", name: "ZDDL_F", package: "$OSD_X"},
+      {type: "MSAG", name: "ZOSD_MSG", package: "$OSD_X"},
     ];
     const req = buildDumpRequest({rows, inactive: false});
     expect(req).to.deep.equal({
       schema: 1,
-      names: [
-        "LZOSG\\_C___",
-        "SAPLZOSG\\_C",
-        "ZCL\\_A", "ZCL\\_A" + "=".repeat(25) + "%",
-        "ZDDL\\_F",
-        "ZIF\\_B", "ZIF\\_B" + "=".repeat(25) + "%",
-        "ZOSD\\_D",
-        "ZOSG\\_C",
-        "ZTAB\\_E",
-      ],
+      requested: {
+        CLAS: ["ZCL_A"],
+        DDLS: ["ZDDL_F"],
+        FUGR: ["/NS/GRP_Y2", "ZOSG_C"],
+        INTF: ["ZIF_B"],
+        MSAG: ["ZOSD_MSG"],
+        PROG: ["ZOSD_D"],
+        TABL: ["ZTAB_E"],
+      },
       inactive: false,
       catalog: true,
       ddic: true,
@@ -1525,7 +1540,11 @@ describe("osd hana extract -- fix round 3 (the default scope must not surprise)"
     });
     // inactive travels; a user pattern never does
     expect(buildDumpRequest({rows: [rows[0]], inactive: true}).inactive).to.equal(true);
-    expect(JSON.stringify(buildDumpRequest({rows}))).to.not.match(/ZOSD_%/);
+    expect(JSON.stringify(buildDumpRequest({rows}))).to.not.match(/[%\\]|=/);
+    // chunking round-trips the pairs
+    const pairs = requestedPairs(req.requested);
+    expect(pairs.length).to.equal(8);
+    expect(requestedOf(pairs)).to.deep.equal(req.requested);
     // the LARGE-plan rule, at the named boundaries (one place: LARGE_PLAN)
     expect(isLargePlan({inScope: 5000, bytes: 0})).to.equal(false);
     expect(isLargePlan({inScope: 5001, bytes: 0})).to.equal(true);
@@ -1802,14 +1821,6 @@ describe("osd hana extract -- fix round 5 (the audit always; the marker never sh
     expect(r2.runs()).to.not.include("dump");
   });
 
-  it("SHOULD-2: the namespaced group's request carries /NS/SAPLGRP and /NS/LGRP patterns (mutation: the raw group name in the pattern)", async function () {
-    const req = buildDumpRequest({rows: [{type: "FUGR", name: "/NS/GRP_Y2"}], inactive: false});
-    expect(req.names, "the main program is /NS/SAPLGRP_Y2, exact").to.include("/NS/SAPLGRP\\_Y2");
-    expect(req.names, "the includes are /NS/LGRP_Y2 + exactly 3 characters (round 6)").to.include("/NS/LGRP\\_Y2___");
-    expect(req.names).to.not.include("SAPL/NS/GRP\\_Y2%");
-    expect(req.names.filter((n) => n.includes("%")), "no bare prefixes").to.deep.equal([]);
-  });
-
   it("SHOULD-2: a namespaced function group's sources come back (golden fixture; mutation: the request cannot name the programs)", async function () {
     const fx = variant((list, dump) => addNamespacedFunctionGroup({list, dump}));
     const out = await fresh("r5-ns-fugr");
@@ -1818,8 +1829,7 @@ describe("osd hana extract -- fix round 5 (the audit always; the marker never sh
     expect(r.code).to.equal(3);
     const reqs = recordLines().slice(from).map((l) => JSON.parse(l)).filter((e) => e.argv[0] === "dump").map((e) => e.request);
     expect(reqs.length).to.equal(1);
-    expect(reqs[0].names).to.include("/NS/SAPLGRP\\_Y2");
-    expect(reqs[0].names).to.include("/NS/LGRP\\_Y2___");
+    expect(reqs[0].requested.FUGR).to.include("/NS/GRP_Y2"); // by name; the sidecar expands /NS/SAPLGRP_Y2 and /NS/LGRP_Y2___
     const rep = reportOf(out);
     const fugr = rep.objects.find((o) => o.name === "/NS/GRP_Y2");
     expect(fugr.status, "the namespaced group's sources were fetched").to.equal("written");
@@ -1990,10 +2000,9 @@ describe("osd hana extract -- fix round 6 (a refusal touches nothing; a group ow
         const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
         expect(r.code, errText(r)).to.equal(3);
         const req = recordLines().slice(from).map((l) => JSON.parse(l)).find((e) => e.argv[0] === "dump").request;
-        const esc = (s) => s.replace(/_/g, "\\_");
-        expect(req.names).to.include(`${esc(`${ns}L${inScope}`)}___`);
-        expect(req.names).to.include(esc(`${ns}SAPL${inScope}`));
-        expect(req.names.filter((n) => n.startsWith(esc(`${ns}L${inScope}`)) && n !== `${esc(`${ns}L${inScope}`)}___`), "no letter shapes").to.deep.equal([]);
+        expect(req.requested.FUGR, "the group by its exact name").to.include(`${ns}${inScope}`);
+        expect(req.requested.FUGR, "the sibling not at all").to.not.include(`${ns}${other}`);
+        expect(req.names, "no include patterns").to.equal(undefined);
         const fetched = readJsonl6(join(out, ".osd-hana", "dump"), "reposrc.jsonl").map((x) => x.program);
         expect(fetched.filter((p) => p.startsWith(`${ns}L${other}`) && p.length === `${ns}L${other}`.length + 3), "the sibling's includes are not fetched").to.deep.equal([]);
         const written = [];

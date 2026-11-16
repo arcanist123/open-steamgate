@@ -224,42 +224,28 @@ clone, diff and deploy:
    terminal the question says so and wants the full `yes`. The numbers live
    in exactly one place (`LARGE_PLAN` in `extract-plan.mjs`); the prompt,
    the refusals and this README quote it.
-3. **Dump** — the dump request NAMES the in-scope objects of the listing:
-   exact names, sorted, LIKE-escaped (the sidecar matches
-   `LIKE ? ESCAPE '\'`), in chunks of 500 (one request, one directory per
-   chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) so
-   a big selection cannot blow the sidecar's SQL parameter limit — and never
-   the user's patterns, so nothing of the vendor's is fetched unless
-   `--include-sap` asked for it. Composite objects carry, next to their
-   exact name, the include-name pattern their sources hide behind in
-   REPOSRC — measured on the real bed and confirmed there (round 3): a
-   class's/interface's sources sit behind the 30-character `=`-padded name
-   (`<name padded to 30 with =>%`), a function group's behind its main
-   program and includes (`SAPL<grp>`, `L<grp>___`, below); flat programs and DDIC
-   need only the exact name. TADIR selection stays exact (a padded prefix
-   names exactly one object), so the selection cannot widen.
-   `_` and `%` inside a REAL object name never act as wildcards unnoticed:
-   every literal is LIKE-escaped (`\_`, `\%`, `\\`) — the sidecar matches
-   with `LIKE ? ESCAPE '\'` (checked in its binary's strings), so an escaped
-   underscore matches exactly that name. A function group's include is
-   EXACTLY `L<grp>` + 3 characters (TOP, UXX, U01, F01, …: abapGit's and
-   the function library's naming), so the request carries `SAPL<grp>`
-   exactly and ONE include pattern `L<grp>___` — three single-character
-   wildcards, no letter (round 6). Length pins the match: group `ZA`'s
-   pattern is six characters, group `ZAU`'s includes seven, so a sibling
-   whose name extends the group's can never match (round 5's
-   `L<grp><letter>___` shapes did: `LZAU___` is `LZAUTOP`). The converter's
-   resolver (`convert/ownership.mjs`) splits off exactly those 3 characters
-   — an include that fits no in-scope group by exact length is ownerless
-   and the audit refuses the run. Namespaced groups take their real shape
-   (`/NS/GRP` → `/NS/SAPLGRP` exact, `/NS/LGRP___`). The
-   request is built in ONE function (`buildDumpRequest` in
-   `extract-plan.mjs`): the sidecar's next release selects objects exactly
-   (`requested: {TYPE: [names]}`), and then the patterns go away and only
-   that function changes.
+3. **Dump** — the dump request NAMES the in-scope objects of the listing,
+   exactly: `requested: {TYPE: [names]}` (sidecar v2.62.1), sorted and
+   de-duplicated, in chunks of 500 objects (one request, one directory per
+   chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) —
+   and never the user's patterns, so nothing of the vendor's is fetched
+   unless `--include-sap` asked for it. The sidecar selects TADIR per type,
+   expands the sources of CLAS / INTF / FUGR / PROG itself (a function group:
+   its main program `SAPL<grp>` and its includes `L<grp>` + exactly three
+   characters — so a sibling group whose name extends this one's is never
+   fetched), takes MSAG / DDLS / DDLX / SRVD / DCLS by name, and closes the
+   dictionary kinds over their dependencies; the extra names that closure
+   reached are listed in the manifest's `closure.resolved`. The request is
+   built in ONE function (`buildDumpRequest` in `extract-plan.mjs`); the
+   include-name LIKE patterns of the earlier rounds are gone with v2.62.1.
+   A dump made from such patterns is never reused for a `requested` run
+   (the reuse fingerprint carries the kind of selection).
    **The scope audit** runs on EVERY dump before conversion, reused or fresh
-   (round 5): every object the dump fetched WITH sources must be in the
-   scope set, and every REPOSRC row it fetched must resolve to an in-scope
+   (round 5): every object the dump delivered WITH content — sources, or
+   definition rows (`rows`) — must be in the scope set or be one of the
+   names the sidecar lists in `closure.resolved` (exactly those extras are
+   legitimate; a sidecar that over-delivers anything else still fails the
+   run), and every REPOSRC row it fetched must resolve to an in-scope
    owner (`convert/ownership.mjs` — the one resolver the converter writes
    by, so the two cannot drift). Anything outside the scope refuses the run
    (exit 4), names the dump directory so it can be removed, leaves the

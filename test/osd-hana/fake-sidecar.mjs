@@ -126,42 +126,60 @@ if (args[0] === "list" || args[0] === "dump") {
   const fixtureDir = process.env[args[0] === "list" ? "FAKE_SIDECAR_LIST" : "FAKE_SIDECAR_DUMP"];
   if (fixtureDir !== undefined && outDir !== undefined) {
     copySync(fixtureDir, outDir, {recursive: true});
-    // a dump honours its request the way the real sidecar does: `names` are
-    // SQL LIKE patterns with `\` as the ESCAPE character -- `\x` is the
-    // literal x (so extract's exact-name patterns "ZOSD\_X3" match exactly
-    // that name, and `_`/`%` inside a real name never act as wildcards), an
-    // unescaped `%` is any sequence and an unescaped `_` one arbitrary
-    // character (extract's include shapes "L<grp>U__" match U + 2 chars);
-    // rows the request does not name are not dumped.
+    // a dump honours its request the way the real sidecar (v2.62.1) does:
+    // `requested: {TYPE: [names]}` is an exact (type, name) selection. The
+    // sidecar expands the sources of the requested CLAS / INTF / BDEF (the
+    // 30-character '='-padded name plus a suffix), FUGR (its main program
+    // SAPL<grp> and the includes L<grp> + exactly three characters, the
+    // namespaced shape /NS/SAPLGRP, /NS/LGRP___) and PROG (the exact name);
+    // rows the request does not select are not dumped, except the names its
+    // dictionary closure reached (manifest `closure.resolved`; a fixture
+    // sets it through FAKE_SIDECAR_CLOSURE or its own manifest.json).
     // FAKE_SIDECAR_DUMP_APPEND adds rows AFTER the filter (a sidecar that
     // over-delivers -- the M-2 audit).
-    if (args[0] === "dump" && Array.isArray(request?.names)) {
-      const regexEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const like = (pat) => {
-        let re = "^";
-        for (let i = 0; i < pat.length; i++) {
-          const c = pat[i];
-          if (c === "\\" && i + 1 < pat.length) re += regexEscape(pat[++i]); // \x = the literal x
-          else if (c === "%") re += "[\\s\\S]*";
-          else if (c === "_") re += "[\\s\\S]";
-          else re += regexEscape(c);
+    const closureEnv = process.env.FAKE_SIDECAR_CLOSURE;
+    if (args[0] === "dump" && closureEnv !== undefined) {
+      const mp = join(outDir, "manifest.json");
+      const m = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};
+      m.closure = JSON.parse(closureEnv);
+      writeFileSync(mp, `${JSON.stringify(m, null, 1)}\n`);
+    }
+    if (args[0] === "dump" && request?.requested && typeof request.requested === "object") {
+      const selected = new Set();
+      const owners = []; // program -> owned?
+      for (const [type, names] of Object.entries(request.requested)) {
+        for (const name of names) {
+          selected.add(`${type}:${name}`);
+          if (type === "CLAS" || type === "INTF" || type === "BDEF") {
+            const prefix = name.padEnd(30, "=");
+            owners.push((p) => p.length > prefix.length && p.startsWith(prefix));
+          } else if (type === "FUGR") {
+            const m = /^(\/[^/]+\/)?(.+)$/.exec(name);
+            const ns = m?.[1] ?? "";
+            const grp = m?.[2] ?? name;
+            const main = `${ns}SAPL${grp}`;
+            const inc = `${ns}L${grp}`;
+            owners.push((p) => p === main || (p.length === inc.length + 3 && p.startsWith(inc)));
+          } else if (type === "PROG") {
+            owners.push((p) => p === name);
+          }
         }
-        return new RegExp(`${re}$`);
-      };
-      const matchers = request.names.map(like);
-      const matches = (name) => matchers.some((m) => m.test(name));
-      // the real sidecar's source fetch matches REPOSRC the same way: rows
-      // the request does not name drop out of reposrc.jsonl too
+      }
+      const mp = join(outDir, "manifest.json");
+      const fixtureManifest = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};
+      for (const [kind, names] of Object.entries(fixtureManifest.closure?.resolved ?? {})) {
+        for (const n of names) selected.add(`${kind}:${n}`);
+      }
       const reposrcPath = join(outDir, "reposrc.jsonl");
       if (existsSync(reposrcPath)) {
         const srcRows = readFileSync(reposrcPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
-        writeFileSync(reposrcPath, srcRows.filter((r) => matches(String(r.program ?? ""))).map((r) => JSON.stringify(r)).join("\n") + (srcRows.length ? "\n" : ""));
+        writeFileSync(reposrcPath, srcRows.filter((r) => owners.some((o) => o(String(r.program ?? "")))).map((r) => JSON.stringify(r)).join("\n") + (srcRows.length ? "\n" : ""));
       }
       const objectsPath = join(outDir, "objects.jsonl");
       const rows = readFileSync(objectsPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
       // the real sidecar keeps excluded/closure rows in objects.jsonl as
-      // skipped entries; only SOURCE rows the request does not name drop out
-      writeFileSync(objectsPath, rows.filter((r) => matches(r.name) || r.status === "S" || r.status === "skipped").map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
+      // skipped entries; rows the request does not select drop out
+      writeFileSync(objectsPath, rows.filter((r) => selected.has(`${r.type}:${r.name}`) || r.status === "S" || r.status === "skipped").map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
       const appendPath = process.env.FAKE_SIDECAR_DUMP_APPEND;
       if (appendPath !== undefined && existsSync(appendPath)) {
         appendFileSync(objectsPath, readFileSync(appendPath, "utf8"));

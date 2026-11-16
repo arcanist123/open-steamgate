@@ -24,12 +24,16 @@ import path from "node:path";
  *  the refusal names the directory to remove. The echo is compared on the
  *  request's SELECTION (schema, flags, provenance -- canonically, so key
  *  order of a re-writing sidecar cannot refuse a reuse, NOTE-6): the explicit
- *  `names` are derived from the live listing and may drift between runs --
+ *  `requested` pairs are derived from the live listing and may drift between runs --
  *  the drift logic (S4) reports what that means for the content. A chunked
  *  dump's aggregate manifest must list parts that are all readable. */
 export function dumpRequestFingerprint(request) {
-  const {names, ...rest} = request ?? {};
-  return stableStringify(rest);
+  // the selection's CONTENT may drift with the listing; its KIND may not: a
+  // dump made from include patterns (`names`, before v2.62.1) is never reused
+  // for an exact `requested` selection, nor the other way round
+  const {names, requested, ...rest} = request ?? {};
+  const selection = requested !== undefined ? "requested" : names !== undefined ? "names" : "none";
+  return stableStringify({...rest, selection});
 }
 
 function stableStringify(v) {

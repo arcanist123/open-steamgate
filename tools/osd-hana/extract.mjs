@@ -40,7 +40,7 @@ import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {convert, outOfScopeSourcePrograms} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
-import {buildPlan, printPlan, consentGate, buildDumpRequest, largePlanNumbers} from "./extract-plan.mjs";
+import {buildPlan, printPlan, consentGate, buildDumpRequest, requestedPairs, requestedOf, largePlanNumbers} from "./extract-plan.mjs";
 import {
   dumpRequestFingerprint, reusableDump, readJsonl, foreignOutEntries,
   sha256File, walkFiles, clearUnprotected, writeMarker, ensureGitignoreLine,
@@ -62,7 +62,7 @@ const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "
 const REPEATABLE = ["package", "name"];
 const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "yes", "yes-large", "help"];
 // the capabilities extract needs from the sidecar (contract W0)
-const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "inactive", "catalog", "ddic"];
+const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "closure", "inactive", "catalog", "ddic"];
 
 const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
                         [--package <pattern>]... [--name <pattern>]...
@@ -402,14 +402,12 @@ export async function extractMain(argv, {
   // ---- 3: dump -------------------------------------------------------------
   // M-2 (critic round 2): nothing of the vendor's is fetched unless asked.
   // The request is built in ONE function (buildDumpRequest,
-  // ./extract-plan.mjs) from the in-scope rows of the listing -- exact names
-  // plus the include-name patterns that bring a composite object's sources
-  // (the rule and its bed measurement live there, with the note that the
-  // patterns disappear with the sidecar release that selects objects exactly:
-  // requested: {TYPE: [names]}).
+  // ./extract-plan.mjs) from the in-scope rows of the listing: the exact
+  // (type, name) pairs as `requested: {TYPE: [names]}` -- the sidecar expands
+  // sources and closes the dictionary itself (the rule lives there).
   const chunkSize = typeof dumpChunkSize === "number" && dumpChunkSize > 0 ? dumpChunkSize : 500;
   const dumpRequest = buildDumpRequest({rows: inScopeRows, inactive: flags.inactive === true});
-  const dumpNames = dumpRequest.names;
+  const dumpPairs = requestedPairs(dumpRequest.requested);
   const dumpRequestPath = path.join(out, ".osd-hana", "dump-request.json");
   const reused = await reusableDump(dumpDir, dumpRequest);
   let dumpErrors = [];
@@ -421,13 +419,13 @@ export async function extractMain(argv, {
   } else if (reused.exists) {
     return fail(`osd hana extract: refusing the dump directory ${dumpDir}: ${reused.why}\n` +
       "  A dump is never mixed. Remove the directory or pass --dump-dir.");
-  } else if (dumpNames.length === 0) {
+  } else if (dumpPairs.length === 0) {
     // everything in scope is unknown-class: nothing to fetch (and the sidecar
-    // refuses an empty name list) -- the conversion below skips everything
+    // refuses an empty selection) -- the conversion below skips everything
     await fs.rm(dumpDir, {recursive: true, force: true});
   } else {
     const chunks = [];
-    for (let i = 0; i < dumpNames.length; i += chunkSize) chunks.push(dumpNames.slice(i, i + chunkSize));
+    for (let i = 0; i < dumpPairs.length; i += chunkSize) chunks.push(dumpPairs.slice(i, i + chunkSize));
     if (chunks.length === 1) {
       await fs.writeFile(dumpRequestPath, `${JSON.stringify(dumpRequest, null, 1)}\n`);
       const dumpRun = await runVerb(sidecar, "dump", {requestPath: dumpRequestPath, out: dumpDir, fail, connection});
@@ -435,14 +433,16 @@ export async function extractMain(argv, {
       dumpPartial = dumpPartial || dumpRun.outcome === "partial";
     } else {
       // one request per chunk, one directory per chunk: the sidecar refuses a
-      // non-empty --out, and its name IN-lists must stay under the SQL
-      // parameter limit (measured: ~4e4 parameters fail, w3 report #4)
+      // non-empty --out. Since v2.62.1 the sidecar keeps its own statements
+      // under 500 parameters, so chunking is a bound on one run's size, not
+      // a workaround any more.
       dumpParts = [];
+      const closures = [];
       for (const [n, chunk] of chunks.entries()) {
         const part = `part-${String(n + 1).padStart(5, "0")}`;
         const partDir = path.join(dumpDir, part);
         await fs.rm(partDir, {recursive: true, force: true});
-        const partRequest = {...dumpRequest, names: chunk};
+        const partRequest = {...dumpRequest, requested: requestedOf(chunk)};
         const partRequestPath = path.join(out, ".osd-hana", `dump-request-${part}.json`);
         await fs.writeFile(partRequestPath, `${JSON.stringify(partRequest, null, 1)}\n`);
         const dumpRun = await runVerb(sidecar, "dump", {requestPath: partRequestPath, out: partDir, fail, connection});
@@ -451,6 +451,7 @@ export async function extractMain(argv, {
         const partManifest = JSON.parse(await fs.readFile(path.join(partDir, "manifest.json"), "utf8"));
         dumpParts.push(part);
         dumpErrors.push(...(partManifest.sidecar?.errors ?? []));
+        if (partManifest.closure !== undefined) closures.push(partManifest.closure);
       }
       // the aggregate manifest is what reuse and the converter read: same
       // sidecar block shape as a single dump, `parts` naming the directories
@@ -465,11 +466,13 @@ export async function extractMain(argv, {
           version: sidecarBlock.version,
           commit: sidecarBlock.commit,
           request: dumpRequest,
-          counts: {package_objects: dumpNames.length},
+          counts: {package_objects: dumpPairs.length},
           errors: dumpErrors,
           parts: dumpParts,
           objects_report: "part-*/objects.jsonl",
         },
+        // the parts' closures, merged: the audit's allowance is their union
+        ...(closures.length > 0 ? {closure: {resolved: mergeResolved(closures)}} : {}),
       }, null, 1)}\n`);
     }
   }
@@ -493,13 +496,21 @@ export async function extractMain(argv, {
   // own directory and never reused: the next run refuses it and names the
   // directory to remove (reusableDump). "Just run it again" must not walk
   // past the refusal -- the audit is a pure function of dump + scope.
-  // Excluded closure rows (the sidecar's skipped DDIC metadata around the
-  // requested objects) are not sources and do not trip the object audit.
+  // An object outside the scope that carries content -- sources (files,
+  // `written`) or definition rows (`rows`) -- is over-delivery, EXCEPT the
+  // names the sidecar's dictionary closure reached, which it lists in the
+  // manifest's `closure.resolved` (v2.62.1): exactly those extras are
+  // legitimate, nothing else. Skipped rows (excluded, not-found) carry no
+  // content and do not trip the audit.
   const norm = (v) => String(v ?? "").trim().toUpperCase();
   const scopeSet = new Set(inScopeRows.map((r) => `${norm(r.type)}:${norm(r.name)}`));
-  const carriesSource = (r) => (Array.isArray(r.files) && r.files.length > 0)
-    || ["w", "written"].includes(String(r.status ?? "").trim().toLowerCase());
-  const outOfScope = dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
+  const closureSet = closureAllowance(dumpManifest);
+  const carriesContent = (r) => (Array.isArray(r.files) && r.files.length > 0)
+    || ["w", "written", "rows"].includes(String(r.status ?? "").trim().toLowerCase());
+  const outOfScope = dumpObjects.filter((r) => {
+    const id = `${norm(r.type)}:${norm(r.name)}`;
+    return !scopeSet.has(id) && !closureSet.has(id) && carriesContent(r);
+  });
   const auditRoots = dumpRoots.length > 0 ? dumpRoots : [dumpDir];
   let orphanSources = [];
   try {
@@ -927,4 +938,31 @@ function describeSidecar(verified, handshakeInfo) {
     commit: handshakeInfo?.commit,
     capabilities: handshakeInfo?.capabilities,
   };
+}
+
+/** The closure allowance of a dump: TYPE:NAME for every name the sidecar's
+ *  dictionary closure resolved (manifest `closure.resolved`, per kind). A
+ *  manifest without the block allows nothing extra. */
+export function closureAllowance(manifest) {
+  const allowed = new Set();
+  const resolved = manifest?.closure?.resolved;
+  if (resolved === null || typeof resolved !== "object") return allowed;
+  for (const [kind, names] of Object.entries(resolved)) {
+    if (!Array.isArray(names)) continue;
+    for (const n of names) allowed.add(`${String(kind).trim().toUpperCase()}:${String(n ?? "").trim().toUpperCase()}`);
+  }
+  return allowed;
+}
+
+function mergeResolved(closures) {
+  const merged = {};
+  for (const c of closures) {
+    for (const [kind, names] of Object.entries(c?.resolved ?? {})) {
+      if (!Array.isArray(names)) continue;
+      const set = new Set(merged[kind] ?? []);
+      for (const n of names) set.add(n);
+      merged[kind] = [...set].sort();
+    }
+  }
+  return merged;
 }
