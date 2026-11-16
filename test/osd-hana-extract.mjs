@@ -314,7 +314,7 @@ describe("osd hana extract", function () {
     expect(rep.totals.skipped).to.equal(0);
     expect(rep.totals.written + rep.totals.writtenPartial + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
     expect(rep.totals.dumped).to.equal(15);
-    expect(rep.sentence).to.equal("3 objects of 14 could not be fully extracted (FUGR 1, PROG 2)");
+    expect(rep.sentence).to.equal("4 objects of 14 could not be fully extracted (FUGR 1, PROG 2, SICF 1)");
     const md = readFileSync(join(out, "extract-report.md"), "utf8");
     expect(md).to.match(/could not be fully extracted/);
     expect(md).to.match(/\| SICF \(unsupported\) \| 1 \| 0 \| 0 \| 0 \| 1 \|/);
@@ -509,7 +509,8 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
       }
     }
     const fugr = rep.objects.find((x) => x.name === "ZOSG_X4");
-    expect(fugr.parts.filter((p) => p.disposition === "not checked").map((p) => p.part)).to.deep.equal(["dynpros", "GUI status", "variants"]);
+    expect(fugr.parts.filter((p) => p.disposition === "not checked").map((p) => p.part))
+      .to.deep.equal(["documentation of Z_OSD_X4_FM", "dynpros", "GUI status", "variants"]);
     const md = readOut(out, "extract-report.md");
     expect(md).to.match(/program screens, GUI statuses and variants are not checked/);
   });
