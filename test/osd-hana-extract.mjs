@@ -21,6 +21,9 @@ import {buildDumpRequest, requestedPairs, requestedOf, isLargePlan, largePlanNum
 import {decideFolderLogic, folderPaths} from "../tools/osd-hana/convert/convert.mjs";
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
 import {buildExtractFixtures, addNamespacedFunctionGroup, addSiblingFunctionGroups} from "./osd-hana/extract-fixtures.mjs";
+import {msagXml, tablXml} from "../tools/osd-hana/convert/ddic.mjs";
+import {dd03pMask} from "../tools/osd-hana/convert/mask.mjs";
+import {sidecarTlsArgs, tlsShapeWithoutEncrypt} from "../tools/osd-hana/tls.mjs";
 import {resolveProgramOwner} from "../tools/osd-hana/convert/ownership.mjs";
 import {CONTRACT_DIR} from "./osd-hana/harness.mjs";
 
@@ -50,7 +53,7 @@ const GOLDEN_PROG_XML = abapgit(
   `   <PROGDIR>\n    <NAME>ZOSD_X3</NAME>\n    <DBAPL>S</DBAPL>\n    <DBNA>D$</DBNA>\n    <SUBC>1</SUBC>\n    <APPL>S</APPL>\n    <FIXPT>X</FIXPT>\n    <LDBNAME>D$S</LDBNAME>\n    <UCCHECK>X</UCCHECK>\n   </PROGDIR>\n   <TPOOL>\n    <item>\n     <ID>I</ID>\n     <KEY>001</KEY>\n     <ENTRY>Synthetic prog text</ENTRY>\n     <LENGTH>19</LENGTH>\n    </item>\n   </TPOOL>\n`,
   "LCL_OBJECT_PROG");
 const GOLDEN_TABL_XML = abapgit(
-  `   <DD02V>\n    <TABNAME>ZTAB_X5</TABNAME>\n    <DDLANGUAGE>E</DDLANGUAGE>\n    <TABCLASS>TRANSP</TABCLASS>\n    <CLIDEP>X</CLIDEP>\n    <DDTEXT>Synthetic table</DDTEXT>\n    <MAINFLAG>X</MAINFLAG>\n    <CONTFLAG>A</CONTFLAG>\n    <EXCLASS>1</EXCLASS>\n   </DD02V>\n   <DD09L>\n    <TABNAME>ZTAB_X5</TABNAME>\n    <AS4LOCAL>A</AS4LOCAL>\n    <TABKAT>0</TABKAT>\n    <TABART>APPL1</TABART>\n    <BUFALLOW>N</BUFALLOW>\n   </DD09L>\n   <DD03P_TABLE>\n    <DD03P>\n     <FIELDNAME>MANDT</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ROLLNAME>MANDT</ROLLNAME>\n     <ADMINFIELD>0</ADMINFIELD>\n     <COMPTYPE>E</COMPTYPE>\n    </DD03P>\n    <DD03P>\n     <FIELDNAME>TRAVEL_ID</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ADMINFIELD>0</ADMINFIELD>\n     <INTTYPE>C</INTTYPE>\n     <INTLEN>000016</INTLEN>\n     <NOTNULL>X</NOTNULL>\n     <DATATYPE>CHAR</DATATYPE>\n     <LENG>000008</LENG>\n    </DD03P>\n    <DD03P>\n     <FIELDNAME>STATUS</FIELDNAME>\n     <ROLLNAME>ZDTL_X6</ROLLNAME>\n     <ADMINFIELD>0</ADMINFIELD>\n     <COMPTYPE>E</COMPTYPE>\n    </DD03P>\n   </DD03P_TABLE>\n`,
+  `   <DD02V>\n    <TABNAME>ZTAB_X5</TABNAME>\n    <DDLANGUAGE>E</DDLANGUAGE>\n    <TABCLASS>TRANSP</TABCLASS>\n    <CLIDEP>X</CLIDEP>\n    <DDTEXT>Synthetic table</DDTEXT>\n    <MAINFLAG>X</MAINFLAG>\n    <CONTFLAG>A</CONTFLAG>\n    <EXCLASS>1</EXCLASS>\n   </DD02V>\n   <DD09L>\n    <TABNAME>ZTAB_X5</TABNAME>\n    <AS4LOCAL>A</AS4LOCAL>\n    <TABKAT>0</TABKAT>\n    <TABART>APPL1</TABART>\n    <BUFALLOW>N</BUFALLOW>\n   </DD09L>\n   <DD03P_TABLE>\n    <DD03P>\n     <FIELDNAME>MANDT</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ROLLNAME>MANDT</ROLLNAME>\n     <ADMINFIELD>0</ADMINFIELD>\n     <COMPTYPE>E</COMPTYPE>\n    </DD03P>\n    <DD03P>\n     <FIELDNAME>TRAVEL_ID</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ADMINFIELD>0</ADMINFIELD>\n     <INTTYPE>C</INTTYPE>\n     <INTLEN>000016</INTLEN>\n     <NOTNULL>X</NOTNULL>\n     <DATATYPE>CHAR</DATATYPE>\n     <LENG>000008</LENG>\n     <MASK>  CHAR</MASK>\n    </DD03P>\n    <DD03P>\n     <FIELDNAME>STATUS</FIELDNAME>\n     <ROLLNAME>ZDTL_X6</ROLLNAME>\n     <ADMINFIELD>0</ADMINFIELD>\n     <COMPTYPE>E</COMPTYPE>\n    </DD03P>\n   </DD03P_TABLE>\n`,
   "LCL_OBJECT_TABL");
 const GOLDEN_DTEL_XML = abapgit(
   `   <DD04V>\n    <ROLLNAME>ZDTL_X6</ROLLNAME>\n    <DDLANGUAGE>E</DDLANGUAGE>\n    <DOMNAME>ZDOM_X7</DOMNAME>\n    <HEADLEN>10</HEADLEN>\n    <SCRLEN1>10</SCRLEN1>\n    <SCRLEN2>15</SCRLEN2>\n    <SCRLEN3>20</SCRLEN3>\n    <DDTEXT>Synthetic element</DDTEXT>\n    <REPTEXT>Element</REPTEXT>\n    <SCRTEXT_S>Elem</SCRTEXT_S>\n    <SCRTEXT_M>Element</SCRTEXT_M>\n    <SCRTEXT_L>Element long</SCRTEXT_L>\n    <DTELMASTER>E</DTELMASTER>\n    <DATATYPE>CHAR</DATATYPE>\n    <LENG>000001</LENG>\n    <OUTPUTLEN>000001</OUTPUTLEN>\n   </DD04V>\n`,
@@ -72,7 +75,7 @@ const GOLDEN_DDLS_XML = abapgit(
   `   <DDLS>\n    <DDLNAME>ZDDL_XB</DDLNAME>\n    <LANGU>E</LANGU>\n    <SOURCE_TYPE>V</SOURCE_TYPE>\n   </DDLS>\n`,
   "LCL_OBJECT_DDLS");
 const GOLDEN_NS_TABL_XML = abapgit(
-  `   <DD02V>\n    <TABNAME>/NS/ZTAB_Y1</TABNAME>\n    <DDLANGUAGE>E</DDLANGUAGE>\n    <TABCLASS>TRANSP</TABCLASS>\n    <CLIDEP>X</CLIDEP>\n    <DDTEXT>Namespaced synthetic</DDTEXT>\n    <CONTFLAG>A</CONTFLAG>\n   </DD02V>\n   <DD03P_TABLE>\n    <DD03P>\n     <FIELDNAME>MANDT</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ROLLNAME>MANDT</ROLLNAME>\n     <ADMINFIELD>0</ADMINFIELD>\n     <COMPTYPE>E</COMPTYPE>\n    </DD03P>\n    <DD03P>\n     <FIELDNAME>ID</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ADMINFIELD>0</ADMINFIELD>\n     <INTTYPE>C</INTTYPE>\n     <INTLEN>000010</INTLEN>\n     <DATATYPE>CHAR</DATATYPE>\n     <LENG>000005</LENG>\n    </DD03P>\n   </DD03P_TABLE>\n`,
+  `   <DD02V>\n    <TABNAME>/NS/ZTAB_Y1</TABNAME>\n    <DDLANGUAGE>E</DDLANGUAGE>\n    <TABCLASS>TRANSP</TABCLASS>\n    <CLIDEP>X</CLIDEP>\n    <DDTEXT>Namespaced synthetic</DDTEXT>\n    <CONTFLAG>A</CONTFLAG>\n   </DD02V>\n   <DD03P_TABLE>\n    <DD03P>\n     <FIELDNAME>MANDT</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ROLLNAME>MANDT</ROLLNAME>\n     <ADMINFIELD>0</ADMINFIELD>\n     <COMPTYPE>E</COMPTYPE>\n    </DD03P>\n    <DD03P>\n     <FIELDNAME>ID</FIELDNAME>\n     <KEYFLAG>X</KEYFLAG>\n     <ADMINFIELD>0</ADMINFIELD>\n     <INTTYPE>C</INTTYPE>\n     <INTLEN>000010</INTLEN>\n     <DATATYPE>CHAR</DATATYPE>\n     <LENG>000005</LENG>\n     <MASK>  CHAR</MASK>\n    </DD03P>\n   </DD03P_TABLE>\n`,
   "LCL_OBJECT_TABL");
 const GOLDEN_FUGR_XML = abapgit(
   `   <FUGR>\n    <INCLUDES>\n     <SOBJ_NAME>LZOSG_X4TOP</SOBJ_NAME>\n     <SOBJ_NAME>SAPLZOSG_X4</SOBJ_NAME>\n    </INCLUDES>\n    <FUNCTIONS>\n     <item>\n      <FUNCNAME>Z_OSD_X4_FM</FUNCNAME>\n      <SHORT_TEXT>Synthetic function</SHORT_TEXT>\n      <IMPORT>\n       <RSIMP>\n        <PARAMETER>IV_IN</PARAMETER>\n        <DBFIELD>ZTAB_X5-TRAVEL_ID</DBFIELD>\n        <OPTIONAL>X</OPTIONAL>\n       </RSIMP>\n      </IMPORT>\n     </item>\n    </FUNCTIONS>\n   </FUGR>\n`,
@@ -2061,5 +2064,186 @@ describe("osd hana extract -- fix round 6 (a refusal touches nothing; a group ow
     await runExtract(["--out", out2]);
     expect(readFileSync(join(out2, ".gitignore"), "utf8")).to.equal(".osd-hana/\n");
     expect(reportOf(out2).gitignore).to.deep.equal({action: "created"});
+  });
+});
+
+// ------------------------------------------------- sidecar v2.62.1 content
+// Message classes arrive as rows (T100A / T100T / T100, every language) and
+// function groups' short texts as TLIBT rows. Synthetic data only.
+describe("osd hana extract -- sidecar v2.62.1 (MSAG, TLIBT)", function () {
+  const jl = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const wl = (dir, name, rows) => writeFileSync(join(dir, name), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+
+  function withMsagAndTlibt() {
+    const fx = buildExtractFixtures(join(root, `fx-v2621-${Math.random().toString(16).slice(2)}`));
+    const T = join(fx.dump, "tables");
+    const obj = {type: "MSAG", name: "ZOSD_MSG", package: "$OSD_X", author: "DEVUSER", class: "customer", state: "A"};
+    wl(fx.list, "objects.jsonl", jl(fx.list, "objects.jsonl").concat([{...obj, status: "W", files: []}]));
+    wl(fx.dump, "objects.jsonl", jl(fx.dump, "objects.jsonl").concat([{...obj, status: "rows", files: []}]));
+    wl(T, "TADIR.jsonl", jl(T, "TADIR.jsonl").concat([{PGMID: "R3TR", OBJECT: "MSAG", OBJ_NAME: "ZOSD_MSG", DEVCLASS: "$OSD_X", AUTHOR: "DEVUSER", MASTERLANG: "E", GENFLAG: "", SRCSYSTEM: "SYN"}]));
+    wl(T, "T100A.jsonl", [{ARBGB: "ZOSD_MSG", MASTERLANG: "E", RESPUSER: "DEVUSER", LASTUSER: "DEVUSER", LDATE: "20261101", LTIME: "120000", STEXT: "Synthetic messages"}]);
+    wl(T, "T100.jsonl", [
+      {SPRSL: "E", ARBGB: "ZOSD_MSG", MSGNR: "001", TEXT: "Second & <one>"},
+      {SPRSL: "E", ARBGB: "ZOSD_MSG", MSGNR: "000", TEXT: "  First &1"},
+      {SPRSL: "D", ARBGB: "ZOSD_MSG", MSGNR: "001", TEXT: "Zweite"},
+      {SPRSL: "D", ARBGB: "ZOSD_MSG", MSGNR: "000", TEXT: "Erste &1"},
+      {SPRSL: "F", ARBGB: "ZOSD_MSG", MSGNR: "000", TEXT: "Premier &1"},
+    ]);
+    wl(T, "T100T.jsonl", [
+      {SPRSL: "F", ARBGB: "ZOSD_MSG", STEXT: "Messages synthetiques"},
+      {SPRSL: "D", ARBGB: "ZOSD_MSG", STEXT: "Synthetische Meldungen"},
+    ]);
+    wl(T, "TLIBT.jsonl", [
+      {SPRAS: "D", AREA: "ZOSG_X4", AREAT: "Synthetische Gruppe"},
+      {SPRAS: "E", AREA: "ZOSG_X4", AREAT: "Synthetic group"},
+    ]);
+    return fx;
+  }
+
+  const GOLDEN_MSAG_XML = abapgit(
+    "   <T100A>\n    <ARBGB>ZOSD_MSG</ARBGB>\n    <MASTERLANG>E</MASTERLANG>\n    <STEXT>Synthetic messages</STEXT>\n   </T100A>\n" +
+    "   <T100>\n" +
+    "    <T100>\n     <SPRSL>E</SPRSL>\n     <ARBGB>ZOSD_MSG</ARBGB>\n     <MSGNR>000</MSGNR>\n     <TEXT>  First &amp;1</TEXT>\n    </T100>\n" +
+    "    <T100>\n     <SPRSL>E</SPRSL>\n     <ARBGB>ZOSD_MSG</ARBGB>\n     <MSGNR>001</MSGNR>\n     <TEXT>Second &amp; &lt;one&gt;</TEXT>\n    </T100>\n" +
+    "   </T100>\n" +
+    "   <I18N_LANGS>\n    <LANGU>D</LANGU>\n    <LANGU>F</LANGU>\n   </I18N_LANGS>\n" +
+    "   <T100T>\n" +
+    "    <T100T>\n     <SPRSL>D</SPRSL>\n     <ARBGB>ZOSD_MSG</ARBGB>\n     <STEXT>Synthetische Meldungen</STEXT>\n    </T100T>\n" +
+    "    <T100T>\n     <SPRSL>F</SPRSL>\n     <ARBGB>ZOSD_MSG</ARBGB>\n     <STEXT>Messages synthetiques</STEXT>\n    </T100T>\n" +
+    "   </T100T>\n" +
+    "   <T100_TEXTS>\n" +
+    "    <item>\n     <SPRSL>D</SPRSL>\n     <MSGNR>000</MSGNR>\n     <TEXT>Erste &amp;1</TEXT>\n    </item>\n" +
+    "    <item>\n     <SPRSL>D</SPRSL>\n     <MSGNR>001</MSGNR>\n     <TEXT>Zweite</TEXT>\n    </item>\n" +
+    "    <item>\n     <SPRSL>F</SPRSL>\n     <MSGNR>000</MSGNR>\n     <TEXT>Premier &amp;1</TEXT>\n    </item>\n" +
+    "   </T100_TEXTS>\n",
+    "LCL_OBJECT_MSAG");
+
+  it("MSAG: written in abapGit's layout -- T100A without the user/date stamps, the master-language T100 by number, I18N_LANGS / T100T / T100_TEXTS for the other languages (mutation: stamps kept, languages unsorted, leading blanks trimmed)", async function () {
+    const fx = withMsagAndTlibt();
+    const out = await fresh("v2621-msag");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code, r.lines.err.join("\n")).to.equal(3); // the SICF stays unsupported
+    expect(readFileSync(join(out, "src/osd_x/zosd_msg.msag.xml"), "utf8")).to.equal(GOLDEN_MSAG_XML);
+    const e = reportOf(out).objects.find((o) => o.name === "ZOSD_MSG");
+    expect(e.status, "long texts are only 'not checked'").to.equal("written");
+    expect((e.unchecked ?? []).map((u) => u.part ?? u)).to.satisfy((l) => JSON.stringify(l).includes("message long texts"));
+    // the plan no longer names MSAG among the types it cannot write
+    const dry = await runExtract(["--out", join(root, "v2621-msag-dry"), "--dry-run", "--json"], {list: fx.list});
+    expect(JSON.parse(dry.lines.out.join("\n")).plan.unsupportedTypes).to.not.include("MSAG");
+  });
+
+  it("MSAG: a class with only master-language rows writes no translation blocks (mutation: empty I18N_LANGS written)", function () {
+    const xml = msagXml({ARBGB: "ZOSD_ONE", MASTERLANG: "E", STEXT: "One"}, [{SPRSL: "E", ARBGB: "ZOSD_ONE", MSGNR: "000", TEXT: "Only"}], []);
+    expect(xml).to.not.match(/I18N_LANGS|T100T|T100_TEXTS/);
+    expect(xml).to.include("<TEXT>Only</TEXT>");
+    // no T100A STEXT: the master-language T100T short text stands in
+    const x2 = msagXml({ARBGB: "ZOSD_TWO", MASTERLANG: "D"}, [], [{SPRSL: "D", ARBGB: "ZOSD_TWO", STEXT: "Zwei"}]);
+    expect(x2).to.include("<STEXT>Zwei</STEXT>").and.to.include("<MASTERLANG>D</MASTERLANG>");
+    expect(x2).to.not.match(/<T100>|I18N_LANGS/);
+  });
+
+  it("TLIBT: the function group's AREAT is its master-language short text (mutation: AREAT empty / another language)", async function () {
+    const fx = withMsagAndTlibt();
+    const out = await fresh("v2621-tlibt");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code, r.lines.err.join("\n")).to.equal(3);
+    const xml = readFileSync(join(out, "src/osd_x/zosg_x4.fugr.xml"), "utf8");
+    expect(xml).to.equal(GOLDEN_FUGR_XML.replace("   <FUGR>\n", "   <FUGR>\n    <AREAT>Synthetic group</AREAT>\n"));
+  });
+});
+
+// ------------------------------------------------------- TLS in extract
+describe("osd hana extract -- TLS (the doctor's flag set, tls.mjs)", function () {
+  const argvOf = (from, verb) => recordLines().slice(from).map((l) => JSON.parse(l)).filter((e) => e.argv[0] === verb).map((e) => e.argv);
+  const TLS_HANDSHAKE = JSON.stringify({capabilities: ["probe", "list", "dump", "names", "packages", "local", "closure", "inactive", "catalog", "ddic", "tls"]});
+
+  it("with the tls capability the flags reach list AND dump (mutation: TLS args dropped from runVerb)", async function () {
+    const out = await fresh("tls-on");
+    const from = recordLines().length;
+    const r = await runExtract(["--out", out, "--encrypt", "--ca-file", "/ca.pem", "--tls-server-name", "hana.example.test"], {extra: {FAKE_SIDECAR_HANDSHAKE: TLS_HANDSHAKE}});
+    expect(r.code, r.lines.err.join("\n")).to.equal(3);
+    for (const verb of ["list", "dump"]) {
+      const argv = argvOf(from, verb)[0];
+      expect(argv, verb).to.include("--encrypt");
+      expect(argv.slice(argv.indexOf("--ca-file"), argv.indexOf("--ca-file") + 2), verb).to.deep.equal(["--ca-file", "/ca.pem"]);
+      expect(argv.slice(argv.indexOf("--tls-server-name"), argv.indexOf("--tls-server-name") + 2), verb).to.deep.equal(["--tls-server-name", "hana.example.test"]);
+    }
+    const out2 = await fresh("tls-trust");
+    const from2 = recordLines().length;
+    await runExtract(["--out", out2, "--trust-server-certificate"], {extra: {FAKE_SIDECAR_HANDSHAKE: TLS_HANDSHAKE}});
+    expect(argvOf(from2, "list")[0]).to.include("--trust-server-certificate").and.to.not.include("--encrypt");
+  });
+
+  it("a TLS ask without the capability is REFUSED before anything is listed -- never clear text (mutation: connect anyway)", async function () {
+    for (const flags of [["--encrypt"], ["--trust-server-certificate"]]) {
+      const out = await fresh("tls-refused");
+      const from = recordLines().length;
+      const r = await runExtract(["--out", out, ...flags]);
+      expect(r.code, flags.join(" ")).to.equal(1);
+      expect(r.lines.err.join("\n")).to.match(/"tls" capability/).and.to.match(/NOT connect in clear text/);
+      expect(argvOf(from, "list"), "nothing listed").to.deep.equal([]);
+      expect(argvOf(from, "dump"), "nothing dumped").to.deep.equal([]);
+    }
+  });
+
+  it("--ca-file / --tls-server-name without --encrypt are a usage error, before the sidecar runs (mutation: the shape check removed)", async function () {
+    for (const flags of [["--ca-file", "/ca.pem"], ["--tls-server-name", "n"], ["--trust-server-certificate", "--ca-file", "/ca.pem"]]) {
+      const out = await fresh("tls-shape");
+      const from = recordLines().length;
+      const r = await runExtract(["--out", out, ...flags], {extra: {FAKE_SIDECAR_HANDSHAKE: TLS_HANDSHAKE}});
+      expect(r.code, flags.join(" ")).to.equal(1);
+      expect(r.lines.err.join("\n")).to.match(/need --encrypt/);
+      expect(recordLines().slice(from), "the sidecar never ran").to.deep.equal([]);
+    }
+  });
+
+  it("tls.mjs: one rule for doctor and extract -- args, refusal, shape (mutation: capability ignored)", function () {
+    const capable = {capabilities: ["tls"]};
+    expect(sidecarTlsArgs({}, capable)).to.deep.equal({refused: false, args: []});
+    expect(sidecarTlsArgs({}, {capabilities: []})).to.deep.equal({refused: false, args: []});
+    expect(sidecarTlsArgs({encrypt: true}, {capabilities: []}).refused).to.equal(true);
+    expect(sidecarTlsArgs({"tls-server-name": "x"}, {}).refused).to.equal(true);
+    expect(sidecarTlsArgs({encrypt: true, "ca-file": "c", "tls-server-name": "n"}, capable).args)
+      .to.deep.equal(["--encrypt", "--ca-file", "c", "--tls-server-name", "n"]);
+    expect(sidecarTlsArgs({"trust-server-certificate": true}, capable).args).to.deep.equal(["--trust-server-certificate"]);
+    expect(tlsShapeWithoutEncrypt({"ca-file": "c"})).to.equal(true);
+    expect(tlsShapeWithoutEncrypt({"ca-file": "c", encrypt: true})).to.equal(false);
+    expect(tlsShapeWithoutEncrypt({"trust-server-certificate": true})).to.equal(false);
+  });
+});
+
+// ------------------------------------------------------- DD03P MASK
+describe("osd hana extract -- DD03P MASK (convert/mask.mjs)", function () {
+  it("derives MASK from the DD03L facts: two blanks, DATATYPE padded to 4, COMPTYPE, REFTYPE, trailing blanks dropped (mutation: no padding / leading blanks trimmed / REFTYPE ignored)", function () {
+    const cases = [
+      [{DATATYPE: "CHAR", COMPTYPE: ""}, "  CHAR"],
+      [{DATATYPE: "CHAR", COMPTYPE: "E", ROLLNAME: "ZDTL"}, "  CHARE"],
+      [{DATATYPE: "DEC", COMPTYPE: "E", ROLLNAME: "ZDTL"}, "  DEC E"],
+      [{DATATYPE: "DEC", COMPTYPE: ""}, "  DEC"],
+      [{DATATYPE: "", COMPTYPE: "S", FIELDNAME: ".INCLUDE"}, "      S"],
+      [{DATATYPE: "TTYP", COMPTYPE: "L", ROLLNAME: "ZTT"}, "  TTYPL"],
+      [{DATATYPE: "REF", COMPTYPE: "R", REFTYPE: "D", ROLLNAME: "ZREF"}, "  REF RD"],
+      [{DATATYPE: "REF", COMPTYPE: "R", REFTYPE: "O", ROLLNAME: "ZCL"}, "  REF RO"],
+      [{DATATYPE: "", COMPTYPE: ""}, undefined],
+    ];
+    for (const [row, mask] of cases) expect(dd03pMask(row), JSON.stringify(row)).to.equal(mask);
+  });
+
+  it("falls back to the data element (DD04L), then the domain (DD01L), when the DD03L row has no DATATYPE (mutation: no fallback)", function () {
+    const dd04l = (n) => ({ZDTL_A: {DATATYPE: "NUMC", DOMNAME: "ZDOM_A"}, ZDTL_B: {DATATYPE: "", DOMNAME: "ZDOM_B"}})[n];
+    const dd01l = (n) => ({ZDOM_B: {DATATYPE: "DATS"}, ZDOM_C: {DATATYPE: "INT4"}})[n];
+    expect(dd03pMask({ROLLNAME: "ZDTL_A", COMPTYPE: "E"}, {dd04l, dd01l})).to.equal("  NUMCE");
+    expect(dd03pMask({ROLLNAME: "ZDTL_B", COMPTYPE: "E"}, {dd04l, dd01l})).to.equal("  DATSE");
+    expect(dd03pMask({DOMNAME: "ZDOM_C", COMPTYPE: ""}, {dd04l, dd01l})).to.equal("  INT4");
+  });
+
+  it("the TABL file carries MASK only where abapGit keeps it: a directly typed field, never a data-element field (mutation: MASK kept for COMPTYPE E)", function () {
+    const xml = tablXml({TABNAME: "ZTAB_M", DDLANGUAGE: "E", TABCLASS: "INTTAB"}, undefined, [
+      {FIELDNAME: "A", POSITION: "0001", ADMINFIELD: "0", DEPTH: "00", DATATYPE: "CHAR", LENG: "000004", COMPTYPE: ""},
+      {FIELDNAME: "B", POSITION: "0002", ADMINFIELD: "0", DEPTH: "00", ROLLNAME: "ZDTL", DATATYPE: "CHAR", LENG: "000004", COMPTYPE: "E"},
+      {FIELDNAME: ".INCLUDE", POSITION: "0003", ADMINFIELD: "0", DEPTH: "00", PRECFIELD: "ZSTR", COMPTYPE: "S"},
+    ]);
+    expect(xml).to.include("<MASK>  CHAR</MASK>").and.to.include("<MASK>      S</MASK>");
+    expect(xml.match(/<MASK>/g)).to.have.length(2);
   });
 });

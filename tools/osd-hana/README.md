@@ -21,8 +21,9 @@ because the sidecar is read-only by construction and cannot create a user.
 | `extract-plan.mjs` | the extract plan document, the consent gate, and `buildDumpRequest` — the ONE function the dump request is built in |
 | `extract-workarea.mjs` | the extract work area: the dump restart rule (`reusableDump`), the marker (atomic), the `src/` refresh that never touches a kept file |
 | `report.mjs` | the extract report: `extract-report.md` and the JSON document, from one source |
-| `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
+| `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers and message classes, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
 | `sidecar.mjs` | locate / verify (SHA-256 pin) / handshake / run the sidecar |
+| `tls.mjs` | the sidecar's TLS flags and the capability rule, ONE place for `doctor` and `extract` |
 | `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64), the capabilities, and the public release URL + asset name per target |
 | `fetch-sidecar.mjs` | the BUILD-time fetcher: downloads the pinned release asset per target, verifies SHA-256 against the pin, writes it atomically. Never reached from the `osd hana` verbs |
 | `connect.mjs` | connection input: `--host --port --database --user`, `--env-file`, `--password-stdin`, hidden TTY prompt. **No `--password` flag, ever** (argv is visible to every user of the machine). The password channels, in order: `--password-stdin` > `HANA_PASSWORD` in the env file > `$OSD_HANA_PASSWORD` > the hidden prompt (TTY only); a run with none of them is a refusal that names all four |
@@ -100,6 +101,10 @@ the reader path's hdb connection:
   could encrypt its own connection: fail-closed until the pin moves;
 - with the capability, the flags are passed to the sidecar as well: the
   probe (and the reader probe) ride the sidecar's own session, not hdb's.
+
+`osd hana extract` takes the same four flags under the same rules (one
+helper, `tls.mjs`): the shape check before anything runs, the refusal
+without the capability, and the flags on every `list` and `dump` it runs.
 
 The verdict says the probe's `tls` value, one plain sentence each:
 **verified** ("the server's certificate was verified"), **unverified**
@@ -278,7 +283,15 @@ clone, diff and deploy:
    `package_to_path` does. File names as abapGit writes them (lower case, a
    namespace `/` becomes `#`). ABAP is byte-identical to the dump; the XML is
    abapGit's own layout (BOM, one element per line, its field order), decided
-   from abapGit's serializers, not from single files. The report is built
+   from abapGit's serializers, not from single files. Message classes (MSAG,
+   from the T100A / T100T / T100 rows the sidecar dumps in every language)
+   are written as abapGit's `zcl_abapgit_object_msag` does: T100A without the
+   user/date stamps, the master-language messages, and `I18N_LANGS` / `T100T`
+   / `T100_TEXTS` for the other languages; their long texts are `not
+   checked` (no documentation tables in the dump). A function group's
+   `AREAT` is its master-language TLIBT text. A table field typed directly
+   (not by a data element) carries the `MASK` that DDIC derives for it
+   (`convert/mask.mjs`). The report is built
    from a ledger: every in-scope object ends in exactly one state, and every
    part the converter knows it cannot write is a line under its object, in
    exactly one of two kinds (round 4): `not extracted` — the dump shows the

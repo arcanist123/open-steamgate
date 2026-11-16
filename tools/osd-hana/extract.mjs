@@ -41,6 +41,7 @@ import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, l
 import {convert, outOfScopeSourcePrograms} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
 import {buildPlan, printPlan, consentGate, buildDumpRequest, requestedPairs, requestedOf, largePlanNumbers} from "./extract-plan.mjs";
+import {sidecarTlsArgs, tlsShapeWithoutEncrypt, TLS_VALUE_FLAGS, TLS_BOOLEAN_FLAGS} from "./tls.mjs";
 import {
   dumpRequestFingerprint, reusableDump, readJsonl, foreignOutEntries,
   sha256File, walkFiles, clearUnprotected, writeMarker, ensureGitignoreLine,
@@ -58,9 +59,9 @@ export const EXTRACT_EXIT = Object.freeze({
   internal: 6,
 });
 
-const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin"];
+const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin", ...TLS_VALUE_FLAGS];
 const REPEATABLE = ["package", "name"];
-const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "yes", "yes-large", "help"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "yes", "yes-large", "help", ...TLS_BOOLEAN_FLAGS];
 // the capabilities extract needs from the sidecar (contract W0)
 const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "closure", "inactive", "catalog", "ddic"];
 
@@ -72,6 +73,8 @@ const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
                         connection flags as the doctor's (--host --port
                         --database --user --schema --env-file
                         --password-stdin --allow-unpinned-sidecar)
+                        [--encrypt | --trust-server-certificate]
+                        [--ca-file F] [--tls-server-name N]
 
 Extracts your own ABAP code out of a HANA database into an abapGit-layout
 repository (an .abapgit.xml and src/), reading ONLY through the sidecar
@@ -96,6 +99,11 @@ refusal report is <out>/.osd-hana/refused-report.md. A writing run's report
 is <out>/extract-report.json and extract-report.md; <out>/.gitignore is
 never overwritten (created when absent, the .osd-hana/ line appended when
 missing).
+
+TLS: the doctor's flags and rules. --encrypt verifies the server's
+certificate (--ca-file / --tls-server-name shape that and need --encrypt);
+--trust-server-certificate encrypts without verifying. A TLS ask against a
+sidecar without the "tls" capability is refused -- never a clear-text run.
 
 Exit codes: 0 everything in scope written (a part the dump cannot even check
 does not count against the object -- it is carried as its 'unchecked' list);
@@ -147,6 +155,13 @@ export async function extractMain(argv, {
   }
   const out = path.resolve(flags.out);
   const dumpDir = flags["dump-dir"] !== undefined ? path.resolve(flags["dump-dir"]) : path.join(out, ".osd-hana", "dump");
+
+  // TLS: --ca-file / --tls-server-name shape the certificate check, so they
+  // need --encrypt (the doctor's rule, tls.mjs) -- refused before anything runs
+  if (tlsShapeWithoutEncrypt(flags)) {
+    return fail("osd hana extract: --ca-file and --tls-server-name need --encrypt (they shape the certificate check). " +
+      "To encrypt WITHOUT certificate validation: --trust-server-certificate alone.");
+  }
 
   // --include-sap only together with an explicit --package/--name
   const hasExplicitSelection = (flags.package?.length ?? 0) > 0 || (flags.name?.length ?? 0) > 0;
@@ -232,6 +247,15 @@ export async function extractMain(argv, {
     return fail(`osd hana: the sidecar handshake could not run: ${error.message}`);
   }
 
+  // ---- TLS: the doctor's flag set and capability rule (tls.mjs) ----------
+  const tls = sidecarTlsArgs(flags, handshakeInfo);
+  if (tls.refused) {
+    return fail(`osd hana extract: this sidecar (${handshakeInfo.version ?? "unknown version"}) does not list the "tls" capability -- ` +
+      "it cannot encrypt its connection, and you asked it to (--encrypt / --trust-server-certificate / --ca-file / --tls-server-name).\n" +
+      "  Refusing: extract will NOT connect in clear text when TLS was asked for. Use a sidecar build with the tls capability, " +
+      "or re-run without the TLS flags on a network you trust.");
+  }
+
   // ---- connection ---------------------------------------------------------
   let connection;
   try {
@@ -240,6 +264,7 @@ export async function extractMain(argv, {
     if (error instanceof UsageError) return fail(`osd hana: ${error.message.replace(/^osd hana: /, "")}`);
     return fail(`osd hana: taking the password failed: ${error.message}`);
   }
+  connection = {...connection, tlsArgs: tls.args};
 
   // ---- the request (schema 1) --------------------------------------------
   const request = {
@@ -736,6 +761,7 @@ async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
   const args = ["--request", requestPath, "--out", out, "--host", connection.host, "--port", String(connection.port)];
   if (connection.database !== undefined) args.push("--database", connection.database);
   if (connection.schema !== undefined) args.push("--abap-schema", connection.schema);
+  args.push(...(connection.tlsArgs ?? []));
   let run;
   try {
     run = await sidecar.run(verb, {args});
