@@ -311,6 +311,50 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         (error) => expect(error.message).to.include("checksum mismatch"));
     });
 
+    it("stdout must be exactly one JSON line or a refusal, never a guess (critic note; mutation: take the last line -> red)", async function () {
+      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "two-lines"}});
+      await sidecar.run("probe").then(
+        () => expect.fail("two JSON lines must be refused, not guessed at"),
+        (error) => {
+          expect(error).to.be.an.instanceof(SidecarRunError);
+          expect(error.message).to.include("one JSON line");
+        });
+    });
+
+    it("caps the child's accumulated output (8 MB) with a clear error (critic note; mutation: no cap -> red)", async function () {
+      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "chatty"}, timeoutMs: 15_000});
+      await sidecar.run("probe").then(
+        () => expect.fail("a chatty child must be stopped by the cap"),
+        (error) => expect(error.message).to.include("8 MB"));
+    }).timeout(30_000);
+
+    it("on win32 appends .exe when the given path has no extension and that file exists (critic note; mutation: return the path as given -> red)", function () {
+      const base = join(root, "win32-sidecar");
+      writeFileSync(`${base}.exe`, "fake bytes\n", {mode: 0o755});
+      expect(locateSidecar({env: {OSD_HANA_DUMP: base}, platform: "win32"})).to.equal(`${base}.exe`);
+      // a path that already has an extension is left alone
+      expect(locateSidecar({env: {OSD_HANA_DUMP: `${base}.exe`}, platform: "win32"})).to.equal(`${base}.exe`);
+      // and on other platforms nothing is appended
+      expect(locateSidecar({env: {OSD_HANA_DUMP: base}, platform: "linux"})).to.equal(base);
+    });
+
+    it("names an unsupported target honestly instead of collapsing Windows to win32-x64 (critic note; mutation: collapse -> red)", async function () {
+      expect(targetKey("win32", "x64")).to.equal("win32-x64");
+      expect(targetKey("win32", "arm64")).to.equal("win32-arm64");
+      expect(targetKey("linux", "arm64")).to.equal("linux-arm64");
+      expect(targetKey("linux", "ppc64")).to.equal(undefined);
+      // a target with no pin is a clear refusal that NAMES it (a fresh path:
+      // the verify cache is per path and other tests already hold fakePath)
+      const armPath = join(root, "sidecar-for-arm-refusal");
+      copyFileSync(FAKE_SIDECAR, armPath);
+      chmodSync(armPath, 0o755);
+      const message = await verifySidecar(armPath, {pin: loadPin(pinPath), platform: "win32", arch: "arm64"}).then(
+        () => expect.fail("win32-arm64 has no pin and must be refused"),
+        (error) => error.message);
+      expect(message).to.include("win32-arm64");
+      expect(message).to.include("Refusing");
+    });
+
     it("refuses an exit code the contract does not define", async function () {
       const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "weird-exit"}});
       await sidecar.run("probe").then(

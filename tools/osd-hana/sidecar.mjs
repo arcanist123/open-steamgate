@@ -22,8 +22,8 @@
 //             timeout kills the child. spawn() with an argument array, no shell.
 import {createHash} from "node:crypto";
 import {spawn} from "node:child_process";
-import {readFileSync} from "node:fs";
-import {isAbsolute, resolve} from "node:path";
+import {existsSync, readFileSync} from "node:fs";
+import {extname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {makeRedactor} from "./redact.mjs";
 
@@ -56,23 +56,42 @@ export function loadPin(path = DEFAULT_PIN_PATH) {
 }
 
 // The pin is keyed the way Node names platforms: linux-x64, linux-arm64,
-// darwin-x64, darwin-arm64, win32-x64.
+// darwin-x64, darwin-arm64, win32-x64. Naming is honest (critic note): no
+// collapsing every Windows arch to win32-x64 -- win32-arm64 gets its own
+// name, is found in no pin, and is refused under that name; a combination
+// this line never ships is 'unknown'.
+const PLAUSIBLE_TARGETS = {linux: ["x64", "arm64"], darwin: ["x64", "arm64"], win32: ["x64", "arm64"]};
+const PINNED_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"];
+
 export function targetKey(platform = process.platform, arch = process.arch) {
-  const os = platform === "win32" ? "win32" : platform;
-  const cpu = platform === "win32" ? "x64" : arch;
-  const key = `${os}-${cpu}`;
-  return ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"].includes(key) ? key : undefined;
+  if (!PLAUSIBLE_TARGETS[platform]?.includes(arch)) return undefined;
+  return `${platform}-${arch}`;
+}
+
+// Kept for the pin-entry readers: which of the honest keys the pin covers.
+export function isPinnedTarget(key) {
+  return PINNED_TARGETS.includes(key);
 }
 
 /** Where the sidecar binary is. `callerPath` is what the embedding host hands
  *  in (the VS Code extension passes its bundled binary); OSD_HANA_DUMP wins
  *  over it, because an explicit choice is the strongest one. Neither present
  *  is a clear refusal that says how to get the binary -- this job ships no
- *  download. */
-export function locateSidecar({env = process.env, callerPath} = {}) {
-  const explicit = env.OSD_HANA_DUMP;
-  if (typeof explicit === "string" && explicit.trim() !== "") return resolve(explicit);
-  if (typeof callerPath === "string" && callerPath.trim() !== "") return resolve(callerPath);
+ *  download. On Windows a path with no extension resolves to the existing
+ *  `<path>.exe` (the real name of the Go binary; spawn would need it). */
+export function locateSidecar({env = process.env, callerPath, platform = process.platform, exists = existsSync} = {}) {
+  const pick = (candidate) => {
+    if (typeof candidate !== "string" || candidate.trim() === "") return undefined;
+    const resolved = resolve(candidate);
+    if (platform === "win32" && extname(resolved) === "" && exists(`${resolved}.exe`)) {
+      return `${resolved}.exe`;
+    }
+    return resolved;
+  };
+  const explicit = pick(env.OSD_HANA_DUMP);
+  if (explicit !== undefined) return explicit;
+  const handed = pick(callerPath);
+  if (handed !== undefined) return handed;
   throw new Error(
     `osd hana: the sidecar binary ${SIDECAR_NAME} was not found.\n` +
     `  Set OSD_HANA_DUMP to the path of the ${SIDECAR_NAME} binary, or pass its path to the caller\n` +
@@ -226,6 +245,11 @@ function minimalChildEnv(env, {credentials, extraEnv}) {
   return childEnv;
 }
 
+// The contract promises one JSON line on stdout; a chatty or hostile sidecar
+// is capped anyway -- accumulated child output beyond this is stopped with a
+// clear error, not held in memory until the timeout (critic note).
+const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
+
 export function runSidecarRaw(path, args, {
   env = process.env,
   credentials,
@@ -245,25 +269,46 @@ export function runSidecarRaw(path, args, {
     });
     let stdout = "";
     let stderr = "";
+    let outputBytes = 0;
+    let settled = false;
+    const settle = (error, result) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      if (error !== undefined) reject(error);
+      else resolvePromise(result);
+    };
     const timer = timeoutMs > 0
       ? setTimeout(() => {
         child.kill("SIGKILL");
-        reject(new Error(`osd-hana: ${SIDECAR_NAME} did not finish within ${timeoutMs} ms and was stopped (args: ${args.join(" ")})`));
+        settle(new Error(`osd-hana: ${SIDECAR_NAME} did not finish within ${timeoutMs} ms and was stopped (args: ${args.join(" ")})`));
       }, timeoutMs)
       : undefined;
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    const take = (chunk) => {
+      outputBytes += chunk.length;
+      if (outputBytes > MAX_OUTPUT_BYTES) {
+        child.kill("SIGKILL");
+        settle(new Error(`osd-hana: ${SIDECAR_NAME} produced more than ${MAX_OUTPUT_BYTES} bytes (8 MB) of output and was stopped`));
+        return undefined;
+      }
+      return chunk;
+    };
+    child.stdout.on("data", (chunk) => {
+      const kept = take(chunk);
+      if (kept !== undefined) stdout += kept;
+    });
     child.stderr.on("data", (chunk) => {
-      const text = redact(chunk.toString("utf8"));
+      const kept = take(chunk);
+      if (kept === undefined) return;
+      const text = redact(kept.toString("utf8"));
       stderr += text;
       if (onStderr !== undefined) onStderr(text);
     });
     child.on("error", (error) => {
-      if (timer !== undefined) clearTimeout(timer);
-      reject(new Error(`osd-hana: cannot start ${path}: ${error.message}`));
+      settle(new Error(`osd-hana: cannot start ${path}: ${error.message}`));
     });
     child.on("close", (code) => {
-      if (timer !== undefined) clearTimeout(timer);
-      resolvePromise({code: code ?? -1, stdout, stderr});
+      settle(undefined, {code: code ?? -1, stdout, stderr});
     });
   });
 }
@@ -328,8 +373,13 @@ export class Sidecar {
     if (outcome === undefined) {
       throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} exited ${code}, which the contract does not define`, {exit: code, stderr});
     }
-    const line = safeStdout.split("\n").map((l) => l.trim()).filter((l) => l !== "").pop();
+    const lines = safeStdout.split("\n").map((l) => l.trim()).filter((l) => l !== "");
     let summary;
+    if (lines.length > 1) {
+      // one JSON line or an error, not a guess: two lines are a refusal
+      throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed ${lines.length} lines on stdout where the contract promises one JSON line -- refusing to guess which line matters`, {exit: code, outcome, stderr});
+    }
+    const line = lines[0];
     if (line !== undefined) {
       try {
         summary = JSON.parse(line);

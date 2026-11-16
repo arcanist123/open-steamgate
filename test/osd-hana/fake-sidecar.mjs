@@ -24,7 +24,7 @@
 //                           credentials arrived through the environment to
 //                           (the password value itself is NEVER written --
 //                           only the fact it was there)
-import {appendFileSync} from "node:fs";
+import {appendFileSync, writeSync} from "node:fs";
 
 const [, , ...args] = process.argv;
 const scenario = process.env.FAKE_SIDECAR_PROBE ?? "owner-tenant";
@@ -138,6 +138,17 @@ if (scenario === "echo-stderr") {
 
 if (scenario === "hang") {
   setTimeout(() => process.exit(0), 5000);
+} else if (scenario === "two-lines") {
+  // one JSON line or an error, not a guess: two lines must be refused
+  process.stdout.write(`${JSON.stringify(PROBES["owner-tenant"])}\n${JSON.stringify({ok: true, exit: 0})}\n`);
+  process.exit(0);
+} else if (scenario === "chatty") {
+  // more output than the doctor will accumulate: the cap, not the timeout,
+  // must stop this child. Written synchronously -- a buffered write followed
+  // by process.exit would be truncated by the exit and never reach the cap.
+  const chunk = "x".repeat(1024 * 1024);
+  for (let i = 0; i < 10; i++) writeSync(1, chunk);
+  process.exit(0);
 } else {
   const answer = PROBES[scenario] ?? PROBES["owner-tenant"];
   process.stdout.write(`${JSON.stringify(answer)}\n`);
