@@ -84,10 +84,26 @@ export function readEnvFile(path) {
   return out;
 }
 
+// A visible line prompt on a terminal: the question is written to stderr and
+// the typed answer ECHOES -- this is for login NAMES and yes/no questions,
+// never for a password (the hidden prompt below is for those). Not a terminal
+// (stdin or stderr) is a refusal, never a silent read.
+export async function promptVisible(question, {input = process.stdin, output = process.stderr} = {}) {
+  if (input?.isTTY !== true || output?.isTTY !== true) {
+    throw new UsageError("osd hana: this question needs a terminal -- stdin and stderr are not both terminals here, so there is nobody to answer it");
+  }
+  const {createInterface} = await import("node:readline");
+  const rl = createInterface({input, output});
+  return new Promise((resolvePromise) => rl.question(question, (answer) => {
+    rl.close();
+    resolvePromise(answer);
+  }));
+}
+
 // A hidden prompt on a TTY: raw mode, every character swallowed, nothing
 // echoed. Not a TTY (a test, a pipe) is a refusal, never a read: hanging on
 // stdin that will never speak is worse than a clear error.
-async function promptHidden(question, {input = process.stdin, output = process.stderr, isTTY = input.isTTY} = {}) {
+export async function promptHidden(question, {input = process.stdin, output = process.stderr, isTTY = input.isTTY} = {}) {
   if (!isTTY) throw new UsageError("osd hana: a password is missing and stdin is not a terminal -- use --password-stdin, HANA_PASSWORD in --env-file, or OSD_HANA_PASSWORD");
   return new Promise((resolvePromise, reject) => {
     output.write(question);
@@ -150,6 +166,16 @@ export async function collectConnection({
   if (user === undefined) missing.push("--user");
   if (missing.length > 0) {
     throw new UsageError(`osd hana: the connection is incomplete -- give ${missing.join(", ")} (flags, --env-file, or HANA_* in the environment)`);
+  }
+  // An empty string is present-but-empty: `HANA_HOST=` in an env file used to
+  // pass the completeness check and fail later as an obscure driver error
+  // (critic round-2 NOTE-3). Refused the way the password channel already
+  // refuses "".
+  const empty = [];
+  if (host === "") empty.push("the host (--host / HANA_HOST)");
+  if (user === "") empty.push("the user (--user / HANA_USER)");
+  if (empty.length > 0) {
+    throw new UsageError(`osd hana: ${empty.join(" and ")} is/are set to the empty string -- an empty value is refused here, exactly like an empty password. Give a real value or remove the setting.`);
   }
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new UsageError(`osd hana: --port: not a port number: ${portRaw}`);

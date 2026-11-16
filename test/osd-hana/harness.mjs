@@ -120,10 +120,14 @@ export function makeHarness() {
   h.store = () => fileSecretStore(join(h.root, `secrets-${Math.random().toString(16).slice(2)}`));
 
   // A store seeded with the entry drop-reader demands: an exact match of
-  // host + port + database + name, the record this tool would have written.
+  // host + port + database + name, the record this tool would have written --
+  // including the system identity (the create path has recorded one since the
+  // identity round; pass `system_identity: undefined` in `extra` for the
+  // legacy shape the NOTE-1 refusal is about).
   h.seedStore = (secretStore, connection, name = "OSD_READER", password = "gone-soon-42", extra = {}) => {
     secretStore.set(
-      {user: name, password, schema: SCHEMA, host: connection.host, port: connection.port, database: connection.database, ...extra},
+      {user: name, password, schema: SCHEMA, host: connection.host, port: connection.port, database: connection.database,
+        system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}, ...extra},
       readerStoreKey(connection, name));
   };
 
