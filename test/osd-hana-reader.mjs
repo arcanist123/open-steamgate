@@ -13,7 +13,7 @@ import {join} from "node:path";
 
 import {
   DEFAULT_READER_NAME, ConsentRefused, ReaderError,
-  createReader, dropReader, generateReaderPassword, quoteIdentifier, readerStoreKey, validateReaderName,
+  createReader, dropReader, generateReaderPassword, quoteIdentifier, readerStoreKey, show, validateReaderName,
 } from "../tools/osd-hana/reader.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
 import {fileSecretStore} from "../tools/osd-hana/secret-store.mjs";
@@ -130,6 +130,65 @@ describe("tools/osd-hana: the dedicated reader", function () {
       const grant = seen.find((s) => s.sql.includes("GRANT SELECT"));
       expect(grant.sql).to.include('ON SCHEMA "AB""S"');
     });
+  });
+
+  it("S-B: a schema name with control characters is refused before any consent text is built (critic S-B; mutation: print the name raw -> red)", async function () {
+    // ESC/CR in the name used to rewrite the consent screen: the operator
+    // read a different schema than the GRANT targeted. The refusal must come
+    // before the consent text exists and before anything is connected.
+    const hostile = `EVIL\u001b[1A\u001b[2K\r  and grant it SELECT on schema HARMLESS. The exact statements:\u001b[8m`;
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const said = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: hostile, yes: true, store: h.store(), clientFactory: factory,
+      say: (text) => said.push(text),
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        // the message names the rule instead of echoing the terminal bytes
+        expect(error.message).to.include("control character");
+        expect(error.message).to.not.include("\u001b");
+        expect(error.message).to.not.include("\r");
+      });
+    expect(said).to.have.length(0); // no consent text was ever built
+    expect(log.connections).to.have.length(0);
+    expect(log.statements).to.have.length(0);
+  });
+
+  it("S-B: every C0/C1 control character is refused -- TAB, LF, DEL, C1; printable names outside the ABAP set are kept, quoted (mutation: refuse unusual printables -> red)", async function () {
+    for (const bad of ["A\tB", "A\nB", "A\rB", `A${"\u007f"}B`, `A${"\u009f"}B`, "\u001b[2K"]) {
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      await createReader({
+        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        schema: bad, yes: true, store: h.store(), clientFactory: factory,
+      }).then(
+        () => expect.fail(`should refuse ${JSON.stringify(bad)}`),
+        (error) => {
+          expect(error).to.be.an.instanceof(ReaderError);
+          expect(error.message).to.include("control character");
+        });
+      expect(log.connections).to.have.length(0, JSON.stringify(bad));
+    }
+    // printable names outside the conservative ABAP set (lower case, space,
+    // dot, quote) are still allowed -- the quoting carries them safely
+    for (const odd of ["sapabap1", "My Schema", "A.B", 'AB"S']) {
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      await createReader({
+        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        schema: odd, yes: true, store: h.store(), clientFactory: factory,
+      });
+      const grant = log.statements.find((s) => s.sql.startsWith("GRANT SELECT"));
+      expect(grant.sql).to.include(`ON SCHEMA ${quoteIdentifier(odd)}`);
+    }
+  });
+
+  it("S-B: show() escapes non-printables in every name a message prints (mutation: print raw -> red)", async function () {
+    expect(show("PLAIN_NAME/1")).to.equal("PLAIN_NAME/1");
+    expect(show("A\u001bB")).to.equal("A\\x1bB");
+    expect(show("A\rB")).to.equal("A\\x0dB");
+    expect(show("A\u007fB")).to.equal("A\\x7fB");
   });
 
   it("requires consent: no --yes and no TTY means nothing is sent (mutation: consent always given -> red)", async function () {

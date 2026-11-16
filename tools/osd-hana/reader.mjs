@@ -59,6 +59,52 @@ export function validateReaderName(name, {flag = "--reader-name"} = {}) {
   return name;
 }
 
+// ------------------------------------------------------------- the schema
+
+// C0 and C1 control characters (U+0000-U+001F, U+007F-U+009F): ESC, CR, LF,
+// TAB and friends. A schema name carrying any of these is refused before any
+// consent text is built (critic S-B): the name appears on the consent screen
+// and in every message, and a name that can rewrite a terminal must not.
+const SCHEMA_CONTROL_CHARS = /[\x00-\x1F\x7F-\x9F]/;
+
+// HANA caps quoted identifiers at 127 characters.
+const SCHEMA_MAX_LENGTH = 127;
+
+/** The reader path's schema-name rule (critic S-B): refuse control
+ *  characters outright, before any consent text exists. The conservative
+ *  set a real ABAP schema name draws from is upper-case letters, digits, `_`
+ *  and `/` (the SAP name rules) -- HANA itself allows any printable quoted
+ *  identifier, so printable-but-unusual names (lower case, spaces, dots,
+ *  quotes) are kept working through quoteIdentifier; only control characters
+ *  are unprintable enough to rewrite what the operator reads. */
+export function validateSchemaName(name, {flag = "--schema"} = {}) {
+  if (typeof name !== "string" || name.length === 0) {
+    throw new ReaderError(`osd hana: --create-reader needs the ABAP schema (--schema, or found by the probe)`);
+  }
+  if (name.length > SCHEMA_MAX_LENGTH) {
+    throw new ReaderError(`osd hana: the schema name is ${name.length} characters; HANA identifiers stop at ` +
+      `${SCHEMA_MAX_LENGTH}. Nothing was sent.`);
+  }
+  if (SCHEMA_CONTROL_CHARS.test(name)) {
+    throw new ReaderError(`osd hana: refusing the schema name (from ${flag} or the probe): it contains control ` +
+      `characters -- bytes of the C0/C1 ranges (ESC, CR, LF, TAB and the rest). The name is printed on the ` +
+      `consent screen and in every message; a name that can rewrite a terminal must not get there. The exact ` +
+      `bytes, escaped: ${JSON.stringify(show(name))}. Real ABAP schema names are upper-case letters, digits, ` +
+      `'_' and '/' at most -- if this name came from the database itself, something else is wrong; say so in ` +
+      `the report and create the reader by hand. Nothing was sent.`);
+  }
+  return name;
+}
+
+// ONE display form for a schema name in a message: control characters become
+// their escaped form (critic S-B) -- every name a human reads goes through
+// here, so nothing unprintable reaches the screen even if a future path
+// forgets the validation.
+export function show(name) {
+  return String(name).replace(/[\x00-\x1F\x7F-\x9F]/g,
+    (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+}
+
 /** The secret-store key: host, port, database and reader name together.
  *  --drop-reader is allowed to drop only when an entry exists for exactly
  *  this connection and name -- the record --create-reader wrote (critic M-2,
@@ -164,13 +210,15 @@ export function planStatements({readerName, schema, password}) {
   ];
 }
 
-export function consentText({readerName, schema, planLines, store}) {
+export function consentText({readerName, schema, planLines, store, connection, transport}) {
   return [
     `osd hana: about to create the dedicated read-only database user ${readerName}`,
-    `  and grant it SELECT on schema ${schema}. The exact statements:`,
+    `  on ${connection.host}:${connection.port}${connection.database ? `/${connection.database}` : ""}`,
+    `  and grant it SELECT on schema ${show(schema)}. The exact statements:`,
     "",
     ...planLines.map((line) => `    ${line.sql}   -- ${line.why}`),
     "",
+    ...(transport ?? []),
     `  (the password is generated, 28 characters, never printed; it will be stored in`,
     `   ${store.location(readerName)})`,
     "",
@@ -287,7 +335,7 @@ export function describe258OnGrant(schema, owner) {
   return [
     `osd hana: this login may not grant the schema (HANA error 258, insufficient privilege).`,
     `  The reader was created and is now dropped again; nothing was left behind.`,
-    `  The login that CAN grant SELECT on schema ${schema} is its owner${owner ? `: ${owner}` : " (the owner lookup did not answer -- it is the user named like the schema on a classic ABAP stack)"}.`,
+    `  The login that CAN grant SELECT on schema ${show(schema)} is its owner${owner ? `: ${owner}` : " (the owner lookup did not answer -- it is the user named like the schema on a classic ABAP stack)"}.`,
     `  Run 'osd hana doctor --create-reader' with that login, or go on read-only with the present login.`,
   ].join("\n");
 }
@@ -311,10 +359,13 @@ export async function createReader({
   generatePassword = generateReaderPassword,
 } = {}) {
   validateReaderName(readerName);
-  if (!schema || typeof schema !== "string") throw new ReaderError("osd hana: --create-reader needs the ABAP schema (--schema, or found by the probe)");
+  // Before any consent text is built: a name that carries control characters
+  // rewrites the screen the operator reads (critic S-B). validateSchemaName
+  // also covers the missing-schema case.
+  validateSchemaName(schema);
   const password = generatePassword();
   const plan = planStatements({readerName, schema, password});
-  say(consentText({readerName, schema, planLines: plan, store}));
+  say(consentText({readerName, schema, planLines: plan, store, connection}));
   await askConsent({yes, isTTY, prompt});
 
   const adminClient = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
@@ -392,7 +443,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       try {
         proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword}));
         const {rows} = await proofClient.exec(`SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`, []);
-        say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${schema}."TADIR" -- proof it works.`);
+        say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${show(schema)}."TADIR" -- proof it works.`);
       } finally {
         if (proofClient !== undefined) await proofClient.disconnect();
       }
