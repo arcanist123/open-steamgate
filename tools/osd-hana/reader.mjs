@@ -169,13 +169,17 @@ export function hdbClientFactory({require = createRequire(import.meta.url)} = {}
 // present on another (critic M-3: a proof or an absence check against the
 // wrong database reports success and leaves the user behind).
 //
-// Encryption (critic S-D), from hdb's documented options (node-hdb README,
-// "Encrypted network communication"): `useTLS: true` opens a TLS socket with
-// certificate validation (the options reach tls.connect, Node's default trust
-// store applies, and hdb sets servername to the host); `rejectUnauthorized:
-// false` is the documented tls.connect escape hatch, passed through by hdb,
-// for "encrypt, but do not authenticate the server".
-function hdbConnectionOptions(connection, {user, password, encrypt = false, trustServerCertificate = false}) {
+// Encryption (critic S-D, S-1), from hdb's documented options (node-hdb
+// README, "Encrypted network communication"): `useTLS: true` opens a TLS
+// socket with certificate validation (the options reach tls.connect, Node's
+// default trust store applies, and hdb sets servername to the host);
+// `rejectUnauthorized: false` is the documented tls.connect escape hatch,
+// passed through by hdb, for "encrypt, but do not authenticate the server".
+// `ca` is the CA certificate's CONTENT (hdb passes it to tls.connect) and
+// `servername` overrides the SNI/hostname check -- the reader path gets the
+// SAME --ca-file / --tls-server-name the sidecar gets (critic S-1: one
+// consistent TLS set for both transports; the doctor reads the CA file once).
+function hdbConnectionOptions(connection, {user, password, encrypt = false, trustServerCertificate = false, ca, tlsServerName}) {
   return {
     host: connection.host,
     port: connection.port,
@@ -187,6 +191,8 @@ function hdbConnectionOptions(connection, {user, password, encrypt = false, trus
       : encrypt
         ? {useTLS: true}
         : {}),
+    ...(ca !== undefined ? {ca} : {}),
+    ...(tlsServerName !== undefined ? {servername: tlsServerName} : {}),
   };
 }
 
@@ -203,7 +209,8 @@ export function transportLines({encrypt, trustServerCertificate, host, port, sec
   }
   if (encrypt) {
     return [
-      `  The connection to ${host}:${port} is encrypted (TLS; the server certificate is validated against the trust store).`,
+      `  The connection to ${host}:${port} is encrypted (TLS; the server certificate is validated against the trust store,`,
+      `  or against the CA given with --ca-file).`,
     ];
   }
   return [
@@ -337,8 +344,8 @@ async function lookupSchemaOwner(client, schema) {
  *  the consent screen so the guided flow can suggest it (measured fact: the
  *  doctor asks for the owner's login with the name shown from the catalogue).
  *  Informational: a read that fails yields no suggestion, never an error. */
-export async function lookupSchemaOwnerLogin({connection, schema, user, password, clientFactory, encrypt = false, trustServerCertificate = false}) {
-  const client = await clientFactory(hdbConnectionOptions(connection, {user, password, encrypt, trustServerCertificate}));
+export async function lookupSchemaOwnerLogin({connection, schema, user, password, clientFactory, encrypt = false, trustServerCertificate = false, ca, tlsServerName}) {
+  const client = await clientFactory(hdbConnectionOptions(connection, {user, password, encrypt, trustServerCertificate, ca, tlsServerName}));
   try {
     return await lookupSchemaOwner(client, schema);
   } finally {
@@ -488,6 +495,8 @@ export async function createReader({
   generatePassword = generateReaderPassword,
   encrypt = false,               // --encrypt: TLS with certificate validation (hdb useTLS)
   trustServerCertificate = false, // --trust-server-certificate: TLS without validation, said loudly
+  ca = undefined,                // the CA certificate's CONTENT (hdb's `ca` option), with --ca-file (critic S-1)
+  tlsServerName = undefined,     // --tls-server-name: hdb's `servername`
   role = "both",                 // the PRESENT login's role: "admin" | "owner" | "both"
   secondLogin = undefined,       // {user, password} of the OTHER login when role !== "both"
   catalogRead = true,            // --no-catalog-read leaves the CATALOG READ grant out
@@ -523,10 +532,10 @@ export async function createReader({
   // lives in memory.
   const redact = makeRedactor([password, connection.password, secondLogin?.password]);
 
-  return runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt, trustServerCertificate, redact, onCreated, logins});
+  return runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt, trustServerCertificate, ca, tlsServerName, redact, onCreated, logins});
 }
 
-async function runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt = false, trustServerCertificate = false, redact = (text) => text, onCreated = undefined, logins}) {
+async function runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt = false, trustServerCertificate = false, ca = undefined, tlsServerName = undefined, redact = (text) => text, onCreated = undefined, logins}) {
   // The ADMINISTRATOR login runs CREATE / ALTER / CATALOG READ; the SCHEMA
   // OWNER login runs the GRANT SELECT. The administrator connection is also
   // the ONLY one that can drop the reader again -- every cleanup below goes
@@ -535,7 +544,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
   const ownerLogin = logins.owner;
   const grantSelect = plan[plan.length - 1];
   const adminClient = await clientFactory(hdbConnectionOptions(connection,
-    {user: adminLogin.user, password: adminLogin.password, encrypt, trustServerCertificate}));
+    {user: adminLogin.user, password: adminLogin.password, encrypt, trustServerCertificate, ca, tlsServerName}));
   let ownerClient;
   // Best-effort cleanup by the administrator connection: a 332 means the
   // user is absent (the consequence of a failed create) -- that is success
@@ -647,7 +656,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
         const label = role === "admin" ? "schema-owner" : "administrator";
         try {
           ownerClient = await clientFactory(hdbConnectionOptions(connection,
-            {user: ownerLogin.user, password: ownerLogin.password, encrypt, trustServerCertificate}));
+            {user: ownerLogin.user, password: ownerLogin.password, encrypt, trustServerCertificate, ca, tlsServerName}));
         } catch (error) {
           await refused({label, user: ownerLogin.user, item: {sql: `log on as ${ownerLogin.user}`}, error});
         }
@@ -664,7 +673,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
       const readerPassword = password;
       let proofClient;
       try {
-        proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword, encrypt, trustServerCertificate}));
+        proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword, encrypt, trustServerCertificate, ca, tlsServerName}));
         const {rows} = await proofClient.exec(`SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`, []);
         say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${show(schema)}."TADIR" -- proof it works.`);
         let refusedText;
@@ -815,6 +824,8 @@ export async function dropReader({
   say = () => {},
   encrypt = false,
   trustServerCertificate = false,
+  ca = undefined,
+  tlsServerName = undefined,
 } = {}) {
   validateReaderName(readerName);
   if (readerName === String(connection.user).toUpperCase()) {
@@ -847,7 +858,7 @@ export async function dropReader({
   // its store created, and it must not drop it.
   let proofClient;
   try {
-    proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: stored.password, encrypt, trustServerCertificate}));
+    proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: stored.password, encrypt, trustServerCertificate, ca, tlsServerName}));
     await proofClient.exec(`SELECT 1 AS ONE FROM DUMMY`);
   } catch (error) {
     throw new ReaderError(refuseDropText(readerName,
@@ -873,7 +884,7 @@ export async function dropReader({
   say(lines);
   await askConsent({yes, isTTY, prompt});
 
-  const client = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password, encrypt, trustServerCertificate}));
+  const client = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password, encrypt, trustServerCertificate, ca, tlsServerName}));
   try {
     // Ownership proof, part 2 (critic S-A): the installation identity recorded
     // at create time must match what the catalogue says now -- a matching

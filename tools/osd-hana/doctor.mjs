@@ -15,6 +15,7 @@
 // place a non-SELECT statement exists) and opens no listening socket (task
 // B.5).
 import {UsageError, parseFlags, collectConnection, promptHidden as defaultPromptHidden, promptVisible as defaultPromptVisible} from "./connect.mjs";
+import {readFileSync} from "node:fs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory, describeNeitherRole, lookupSchemaOwnerLogin} from "./reader.mjs";
@@ -153,6 +154,21 @@ export async function doctorMain(argv, {
     return fail("osd hana: --create-reader and --drop-reader cannot be used together");
   }
 
+  // ---- TLS is ONE consistent set for BOTH transports (critic S-1) --------
+  // --ca-file / --tls-server-name shape TLS for the sidecar's connection AND
+  // for the reader path's hdb connection alike. Without --encrypt they would
+  // mean TLS on one path while the other -- the one that carries the new
+  // reader's password in CREATE USER -- goes out in clear text. Refused as a
+  // usage error, before anything connects. (--trust-server-certificate alone
+  // stays valid: it IS an encryption request, just without validation.)
+  if ((flags["ca-file"] !== undefined || flags["tls-server-name"] !== undefined) && flags.encrypt !== true) {
+    return fail(`osd hana: --ca-file and --tls-server-name need --encrypt -- these flags shape TLS for BOTH connections ` +
+      `(the sidecar's and the reader path's), and encrypting one while the other carries the new password in clear ` +
+      `text is not a thing this tool does.\n` +
+      `  To encrypt with certificate validation: --encrypt, plus --ca-file / --tls-server-name as needed.\n` +
+      `  To encrypt WITHOUT certificate validation: --trust-server-certificate alone (it says so loudly).`);
+  }
+
   // ---- sidecar: locate, verify, handshake -------------------------------
   let path;
   try {
@@ -220,6 +236,21 @@ export async function doctorMain(argv, {
     if (flags["ca-file"] !== undefined) sidecarTlsArgs.push("--ca-file", flags["ca-file"]);
     if (flags["tls-server-name"] !== undefined) sidecarTlsArgs.push("--tls-server-name", flags["tls-server-name"]);
   }
+  // The reader path's TLS (hdb), from the same flags -- critic S-1 / probe
+  // P8: with --encrypt --ca-file the CA used to reach the sidecar but never
+  // hdb, so a private CA failed closed on the reader path while the sidecar
+  // verified. hdb's documented `ca` option carries the CA file's CONTENT
+  // (hdb passes it to tls.connect); --tls-server-name becomes hdb's
+  // `servername`. Read once, here, before anything connects.
+  let caContent;
+  if (flags.encrypt === true && flags["ca-file"] !== undefined) {
+    try {
+      caContent = readFileSync(flags["ca-file"], "utf8");
+    } catch (error) {
+      return fail(`osd hana: --ca-file: could not read ${flags["ca-file"]}: ${error.message}`);
+    }
+  }
+  const tlsServerName = flags["tls-server-name"];
 
   // ---- connection --------------------------------------------------------
   let connection;
@@ -307,7 +338,8 @@ export async function doctorMain(argv, {
               suggest = await lookupSchemaOwnerLogin({connection, schema: schemaName,
                 user: connection.user, password: connection.password,
                 clientFactory: clientFactory ?? hdbClientFactory(),
-                encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true});
+                encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
+                ca: caContent, tlsServerName});
             } catch {
               suggest = undefined;
             }
@@ -320,6 +352,7 @@ export async function doctorMain(argv, {
         ? await createReader({connection, schema: schemaName, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt: promptVisibleFn,
             encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
+            ca: caContent, tlsServerName,
             role, secondLogin, catalogRead,
             say: (text) => io.out(text),
             // the sidecar's probe, run AS THE READER (task item 3): shown as
@@ -352,6 +385,7 @@ export async function doctorMain(argv, {
         : await dropReader({connection, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt: promptVisibleFn,
             encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
+            ca: caContent, tlsServerName,
             say: (text) => io.out(text)});
       if (verb === "create-reader" && flags["no-catalog-read"] === true) {
         io.err(`osd hana: without GRANT CATALOG READ this reader CANNOT extract database procedures (AMDP) --\n` +

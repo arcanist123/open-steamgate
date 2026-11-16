@@ -597,7 +597,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
 
     it("TLS: when the sidecar lacks the capability and the user asked for TLS, the doctor REFUSES -- never a clear-text connection (mutation: connect anyway -> red)", async function () {
       // the default fake handshake has no "tls" capability
-      for (const argv of [["--encrypt"], ["--trust-server-certificate"], ["--ca-file", join(h.root, "ca.pem")], ["--tls-server-name", "hana.example.test"]]) {
+      for (const argv of [["--encrypt"], ["--trust-server-certificate"]]) {
         const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
         expect(code, argv.join(" ")).to.equal(1);
         expect(h.allText(), argv.join(" ")).to.include("tls");
@@ -605,14 +605,68 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         // nothing was said that looks like a verdict: no connection happened
         expect(h.allText(), argv.join(" ")).to.not.include("Verdict for the ABAP rescue");
       }
+      // --ca-file / --tls-server-name are refused even without the capability:
+      // they are a usage error without --encrypt (critic S-1), checked before
+      // the capability is even consulted
+      for (const argv of [["--ca-file", join(h.root, "ca.pem")], ["--tls-server-name", "hana.example.test"]]) {
+        const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
+        expect(code, argv.join(" ")).to.equal(1);
+        expect(h.allText(), argv.join(" ")).to.include("--encrypt");
+        expect(h.allText(), argv.join(" ")).to.not.include("Verdict for the ABAP rescue");
+      }
       // and without a TLS ask, the same sidecar runs fine in clear
       const code2 = await h.runDoctor([], {scenario: "owner-tenant"});
       expect(code2).to.equal(0);
     });
 
+    it("TLS flags are ONE consistent set for BOTH transports: --ca-file / --tls-server-name WITHOUT --encrypt is a usage error even with a tls-capable sidecar -- the sidecar must not get TLS while the reader path carries the new password in clear (critic S-1 / probe P7; mutation: the usage check dropped -> red)", async function () {
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      for (const argv of [["--ca-file", "/tmp/hana-ca.pem"], ["--tls-server-name", "hana.example.test"]]) {
+        const {factory, log} = fakeClientFactory(SUCCESS_RULES);
+        const code = await h.runDoctor(["--create-reader", "--yes", ...argv], {
+          scenario: "admin-system",
+          handshakePatch: TLS_HANDSHAKE,
+          env: {OSD_HANA_OWNER_PASSWORD: "owner-secret-pw-7"},
+          deps: {clientFactory: factory, store: h.store()},
+        });
+        expect(code, argv.join(" ")).to.equal(1);
+        const text = h.allText();
+        expect(text, argv.join(" ")).to.include("--encrypt");
+        expect(text, argv.join(" ")).to.include("clear");
+        // refused BEFORE anything connected: no hdb connection, no CREATE
+        expect(log.connections, argv.join(" ")).to.have.length(0);
+        expect(log.statements.some((s) => /CREATE USER/.test(s.sql)), argv.join(" ")).to.equal(false);
+      }
+    });
+
+    it("TLS: with --encrypt the CA file's content and the server name reach the READER path too -- every hdb connection (critic S-1 / probe P8; mutation: hdb drops the ca -> red)", async function () {
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const caPath = join(h.root, "ca-reader.pem");
+      writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nTESTCAFORROUND3\n-----END CERTIFICATE-----\n");
+      const {factory, log} = fakeClientFactory(SUCCESS_RULES);
+      const code = await h.runDoctor(["--create-reader", "--yes", "--owner-user", "OWNERLOGIN", "--database", "TEN", "--encrypt", "--ca-file", caPath, "--tls-server-name", "hana.example.test"], {
+        scenario: "admin-system",
+        handshakePatch: TLS_HANDSHAKE,
+        env: {OSD_HANA_OWNER_PASSWORD: "owner-secret-pw-7"},
+        deps: {clientFactory: factory, store: h.store()},
+      });
+      expect(code, h.allText()).to.equal(0);
+      // the suggestion lookup, the administrator, the owner, the reader proof
+      expect(log.connections.length).to.be.at.least(3);
+      for (const c of log.connections) {
+        expect(c.useTLS, "hdb must use TLS").to.equal(true);
+        expect(c.ca, "the CA reaches hdb (hdb passes it to tls.connect)").to.equal(readFileSync(caPath, "utf8"));
+        expect(c.servername).to.equal("hana.example.test");
+      }
+    });
+
     it("TLS: with the capability, the TLS flags are passed to the sidecar as well (mutation: keep them from the sidecar -> red)", async function () {
       rmSync(h.recordPath, {force: true});
-      const code = await h.runDoctor(["--encrypt", "--ca-file", "/tmp/hana-ca.pem", "--tls-server-name", "hana.example.test"], {
+      // a REAL CA file: the doctor reads its content now (critic S-1 -- the
+      // CA reaches the reader path's hdb connections too)
+      const caPath = join(h.root, "ca-sidecar.pem");
+      writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nTESTCASIDECAR\n-----END CERTIFICATE-----\n");
+      const code = await h.runDoctor(["--encrypt", "--ca-file", caPath, "--tls-server-name", "hana.example.test"], {
         scenario: "tls-verified",
         handshakePatch: TLS_HANDSHAKE,
         env: {FAKE_SIDECAR_RECORD: h.recordPath},
@@ -623,7 +677,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       for (const record of records) {
         expect(record.argv).to.include("--encrypt");
         expect(record.argv).to.include("--ca-file");
-        expect(record.argv[record.argv.indexOf("--ca-file") + 1]).to.equal("/tmp/hana-ca.pem");
+        expect(record.argv[record.argv.indexOf("--ca-file") + 1]).to.equal(caPath);
         expect(record.argv).to.include("--tls-server-name");
         expect(record.argv[record.argv.indexOf("--tls-server-name") + 1]).to.equal("hana.example.test");
       }
