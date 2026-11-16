@@ -17,10 +17,10 @@
 import {UsageError, parseFlags, collectConnection} from "./connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {makeRedactor} from "./redact.mjs";
-import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory} from "./reader.mjs";
+import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory, describeNeitherRole, lookupSchemaOwnerLogin} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
-import {plainVerdict, jsonVerdict, tlsLine, ipSansExplanation} from "./verdict.mjs";
+import {plainVerdict, jsonVerdict, readerRoleFromProbe, tlsLine, ipSansExplanation} from "./verdict.mjs";
 import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
@@ -30,14 +30,15 @@ export const DOCTOR_EXIT = Object.freeze({
   noAbapSchema: 5,
 });
 
-const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "reader-name", "sidecar-pin", "ca-file", "tls-server-name"];
+const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "reader-name", "sidecar-pin", "ca-file", "tls-server-name", "owner-user", "admin-user"];
 const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "encrypt", "trust-server-certificate", "no-catalog-read", "help"];
 
 const USAGE = `Usage: osd hana doctor [--host H] [--port P] [--database NAME] [--user U]
                         [--schema NAME] [--env-file <file>] [--password-stdin]
                         [--json] [--allow-unpinned-sidecar]
                         [--create-reader | --drop-reader [--reader-name NAME] [--yes]]
-                        [--encrypt | --trust-server-certificate]
+                        [--no-catalog-read] [--owner-user U | --admin-user U]
+                        [--encrypt | --trust-server-certificate [--ca-file F] [--tls-server-name N]]
 
 Checks a HANA database and says, plainly, whether your ABAP code can be
 rescued out of it: reachable? tenant or system database? ABAP schema found?
@@ -55,7 +56,21 @@ caller hands in), verified against tools/osd-hana/sidecar.lock.json, and
 hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
 
 --create-reader sets up a dedicated read-only database user (asks for
-consent; --yes answers it non-interactively). --drop-reader removes it.
+consent; --yes answers it non-interactively). The flow is guided by which
+role the present login has: an administrator creates the user and the doctor
+then asks for the SCHEMA OWNER's login (--owner-user; the catalogue suggests
+the name; its password comes from $OSD_HANA_OWNER_PASSWORD or a hidden
+prompt); the schema owner is asked for an ADMINISTRATOR login the same way
+(--admin-user, $OSD_HANA_ADMIN_PASSWORD). One login that can do both does it
+in one step; a login that can do neither gets an explanation and nothing is
+sent. --no-catalog-read leaves GRANT CATALOG READ out (the reader then cannot
+extract database procedures). --drop-reader removes the reader -- also when
+the probe cannot succeed (a removed ABAP schema does not block a teardown).
+
+TLS: with a sidecar that has the "tls" capability, --encrypt /
+--trust-server-certificate / --ca-file / --tls-server-name are passed to the
+sidecar as well; without the capability a TLS ask is refused -- the doctor
+never connects in clear text when TLS was asked for.
 
 The reader path talks to the database through the Node driver hdb. Without
 --encrypt that connection is NOT encrypted and the new password travels in
@@ -230,6 +245,8 @@ export async function doctorMain(argv, {
   if (connection.database !== undefined) probeArgs.push("--database", connection.database);
   if (connection.schema !== undefined) probeArgs.push("--abap-schema", connection.schema);
   probeArgs.push(...sidecarTlsArgs);
+  let readerProbeDocument; // the sidecar's probe answer, when run AS THE READER (create path)
+
   const finishReader = async (verb) => {
     // --create-reader grants on an ABAP schema, so it needs one: from --schema
     // or, when the probe found exactly one, that one. --drop-reader needs NO
@@ -248,15 +265,82 @@ export async function doctorMain(argv, {
     }
     const readerName = flags["reader-name"] ?? "OSD_READER";
     try {
+      let role = "both";
+      let secondLogin;
+      if (verb === "create-reader") {
+        // The guided TWO-LOGIN flow: which role the present login has, the
+        // doctor works out from the probe (task item 1). "neither" explains
+        // what is needed and sends nothing; the other single-role cases ask
+        // for the login holding the other role, from the catalogue-suggested
+        // owner name / the flags / a hidden prompt, with the password from
+        // OSD_HANA_OWNER_PASSWORD / OSD_HANA_ADMIN_PASSWORD (there is
+        // deliberately no --owner-password-stdin: non-interactive use names
+        // the login with the flag and brings the password through the env).
+        role = readerRoleFromProbe(probe);
+        if (role === "neither") {
+          io.err(describeNeitherRole(schemaName));
+          return DOCTOR_EXIT.usage;
+        }
+        if (role === "admin" || role === "owner") {
+          let suggest;
+          if (role === "admin") {
+            // the owner's name, shown from the catalogue as a suggestion
+            // (informational: a failed lookup yields no suggestion)
+            try {
+              suggest = await lookupSchemaOwnerLogin({connection, schema: schemaName,
+                user: connection.user, password: connection.password,
+                clientFactory: clientFactory ?? hdbClientFactory(),
+                encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true});
+            } catch {
+              suggest = undefined;
+            }
+          }
+          secondLogin = await collectSecondLogin({role, flags, env, isTTY, prompt, suggest});
+        }
+      }
+      const catalogRead = flags["no-catalog-read"] !== true;
       const result = verb === "create-reader"
         ? await createReader({connection, schema: schemaName, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
             encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
-            say: (text) => io.out(text)})
+            role, secondLogin, catalogRead,
+            say: (text) => io.out(text),
+            // the sidecar's probe, run AS THE READER (task item 3): shown as
+            // the reader's own verdict; a failure here is reported, never a
+            // drop -- the reader was already proven by a real connection
+            onCreated: async ({user, password}) => {
+              try {
+                const readerSidecar = new Sidecar(path, {
+                  credentials: {user, password, host: connection.host, schema: connection.schema},
+                  timeoutMs: sidecarTimeoutMs,
+                  onStderr: (text) => io.err(text.trimEnd()),
+                  env,
+                  extraEnv: sidecarExtraEnv,
+                  pin,
+                  allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+                  foreignPin,
+                  loud: loudOnce,
+                });
+                const run = await readerSidecar.run("probe", {args: probeArgs});
+                readerProbeDocument = run.summary.probe ?? run.summary;
+                const view = {host: connection.host, port: connection.port, database: connection.database, user};
+                io.out(`osd hana: the reader's own probe -- the sidecar run as ${user}:`);
+                for (const line of plainVerdict(readerProbeDocument, {connection: view, sidecar: describeSidecar(verified, handshakeInfo)})) {
+                  io.out(`  ${line}`);
+                }
+              } catch (error) {
+                io.err(`osd hana: the reader's own probe could not run: ${error.message}`);
+              }
+            }})
         : await dropReader({connection, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
             encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             say: (text) => io.out(text)});
+      if (verb === "create-reader" && flags["no-catalog-read"] === true) {
+        io.err(`osd hana: without GRANT CATALOG READ this reader CANNOT extract database procedures (AMDP) --\n` +
+          `  the dump will report them as an error (the sidecar exits 3, "empty catalog"). Re-run\n` +
+          `  --create-reader without --no-catalog-read to add the grant.`);
+      }
       if (flags.json === true) {
         // the create result deliberately carries no password -- the secret
         // store is its only holder (critic M-A); --json reports the facts a
@@ -267,6 +351,7 @@ export async function doctorMain(argv, {
           ? {
             ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
             reader: {user: result.user, schema: result.schema, stored_at: result.storedAt},
+            ...(readerProbeDocument !== undefined ? {reader_probe: readerProbeDocument} : {}),
           }
           : {
             command: "osd hana doctor",
@@ -388,4 +473,49 @@ function describeSidecar(verified, handshakeInfo) {
     version: handshakeInfo?.version,
     commit: handshakeInfo?.commit,
   };
+}
+
+/** The second login of the guided two-login flow. `role` is the PRESENT
+ *  login's role; when it holds only one, the login holding the OTHER role is
+ *  asked for here: the name from --owner-user / --admin-user (or a prompt on
+ *  a terminal, with the catalogue's suggestion as the default), the password
+ *  from $OSD_HANA_OWNER_PASSWORD / $OSD_HANA_ADMIN_PASSWORD or a hidden
+ *  prompt. There is deliberately no --owner-password-stdin (task: the
+ *  non-interactive shape is --owner-user + the env variable), and no
+ *  --password flag anywhere: argv is visible to every user of the machine.
+ *  Neither extra password is stored; createReader uses it for its statements
+ *  and drops it. Throws ReaderError -- a setup refusal -- when no channel
+ *  gives what is needed; nothing has been sent at that point. */
+async function collectSecondLogin({role, flags, env, isTTY, prompt, suggest}) {
+  const askOwner = role === "admin"; // the OTHER login is the schema owner
+  const label = askOwner ? "schema owner" : "administrator";
+  const userFlag = askOwner ? "--owner-user" : "--admin-user";
+  const envVar = askOwner ? "OSD_HANA_OWNER_PASSWORD" : "OSD_HANA_ADMIN_PASSWORD";
+  const canPrompt = isTTY === true && typeof prompt === "function";
+  let user = flags[askOwner ? "owner-user" : "admin-user"];
+  if (user === undefined && canPrompt) {
+    user = String(await prompt(`${label} login${suggest !== undefined ? ` [${suggest}]` : ""}: `)).trim();
+    if (user === "" && suggest !== undefined) user = suggest;
+  }
+  if (user === undefined || user === "") {
+    throw new ReaderError(`osd hana: this flow needs TWO logins -- the present one is ${role === "admin" ? "the administrator, not the schema owner" : "the schema owner, not an administrator"}, ` +
+      `so the ${label}'s login must run its statement.\n` +
+      `  Give the login with ${userFlag}${suggest !== undefined ? ` (the catalogue suggests the owner login: ${suggest})` : ""}\n` +
+      `  and its password in $${envVar} for non-interactive use; on a terminal the doctor asks instead.\n` +
+      `  The password is used for its statements only and is never stored. Nothing was sent.`);
+  }
+  let password = typeof env[envVar] === "string" && env[envVar] !== "" ? env[envVar] : undefined;
+  if (password === undefined) {
+    if (!canPrompt) {
+      throw new ReaderError(`osd hana: the password for the ${label} login ${user} is missing -- set $${envVar} ` +
+        `(non-interactive use takes ${userFlag} plus the environment variable), or re-run on a terminal for a hidden prompt.\n` +
+        `  There is deliberately no --${askOwner ? "owner" : "admin"}-password-stdin and no --password flag: argv is visible to every user of the machine.\n` +
+        `  Nothing was sent.`);
+    }
+    password = await prompt(`${label} password for ${user} (hidden): `, {isTTY});
+    if (typeof password !== "string" || password === "") {
+      throw new ReaderError(`osd hana: the ${label} login's password is empty -- refused, like every empty password. Nothing was sent.`);
+    }
+  }
+  return {user, password};
 }

@@ -99,6 +99,16 @@ const PROBES = {
       schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
     },
   },
+  // one login that is BOTH administrator and schema owner (exists on some
+  // systems): the guided flow does the whole create in one step
+  both: {
+    ok: true, exit: 0,
+    probe: {
+      db: "tenant", login_class: "admin", non_select_on_schema: {yes: true, kinds: ["DATABASE ADMIN"]},
+      abap_attached: "no",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}],
+    },
+  },
   writer: {
     ok: true, exit: 0,
     probe: {
@@ -161,6 +171,22 @@ if (scenario === "echo-stderr") {
   process.stderr.write(`schema=${process.env.FAKE_SIDECAR_ECHO_SCHEMA ?? "?"}\n`);
   process.stderr.write(`${process.env.OSD_HANA_PASSWORD ?? ""}\n`);
   process.stderr.write(`ok: logon ${process.env.OSD_HANA_USER} on ${args[1] === "--host" ? args[2] : "?"} accepted\n`);
+}
+
+if (scenario === "roles") {
+  // the guided two-login flow: the sidecar answers by WHO it is run as --
+  // the reader's own probe (OSD_HANA_USER is the OSD_ reader) sees the
+  // database like the measured reader: login_class "other", no write, not
+  // the owner; the main login sees the administrator probe.
+  const isReader = (process.env.OSD_HANA_USER ?? "").startsWith("OSD_");
+  const answer = isReader
+    ? {ok: true, exit: 0, probe: {
+      db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
+    }}
+    : PROBES["both"]; // the main login can do both roles: the flow is one step
+  process.stdout.write(`${JSON.stringify(answer)}\n`);
+  process.exit(answer.exit);
 }
 
 if (scenario === "hang") {

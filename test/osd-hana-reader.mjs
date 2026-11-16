@@ -203,14 +203,15 @@ describe("tools/osd-hana: the dedicated reader", function () {
       store: h.store(), clientFactory: factory, say: (text) => said.push(text),
     });
     const consent = said[0];
-    // the three statement lines the consent screen shows
+    // the four statement lines the consent screen shows (CREATE, ALTER,
+    // GRANT CATALOG READ, GRANT SELECT)
     const printed = [...consent.matchAll(/^    (.*?)   -- /gm)].map((m) => m[1]);
-    expect(printed).to.have.length(3);
+    expect(printed).to.have.length(4);
     expect(printed[0]).to.include(READER_PASSWORD_MASK);
     // the mutating statements that were actually sent, in order
     const executed = log.statements.map((s) => s.sql)
-      .filter((sql) => /^(CREATE USER|ALTER USER|GRANT SELECT) /.test(sql));
-    expect(executed).to.have.length(3);
+      .filter((sql) => /^(CREATE USER|ALTER USER|GRANT SELECT|GRANT CATALOG READ) /.test(sql));
+    expect(executed).to.have.length(4);
     const password = /PASSWORD "([^"]+)"/.exec(executed[0])[1];
     expect(password).to.not.equal(READER_PASSWORD_MASK);
     // executed == printed with the mask swapped for the real password -- and
@@ -263,13 +264,17 @@ describe("tools/osd-hana: the dedicated reader", function () {
     const statements = log.statements.map((s) => s.sql);
     // exact shapes, in order (E1: user unquoted, schema quoted as identifier);
     // the existence-guard SELECT and the identity read come first
-    // (critics M-B, S-A)
+    // (critics M-B, S-A); then CREATE, ALTER, GRANT CATALOG READ (the
+    // administrator's three), GRANT SELECT (the owner's), and the two proofs
     expect(statements[0]).to.equal("SELECT COUNT(*) AS N FROM SYS.USERS WHERE USER_NAME = ?");
     expect(statements[1]).to.equal("SELECT SYSTEM_ID, DATABASE_NAME FROM SYS.M_DATABASE");
     expect(statements[2]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
     expect(statements[3]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
-    expect(statements[4]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
+    expect(statements[4]).to.equal("GRANT CATALOG READ TO OSD_READER");
+    expect(statements[5]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
     expect(statements.some((s) => s.includes(`FROM "${SCHEMA}"."TADIR"`))).to.equal(true);
+    // and the write proof: the UPDATE probe that must be REFUSED
+    expect(statements.some((s) => s === `UPDATE "${SCHEMA}"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`)).to.equal(true);
     // the password is recoverable only from the one statement that carries it
     // and from the store -- never from the return value (critic M-A)
     const password = /PASSWORD "([^"]+)"/.exec(statements[2])[1];
@@ -878,6 +883,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
     // independently of the sidecar's capability
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const code = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
+      scenario: "both",
       handshakePatch: {capabilities: ["probe", "list", "dump", "tls"]},
       deps: {clientFactory: factory},
     });
@@ -892,7 +898,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const secretStore = h.store();
     const code = await h.runDoctor(["--create-reader", "--yes", "--json"], {
-      scenario: "owner-tenant",
+      scenario: "both",
       deps: {clientFactory: factory, store: secretStore},
     });
     expect(code, h.allText()).to.equal(0);
@@ -917,7 +923,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const secretStore = h.store();
     const code = await h.runDoctor(["--create-reader", "--yes"], {
-      scenario: "owner-tenant",
+      scenario: "both",
       deps: {clientFactory: factory, store: secretStore},
     });
     expect(code).to.equal(0);

@@ -228,42 +228,78 @@ export function sqlErrorText(error) {
 export const READER_PASSWORD_MASK = "***reader-password***";
 const MASKED = READER_PASSWORD_MASK;
 
-export function planStatements({readerName, schema, password}) {
-  // The plan shown for consent. The real password goes into the statement
-  // only at execution time; the plan shows the mask.
-  return [
+/** The ONE statement source of the create flow (critic S-C): every statement
+ *  the flow may send, tagged with the role that must run it. The consent
+ *  screen prints `item.sql` (mask applied); the execution runs `item.real`.
+ *  Roles, per the measured facts: the ADMINISTRATOR (USER ADMIN) creates the
+ *  user, disables the password lifetime and grants CATALOG READ (needed to
+ *  dump database procedures / AMDP); the SCHEMA OWNER grants SELECT. On the
+ *  measured systems no single login holds both; where one does, both roles
+ *  run on the same connection. */
+export function createPlan({readerName, schema, password, catalogRead = true}) {
+  const plan = [
     {
+      role: "admin",
       sql: `CREATE USER ${readerName} PASSWORD ${quotePasswordLiteral(MASKED)} NO FORCE_FIRST_PASSWORD_CHANGE`,
       real: `CREATE USER ${readerName} PASSWORD ${quotePasswordLiteral(password)} NO FORCE_FIRST_PASSWORD_CHANGE`,
       why: "create the dedicated reader (no forced password change: nobody will ever type it)",
     },
     {
+      role: "admin",
       sql: `ALTER USER ${readerName} DISABLE PASSWORD LIFETIME`,
       real: `ALTER USER ${readerName} DISABLE PASSWORD LIFETIME`,
       why: "the password must not expire while the extraction runs",
     },
-    {
-      sql: `GRANT SELECT ON SCHEMA ${quoteIdentifier(schema)} TO ${readerName}`,
-      real: `GRANT SELECT ON SCHEMA ${quoteIdentifier(schema)} TO ${readerName}`,
-      why: "read access to the ABAP schema, nothing else",
-    },
   ];
+  if (catalogRead) {
+    plan.push({
+      role: "admin",
+      sql: `GRANT CATALOG READ TO ${readerName}`,
+      real: `GRANT CATALOG READ TO ${readerName}`,
+      why: "let the reader see procedure definitions -- without it the database procedures (AMDP) cannot be extracted",
+    });
+  }
+  plan.push({
+    role: "owner",
+    sql: `GRANT SELECT ON SCHEMA ${quoteIdentifier(schema)} TO ${readerName}`,
+    real: `GRANT SELECT ON SCHEMA ${quoteIdentifier(schema)} TO ${readerName}`,
+    why: "read access to the ABAP schema, nothing else",
+  });
+  return plan;
 }
 
-export function consentText({readerName, schema, planLines, store, connection, transport}) {
-  return [
+// The consent screen: ALL statements of BOTH logins, before anything is sent,
+// grouped by who runs them, from the one statement source above.
+export function consentText({readerName, schema, plan, logins, store, connection, transport}) {
+  const sameLogin = logins.admin.user === logins.owner.user;
+  const lines = [
     `osd hana: about to create the dedicated read-only database user ${readerName}`,
     `  on ${connection.host}:${connection.port}${connection.database ? `/${connection.database}` : ""}`,
-    `  and grant it SELECT on schema ${show(schema)}. The exact statements:`,
+    `  and grant it SELECT on schema ${show(schema)}. The exact statements, grouped by the login that runs each:`,
     "",
-    ...planLines.map((line) => `    ${line.sql}   -- ${line.why}`),
-    "",
-    ...(transport ?? []),
-    `  (the password is generated, 28 characters, never printed; it will be stored in`,
-    `   ${store.location(readerName)})`,
-    "",
-    `  Your login will be used for these statements only; the password you gave is not stored.`,
-  ].join("\n");
+  ];
+  const group = (label, items) => {
+    lines.push(`  ${label}:`);
+    for (const item of items) lines.push(`    ${item.sql}   -- ${item.why}`);
+    lines.push("");
+  };
+  if (sameLogin) {
+    group(`as THIS login (it is both the administrator and the schema owner) -- ${logins.admin.user}`, plan);
+  } else {
+    group(`as the ADMINISTRATOR login ${logins.admin.user}`, plan.filter((p) => p.role === "admin"));
+    group(`as the SCHEMA OWNER login ${logins.owner.user}`, plan.filter((p) => p.role === "owner"));
+  }
+  lines.push(...(transport ?? []));
+  lines.push(`  (the password is generated, 28 characters, never printed; it will be stored in`);
+  lines.push(`   ${store.location(readerName)})`);
+  lines.push("");
+  if (sameLogin) {
+    lines.push(`  Your login will be used for these statements only; the password you gave is not stored.`);
+  } else {
+    lines.push(`  Each login runs only the statements shown under it; the passwords you gave are used for`);
+    lines.push(`  their statements and dropped -- neither extra password is stored.`);
+  }
+  return lines.join("\n");
 }
 
 export async function askConsent({yes, isTTY, prompt = defaultPrompt}) {
@@ -294,6 +330,19 @@ async function lookupSchemaOwner(client, schema) {
     return rows[0]?.OWNER_NAME ?? undefined;
   } catch {
     return undefined; // informational only; never blocks
+  }
+}
+
+/** The schema owner's login name, read by the ADMINISTRATOR connection before
+ *  the consent screen so the guided flow can suggest it (measured fact: the
+ *  doctor asks for the owner's login with the name shown from the catalogue).
+ *  Informational: a read that fails yields no suggestion, never an error. */
+export async function lookupSchemaOwnerLogin({connection, schema, user, password, clientFactory, encrypt = false, trustServerCertificate = false}) {
+  const client = await clientFactory(hdbConnectionOptions(connection, {user, password, encrypt, trustServerCertificate}));
+  try {
+    return await lookupSchemaOwner(client, schema);
+  } finally {
+    await client.disconnect();
   }
 }
 
@@ -371,6 +420,30 @@ export function describeNameTaken(readerName) {
   ].join("\n");
 }
 
+/** The present login is neither an administrator nor the schema owner (the
+ *  probe's "other" class): the guided flow explains what the two logins must
+ *  do and sends nothing. */
+export function describeNeitherRole(schema) {
+  return [
+    `osd hana: this login is neither an administrator (USER ADMIN) nor the ABAP schema's owner, so it can`,
+    `  neither create the reader nor grant it access. Nothing was sent.`,
+    `  The two-login flow needs:`,
+    `  - an ADMINISTRATOR login (USER ADMIN), which runs:`,
+    `      CREATE USER <reader> PASSWORD ... NO FORCE_FIRST_PASSWORD_CHANGE`,
+    `      ALTER USER <reader> DISABLE PASSWORD LIFETIME`,
+    `      GRANT CATALOG READ TO <reader>   (needed for database procedures, AMDP)`,
+    `  - the SCHEMA OWNER login, which runs:`,
+    `      GRANT SELECT ON SCHEMA "${show(schema)}" TO <reader>`,
+    `  On the measured systems no single login can do both; on some, one login holds both roles.`,
+    `  Two ways on:`,
+    `  1. re-run 'osd hana doctor --create-reader' with an administrator login -- the doctor then asks for`,
+    `     the schema owner's login (the catalogue suggests it) and its password,`,
+    `  2. re-run with the schema owner's login -- the doctor asks for an administrator login the same way.`,
+    `  Or go on read-only with the present login: every session the sidecar opens is READ ONLY at the`,
+    `  database level -- the database itself refuses any write, whoever logs on.`,
+  ].join("\n");
+}
+
 export function describe258OnGrant(schema, owner) {
   return [
     `osd hana: this login may not grant the schema (HANA error 258, insufficient privilege).`,
@@ -380,14 +453,30 @@ export function describe258OnGrant(schema, owner) {
   ].join("\n");
 }
 
-/** Create the reader, end to end. `clientFactory(options)` opens an hdb
- *  connection (the seam the tests inject a fake into). Returns
- *  {user, schema, storedAt} -- the generated password is NOT part of it: the
- *  secret store is its only holder (critic M-A). Throws ReaderError with a
- *  person-shaped message on every refusal; on any failure after CREATE the
- *  user is dropped again first. */
+/** Create the reader, end to end -- the guided TWO-LOGIN flow. `clientFactory(options)`
+ *  opens an hdb connection (the seam the tests inject a fake into).
+ *
+ *  `role` is what the PRESENT login is (the doctor works it out from the
+ *  probe): "admin" (USER ADMIN, not the owner), "owner" (the schema's owner),
+ *  "both" (one login that can do both -- one step, as it always was), or the
+ *  doctor refuses "neither" before ever calling here. When the present login
+ *  has only one of the roles, `secondLogin` = {user, password} of the login
+ *  holding the other; the doctor collected it with --owner-user /
+ *  --admin-user and OSD_HANA_OWNER_PASSWORD / OSD_HANA_ADMIN_PASSWORD (or a
+ *  hidden prompt on a terminal). Neither extra password is stored: each is
+ *  used for its statements and dropped.
+ *
+ *  Returns {user, schema, storedAt} -- the generated password is NOT part of
+ *  it: the secret store is its only holder (critic M-A). `onCreated({user,
+ *  password, schema, catalogRead})` runs once, after the proofs succeeded and
+ *  the secret is stored (the doctor runs the sidecar's probe AS THE READER
+ *  through it); it must never throw -- a probe hiccup must not drop a proven
+ *  reader. Throws ReaderError with a person-shaped message on every refusal;
+ *  on any failure after CREATE the user is dropped again by the ADMINISTRATOR
+ *  connection -- the only one that can -- and the message names which login
+ *  failed at which statement. */
 export async function createReader({
-  connection,        // {host, port, user, password, database?} of the ADMINISTRATOR login
+  connection,        // {host, port, user, password, database?} of the PRESENT login
   schema,
   readerName = DEFAULT_READER_NAME,
   yes = false,
@@ -399,37 +488,87 @@ export async function createReader({
   generatePassword = generateReaderPassword,
   encrypt = false,               // --encrypt: TLS with certificate validation (hdb useTLS)
   trustServerCertificate = false, // --trust-server-certificate: TLS without validation, said loudly
+  role = "both",                 // the PRESENT login's role: "admin" | "owner" | "both"
+  secondLogin = undefined,       // {user, password} of the OTHER login when role !== "both"
+  catalogRead = true,            // --no-catalog-read leaves the CATALOG READ grant out
+  onCreated = undefined,
 } = {}) {
   validateReaderName(readerName);
   // Before any consent text is built: a name that carries control characters
   // rewrites the screen the operator reads (critic S-B). validateSchemaName
   // also covers the missing-schema case.
   validateSchemaName(schema);
+  if (role !== "both" && (secondLogin === undefined || typeof secondLogin.user !== "string" || typeof secondLogin.password !== "string")) {
+    throw new ReaderError(`osd hana: the ${role === "admin" ? "schema owner's" : "administrator's"} login and password are missing -- ` +
+      `the present login holds only the ${role === "admin" ? "administrator" : "schema owner"} role, so the other login must run its statements. ` +
+      `Nothing was sent.`);
+  }
+  const logins = {
+    admin: role === "owner" ? {user: secondLogin.user, password: secondLogin.password} : {user: connection.user, password: connection.password},
+    owner: role === "admin" ? {user: secondLogin.user, password: secondLogin.password} : {user: connection.user, password: connection.password},
+  };
   const password = generatePassword();
-  const plan = planStatements({readerName, schema, password});
+  const plan = createPlan({readerName, schema, password, catalogRead});
   say(consentText({
-    readerName, schema, planLines: plan, store, connection,
+    readerName, schema, plan, logins, store, connection,
     transport: transportLines({encrypt, trustServerCertificate, host: connection.host, port: connection.port}),
   }));
   await askConsent({yes, isTTY, prompt});
 
-  // Driver texts pass through a redactor holding this run's passwords
+  // Driver texts pass through a redactor holding ALL of this run's passwords
   // (critic note): HANA does not echo the literal for 331/412/258 and the
   // generated alphabet cannot cause a syntax error 'near' itself -- but that
-  // is an assumption, and one line of redaction retires it.
-  const redact = makeRedactor([password, connection.password]);
+  // is an assumption, and one line of redaction retires it. The second
+  // login's password is a credential of this run too, for the minutes it
+  // lives in memory.
+  const redact = makeRedactor([password, connection.password, secondLogin?.password]);
 
-  const adminClient = await clientFactory(hdbConnectionOptions(connection,
-    {user: connection.user, password: connection.password, encrypt, trustServerCertificate}));
-  return runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt, trustServerCertificate, redact});
+  return runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt, trustServerCertificate, redact, onCreated, logins});
 }
 
-async function runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt = false, trustServerCertificate = false, redact = (text) => text}) {
+async function runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt = false, trustServerCertificate = false, redact = (text) => text, onCreated = undefined, logins}) {
+  // The ADMINISTRATOR login runs CREATE / ALTER / CATALOG READ; the SCHEMA
+  // OWNER login runs the GRANT SELECT. The administrator connection is also
+  // the ONLY one that can drop the reader again -- every cleanup below goes
+  // through it, whoever failed.
+  const adminLogin = logins.admin;
+  const ownerLogin = logins.owner;
+  const grantSelect = plan[plan.length - 1];
+  const adminClient = await clientFactory(hdbConnectionOptions(connection,
+    {user: adminLogin.user, password: adminLogin.password, encrypt, trustServerCertificate}));
+  let ownerClient;
+  // Best-effort cleanup by the administrator connection: a 332 means the
+  // user is absent (the consequence of a failed create) -- that is success
+  // for a cleanup, not an error.
+  const dropAgain = async () => {
+    try {
+      await adminClient.exec(`DROP USER ${readerName} CASCADE`);
+      return {dropped: true};
+    } catch (error) {
+      if (errorCode(error) === 332) return {dropped: false, absent: true};
+      return {dropped: false, absent: false, error};
+    }
+  };
+  // The one cleanup message: which login failed at which statement, and what
+  // happened to the half-set-up reader (task: "a failed GRANT by the owner --
+  // 258, wrong password, logon failure -- = reader dropped, clear message
+  // naming which login failed at which statement").
+  const refused = async ({label, user, item, error}) => {
+    const cleanup = await dropAgain();
+    const note = cleanup.dropped
+      ? `  The reader ${readerName} was dropped again by the administrator connection; nothing was left behind.`
+      : cleanup.absent
+        ? `  The reader ${readerName} is absent (HANA said 332 -- the drop found nothing to remove).`
+        : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
+    throw new ReaderError(`osd hana: the ${label} login ${user} failed at: ${item.sql}\n` +
+      `  the database said: ${redact(sqlErrorText(error))}\n${note}`);
+  };
   try {
-    // 0. Existence guard (critic M-B): a user that already exists -- ours
-    // from an earlier run and maybe in use by a running extract, or somebody
-    // else's -- is never CREATEd over and never dropped: the create path may
-    // drop ONLY a user its own CREATE USER created in this very run.
+    // 0. Existence guard (critic M-B), on the ADMINISTRATOR connection: a
+    // user that already exists -- ours from an earlier run and maybe in use
+    // by a running extract, or somebody else's -- is never CREATEd over and
+    // never dropped: the create path may drop ONLY a user its own CREATE
+    // USER created in this very run.
     let existing;
     try {
       existing = await countUsersNamed(adminClient, readerName);
@@ -458,79 +597,137 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
     // 1. CREATE USER ... -- the one statement with the password on the wire.
     // Executed from the consent plan: the printed statement and the sent
     // statement are ONE source, the mask applied at print time only
-    // (critic S-C).
+    // (critic S-C). The CREATE itself failing -- 258 (no USER ADMIN), 331
+    // (the name existed after all: the guard raced), 412 (password policy),
+    // a network error, anything -- means this run created nothing, so it may
+    // drop NOTHING. Only failures AFTER a successful CREATE may drop (below).
     try {
       await adminClient.exec(plan[0].real);
     } catch (error) {
-      // The CREATE itself failed -- 258 (no USER ADMIN), 331 (the name
-      // existed after all: the guard raced), 412 (password policy), a
-      // network error, anything: this run created nothing, so it may drop
-      // NOTHING. Only failures AFTER a successful CREATE may drop (below).
       const code = errorCode(error);
       if (code === 258) throw new ReaderError(describe258OnCreate());
       if (code === 331) throw new ReaderError(describeNameTaken(readerName));
       if (code === 412) throw new ReaderError(describe412OnCreate());
       throw new ReaderError(`osd hana: setting up the reader failed -- ${redact(sqlErrorText(error))}\n` +
-        `  The CREATE USER itself failed: this run created nothing and removed nothing -- a user that may ` +
-        `exist under this name is not this run's to touch.`);
+        `  The CREATE USER itself failed (the administrator login ${adminLogin.user}): this run created nothing ` +
+        `and removed nothing -- a user that may exist under this name is not this run's to touch.`);
     }
 
-    // From here on any failure drops the user again.
+    // From here on any failure drops the user again, by the administrator
+    // connection.
     try {
-      // 2. ALTER USER ... DISABLE PASSWORD LIFETIME
+      // 2. ALTER USER ... DISABLE PASSWORD LIFETIME (administrator login)
       await adminClient.exec(plan[1].real);
 
-      // 3. GRANT SELECT ON SCHEMA "<schema>" TO <reader>
-      try {
+      // 3. GRANT CATALOG READ TO <reader> (administrator login; only with
+      // it can the reader's dump see database procedures / AMDP)
+      if (catalogRead) {
         await adminClient.exec(plan[2].real);
-      } catch (error) {
-        if (errorCode(error) === 258) {
-          const owner = await lookupSchemaOwner(adminClient, schema);
-          const cleanup = await dropUserQuietly(adminClient, readerName);
-          throw new ReaderError(describe258OnGrant(schema, owner) + (cleanup.dropped || cleanup.absent ? "" : redact(cleanupDropFailedText(cleanup))));
-        }
-        throw error;
       }
 
-      // 4. Prove the reader works: connect as the reader, one SELECT.
+      // 4. GRANT SELECT ON SCHEMA "<schema>" TO <reader> -- the SCHEMA OWNER
+      // login's statement. In the one-login case (role "both") it runs on the
+      // same connection; a 258 there keeps the measured two-ways-on message.
+      if (role === "both") {
+        try {
+          await adminClient.exec(grantSelect.real);
+        } catch (error) {
+          if (errorCode(error) === 258) {
+            const owner = await lookupSchemaOwner(adminClient, schema);
+            const cleanup = await dropAgain();
+            throw new ReaderError(describe258OnGrant(schema, owner) + (cleanup.dropped || cleanup.absent ? "" : redact(cleanupDropFailedText(cleanup))));
+          }
+          await refused({label: "administrator", user: adminLogin.user, item: grantSelect, error});
+        }
+      } else {
+        // The second connection, AS the login holding the other role. A
+        // logon failure (wrong password, locked login, whatever) is the same
+        // class of failure as a refused GRANT: the reader was created, so it
+        // is dropped again, and the message names the login.
+        const label = role === "admin" ? "schema-owner" : "administrator";
+        try {
+          ownerClient = await clientFactory(hdbConnectionOptions(connection,
+            {user: ownerLogin.user, password: ownerLogin.password, encrypt, trustServerCertificate}));
+        } catch (error) {
+          await refused({label, user: ownerLogin.user, item: {sql: `log on as ${ownerLogin.user}`}, error});
+        }
+        try {
+          await ownerClient.exec(grantSelect.real);
+        } catch (error) {
+          await refused({label, user: ownerLogin.user, item: grantSelect, error});
+        }
+      }
+
+      // 5. Prove the reader works, twice: a real SELECT on the repository
+      // table, and a REFUSED write -- the write probe changes nothing even if
+      // wrongly allowed (WHERE 1 = 0), but it must be refused (measured: 258).
       const readerPassword = password;
       let proofClient;
       try {
         proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword, encrypt, trustServerCertificate}));
         const {rows} = await proofClient.exec(`SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`, []);
         say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${show(schema)}."TADIR" -- proof it works.`);
+        let refusedText;
+        try {
+          await proofClient.exec(`UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0`, []);
+          // NOT refused: the reader can write. Drop it and fail loudly --
+          // a reader that can write is not the reader this tool promised.
+          const cleanup = await dropAgain();
+          const note = cleanup.dropped
+            ? `  The reader ${readerName} was dropped again; nothing was left behind.`
+            : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
+          throw new ReaderError(`osd hana: THE READER CAN WRITE -- the write probe\n` +
+            `    UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0\n` +
+            `  was NOT refused by the database. This tool refuses to hand out a reader that can write.\n${note}`);
+        } catch (error) {
+          if (error instanceof ReaderError) throw error;
+          refusedText = redact(sqlErrorText(error));
+        }
+        say(`osd hana: proof the reader cannot write: the UPDATE probe on ${show(schema)}."TADIR" was refused by the database` +
+            `${refusedText !== "" ? ` (${refusedText})` : ""}.`);
       } finally {
         if (proofClient !== undefined) await proofClient.disconnect();
       }
 
-      // 5. Store the reader's credentials, keyed by this exact connection and
+      // 6. Store the reader's credentials, keyed by this exact connection and
       // name -- --drop-reader demands the same key back before it will drop.
       // The entry is the password's only resting place: the return value of
       // this function deliberately carries none of it (critic M-A -- the
-      // --json document must never hold it).
+      // --json document must never hold it). The EXTRA passwords (the second
+      // login's) are not stored anywhere: they were used for their statements
+      // above and dropped with their connections.
       const storedAt = new Date().toISOString();
       store.set(
         {user: readerName, password, schema, host: connection.host, port: connection.port,
-          database: connection.database, stored_at: storedAt, system_identity: systemIdentity},
+          database: connection.database, stored_at: storedAt, system_identity: systemIdentity,
+          catalog_read: catalogRead},
         readerStoreKey(connection, readerName));
       say(`osd hana: the reader's credentials are stored in ${store.location(readerName)}.`);
+
+      // 7. The doctor's hook (the sidecar's probe run AS THE READER): called
+      // after the proofs and the store, never allowed to drop what is proven.
+      if (onCreated !== undefined) {
+        await onCreated({user: readerName, password, schema, catalogRead});
+      }
       return {user: readerName, schema, storedAt};
     } catch (error) {
       // The catch-all cleanup: the user exists, the setup did not finish.
       // (A ReaderError has already done its own cleanup and carries its own
       // message -- dropping again would only bury the cause under a 332.)
       if (error instanceof ReaderError) throw error;
-      const cleanup = await dropUserQuietly(adminClient, readerName);
+      const cleanup = await dropAgain();
       const causedBy = redact(sqlErrorText(error));
       const note = cleanup.dropped
         ? `The reader ${readerName} was dropped again; nothing was left behind.`
         : cleanup.absent
           ? `The reader ${readerName} is absent (HANA said 332, invalid user name -- that is "user absent", not the cause).`
           : `${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
-      throw new ReaderError(`osd hana: setting up the reader failed -- ${causedBy}\n  ${note}`);
+      throw new ReaderError(`osd hana: setting up the reader failed -- ${causedBy}\n` +
+        `  (the administrator login ${adminLogin.user} ran the statements up to here)\n  ${note}`);
     }
   } finally {
     await adminClient.disconnect();
+    if (ownerClient !== undefined) await ownerClient.disconnect();
   }
 }
 

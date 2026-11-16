@@ -649,7 +649,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         throw Object.assign(new Error("connection failed: certificate doesn't contain any IP SANs"), {code: -10709});
       };
       const code2 = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
-        scenario: "tls-verified",
+        scenario: "both",
         handshakePatch: TLS_HANDSHAKE,
         deps: {clientFactory: factory},
       });
@@ -700,7 +700,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const factory = async () => {
         throw Object.assign(new Error(`authentication failed for '${PASSWORD}'`), {code: 401});
       };
-      const code = await h.runDoctor(["--create-reader", "--yes"], {deps: {clientFactory: factory}});
+      const code = await h.runDoctor(["--create-reader", "--yes"], {scenario: "both", deps: {clientFactory: factory}});
       expect(code).to.equal(2);
       expect(h.allText()).to.include("the database refused");
       expect(h.allText()).to.not.include(PASSWORD);

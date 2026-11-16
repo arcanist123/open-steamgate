@@ -39,6 +39,23 @@ export function loginClassText(probe = {}) {
   }
 }
 
+/** Which role the present login holds in the guided two-login create flow
+ *  (task item 1), worked out from the probe: "admin" (USER ADMIN, not the
+ *  owner), "owner", "both" (one login that can do both -- it exists on some
+ *  systems), or "neither" (the doctor explains and sends nothing). The
+ *  administrator role is the probe's "admin" login_class; the owner role is
+ *  the "schema_owner" class or a schema the probe reports as owned by this
+ *  login. */
+export function readerRoleFromProbe(probe = {}) {
+  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
+  const isAdmin = probe.login_class === "admin";
+  const ownsSchema = probe.login_class === "schema_owner" || schemas.some((s) => s.owned_by_login === true);
+  if (isAdmin && ownsSchema) return "both";
+  if (isAdmin) return "admin";
+  if (ownsSchema) return "owner";
+  return "neither";
+}
+
 export function dbText(probe = {}) {
   if (probe.db === "tenant") return "a tenant database";
   if (probe.db === "system") return "the system database (SYSTEMDB)";
