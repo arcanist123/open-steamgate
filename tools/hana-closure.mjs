@@ -279,6 +279,7 @@ import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
 import {TADIR, readDumpAnswer, requestFor, tadirKinds} from "./hana-closure-request.mjs";
+import {registerSeed} from "./hana-closure-seed.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
@@ -358,6 +359,9 @@ export async function run(args = process.argv.slice(2), options = {}) {
     delete state.pending;
   }
   let dump = resolve(root, state.dump);
+  // the seed (milestone 4): the walk's first dump decides the services
+  // (tools/hana-closure-seed.mjs)
+  state.seed ??= state.layers?.[0]?.dump ?? state.dump;
   saveState(out, state);
   const requestPath = join(out, "closure-request.json");
 
@@ -422,6 +426,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
       ? {resolved: state.resolved, dumps: [...state.layers].reverse().map((l) => l.dump)}
       : undefined;
     const {refused} = mergeInputs(root, dump, layersDirs, env, say, fill);
+    await registerSeed({root, dump: resolve(root, state.seed), say, quiet: state.iteration > 1});
     // the merge refusals join the state's (the gap stands while the object
     // is in no build) and leave when a dump the merge handled carries the
     // name again without a refusal -- the generator wrote it at last; a
@@ -872,9 +877,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
       if (build.findings > 0) say(`build: exited ${build.status} with ${build.findings} finding(s) -- exit 1 with findings only, the fixed point stands`);
       say(`fixed point: every unresolved name has been asked and nothing new is named; ${gaps.length + refusedGaps.length} gap(s) -> ${join(out, "closure-gaps.json")}`);
       const seeds = seedClasses(root);
-      writeClosureSummary(out, closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
+      writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
         present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load,
-        searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}));
+        searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
+      ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {})});
       return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }

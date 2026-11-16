@@ -588,9 +588,23 @@ function serviceGuard(root) {
     if (/(?:_DPC|_MPC)_EXT$/.test(upper) === true) names.add(upper.replace(/_EXT$/, ""));
   };
   let registered = false;
+  const services = [];
   try {
     const facts = JSON.parse(readFileSync(join(root, "gen", "hana-segw", "from-dump.json"), "utf8"));
-    for (const entry of facts.services ?? []) {
+    // milestone 4: a seed-selected registration (tools/hana-closure-seed.mjs)
+    // guards the seed's services whose classes have not arrived yet too --
+    // service -> classes come from the registration rows, so a hand-written
+    // DPC (no _DPC suffix) is protected the same way
+    const rows = [...(facts.services ?? []), ...(facts.selection === "seed" ? facts.skipped ?? [] : [])];
+    // the service -> classes mapping of the guard (milestone 4): what the
+    // summary carries as seed_services and the widened guard reads
+    for (const entry of rows) {
+      if (entry.dpc !== undefined) {
+        services.push({service: entry.service, version: entry.version, dpc: entry.dpc, ...(entry.mpc !== undefined ? {mpc: entry.mpc} : {}),
+          registered: (facts.services ?? []).includes(entry)});
+      }
+    }
+    for (const entry of rows) {
       add(entry.dpc);
       add(entry.mpc);
       registered = true;
@@ -629,15 +643,15 @@ function serviceGuard(root) {
     }
   };
   walk(join(root, "gen", "hana-src"));
-  return {names, named, registered};
+  return {names, named, registered, services};
 }
 
 /** the seed classes the run summary checks (H5x-4 B1): `all` the guard's
  *  set, `named` those a registration or an island file named -- the ones
  *  that must be island objects. */
 export function seedClasses(root) {
-  const {names, named} = serviceGuard(root);
-  return {all: names, named};
+  const {names, named, services} = serviceGuard(root);
+  return {all: names, named, services};
 }
 
 /** the framework-gaps.json list from the loop's accumulation map: one entry

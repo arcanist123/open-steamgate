@@ -8,6 +8,7 @@ import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync}
 import {join} from "node:path";
 import {run} from "../tools/hana-closure.mjs";
 import {cycleName} from "../tools/hana-src-gen.mjs";
+import {seedServices} from "../tools/hana-closure-seed.mjs";
 import {dumperRequests, outFile, readJson, scratchClosure} from "./helpers/hana-closure-fakes.mjs";
 
 const cls = (name, publicSection, methods) => [
@@ -59,6 +60,58 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(manifest.layers.find((l) => l.cycle !== undefined).cycle).to.have.lengthOf(40);
     // the name is the members' and nothing else's: order does not move it
     expect(cycleName(["b", "a", "c"])).to.equal(cycleName(["c", "b", "a"]));
+  });
+
+  // a family seed: two services (one SEGW pair, one hand-written DPC) of the
+  // seed package, and a registration row of a service outside it
+  const FAMILY = (() => {
+    const tadir = (name) => ({PGMID: "R3TR", OBJECT: "CLAS", OBJ_NAME: name, DEVCLASS: "$ZOSD_H5X_FAM"});
+    return {
+      seedManifest: {packages: ["$ZOSD_H5X_FAM"]},
+      seedTables: {
+        TADIR: ["ZCL_ZOSD_H5X_A_DPC_EXT", "ZCL_ZOSD_H5X_A_MPC_EXT", "ZCL_OSD_H5X_GW_DP", "ZCL_OSD_H5X_GW_MP"].map(tadir),
+        "/IWBEP/I_MGW_SRH": [
+          {TECHNICAL_NAME: "ZOSD_H5X_A_SRV", VERSION: "0001", CLASS_NAME: "ZCL_ZOSD_H5X_A_DPC_EXT", EXTERNAL_NAME: "ZOSD_H5X_A_SRV"},
+          {TECHNICAL_NAME: "ZOSD_H5X_W", VERSION: "0001", CLASS_NAME: "ZCL_OSD_H5X_GW_DP", EXTERNAL_NAME: "ZOSD_H5X_W"},
+          {TECHNICAL_NAME: "ZOSD_H5X_OTHER_SRV", VERSION: "0001", CLASS_NAME: "ZCL_ZOSD_H5X_OTHER_DPC_EXT", EXTERNAL_NAME: "ZOSD_H5X_OTHER_SRV"},
+        ],
+        "/IWBEP/I_MGW_SRG": [
+          {GROUP_TECH_NAME: "ZOSD_H5X_A_SRV", GROUP_VERSION: "0001", MODEL_TECH_NAME: "ZOSD_H5X_A_MDL", MODEL_VERSION: "0001"},
+          {GROUP_TECH_NAME: "ZOSD_H5X_W", GROUP_VERSION: "0001", MODEL_TECH_NAME: "ZOSD_H5X_W_MDL", MODEL_VERSION: "0001"},
+          {GROUP_TECH_NAME: "ZOSD_H5X_OTHER_SRV", GROUP_VERSION: "0001", MODEL_TECH_NAME: "ZOSD_H5X_OTHER_MDL", MODEL_VERSION: "0001"},
+        ],
+        "/IWBEP/I_MGW_OHD": [
+          {TECHNICAL_NAME: "ZOSD_H5X_A_MDL", VERSION: "0001", CLASS_NAME: "ZCL_ZOSD_H5X_A_MPC_EXT"},
+          {TECHNICAL_NAME: "ZOSD_H5X_W_MDL", VERSION: "0001", CLASS_NAME: "ZCL_OSD_H5X_GW_MP"},
+          {TECHNICAL_NAME: "ZOSD_H5X_OTHER_MDL", VERSION: "0001", CLASS_NAME: "ZCL_ZOSD_H5X_OTHER_MPC_EXT"},
+        ],
+      },
+      src: {"zif_osd_h5x_runtime.intf.abap": "INTERFACE zif_osd_h5x_runtime PUBLIC.\n  METHODS get_entityset.\nENDINTERFACE.\n"},
+      seed: {
+        "zcl_zosd_h5x_a_dpc_ext.clas.abap": cls("zcl_zosd_h5x_a_dpc_ext", ["METHODS run."], {run: ["RETURN."]}),
+        "zcl_zosd_h5x_a_mpc_ext.clas.abap": cls("zcl_zosd_h5x_a_mpc_ext", ["METHODS define."], {define: ["RETURN."]}),
+        "zcl_osd_h5x_gw_dp.clas.abap": cls("zcl_osd_h5x_gw_dp", ["INTERFACES zif_osd_h5x_runtime."],
+          {"zif_osd_h5x_runtime~get_entityset": ["zcl_osd_h5x_gone=>run( )."]}),
+        "zcl_osd_h5x_gw_mp.clas.abap": cls("zcl_osd_h5x_gw_mp", ["METHODS define."], {define: ["RETURN."]}),
+      },
+    };
+  })();
+
+  it("4: the seed's services are derived from its own rows -- a hand-written DPC among them, another service's row not", async () => {
+    const {root, env, seedDump} = make(FAMILY);
+    expect(seedServices(seedDump).map((s) => s.service)).to.deep.equal(["ZOSD_H5X_A_SRV", "ZOSD_H5X_W"]);
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    const facts = readJson(join(root, "gen", "hana-segw", "from-dump.json"));
+    expect(facts.selection).to.equal("seed");
+    expect(facts.services.map((s) => s.dpc)).to.deep.equal(["ZCL_ZOSD_H5X_A_DPC_EXT", "ZCL_OSD_H5X_GW_DP"]);
+    const summary = readJson(outFile(root, "closure-summary.json"));
+    expect(summary.seed.classes).to.include.members(["ZCL_OSD_H5X_GW_DP", "ZCL_OSD_H5X_GW_MP", "ZCL_ZOSD_H5X_A_DPC_EXT", "ZCL_ZOSD_H5X_A_MPC_EXT"]);
+    expect(summary.seed.classes).to.not.include("ZCL_ZOSD_H5X_OTHER_DPC_EXT");
+    // the interface-method implementation of the hand-written DPC is a seed
+    // method the guard sees, `~` and all
+    expect(summary.seed.stubbed_methods).to.deep.include({class: "ZCL_OSD_H5X_GW_DP", method: "ZIF_OSD_H5X_RUNTIME~GET_ENTITYSET"});
+    expect(summary.seed_services.map((s) => s.service)).to.deep.equal(["ZOSD_H5X_A_SRV", "ZOSD_H5X_W"]);
   });
 
 });
