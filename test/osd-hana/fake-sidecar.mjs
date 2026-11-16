@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 // The FAKE sidecar the osd-hana tests point OSD_HANA_DUMP at (a shebang
 // script, spawned directly, exactly like the real Go binary). It plays
-// `--version --json`, `probe` for several logins and every exit code of the
-// contract -- no network, no database.
+// `--version --json`, `probe` for several logins, `list` and `dump` from
+// synthetic fixture directories, and every exit code of the contract -- no
+// network, no database.
 //
 // Behaviour comes from the environment the TEST sets (never from argv):
 //   FAKE_SIDECAR_HANDSHAKE  JSON patch over the --version --json document
 //                           ({"read_only": false}, {"schema": 2}, drop a
 //                           capability, wrong version ...)
+//   FAKE_SIDECAR_LIST       fixture dir served for `list --out DIR`
+//   FAKE_SIDECAR_DUMP       fixture dir served for `dump --out DIR`
+//   FAKE_SIDECAR_EXIT       exit code override for list/dump (default 0)
 //   FAKE_SIDECAR_PROBE      scenario name:
 //     owner-tenant    schema_owner, tenant, one ABAP schema, cannot write
 //     admin-system    admin, system database, can write, attached unknown
@@ -54,7 +58,7 @@ if (args[0] === "--version") {
     os_arch: "test/test",
     schema: 1,
     read_only: true,
-    capabilities: ["probe", "list", "dump"],
+    capabilities: ["probe", "list", "dump", "names", "packages", "local", "closure", "inactive", "catalog", "ddic", "skip_test_includes", "object_report"],
   };
   if (args.includes("--json")) {
     let patch = {};
@@ -66,6 +70,45 @@ if (args[0] === "--version") {
     process.stdout.write("osd-hana-dump v9.9.9-test aaaaaaaaaa go-test test/test (read-only)\n");
   }
   process.exit(0);
+}
+
+// ---- list / dump (W3): a fixture directory is copied into --out, the
+// manifest gets the request echo of THIS run, and the contract's one summary
+// line goes to stdout. No network, no database.
+//   FAKE_SIDECAR_LIST   fixture dir for `list` (objects.jsonl, ...)
+//   FAKE_SIDECAR_DUMP   fixture dir for `dump` (objects.jsonl, reposrc.jsonl,
+//                       tables/, src/, counts.json, summary.json)
+//   FAKE_SIDECAR_EXIT   override the exit code (0 default)
+if (args[0] === "list" || args[0] === "dump") {
+  const {cpSync: copySync, writeFileSync, readFileSync, existsSync} = await import("node:fs");
+  const {join} = await import("node:path");
+  const flag = (name) => {
+    const i = args.indexOf(name);
+    return i === -1 ? undefined : args[i + 1];
+  };
+  const outDir = flag("--out");
+  const requestPath = flag("--request");
+  let request = null;
+  if (requestPath && requestPath !== "-" && existsSync(requestPath)) request = JSON.parse(readFileSync(requestPath, "utf8"));
+  const fixtureDir = process.env[args[0] === "list" ? "FAKE_SIDECAR_LIST" : "FAKE_SIDECAR_DUMP"];
+  if (fixtureDir !== undefined && outDir !== undefined) {
+    copySync(fixtureDir, outDir, {recursive: true});
+    // the manifest's sidecar block echoes the request of this run -- a dump
+    // is only reusable when it matches (extract.mjs reusableDump)
+    const manifestPath = join(outDir, "manifest.json");
+    let manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
+    const counts = existsSync(join(outDir, "counts.json")) ? JSON.parse(readFileSync(join(outDir, "counts.json"), "utf8")) : {written: 0, skipped: 0, skipped_excluded: 0, skipped_unsupported: 0};
+    manifest.sidecar = {
+      name: "osd-hana-dump", version: "v9.9.9-test", commit: "a".repeat(40),
+      request, counts, objects_report: "objects.jsonl", errors: [],
+    };
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 1)}\n`);
+  }
+  const exit = Number(process.env.FAKE_SIDECAR_EXIT ?? "0");
+  const summaryPath = fixtureDir !== undefined ? join(fixtureDir, "summary.json") : undefined;
+  const summary = summaryPath !== undefined && existsSync(summaryPath) ? JSON.parse(readFileSync(summaryPath, "utf8")) : {ok: exit === 0, exit};
+  process.stdout.write(`${JSON.stringify({...summary, exit})}\n`);
+  process.exit(exit);
 }
 
 if (args[0] !== "probe") {

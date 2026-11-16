@@ -32,6 +32,7 @@
     "test/osd-git.mjs",
     "test/osd-git-history.mjs",
     "test/osd-hana-doctor.mjs",
+    "test/osd-hana-extract.mjs",
     "test/osd-host.mjs",
     "test/osd-icf-apply.mjs",
     "test/osd-icf-registry.mjs",
