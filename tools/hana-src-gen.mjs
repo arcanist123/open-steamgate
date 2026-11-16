@@ -59,6 +59,7 @@
 // purpose).
 import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from "node:fs";
 import {spawnSync} from "node:child_process";
+import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
 import {join, relative, resolve, sep} from "node:path";
 import {runsAs} from "./osd-main.mjs";
@@ -146,9 +147,25 @@ export function selectGroups(plan, patterns = [], options = {}) {
 // the zero-padded order: wide enough that the names sort in plan order
 const padWidth = (plan) => Math.max(3, ...plan.layers.map((layer) => String(layer.order).length));
 
+// a cycle's layer name (milestone 4): bounded and deterministic -- the first
+// member in sorted order (cut to 40), the member count and a short hash of
+// the sorted member list. Joining every member (the name before) died with
+// ENAMETOOLONG on a 30-package basis cycle; the full list travels in the
+// layer's members.json and the manifest's `cycle`, never in a path. Pure.
+export function cycleName(cycle) {
+  const sorted = [...cycle].map(String).sort();
+  const hash = createHash("sha256").update(sorted.join("\n")).digest("hex").slice(0, 10);
+  return `cycle-${sorted[0].slice(0, 40)}-${sorted.length}-${hash}`;
+}
+
+// the file inside a cycle layer that names its members: two dot parts, so
+// neither abaplint's registry nor tools/osd-inputs.mjs reads it as an object
+export const CYCLE_MEMBERS = "members.json";
+const membersJson = (cycle) => JSON.stringify({cycle: [...cycle], name: cycleName(cycle)}, null, 2) + "\n";
+
 function groupFolder(group, width) {
   const pad = String(group.order).padStart(width, "0");
-  return group.cycle === undefined ? `${pad}-${group.layers[0].name}` : `${pad}-cycle-${group.cycle.join("+")}`;
+  return group.cycle === undefined ? `${pad}-${group.layers[0].name}` : `${pad}-${cycleName(group.cycle)}`;
 }
 
 /** one layer folder of the layers directory: the files to copy, relative to
@@ -214,6 +231,7 @@ function intended(layersDir, plan, patterns) {
         files.set(rel, resolve(layersDir, layer.folder ?? `layers/${layer.name}`, rel));
       }
     }
+    if (group.cycle !== undefined) files.set(CYCLE_MEMBERS, {content: membersJson(group.cycle)});
     tree.set(name, files);
   }
   return {tree, groups};
@@ -237,7 +255,7 @@ function mergedIntended(dirs, patterns) {
       if (layer.package !== null && layer.package !== undefined) packages.push(layer.package);
     }
     for (const group of selectGroups(plan, patterns, {checkMissing: false})) {
-      const key = group.cycle === undefined ? group.layers[0].name : `cycle-${group.cycle.join("+")}`;
+      const key = group.cycle === undefined ? group.layers[0].name : cycleName(group.cycle);
       let entry = merged.get(key);
       if (entry === undefined) {
         entry = {key, order: order++, package: group.cycle === undefined ? group.layers[0].package : null,
@@ -263,7 +281,8 @@ function mergedIntended(dirs, patterns) {
   const tree = new Map();
   const groups = [];
   for (const entry of merged.values()) {
-    const folder = groupFolder({order: entry.order, cycle: entry.cycle, layers: [{name: entry.key}]}, width);
+    const folder = `${String(entry.order).padStart(width, "0")}-${entry.key}`;
+    if (entry.cycle !== undefined) entry.files.set(CYCLE_MEMBERS, {content: membersJson(entry.cycle)});
     tree.set(folder, entry.files);
     groups.push({name: entry.key, package: entry.package, order: entry.order, objects: entry.objects,
       ...(entry.cycle === undefined ? {} : {cycle: entry.cycle})});
@@ -311,7 +330,7 @@ function manifestFor(source, plan, groups, system) {
         }
       }
       return {
-        name: group.cycle === undefined ? group.layers[0].name : `cycle-${group.cycle.join("+")}`,
+        name: group.cycle === undefined ? group.layers[0].name : cycleName(group.cycle),
         package: group.cycle === undefined ? group.layers[0].package : null,
         order: group.order,
         objects,
@@ -346,7 +365,10 @@ export function withinTree(dir, root = treeRoot(), flag = "--layers") {
   throw new Error(`hana-src-gen: --out ${dir} is inside this tree -- keep it under gen/ or .local/ (both untracked) so neither the layers nor the manifest is ever committed, or outside the repository`);
 }
 
-const sameFile = (a, b) => readFileSync(a).equals(readFileSync(b));
+// a tree entry is a source path to copy, or {content} this tool writes
+// (a cycle layer's members.json)
+const bytesOf = (want) => (typeof want === "string" ? readFileSync(want) : Buffer.from(want.content));
+const sameFile = (want, have) => bytesOf(want).equals(readFileSync(have));
 
 function writeTree(out, tree, manifest) {
   if (existsSync(out)) {
@@ -360,7 +382,8 @@ function writeTree(out, tree, manifest) {
   for (const [name, files] of [...tree].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
     mkdirSync(join(out, name, "src"), {recursive: true});
     for (const [rel, source] of files) {
-      copyFileSync(source, join(out, name, rel));
+      if (typeof source === "string") copyFileSync(source, join(out, name, rel));
+      else writeFileSync(join(out, name, rel), source.content);
       count++;
     }
     console.log(`hana-src-gen: ${name}: ${files.size} file(s)`);
