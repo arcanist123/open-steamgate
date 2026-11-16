@@ -9,11 +9,12 @@
 // The resolution rules are the converter's measured ones: a flat program or
 // interface by exact name; a class's/interface's 30-character '='-padded
 // includes by suffix; a function group's main program and includes via
-// TFDIR/TLIBG (mainProgram, groupSuffix). `objects` maps "TYPE:NAME" (the
+// TFDIR/TLIBG (mainProgram), an include by EXACT length -- L<grp> + 3
+// characters, never a 4-character split (fix round 6, MUST-2). `objects` maps "TYPE:NAME" (the
 // dump's TADIR ids) to {id, type, ...}; the caller decides what "in scope"
 // means by comparing the owner's id.
 import {key} from "./xml.mjs";
-import {groupFromMain, groupSuffix, mainProgram} from "./program.mjs";
+import {GROUP_INCLUDE_SUFFIX_LENGTH, groupFromMain, mainProgram} from "./program.mjs";
 
 // TFDIR/TLIBG -> the program/group -> owning-object maps the resolver needs.
 // Only the group wiring is built here; the per-function maps (fmByInclude,
@@ -55,16 +56,14 @@ export function resolveProgramOwner(program, {objects, groupByProgram, groupByNa
     if (!o && /^BDI?$/.test(suffix)) o = objects.get(`BDEF:${base}`);
   }
   if (!o) o = groupByProgram.get(p);
+  // a function group's include: L<grp> + exactly 3 characters, assigned to
+  // the group whose name is everything before them -- or to nobody (the
+  // audit then refuses the source). One split, so one candidate: an include
+  // of group ZAU (LZAU + TOP) can never be read as ZA's (LZA + UTOP).
   const m = /^(\/[^/]+\/)?L(.+)$/.exec(p);
-  if (!o && m) {
-    for (const n of [3, 4]) {
-      const suffix = m[2].slice(-n);
-      const g = (m[1] || "") + m[2].slice(0, -n);
-      if (m[2].length > n && groupSuffix.test(suffix) && groupByName.has(g)) {
-        o = groupByName.get(g);
-        break;
-      }
-    }
+  if (!o && m && m[2].length > GROUP_INCLUDE_SUFFIX_LENGTH) {
+    const g = (m[1] || "") + m[2].slice(0, -GROUP_INCLUDE_SUFFIX_LENGTH);
+    o = groupByName.get(g);
   }
   return o || null;
 }

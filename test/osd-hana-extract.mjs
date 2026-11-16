@@ -894,7 +894,7 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     for (const inScope of ["ZCL_OSD_X1", "ZOSD_X3", "ZOSG_X4", "ZTAB_X5", "ZSICF_XC"]) {
       expect(unescaped).to.include(inScope);
     }
-    expect(req.names.length).to.equal(37); // 14 exact + 2 padded class patterns + the group's 21 shape patterns
+    expect(req.names.length).to.equal(18); // 14 exact + 2 padded class patterns + the group's 2 (SAPL<grp>, L<grp>___ -- round 6)
   });
 
   it("M-2b: a dump that delivers objects outside the scope fails the run and names the dump directory (mutation: the audit removed)", async function () {
@@ -933,15 +933,15 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const r = await runExtract(["--out", out], {chunk: 5});
     expect(r.code).to.equal(3);
     const reqs = dumpRequests(from);
-    expect(reqs.length).to.equal(8); // ceil(37 / 5): 14 exact + 2 padded class patterns + the group's 21 shape patterns
+    expect(reqs.length).to.equal(4); // ceil(18 / 5): 14 exact + 2 padded class patterns + the group's 2 patterns (round 6)
     const dumpDir = join(out, ".osd-hana", "dump");
-    for (const part of ["part-00001", "part-00002", "part-00003", "part-00004", "part-00005", "part-00006", "part-00007", "part-00008"]) {
+    for (const part of ["part-00001", "part-00002", "part-00003", "part-00004"]) {
       expect(existsSync(join(dumpDir, part, "objects.jsonl")), part).to.equal(true);
       expect(existsSync(join(dumpDir, part, "manifest.json")), part).to.equal(true);
     }
     // the aggregate manifest echoes the whole request and is what reuse reads
     const aggregate = JSON.parse(readFileSync(join(dumpDir, "manifest.json"), "utf8"));
-    expect(aggregate.sidecar.parts.length).to.equal(8);
+    expect(aggregate.sidecar.parts.length).to.equal(4);
     expect(aggregate.sidecar.errors).to.deep.equal([]);
     // the repository is complete across the parts
     expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
