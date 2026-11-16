@@ -691,7 +691,9 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
 * constants of ABAP names), with the key fields added -- a provider must
 * always read those. No $select, or one that selects everything (*), is an
 * empty list: everything is selected. A name of no property of the set (a
-* navigation property, a path below an expansion) adds nothing.
+* navigation property, a path below an expansion) adds nothing. A disabled
+* property is no property of the set (the model info leaves it out), so it
+* never appears here; the dispatcher refuses a $select naming it (400).
     DATA lt_names    TYPE string_table.
     DATA lv_name     TYPE string.
     DATA ls_property TYPE zcl_stg_model_info=>ty_property.

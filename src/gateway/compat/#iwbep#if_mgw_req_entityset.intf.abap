@@ -73,7 +73,8 @@ INTERFACE /iwbep/if_mgw_req_entityset PUBLIC.
       VALUE(rv_skiptoken) TYPE string.
 
 * the $select of the URL in ABAP field names, with the key fields of the
-* set added; empty when the URL selected nothing (everything)
+* set added; empty when the URL selected nothing (everything). NOT MEASURED:
+* the row type of /iwbep/t_mgw_tech_field_names (/iwbep/mgw_tech_name here)
   METHODS get_select_with_mandtry_fields
     RETURNING
       VALUE(rt_selected_fields) TYPE /iwbep/t_mgw_tech_field_names.

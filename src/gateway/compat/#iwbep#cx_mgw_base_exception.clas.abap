@@ -4,13 +4,17 @@ CLASS /iwbep/cx_mgw_base_exception DEFINITION INHERITING FROM cx_static_check PU
 * the HTTP status codes by name (gcs_http_status_codes, the values are the
 * HTTP codes themselves), the status the exception answers with
 * (http_status_code; a subclass sets it in its constructor, as the
-* purchase-order service's own exception does for "not found"), and the
+* own exception of service A does for "not found"), and the
 * message container the exception carries (get_msg_container: the
 * request's own container unless one was given, so what is added through
 * it reaches the error response's innererror.errordetails).
   PUBLIC SECTION.
     INTERFACES if_t100_message.
 
+* NOT MEASURED: the component names not_found, forbidden,
+* precondition_failed, internal_server_error and bad_request are the ones the
+* callers read so far; the others, and every component's type, are assumed
+* (the values are the HTTP codes themselves)
     CONSTANTS:
       BEGIN OF gcs_http_status_codes,
         ok                    TYPE i VALUE 200,
@@ -31,7 +35,8 @@ CLASS /iwbep/cx_mgw_base_exception DEFINITION INHERITING FROM cx_static_check PU
         service_unavailable   TYPE i VALUE 503,
       END OF gcs_http_status_codes.
 
-* 0 when the exception names none: the gateway answers its default then
+* 0 when the exception names none: the gateway answers its default then.
+* NOT MEASURED: the type on a system (i here)
     DATA http_status_code  TYPE i.
     DATA message_container TYPE REF TO /iwbep/if_message_container.
 

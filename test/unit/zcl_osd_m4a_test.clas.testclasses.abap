@@ -56,7 +56,7 @@ ENDCLASS.
 CLASS ltcl_metadata DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL
   INHERITING FROM ltcl_base.
 * The model members, observed where a client reads them: $metadata. The
-* expected forms are the ones a system writes for the purchase-order service
+* expected forms are the ones a system writes for service A
 * (attribute names, their place among the others).
   PRIVATE SECTION.
     DATA mv_xml TYPE string.
@@ -83,6 +83,10 @@ CLASS ltcl_metadata DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FI
     METHODS disabled_parameter FOR TESTING RAISING cx_static_check.
     METHODS assoc_set_named_by_model FOR TESTING RAISING cx_static_check.
     METHODS absent_names_raise FOR TESTING RAISING cx_static_check.
+* fix round: a disabled endpoint leaves nothing that names it
+    METHODS endpoint_type_disabled FOR TESTING RAISING cx_static_check.
+    METHODS endpoint_set_disabled FOR TESTING RAISING cx_static_check.
+    METHODS model_info_no_dangling FOR TESTING RAISING cx_static_check.
 
 * the text of one element, from its start tag to its end tag
     METHODS element
@@ -134,13 +138,13 @@ CLASS ltcl_metadata IMPLEMENTATION.
   METHOD type_label.
     has( iv_body = element( iv_start = '<EntityType Name="Order"'
                             iv_end   = '>' )
-         iv_text = ` sap:label="Purchase Order"` ).
+         iv_text = ` sap:label="Widget"` ).
   ENDMETHOD.
 
   METHOD set_label.
 * on the EntitySet, between EntityType and the sap: booleans
     has( iv_body = mv_xml
-         iv_text = `<EntitySet Name="Orders" EntityType="ZOSD_M4A_SRV.Order" sap:label="Purchase Orders" sap:creatable=` ).
+         iv_text = `<EntitySet Name="Orders" EntityType="ZOSD_M4A_SRV.Order" sap:label="Widgets" sap:creatable=` ).
     lacks( iv_body = element( iv_start = '<EntitySet Name="Items"'
                               iv_end   = '/>' )
            iv_text = `sap:label` ).
@@ -184,7 +188,7 @@ CLASS ltcl_metadata IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD features_keep_medium_label.
-* the model asked for long labels; the purchase-order service did too, and a
+* the model asked for long labels; service A did too, and a
 * system answered its properties with the medium label all the same
     DATA lo_mpc      TYPE REF TO /iwbep/cl_mgw_push_abs_model.
     DATA lo_model    TYPE REF TO zcl_oao_model.
@@ -282,6 +286,62 @@ CLASS ltcl_metadata IMPLEMENTATION.
            iv_text = `OrderItemsNoRc_AssocSet` ).
   ENDMETHOD.
 
+  METHOD endpoint_type_disabled.
+* the association to the disabled type, its derived set, the navigation
+* over it and the function import answering with the type all go: nothing
+* in the document names the type
+    lacks( iv_body = mv_xml
+           iv_text = `<Association Name="OrderGoneKept"` ).
+    lacks( iv_body = mv_xml
+           iv_text = `OrderGoneKept_AssocSet` ).
+    lacks( iv_body = mv_xml
+           iv_text = `<NavigationProperty Name="GoneNav"` ).
+    lacks( iv_body = mv_xml
+           iv_text = `<FunctionImport Name="Archive"` ).
+    lacks( iv_body = mv_xml
+           iv_text = `ZOSD_M4A_SRV.Gone"` ).
+  ENDMETHOD.
+
+  METHOD endpoint_set_disabled.
+* the set goes and so does every association set ending in it; the
+* association and its navigation stay (both types are enabled)
+    lacks( iv_body = mv_xml
+           iv_text = `<EntitySet Name="Parts"` ).
+    lacks( iv_body = mv_xml
+           iv_text = `EntitySet="Parts"` ).
+    lacks( iv_body = mv_xml
+           iv_text = `OrderParts_AssocSet` ).
+    has( iv_body = mv_xml
+         iv_text = `<Association Name="OrderParts"` ).
+    has( iv_body = mv_xml
+         iv_text = `<NavigationProperty Name="Parts"` ).
+  ENDMETHOD.
+
+  METHOD model_info_no_dangling.
+* the model info the dispatcher routes by: no disabled set, and every
+* navigation's target set (when it has one) is a set of the service
+    DATA ls_service TYPE zcl_stg_model_info=>ty_service.
+    DATA ls_set     LIKE LINE OF ls_service-entity_sets.
+    DATA ls_nav     TYPE zcl_stg_model_info=>ty_nav.
+
+    ls_service = zcl_stg_model_info=>get( 'ZOSD_M4A_SRV' ).
+    LOOP AT ls_service-entity_sets INTO ls_set.
+      cl_abap_unit_assert=>assert_false(
+        act = boolc( ls_set-name = 'Parts' OR ls_set-name = 'GoneSet' OR ls_set-name = 'OrdersHidden' )
+        msg = |disabled set { ls_set-name } in the model info| ).
+      LOOP AT ls_set-navs INTO ls_nav.
+        cl_abap_unit_assert=>assert_differs( act = ls_nav-name
+                                             exp = 'GoneNav' ).
+        IF ls_nav-target_set IS NOT INITIAL.
+          READ TABLE ls_service-entity_sets WITH KEY name = ls_nav-target_set TRANSPORTING NO FIELDS.
+          cl_abap_unit_assert=>assert_subrc(
+            exp = 0
+            msg = |{ ls_set-name }/{ ls_nav-name } leads to { ls_nav-target_set }, not a set of the service| ).
+        ENDIF.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD absent_names_raise.
 * every getter asked for a name the model lacks raised the med exception
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_m4a_mpc=>gv_absent_raised
@@ -304,6 +364,7 @@ CLASS ltcl_request DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FIN
     METHODS source_type_on_navigation FOR TESTING RAISING cx_static_check.
     METHODS source_type_direct_empty FOR TESTING RAISING cx_static_check.
     METHODS skiptoken FOR TESTING RAISING cx_static_check.
+    METHODS select_disabled_property FOR TESTING RAISING cx_static_check.
     METHODS update_facet_type_name FOR TESTING RAISING cx_static_check.
     METHODS ok
       IMPORTING
@@ -367,6 +428,22 @@ CLASS ltcl_request IMPLEMENTATION.
   METHOD source_type_direct_empty.
     ok( get( 'Items' ) ).
     cl_abap_unit_assert=>assert_initial( zcl_osd_m4a_dpc=>gs_seen-source_type ).
+  ENDMETHOD.
+
+  METHOD select_disabled_property.
+* a disabled property is not a property of the set: $select naming it is
+* refused like an unknown name (400, before the provider runs), and
+* get_select_with_mandtry_fields can never name it
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+    CLEAR zcl_osd_m4a_dpc=>gs_seen.
+    ls_response = get( iv_path  = 'Orders'
+                       iv_query = '$select=Hidden' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 400 ).
+    has( iv_body = ls_response-body
+         iv_text = `STG/PROPERTY_NOT_FOUND` ).
+    cl_abap_unit_assert=>assert_initial( zcl_osd_m4a_dpc=>gs_seen-entity_set ).
   ENDMETHOD.
 
   METHOD skiptoken.

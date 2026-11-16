@@ -57,7 +57,7 @@ CLASS zcl_osd_m4a_mpc IMPLEMENTATION.
     DATA ls_features TYPE /iwbep/if_mgw_odata_model=>ty_s_model_features.
 
     model->set_schema_namespace( 'ZOSD_M4A_SRV' ).
-* the feature the purchase-order service sets: labels stay medium with it
+* the feature service A sets: labels stay medium with it
     ls_features-use_long_label_for_property = abap_true.
     model->set_model_features( ls_features ).
 
@@ -120,6 +120,14 @@ CLASS zcl_osd_m4a_mpc IMPLEMENTATION.
     lo_nav = lo_type->create_navigation_property( iv_property_name    = 'ItemsHidden'
                                                   iv_abap_fieldname   = 'ITEMS_HIDDEN'
                                                   iv_association_name = 'OrderItems' ).
+* navigations whose other end goes: over an association to a disabled type,
+* and over one to a type whose only set is disabled
+    lo_nav = lo_type->create_navigation_property( iv_property_name    = 'GoneNav'
+                                                  iv_abap_fieldname   = 'GONE_NAV'
+                                                  iv_association_name = 'OrderGoneKept' ).
+    lo_nav = lo_type->create_navigation_property( iv_property_name    = 'Parts'
+                                                  iv_abap_fieldname   = 'PARTS'
+                                                  iv_association_name = 'OrderParts' ).
 
     lo_type = model->create_entity_type( iv_entity_type_name = 'Item'
                                          iv_def_entity_set   = abap_false ).
@@ -142,6 +150,14 @@ CLASS zcl_osd_m4a_mpc IMPLEMENTATION.
     lo_property->set_is_key( ).
     lo_property->set_type_edm_string( ).
     lo_set = lo_type->create_entity_set( 'GoneSet' ).
+
+    lo_type = model->create_entity_type( iv_entity_type_name = 'Part'
+                                         iv_def_entity_set   = abap_false ).
+    lo_property = lo_type->create_property( iv_property_name  = 'PartId'
+                                            iv_abap_fieldname = 'ORDER_ID' ).
+    lo_property->set_is_key( ).
+    lo_property->set_type_edm_string( ).
+    lo_set = lo_type->create_entity_set( 'Parts' ).
 
 * bound to a structure whose data element's medium and long labels differ
     lo_type = model->create_entity_type( iv_entity_type_name = 'Stamp'
@@ -187,6 +203,18 @@ CLASS zcl_osd_m4a_mpc IMPLEMENTATION.
                                iv_right_type       = 'Gone'
                                iv_left_card        = '1'
                                iv_right_card       = '1' ).
+* not disabled itself: its end type is (rule of zcl_oao_model=>type_enabled)
+    model->create_association( iv_association_name = 'OrderGoneKept'
+                               iv_left_type        = 'Order'
+                               iv_right_type       = 'Gone'
+                               iv_left_card        = '1'
+                               iv_right_card       = 'M' ).
+* its end set is disabled, its types are not
+    model->create_association( iv_association_name = 'OrderParts'
+                               iv_left_type        = 'Order'
+                               iv_right_type       = 'Part'
+                               iv_left_card        = '1'
+                               iv_right_card       = 'M' ).
     model->create_association( iv_association_name = 'OrderStamp'
                                iv_left_type        = 'Order'
                                iv_right_type       = 'Stamp'
@@ -211,6 +239,11 @@ CLASS zcl_osd_m4a_mpc IMPLEMENTATION.
                                                       iv_abap_fieldname = 'NOTE' ).
     lo_parameter->set_type_edm_string( ).
 
+* answers with a disabled type
+    lo_action = model->create_action( 'Archive' ).
+    lo_action->set_return_entity_type( 'Gone' ).
+    lo_action->set_http_method( 'POST' ).
+
     lo_action = model->create_action( 'Drop' ).
     lo_action->set_return_entity_type( 'Order' ).
     lo_action->set_http_method( 'POST' ).
@@ -227,6 +260,7 @@ CLASS zcl_osd_m4a_mpc IMPLEMENTATION.
     lo_property->set_disabled( ).
     lo_type->get_navigation_property( 'ItemsHidden' )->set_disabled( ).
     model->get_entity_set( 'OrdersHidden' )->set_disabled( ).
+    model->get_entity_set( 'Parts' )->set_disabled( ).
     model->get_entity_type( 'Gone' )->set_disabled( iv_disabled = abap_true ).
     model->get_association( 'OrderGone' )->set_disabled( ).
     model->get_association( 'OrderItemsNoRc' )->get_ref_constraint( )->set_disabled( ).

@@ -94,12 +94,22 @@ CLASS zcl_oao_entity_typ IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_navigation_properties.
-    DATA lo_nav TYPE REF TO zcl_oao_nav_prop.
+* the enabled ones over an association that is part of the service (a
+* navigation over a dropped association would name nothing)
+    DATA lo_nav   TYPE REF TO zcl_oao_nav_prop.
+    DATA lo_model TYPE REF TO zcl_oao_model.
 
+    IF mo_model IS BOUND.
+      lo_model ?= mo_model.
+    ENDIF.
     LOOP AT mt_nav_props INTO lo_nav.
-      IF lo_nav->mv_disabled = abap_false.
-        APPEND lo_nav TO rt_nav_props.
+      IF lo_nav->mv_disabled = abap_true.
+        CONTINUE.
       ENDIF.
+      IF lo_model IS BOUND AND lo_model->association_enabled( lo_nav->mv_association ) = abap_false.
+        CONTINUE.
+      ENDIF.
+      APPEND lo_nav TO rt_nav_props.
     ENDLOOP.
   ENDMETHOD.
 

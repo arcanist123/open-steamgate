@@ -67,6 +67,32 @@ CLASS zcl_oao_model DEFINITION PUBLIC.
     METHODS get_model_features
       RETURNING
         VALUE(rs_features) TYPE /iwbep/if_mgw_odata_model=>ty_s_model_features.
+
+* What a disabled element takes with it (milestone 4, fix round). Not
+* measured on a system: the rule chosen is that nothing in $metadata or the
+* model info may name an element that is not there -- an association with a
+* disabled end type is dropped, an association set with a disabled end set
+* (or a dropped association) is dropped, a navigation property over a
+* dropped association is dropped, and a function import whose return type
+* or return set is disabled is dropped.
+* the type is in the model and not disabled
+    METHODS type_enabled
+      IMPORTING
+        iv_type           TYPE csequence
+      RETURNING
+        VALUE(rv_enabled) TYPE abap_bool.
+* the set is in the model, neither it nor its type disabled
+    METHODS set_enabled
+      IMPORTING
+        iv_set            TYPE csequence
+      RETURNING
+        VALUE(rv_enabled) TYPE abap_bool.
+* the association is part of the service (get_associations has it)
+    METHODS association_enabled
+      IMPORTING
+        iv_association    TYPE csequence
+      RETURNING
+        VALUE(rv_enabled) TYPE abap_bool.
   PRIVATE SECTION.
     DATA ms_features TYPE /iwbep/if_mgw_odata_model=>ty_s_model_features.
     DATA mv_namespace TYPE string.
@@ -146,6 +172,16 @@ CLASS zcl_oao_model IMPLEMENTATION.
       IF lo_action->mv_return_entity_set IS INITIAL AND lo_action->mv_return_entity_type IS NOT INITIAL.
         lo_action->mv_return_entity_set = default_entity_set( |{ lo_action->mv_return_entity_type }| ).
       ENDIF.
+* a function import answering with a disabled type or set has nothing to
+* answer with (rule: see type_enabled)
+      IF lo_action->mv_return_entity_type IS NOT INITIAL
+          AND type_enabled( lo_action->mv_return_entity_type ) = abap_false.
+        CONTINUE.
+      ENDIF.
+      IF lo_action->mv_return_entity_set IS NOT INITIAL
+          AND set_enabled( lo_action->mv_return_entity_set ) = abap_false.
+        CONTINUE.
+      ENDIF.
       APPEND lo_action TO rt_actions.
     ENDLOOP.
   ENDMETHOD.
@@ -211,8 +247,54 @@ CLASS zcl_oao_model IMPLEMENTATION.
     DATA lo_association TYPE REF TO zcl_oao_association.
 
     LOOP AT mt_associations INTO lo_association.
-      IF lo_association->mv_disabled = abap_false.
+      IF lo_association->mv_disabled = abap_false
+          AND type_enabled( lo_association->mv_left_type ) = abap_true
+          AND type_enabled( lo_association->mv_right_type ) = abap_true.
         APPEND lo_association TO rt_associations.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD type_enabled.
+    DATA lo_entity TYPE REF TO zcl_oao_entity_typ.
+    FIELD-SYMBOLS <ls_entity> LIKE LINE OF mt_entities.
+
+    READ TABLE mt_entities ASSIGNING <ls_entity> WITH TABLE KEY entity_name = iv_type.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+    lo_entity ?= <ls_entity>-entity.
+    IF lo_entity->mv_disabled = abap_false.
+      rv_enabled = abap_true.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD set_enabled.
+    DATA ls_row    LIKE LINE OF mt_entities.
+    DATA lo_entity TYPE REF TO zcl_oao_entity_typ.
+    DATA lt_sets   TYPE zcl_oao_entity_typ=>ty_entity_sets.
+
+    LOOP AT mt_entities INTO ls_row.
+      lo_entity ?= ls_row-entity.
+* get_entity_sets: the enabled sets of an enabled type
+      lt_sets = lo_entity->get_entity_sets( ).
+      READ TABLE lt_sets WITH KEY name = iv_set TRANSPORTING NO FIELDS.
+      IF sy-subrc = 0.
+        rv_enabled = abap_true.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD association_enabled.
+    DATA lt_associations TYPE ty_associations.
+    DATA lo_association  TYPE REF TO zcl_oao_association.
+
+    lt_associations = get_associations( ).
+    LOOP AT lt_associations INTO lo_association.
+      IF lo_association->mv_name = iv_association.
+        rv_enabled = abap_true.
+        RETURN.
       ENDIF.
     ENDLOOP.
   ENDMETHOD.
@@ -291,25 +373,18 @@ CLASS zcl_oao_model IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_association_sets.
-* the sets that are part of the service: neither the set nor its
-* association disabled
-    DATA lt_sets        TYPE ty_assoc_sets.
-    DATA lo_set         TYPE REF TO zcl_oao_assoc_set.
-    DATA lo_association TYPE REF TO zcl_oao_association.
-    DATA lv_disabled    TYPE abap_bool.
+* the sets that are part of the service: the set not disabled, its
+* association part of the service, both end sets enabled (rule: see
+* type_enabled)
+    DATA lt_sets TYPE ty_assoc_sets.
+    DATA lo_set  TYPE REF TO zcl_oao_assoc_set.
 
     lt_sets = all_association_sets( ).
     LOOP AT lt_sets INTO lo_set.
-      IF lo_set->mv_disabled = abap_true.
-        CONTINUE.
-      ENDIF.
-      lv_disabled = abap_false.
-      LOOP AT mt_associations INTO lo_association.
-        IF lo_association->mv_name = lo_set->mv_association AND lo_association->mv_disabled = abap_true.
-          lv_disabled = abap_true.
-        ENDIF.
-      ENDLOOP.
-      IF lv_disabled = abap_false.
+      IF lo_set->mv_disabled = abap_false
+          AND association_enabled( lo_set->mv_association ) = abap_true
+          AND set_enabled( lo_set->mv_left_set ) = abap_true
+          AND set_enabled( lo_set->mv_right_set ) = abap_true.
         APPEND lo_set TO rt_sets.
       ENDIF.
     ENDLOOP.

@@ -15,14 +15,14 @@
     <item>
      <ID>I</ID>
      <KEY>001</KEY>
-     <ENTRY>Purchase Order</ENTRY>
-     <LENGTH>24</LENGTH>
+     <ENTRY>Widget</ENTRY>
+     <LENGTH>16</LENGTH>
     </item>
     <item>
      <ID>I</ID>
      <KEY>002</KEY>
-     <ENTRY>Purchase Orders</ENTRY>
-     <LENGTH>25</LENGTH>
+     <ENTRY>Widgets</ENTRY>
+     <LENGTH>17</LENGTH>
     </item>
     <item>
      <ID>I</ID>
