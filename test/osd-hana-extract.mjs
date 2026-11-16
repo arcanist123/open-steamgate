@@ -8,7 +8,8 @@
 // suite goes RED when the guard is removed.
 import {expect} from "chai";
 import {createHash} from "node:crypto";
-import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from "node:fs";
+import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync} from "node:fs";
+import {execFileSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -96,7 +97,7 @@ function makePin() {
   return path;
 }
 
-async function runExtract(argv, {env = {}, out, list, dump} = {}) {
+async function runExtract(argv, {env = {}, out, list, dump, pinFile: pinFileOpt, chunk, extra = {}} = {}) {
   const from = recordLines().length;
   const lines = {out: [], err: [], from};
   const io = {out: (l) => lines.out.push(l), err: (l) => lines.err.push(l)};
@@ -106,15 +107,21 @@ async function runExtract(argv, {env = {}, out, list, dump} = {}) {
     OSD_HANA_PASSWORD: PASSWORD,
     ...env,
   };
+  // `pinFile` is the TRUSTED seam (the embedding host's own pin, critic S-E);
+  // the default test path names it there, a `--sidecar-pin` on ARGV is the
+  // public input and must never produce a "pinned" verdict on its own.
+  const argvPin = argv.includes("--sidecar-pin");
   const code = await extractMain([
     "--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA,
-    "--sidecar-pin", pinPath,
   ].concat(argv), {
     io,
     env: runEnv,
     stdin: {isTTY: false},
     isTTY: false,
     sidecarTimeoutMs: 500,
+    // null = no trusted seam on purpose (a test of the public --sidecar-pin)
+    pinFile: pinFileOpt === undefined ? pinPath : (pinFileOpt ?? undefined),
+    dumpChunkSize: chunk,
     // the FAKE sidecar's scenario knobs reach the child only through the
     // seam: since the fix round the child env is the core's minimal
     // allowlist (critic S-2) -- the parent's environment never leaks in
@@ -123,6 +130,7 @@ async function runExtract(argv, {env = {}, out, list, dump} = {}) {
       FAKE_SIDECAR_LIST: list ?? LIST_FIXTURE,
       FAKE_SIDECAR_DUMP: dump ?? DUMP_FIXTURE,
       ...env,
+      ...extra,
     },
   });
   return {code, lines, out, runs: () => sidecarRuns(from)};
@@ -308,16 +316,19 @@ describe("osd hana extract", function () {
     expect(r.code).to.equal(3);
     const rep = reportOf(out);
     expect(rep.totals.inScope).to.equal(14);
-    expect(rep.totals.written).to.equal(10);
-    expect(rep.totals.writtenPartial).to.equal(3); // the PROGs and the FUGR: screens/GUI status/variants not checked
+    expect(rep.totals.written).to.equal(6); // DTEL, DOMA, TTYP, SHLP, VIEW, DDLS
+    expect(rep.totals.writtenPartial).to.equal(7); // CLAS/INTF (component texts), 2 TABL (FKs/indexes/texts), 2 PROG + FUGR (screens not checked)
     expect(rep.totals.unsupported).to.equal(1);
     expect(rep.totals.skipped).to.equal(0);
     expect(rep.totals.written + rep.totals.writtenPartial + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
     expect(rep.totals.dumped).to.equal(15);
-    expect(rep.sentence).to.equal("4 objects of 14 could not be fully extracted (FUGR 1, PROG 2, SICF 1)");
+    expect(rep.sentence).to.equal("8 objects of 14 could not be fully extracted (CLAS 1, FUGR 1, INTF 1, PROG 2, SICF 1, TABL 2)");
     const md = readFileSync(join(out, "extract-report.md"), "utf8");
     expect(md).to.match(/could not be fully extracted/);
     expect(md).to.match(/\| SICF \(unsupported\) \| 1 \| 0 \| 0 \| 0 \| 1 \|/);
+    // which DD tables were looked at is said in the report (fix round 2, SHOULD-1)
+    expect(md).to.match(/DD tables read: .*DD02L/);
+    expect(md).to.match(/not carried by this dump[^]*DD05S/);
   });
 
   it("--inactive: inactive versions are dumped and flagged in the report (mutation: state not reported)", async function () {
@@ -378,13 +389,19 @@ describe("osd hana extract", function () {
     expect(decideFolderLogic(new Set(["ZTOP", "ZTOP_SUB", "ZOTHER"]), parents)).to.equal("FULL");
     expect(decideFolderLogic(new Set(["ZTOP", "ZTOP_NOT_CHILD"]), parents)).to.equal("FULL");
     const paths = folderPaths(new Set(["ZTOP", "ZTOP_SUB"]), parents, "PREFIX");
-    expect(paths.get("ZTOP")).to.equal("ztop/");
-    expect(paths.get("ZTOP_SUB")).to.equal("ztop/sub/");
+    expect(paths.paths.get("ZTOP")).to.equal("ztop/");
+    expect(paths.paths.get("ZTOP_SUB")).to.equal("ztop/sub/");
     const full = folderPaths(new Set(["$TMP", "ZTOP"]), parents, "FULL");
-    expect(full.get("$TMP")).to.equal("tmp/");
-    expect(full.get("ZTOP")).to.equal("ztop/");
-    // a collision refuses instead of mixing two packages into one folder
-    expect(() => folderPaths(new Set(["TMP", "$TMP"]), new Map(), "FULL")).to.throw(/collision/);
+    expect(full.paths.get("$TMP")).to.equal("tmp/");
+    expect(full.paths.get("ZTOP")).to.equal("ztop/");
+    // abapGit's $ rule: a local package's folder is its name without the
+    // leading $ -- so $ZPK and ZPK fold to the SAME folder zpk/. That is a
+    // collision abapGit cannot hold in one repository; it comes back as a
+    // per-package refusal, never an abort (fix round 2, SHOULD-3).
+    expect(full.paths.get("$ZPK")).to.equal("zpk/");
+    const coll = folderPaths(new Set(["TMP", "$TMP"]), new Map(), "FULL");
+    expect(coll.paths.get("$TMP")).to.equal("tmp/");
+    expect([...coll.collisions].sort()).to.deep.equal(["TMP", "$TMP"]);
   });
 
   it("reusableDump: no dump dir, unreadable manifest, missing sidecar block, mismatched request, errors, missing counts", async function () {
@@ -473,7 +490,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(t.inScope).to.equal(14);
     expect(t.written + t.writtenPartial + t.skipped + t.unsupported).to.equal(t.inScope);
     const totalsLine = readOut(out, "extract-report.md").split("\n").find((l) => l.startsWith("Totals:"));
-    expect(totalsLine).to.match(/in scope 14 = written 9 \+ written-partial 3 \+ skipped 1 \+ unsupported 1/);
+    expect(totalsLine).to.match(/in scope 14 = written 6 \+ written-partial 6 \+ skipped 1 \+ unsupported 1/);
   });
 
   it("M2: a function module whose include is missing from the dump is a part line and the group is written-partial (mutation: the missing-include check removed)", async function () {
@@ -580,19 +597,30 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(folders["$OSD_X"]).to.equal("src/osd_x/");
   });
 
-  it("S3: a conversion failure is an internal error with a best-effort report, never a usage exit (mutation: the failure maps to exit 1)", async function () {
+  it("SHOULD-3: a local and a transportable package folding to one folder ($TMP and TMP) refuse per object, never abort (mutation: the collision aborts the run again)", async function () {
     const fx = variant((list, dump) => {
-      // two packages folding to ONE folder ("$" stripped): the folder collision
-      for (const [name, pkg] of [["ZCOLL_A1", "TMP"], ["ZCOLL_B1", "$TMP"]]) addProg(list, dump, name, pkg);
-      writeTable(dump, "TDEVC", tableRows(dump, "TDEVC").concat([{DEVCLASS: "TMP", PARENTCL: "", DLVUNIT: "LOCAL"}, {DEVCLASS: "$TMP", PARENTCL: "", DLVUNIT: "LOCAL"}]));
+      // abapGit's $ rule strips the leading $ of a local package's folder
+      // name, so $TMP and TMP both fold to tmp/ -- a pair that exists on any
+      // system where someone prototyped locally and then created the real
+      // package. abapGit cannot hold both in one repository; the second
+      // package's objects are refused in the ledger and the run continues.
+      for (const [name, pkg] of [["ZCOLL_A1", "$TMP"], ["ZCOLL_B1", "TMP"]]) addProg(list, dump, name, pkg);
+      writeTable(dump, "TDEVC", tableRows(dump, "TDEVC").concat([{DEVCLASS: "$TMP", PARENTCL: "", DLVUNIT: "LOCAL"}, {DEVCLASS: "TMP", PARENTCL: "", DLVUNIT: "LOCAL"}]));
     });
     const out = await fresh("s3");
     const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
-    expect(r.code).to.equal(6);
+    expect(r.code).to.equal(3); // partial -- NOT the internal error 6 the abort produced
     const rep = reportOf(out);
-    expect(JSON.stringify(rep)).to.match(/collision/i);
+    expect(rep.internal_error).to.equal(undefined);
+    expect(rep.totals.perType.PROG.skipped).to.be.at.least(1);
+    // "$" sorts before "T": $TMP keeps the folder tmp/, TMP's objects lose
+    expect(rep.objects.find((o) => o.name === "ZCOLL_A1").status).to.match(/^written/);
+    const lost = rep.objects.find((o) => o.name === "ZCOLL_B1");
+    expect(lost.status).to.equal("skipped");
+    expect(lost.reason).to.match(/folder collision/).and.to.match(/\$TMP/).and.to.match(/abapGit/);
+    expect(existsSync(join(out, "src", "tmp", "zcoll_a1.prog.abap"))).to.equal(true);
+    expect(existsSync(join(out, "src", "tmp", "zcoll_b1.prog.abap"))).to.equal(false);
   });
-
   it("S3: --out naming an existing file is a usage error, not an uncaught crash (mutation: the lstat check removed)", async function () {
     const f = join(root, "out-is-a-file");
     writeFileSync(f, "x");
@@ -731,5 +759,421 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(rep.objects.length).to.equal(rep.totals.inScope);
     expect(rep.ledger_error).to.equal(undefined);
     for (const o of rep.objects) expect(["written", "written-partial", "skipped", "unsupported"]).to.include(o.status);
+  });
+});
+
+// ------------------------------------------------------- fix round 2
+// CRITIC.md round 2 (../w3fix2/CRITIC.md) and the coordinator's decisions.
+// Each test names the mutation that must turn it RED.
+describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
+
+  const readJsonl = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const writeJsonl = (dir, name, rows) => writeFileSync(join(dir, name), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const objectsRows = (dir) => readJsonl(dir, "objects.jsonl");
+  const writeObjects = (dir, rows) => writeJsonl(dir, "objects.jsonl", rows);
+  const writeTable = (dump, t, rows) => writeJsonl(join(dump, "tables"), `${t}.jsonl`, rows);
+  const tableRows = (dump, t) => readJsonl(join(dump, "tables"), `${t}.jsonl`);
+  const reposrcRows = (dump) => readJsonl(dump, "reposrc.jsonl");
+  const writeReposrc = (dump, rows) => writeJsonl(dump, "reposrc.jsonl", rows);
+  const row = (o) => ({type: o.type, name: o.name, package: o.package, author: "DEVUSER", class: o.class ?? "customer", state: "A", status: o.status ?? "W", files: o.files ?? []});
+  const tadirRow = (type, name, pkg) => ({PGMID: "R3TR", OBJECT: type, OBJ_NAME: name, DEVCLASS: pkg, AUTHOR: "DEVUSER", MASTERLANG: "E", GENFLAG: "", SRCSYSTEM: "SYN"});
+  const pad = (n) => n.padEnd(30, "=");
+
+  function variant(mutate) {
+    const built = buildExtractFixtures(join(root, `fx2-${Math.random().toString(16).slice(2)}`));
+    if (mutate) mutate(built.list, built.dump);
+    return built;
+  }
+  function addProg(list, dump, name, pkg) {
+    writeFileSync(join(dump, "src", `${name}.abap`), `REPORT zprog.\n`);
+    writeReposrc(dump, reposrcRows(dump).concat([{program: name, state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 1, sha256: "1".repeat(64), file: `src/${name}.abap`}]));
+    writeTable(dump, "TADIR", tableRows(dump, "TADIR").concat([tadirRow("PROG", name, pkg)]));
+    writeObjects(dump, objectsRows(dump).concat([{...row({type: "PROG", name, package: pkg}), files: []}]));
+    writeObjects(list, objectsRows(list).concat([row({type: "PROG", name, package: pkg})]));
+  }
+  // dump-runs seen by the fake sidecar (verb -> parsed request records)
+  const dumpRequests = (from = 0) => recordLines().slice(from)
+    .map((l) => JSON.parse(l)).filter((e) => e.argv[0] === "dump").map((e) => e.request);
+
+  it("M-1: the scope fails CLOSED -- a class that is not exactly the customer value is left out as unknown-class (mutation: any non-sap class value is trusted)", async function () {
+    for (const value of ["SAP", "Sap", undefined, "vendor"]) {
+      const fx = variant((list, dump) => {
+        for (const dir of [list, dump]) {
+          writeObjects(dir, objectsRows(dir).map((o) => o.name === "ZCL_OSD_X1" ? {...o, class: value} : o));
+        }
+      });
+      const out = await fresh("m1x");
+      const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+      expect(r.code, `class=${JSON.stringify(value)}: exit`).to.equal(3);
+      const rep = reportOf(out);
+      const e = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
+      expect(e.status, `class=${JSON.stringify(value)}: status`).to.equal("skipped");
+      expect(e.reason).to.match(/unknown-class/);
+      expect(e.reason).to.match(/newer than this module/);
+      expect(e.files).to.deep.equal([]);
+      expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap")), `class=${JSON.stringify(value)}: not written`).to.equal(false);
+      expect(rep.totals.written + rep.totals.writtenPartial + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
+    }
+    // --include-sap admits the exact sap class only -- "SAP" stays out
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) {
+        writeObjects(dir, objectsRows(dir).map((o) => o.name === "ZCL_OSD_X1" ? {...o, class: "SAP"} : o));
+      }
+    });
+    const out = await fresh("m1y");
+    const r = await runExtract(["--out", out, "--include-sap", "--name", "Z%"], {list: fx.list, dump: fx.dump});
+    expect(reportOf(out).objects.find((o) => o.name === "ZCL_OSD_X1").status).to.equal("skipped");
+  });
+
+  it("M-1: the run says the sidecar may be newer than this module, in the plan and in the report (mutation: the notice removed)", async function () {
+    const fx = variant((list, dump) => {
+      writeObjects(list, objectsRows(list).map((o) => o.name === "ZCL_OSD_X1" ? {...o, class: "SAP"} : o));
+    });
+    const out = await fresh("m1z");
+    const dry = await runExtract(["--out", join(root, "m1z-dry"), "--dry-run", "--json"], {list: fx.list});
+    const doc = JSON.parse(dry.lines.out.join("\n"));
+    expect(doc.plan.unknownClass).to.equal(1);
+    expect(dry.lines.out.join("\n")).to.not.match(/\u001b/);
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.lines.err.join("\n")).to.match(/unknown classification/).and.to.match(/newer than this module/);
+    expect(readOutReport(out)).to.match(/newer than this module/);
+  });
+  const readOutReport = (out) => readFileSync(join(out, "extract-report.md"), "utf8");
+
+  it("M-2a: the dump request names the in-scope objects, not the user's patterns (mutation: the raw patterns go to the dump)", async function () {
+    const out = await fresh("m2a");
+    const from = recordLines().length;
+    const r = await runExtract(["--out", out, "--name", "Z%"], {});
+    expect(r.code).to.equal(3);
+    const reqs = dumpRequests(from);
+    expect(reqs.length).to.equal(1);
+    const req = reqs[0];
+    expect(req.packages).to.equal(undefined); // no pattern travels to the dump
+    expect(req.names).to.not.include("Z%");
+    expect(req.names).to.not.include("ZCL_SAP_XE"); // nothing of the vendor's
+    // exact names, LIKE-escaped (the sidecar matches with ESCAPE '\\')
+    expect(req.names).to.include("ZOSD\\_X3");
+    expect(req.names).to.include("ZCL\\_OSD\\_X1");
+    // every in-scope name is there, nothing else
+    const unescaped = new Set(req.names.map((n) => n.replace(/\\(.)/g, "$1")));
+    expect(unescaped.has("ZCL_SAP_XE")).to.equal(false);
+    expect(unescaped.size).to.equal(14);
+  });
+
+  it("M-2b: a dump that delivers objects outside the scope fails the run and names the dump directory (mutation: the audit removed)", async function () {
+    const fx = variant((list, dump) => {
+      // the vendor source sits in the fixture dump, as the sidecar would have
+      // written it for a matched pattern
+      writeFileSync(join(dump, "src", "ZCL_SAP_XX=====CS.abap"), "class ZCL_SAP_XX definition. \"VENDOR SOURCE\nendclass.\n");
+      writeObjects(dump, objectsRows(dump).concat([{type: "CLAS", name: "ZCL_SAP_XX", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "W", files: [{path: "src/ZCL_SAP_XX=====CS.abap", state: "A", sha256: "0".repeat(64), bytes: 60}]}]));
+    });
+    const out = await fresh("m2b");
+    const r = await runExtract(["--out", out, "--name", "Z%"], {list: fx.list, dump: fx.dump});
+    expect(r.code, "the run fails, not an ordinary partial").to.equal(4);
+    expect(r.lines.err.join("\n")).to.match(/outside the scope/).and.to.match(/ZCL_SAP_XX/).and.to.match(/dump directory/);
+    // nothing of the repository was built from it
+    expect(existsSync(join(out, "src"))).to.equal(false);
+    expect(r.lines.err.join("\n") + r.lines.out.join("\n")).to.not.match(/VENDOR SOURCE/);
+    // excluded closure rows do NOT trip the audit: the normal fixture dump
+    // carries the excluded sap row and the run proceeds
+    const ok = await fresh("m2b-ok");
+    const r2 = await runExtract(["--out", ok]);
+    expect(r2.code).to.equal(3);
+  });
+
+  it("M-2c: <out>/.gitignore carries .osd-hana/ -- the raw dump never belongs in the repository (mutation: the gitignore removed)", async function () {
+    const out = await fresh("m2c");
+    await runExtract(["--out", out]);
+    expect(readFileSync(join(out, ".gitignore"), "utf8")).to.match(/\.osd-hana\//);
+    // and the marker lists it as ours
+    const marker = JSON.parse(readFileSync(join(out, ".osd-hana", "marker.json"), "utf8"));
+    expect(marker.files.map((f) => f.path)).to.include(".gitignore");
+  });
+
+  it("M-2d: a scope larger than one chunk is dumped in parts, one request per part, and converts as one repository (mutation: chunking dropped)", async function () {
+    const out = await fresh("m2d");
+    const from = recordLines().length;
+    const r = await runExtract(["--out", out], {chunk: 5});
+    expect(r.code).to.equal(3);
+    const reqs = dumpRequests(from);
+    expect(reqs.length).to.equal(3); // ceil(14 / 5)
+    const dumpDir = join(out, ".osd-hana", "dump");
+    for (const part of ["part-00001", "part-00002", "part-00003"]) {
+      expect(existsSync(join(dumpDir, part, "objects.jsonl")), part).to.equal(true);
+      expect(existsSync(join(dumpDir, part, "manifest.json")), part).to.equal(true);
+    }
+    // the aggregate manifest echoes the whole request and is what reuse reads
+    const aggregate = JSON.parse(readFileSync(join(dumpDir, "manifest.json"), "utf8"));
+    expect(aggregate.sidecar.parts.length).to.equal(3);
+    expect(aggregate.sidecar.errors).to.deep.equal([]);
+    // the repository is complete across the parts
+    expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
+    expect(existsSync(join(out, "src/osd_x/zddl_xb.ddls.asddls"))).to.equal(true);
+    // a restart reuses the chunked dump without re-running any dump
+    const from2 = recordLines().length;
+    const r2 = await runExtract(["--out", out], {chunk: 5});
+    expect(r2.code).to.equal(3);
+    expect(dumpRequests(from2).length).to.equal(0);
+    expect(reportOf(out).dump_reused).to.equal(true);
+  });
+
+  it("M-3: the sidecar's own errors are ledger lines and exit 3, never 'all written' (mutation: partial treated as done, errors dropped)", async function () {
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).filter((o) => ["CLAS", "INTF", "DTEL"].includes(o.type) && o.class === "customer"));
+    });
+    const out = await fresh("m3");
+    const r = await runExtract(["--out", out], {
+      list: fx.list, dump: fx.dump,
+      extra: {FAKE_SIDECAR_EXIT: "3", FAKE_SIDECAR_ERRORS: JSON.stringify([{name: "ZCL_OSD_X1=>M", error: "definition hidden"}, {error: "catalog read failed"}])},
+    });
+    expect(r.code, "a sidecar error is exit 3").to.equal(3);
+    const rep = reportOf(out);
+    expect(rep.sentence ?? "").to.not.match(/^all .* written/);
+    expect(rep.dump_partial).to.equal(true);
+    // the named error is a ledger line on its object
+    const clas = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
+    const part = clas.parts.find((p) => p.part === "dump error");
+    expect(part, "the error names its object").to.exist;
+    expect(part.disposition).to.equal("not written");
+    expect(part.reason).to.match(/definition hidden/);
+    expect(clas.status).to.equal("written-partial");
+    // the unnamed error is a run-level line
+    expect(rep.dump_errors).to.be.an("array");
+    expect(rep.dump_errors.map((e) => e.error ?? e)).to.deep.equal(["catalog read failed"]);
+    const md = readOutReport(out);
+    expect(md).to.match(/dump errors/).and.to.match(/catalog read failed/);
+  });
+
+  it("M-4: a source the dump could not deliver is a part line and written-partial, exit 3 (mutation: the error row goes to errors only)", async function () {
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).filter((o) => o.name === "ZCL_OSD_X1"));
+      writeReposrc(dump, reposrcRows(dump).concat([
+        {program: pad("ZCL_OSD_X1") + "CCIMP", state: "A", error: "decompress: unexpected end of stream"},
+        {program: pad("ZCL_OSD_X1") + "CCAU", state: "A", file: "/etc/hostname"},
+      ]));
+    });
+    const out = await fresh("m4");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code, "not exit 0").to.equal(3);
+    const rep = reportOf(out);
+    const e = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
+    expect(e.status).to.equal("written-partial");
+    const ccimp = e.parts.find((p) => /CCIMP/.test(p.part));
+    expect(ccimp, "the failed include is named").to.exist;
+    expect(ccimp.disposition).to.equal("not written");
+    expect(ccimp.reason).to.match(/decompress/);
+    const ccau = e.parts.find((p) => /CCAU/.test(p.part));
+    expect(ccau, "the unusable path is named").to.exist;
+    expect(ccau.disposition).to.equal("not written");
+    expect(rep.errors.length).to.be.at.least(1);
+  });
+
+  it("M-4b: local classes in both CL and CCIMP leave a part line, not silence (mutation: the CCIMP drop is silent again)", async function () {
+    const fx = variant((list, dump) => {
+      writeFileSync(join(dump, "src", "ZCL_OSD_X1=====CL.abap"), "class lcl_local definition.\nendclass.\n");
+      writeFileSync(join(dump, "src", "ZCL_OSD_X1=====CCIMP.abap"), "class lcl_other definition.\nendclass.\n");
+      writeReposrc(dump, reposrcRows(dump).concat([
+        {program: pad("ZCL_OSD_X1") + "CL", state: "A", file: "src/ZCL_OSD_X1=====CL.abap"},
+        {program: pad("ZCL_OSD_X1") + "CCIMP", state: "A", file: "src/ZCL_OSD_X1=====CCIMP.abap"},
+      ]));
+    });
+    const out = await fresh("m4b");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const e = reportOf(out).objects.find((o) => o.name === "ZCL_OSD_X1");
+    expect(e.status).to.equal("written-partial");
+    expect(e.parts.some((p) => /CCIMP/.test(JSON.stringify(p)))).to.equal(true);
+  });
+
+  it("M-5a: a foreign directory is refused even when it holds only src/ and .abapgit.xml (mutation: the fixed fresh-list counts as ours again)", async function () {
+    const out = await fresh("m5a");
+    mkdirSync(join(out, "src"), {recursive: true});
+    writeFileSync(join(out, "src", "my-only-copy.abap"), "REPORT zmine.\n");
+    writeFileSync(join(out, ".abapgit.xml"), "<mine/>\n");
+    const r = await runExtract(["--out", out]);
+    expect(r.code).to.equal(4);
+    expect(r.lines.err.join("\n")).to.match(/not created by this command|marker/);
+    expect(readFileSync(join(out, "src", "my-only-copy.abap"), "utf8")).to.equal("REPORT zmine.\n");
+    expect(readFileSync(join(out, ".abapgit.xml"), "utf8")).to.equal("<mine/>\n");
+  });
+
+  it("M-5b: a run marks .osd-hana/ as ours and lists what it wrote, with hashes (mutation: the marker not written)", async function () {
+    const out = await fresh("m5b");
+    await runExtract(["--out", out]);
+    const marker = JSON.parse(readFileSync(join(out, ".osd-hana", "marker.json"), "utf8"));
+    expect(marker.tool).to.match(/extract/);
+    const listed = new Map(marker.files.map((f) => [f.path, f.sha256]));
+    expect(listed.has(".abapgit.xml")).to.equal(true);
+    expect(listed.has(".gitignore")).to.equal(true);
+    const sha = (p) => createHash("sha256").update(readFileSync(join(out, p))).digest("hex");
+    for (const [p, h] of listed) expect(h, p).to.equal(sha(p));
+    expect(listed.has("src/osd_x/zcl_osd_x1.clas.abap")).to.equal(true);
+  });
+
+  it("M-5c: on restart only marker-listed unchanged files are replaced; a file the user changed is kept and reported (mutation: the hash check removed)", async function () {
+    const out = await fresh("m5c");
+    await runExtract(["--out", out]);
+    const userCopy = "REPORT zmine_edited.\n* my local fix, do not lose\n";
+    writeFileSync(join(out, "src/osd_x/zosd_x3.prog.abap"), userCopy);
+    const r2 = await runExtract(["--out", out]);
+    expect(r2.code).to.equal(3);
+    // the user's file is still there, byte for byte
+    expect(readFileSync(join(out, "src/osd_x/zosd_x3.prog.abap"), "utf8")).to.equal(userCopy);
+    const rep = reportOf(out);
+    const prog = rep.objects.find((o) => o.name === "ZOSD_X3");
+    expect(prog.status).to.equal("skipped");
+    expect(prog.reason).to.match(/kept/).and.to.match(/zosd_x3\.prog\.abap/);
+    expect(rep.kept).to.be.an("array");
+    expect(rep.kept.map((k) => k.path)).to.include("src/osd_x/zosd_x3.prog.abap");
+    const md = readOutReport(out);
+    expect(md).to.match(/kept/);
+    // everything else was refreshed normally
+    expect(rep.objects.find((o) => o.name === "ZCL_OSD_X1").status).to.equal("written-partial");
+  });
+
+  it("SHOULD-2: --sidecar-pin is a foreign pin -- refused without the flag, unpinned with it (mutation: the foreign pin is trusted)", async function () {
+    const out = await fresh("s2pin");
+    const r1 = await runExtract(["--out", out, "--sidecar-pin", pinPath], {pinFile: null});
+    expect(r1.code).to.equal(1);
+    expect(r1.lines.err.join("\n")).to.match(/not the module's own pin/).and.to.match(/--allow-unpinned-sidecar/);
+    const out2 = await fresh("s2pin2");
+    const r2 = await runExtract(["--out", out2, "--sidecar-pin", pinPath, "--allow-unpinned-sidecar"], {pinFile: null});
+    expect(r2.code).to.equal(3);
+    expect(reportOf(out2).sidecar.pinned).to.equal(false);
+  });
+
+  it("SHOULD-4: two objects planning the same repo path refuse each other, never last-writer-wins (mutation: the path-collision check removed)", async function () {
+    const fx = variant((list, dump) => {
+      // /NS/COLLX and #NS#COLLX are different ids but the SAME file name
+      for (const name of ["/NS/COLLX", "#NS#COLLX"]) {
+        writeTable(dump, "DD02L", tableRows(dump, "DD02L").concat([{TABNAME: name, AS4LOCAL: "A", TABCLASS: "TRANSP", DDTEXT: "collide"}]));
+        writeTable(dump, "DD02T", tableRows(dump, "DD02T").concat([{TABNAME: name, AS4LOCAL: "A", DDLANGUAGE: "E", DDTEXT: "collide"}]));
+        writeTable(dump, "DD03L", tableRows(dump, "DD03L").concat([{TABNAME: name, AS4LOCAL: "A", FIELDNAME: "MANDT", POSITION: "0001", KEYFLAG: "X", ROLLNAME: "MANDT", COMPTYPE: "E", ADMINFIELD: "0", DEPTH: "00"}]));
+        writeTable(dump, "TADIR", tableRows(dump, "TADIR").concat([tadirRow("TABL", name, "$OSD_X")]));
+        for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).concat([row({type: "TABL", name, package: "$OSD_X"})]));
+      }
+    });
+    const out = await fresh("s4c");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const a = rep.objects.find((o) => o.name === "/NS/COLLX");
+    const b = rep.objects.find((o) => o.name === "#NS#COLLX");
+    expect(a.status).to.equal("skipped");
+    expect(b.status).to.equal("skipped");
+    expect(a.reason).to.match(/output path collision/);
+    expect(b.reason).to.match(/output path collision/);
+    expect(rep.totals.written + rep.totals.writtenPartial + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
+  });
+
+  it("SHOULD-5: an exact duplicate listing row is de-duplicated, not mourned as a case collision (mutation: the dedupe removed)", async function () {
+    const fx = variant((list) => {
+      const rows = objectsRows(list);
+      writeObjects(list, [...rows, rows.find((o) => o.name === "ZIF_OSD_X2")]);
+    });
+    const out = await fresh("s5");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    expect(rep.totals.inScope).to.equal(14);
+    expect(rep.objects.filter((o) => /differs from another in-scope object only by case/.test(o.reason ?? ""))).to.deep.equal([]);
+    expect(rep.objects.filter((o) => o.name === "ZIF_OSD_X2").length).to.equal(1);
+    expect(rep.ledger_error).to.equal(undefined);
+  });
+
+  it("SHOULD-6: control characters in names never reach the terminal or the report raw (mutation: the sanitizer removed)", async function () {
+    const fx = variant((list, dump) => {
+      writeObjects(list, objectsRows(list).map((o) => o.type === "SICF" ? {...o, package: "$OSD_X\u001b[2K\u001b[1A\rplan: 0 objects in scope"} : o));
+      writeObjects(dump, objectsRows(dump).map((o) => o.type === "SICF" ? {...o, package: "$OSD_X\u001b[2K\u001b[1A\rplan: 0 objects in scope"} : o));
+    });
+    const out = await fresh("s6");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    expect(r.lines.out.some((l) => l.includes("\u001b")), "stdout plan clean").to.equal(false);
+    const md = readOutReport(out);
+    expect(md.includes("\u001b")).to.equal(false);
+    expect(md).to.match(/x1b/); // the name is still there, escaped, findable
+  });
+
+  it("SHOULD-7: a user include carrying the generated-marker comment is not written and gets its line (mutation: the silent skip restored)", async function () {
+    const fx = variant((list, dump) => {
+      writeFileSync(join(dump, "src", "LZOSG_X4F01.abap"), "* copied header: generated by the function library\nFORM my_real_code.\nENDFORM.\n");
+      writeReposrc(dump, reposrcRows(dump).concat([{program: "LZOSG_X4F01", state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 3, sha256: "1".repeat(64), file: "src/LZOSG_X4F01.abap"}]));
+    });
+    const out = await fresh("s7");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const fugr = rep.objects.find((o) => o.name === "ZOSG_X4");
+    const part = fugr.parts.find((p) => /F01/i.test(p.part));
+    expect(part, "the include gets its line").to.exist;
+    expect(part.disposition).to.equal("not written");
+    expect(part.reason).to.match(/generated/i);
+    expect(existsSync(join(out, "src/osd_x/zosg_x4.fugr.lzosg_x4f01.abap"))).to.equal(false);
+  });
+
+  it("SHOULD-1: TABL foreign keys, indexes, search-help assignments and component texts are part lines; the object is written-partial (mutation: the TABL claims stay silent)", async function () {
+    const out = await fresh("sh1");
+    const r = await runExtract(["--out", out]);
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const tabl = rep.objects.find((o) => o.name === "ZTAB_X5");
+    expect(tabl.status).to.equal("written-partial");
+    // the dump CARRIES the foreign keys (DD05S/DD08L): "not extracted"
+    const fks = tabl.parts.find((p) => /foreign key/i.test(p.part));
+    expect(fks.disposition).to.equal("not extracted");
+    expect(fks.reason).to.match(/DD05S|DD08L/);
+    // the dump carries no index tables: "not checked"
+    const idx = tabl.parts.find((p) => /index/i.test(p.part));
+    expect(idx.disposition).to.equal("not checked");
+    expect(tabl.parts.some((p) => /search-help/i.test(p.part))).to.equal(true);
+    expect(tabl.parts.some((p) => /component text/i.test(p.part))).to.equal(true);
+    const namespaced = rep.objects.find((o) => o.name === "/NS/ZTAB_Y1");
+    expect(namespaced.status).to.equal("written-partial");
+  });
+
+  it("SHOULD-1: CLAS and INTF component texts are 'not checked'; other-language class texts are 'not extracted' (mutation: the CLAS claims stay silent)", async function () {
+    const fx = variant((list, dump) => {
+      writeTable(dump, "SEOCLASSTX", tableRows(dump, "SEOCLASSTX").concat([{CLSNAME: "ZCL_OSD_X1", LANGU: "D", DESCRIPT: "Synthetische Klasse"}]));
+    });
+    const out = await fresh("sh1c");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const clas = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
+    expect(clas.status).to.equal("written-partial");
+    expect(clas.parts.some((p) => p.disposition === "not checked" && /component text/i.test(p.reason))).to.equal(true);
+    expect(clas.parts.some((p) => p.disposition === "not extracted" && /language D/.test(p.reason))).to.equal(true);
+    const intf = rep.objects.find((o) => o.name === "ZIF_OSD_X2");
+    expect(intf.status).to.equal("written-partial");
+  });
+
+  it("NOTE-3: a working tree whose .git is a symlink is still a git tree (mutation: lstat only)", async function () {
+    const s = variant();
+    const real = await fresh("n3-realgit");
+    execFileSync("git", ["init", "-q", real]);
+    const wt = await fresh("n3-wt");
+    symlinkSync(join(real, ".git"), join(wt, ".git"));
+    const r = await runExtract(["--out", join(wt, "x"), "--include-sap", "--name", "Z%"], {list: s.list, dump: s.dump});
+    expect(r.code).to.equal(4);
+    expect(r.lines.err.join("\n")).to.match(/vendor content must not be published/);
+  });
+
+  it("NOTE-5: a symlink inside the dump is not followed out of the dump directory (mutation: the containment check removed)", async function () {
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).filter((o) => o.name === "ZCL_OSD_X1"));
+      symlinkSync("/etc/hostname", join(dump, "src", "ZCL_OSD_X1=====CCAU.abap"));
+      writeReposrc(dump, reposrcRows(dump).concat([{program: pad("ZCL_OSD_X1") + "CCAU", state: "A", file: "src/ZCL_OSD_X1=====CCAU.abap"}]));
+    });
+    const out = await fresh("n5");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const e = reportOf(out).objects.find((o) => o.name === "ZCL_OSD_X1");
+    expect(e.status).to.equal("written-partial");
+    const part = e.parts.find((p) => /CCAU/.test(p.part));
+    expect(part, "the symlinked include is a part line").to.exist;
+    expect(part.disposition).to.equal("not written");
+    expect(part.reason).to.match(/dump directory/);
+    expect(readOutReport(out)).to.not.match(/hostname/);
   });
 });

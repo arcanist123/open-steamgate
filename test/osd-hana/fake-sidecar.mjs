@@ -28,7 +28,7 @@
 //                           credentials arrived through the environment to
 //                           (the password value itself is NEVER written --
 //                           only the fact it was there)
-import {appendFileSync, writeSync} from "node:fs";
+import {appendFileSync, readFileSync, writeSync} from "node:fs";
 
 const [, , ...args] = process.argv;
 const scenario = process.env.FAKE_SIDECAR_PROBE ?? "owner-tenant";
@@ -40,14 +40,24 @@ function record(entry) {
 }
 
 // The credentials arrived through the environment only; the record proves the
-// fact, never the value.
-record({
-  argv: args,
-  env: {
-    hadUser: typeof process.env.OSD_HANA_USER === "string" && process.env.OSD_HANA_USER !== "",
-    hadPassword: typeof process.env.OSD_HANA_PASSWORD === "string" && process.env.OSD_HANA_PASSWORD !== "",
-  },
-});
+// fact, never the value. For list/dump the request echo goes into the record
+// too (no credentials in a request -- the tests assert what was fetched).
+{
+  let recordedRequest;
+  const ri = args.indexOf("--request");
+  const rp = ri === -1 ? undefined : args[ri + 1];
+  if (rp !== undefined && rp !== "-") {
+    try { recordedRequest = JSON.parse(readFileSync(rp, "utf8")); } catch { /* unreadable */ }
+  }
+  record({
+    argv: args,
+    request: recordedRequest,
+    env: {
+      hadUser: typeof process.env.OSD_HANA_USER === "string" && process.env.OSD_HANA_USER !== "",
+      hadPassword: typeof process.env.OSD_HANA_PASSWORD === "string" && process.env.OSD_HANA_PASSWORD !== "",
+    },
+  });
+}
 
 if (args[0] === "--version") {
   const base = {
@@ -80,7 +90,7 @@ if (args[0] === "--version") {
 //                       tables/, src/, counts.json, summary.json)
 //   FAKE_SIDECAR_EXIT   override the exit code (0 default)
 if (args[0] === "list" || args[0] === "dump") {
-  const {cpSync: copySync, writeFileSync, readFileSync, existsSync} = await import("node:fs");
+  const {cpSync: copySync, writeFileSync, readFileSync, appendFileSync, existsSync} = await import("node:fs");
   const {join} = await import("node:path");
   const flag = (name) => {
     const i = args.indexOf(name);
@@ -93,14 +103,33 @@ if (args[0] === "list" || args[0] === "dump") {
   const fixtureDir = process.env[args[0] === "list" ? "FAKE_SIDECAR_LIST" : "FAKE_SIDECAR_DUMP"];
   if (fixtureDir !== undefined && outDir !== undefined) {
     copySync(fixtureDir, outDir, {recursive: true});
+    // a dump honours its request the way the real sidecar does: `names` are
+    // LIKE patterns with `\` as the escape character, so extract's
+    // exact-name patterns ("ZOSD\_X3") match exactly that name; rows the
+    // request does not name are not dumped. FAKE_SIDECAR_DUMP_APPEND adds
+    // rows AFTER the filter (a sidecar that over-delivers -- the M-2 audit).
+    if (args[0] === "dump" && Array.isArray(request?.names)) {
+      const wanted = new Set(request.names.map((n) => n.replace(/\\(.)/g, "$1")));
+      const objectsPath = join(outDir, "objects.jsonl");
+      const rows = readFileSync(objectsPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+      // the real sidecar keeps excluded/closure rows in objects.jsonl as
+      // skipped entries; only SOURCE rows the request does not name drop out
+      writeFileSync(objectsPath, rows.filter((r) => wanted.has(r.name) || r.status === "S" || r.status === "skipped").map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
+      const appendPath = process.env.FAKE_SIDECAR_DUMP_APPEND;
+      if (appendPath !== undefined && existsSync(appendPath)) {
+        appendFileSync(objectsPath, readFileSync(appendPath, "utf8"));
+      }
+    }
     // the manifest's sidecar block echoes the request of this run -- a dump
     // is only reusable when it matches (extract.mjs reusableDump)
     const manifestPath = join(outDir, "manifest.json");
     let manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
     const counts = existsSync(join(outDir, "counts.json")) ? JSON.parse(readFileSync(join(outDir, "counts.json"), "utf8")) : {written: 0, skipped: 0, skipped_excluded: 0, skipped_unsupported: 0};
+    const errorPatch = process.env.FAKE_SIDECAR_ERRORS;
+    const errors = errorPatch !== undefined ? JSON.parse(errorPatch) : [];
     manifest.sidecar = {
       name: "osd-hana-dump", version: "v9.9.9-test", commit: "a".repeat(40),
-      request, counts, objects_report: "objects.jsonl", errors: [],
+      request, counts, objects_report: "objects.jsonl", errors,
     };
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 1)}\n`);
   }

@@ -200,6 +200,14 @@ jsonl(T, "DD27S.jsonl", [
 jsonl(T, "DD28S.jsonl", []);
 jsonl(T, "DD31S.jsonl", []);
 jsonl(T, "DD33S.jsonl", []);
+// foreign keys ARE in the dump shape (DD05S/DD08L); the converter does not
+// write them -- the TABL part lines name them as "not extracted" (fix round 2)
+jsonl(T, "DD05S.jsonl", [
+  {TABNAME: "ZTAB_X5", AS4LOCAL: "A", FIELDNAME: "TRAVEL_ID", CHECKTABLE: "ZTAB_X5", FRKART: "KEY", NOBYTES: "", SEMKEY: ""},
+]);
+jsonl(T, "DD08L.jsonl", [
+  {TABNAME: "ZTAB_X5", AS4LOCAL: "A", CHECKTABLE: "ZTAB_X5", FRKART: "KEY", ARBGB: ""},
+]);
 
   return {list: L, dump: D};
 }
