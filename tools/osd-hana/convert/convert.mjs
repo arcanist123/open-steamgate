@@ -85,6 +85,12 @@ export function decideFolderLogic(packages, parents) {
   return "PREFIX";
 }
 
+// Returns {paths, collisions}: paths is the package -> folder map, collisions
+// the packages that fold to a folder another package already took (abapGit's
+// \$ rule strips a leading \$, so \$ZPK and ZPK BOTH fold to zpk/ -- abapGit
+// cannot hold both in one repository). SHOULD-3 (critic round 2): the caller
+// refuses the affected objects in the ledger; this function never throws, so
+// one colliding pair cannot abort the whole run.
 export function folderPaths(packages, parents, logic) {
   const paths = new Map();
   const busy = new Set(); // a TDEVC parent cycle must not recurse forever
@@ -108,10 +114,17 @@ export function folderPaths(packages, parents, logic) {
     return base;
   };
   for (const p of packages) pathOf(p);
-  if (new Set(paths.values()).size !== paths.size) {
-    throw new Error(`Folder name collision under ${logic} logic: ${[...paths.entries()].map(([k, v]) => `${k} -> ${v}`).join(", ")}`);
+  const taken = new Map(); // folder -> first package
+  const collisions = new Set();
+  for (const [p, folder] of [...paths.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    if (taken.has(folder)) {
+      collisions.add(p);
+      collisions.add(taken.get(folder));
+    } else {
+      taken.set(folder, p);
+    }
   }
-  return paths;
+  return {paths, collisions};
 }
 
 // ---- conversion ------------------------------------------------------------
@@ -192,7 +205,16 @@ export async function convert({
   for (const r of await table("TDEVC")) parents.set(key(r.DEVCLASS), key(r.PARENTCL));
   const packages = new Set([...claimed.values()].map((o) => o.pkg));
   const logic = decideFolderLogic(packages, parents);
-  const folders = folderPaths(packages, parents, logic);
+  const {paths: folders, collisions} = folderPaths(packages, parents, logic);
+  // deterministic: the first package in sort order keeps the folder, the
+  // others' objects are refused per object (never an abort, never mixing)
+  const losingPackages = new Set([...collisions].sort().slice(1));
+  const winningFolder = (pkg) => {
+    for (const [p, folder] of [...folders.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (p !== pkg && folder === folders.get(pkg)) return p;
+    }
+    return "another package";
+  };
   const folderOf = (pkg) => folders.get(pkg) ?? `${fullFolderName(pkg)}/`;
   // the repository's master language follows the dump (N4: a hard-coded E is
   // silently wrong on a non-English system): the dominant TADIR MASTERLANG
@@ -550,6 +572,13 @@ export async function convert({
   const ddicTypes = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW"];
   for (const [upperId, o] of [...claimed.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const e = o.entry = claims.get(upperId);
+    // SHOULD-3: this package lost the folder to another -- per-object
+    // refusal in the ledger, the run continues.
+    if (losingPackages.has(o.pkg)) {
+      e.status = "skipped";
+      e.reason = `folder collision: ${o.pkg} and ${winningFolder(o.pkg)} both fold to the folder src/${folderOf(o.pkg)} -- abapGit cannot hold both in one repository; this object is not written`;
+      continue;
+    }
     // A type this converter cannot write is NEVER dropped silently.
     if (!SUPPORTED_TYPES.has(o.type)) {
       e.status = "unsupported";

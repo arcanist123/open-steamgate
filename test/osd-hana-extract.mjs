@@ -403,7 +403,10 @@ describe("osd hana extract", function () {
     // leading $ -- so $ZPK and ZPK fold to the SAME folder zpk/. That is a
     // collision abapGit cannot hold in one repository; it comes back as a
     // per-package refusal, never an abort (fix round 2, SHOULD-3).
-    expect(full.paths.get("$ZPK")).to.equal("zpk/");
+    const zpk = folderPaths(new Set(["$ZPK", "ZPK"]), new Map([["ZPK", ""], ["$ZPK", ""]]), "FULL");
+    expect(zpk.paths.get("$ZPK")).to.equal("zpk/");
+    expect(zpk.paths.get("ZPK")).to.equal("zpk/");
+    expect([...zpk.collisions].sort()).to.deep.equal(["$ZPK", "ZPK"]);
     const coll = folderPaths(new Set(["TMP", "$TMP"]), new Map(), "FULL");
     expect(coll.paths.get("$TMP")).to.equal("tmp/");
     expect([...coll.collisions].sort()).to.deep.equal(["TMP", "$TMP"]);
