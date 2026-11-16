@@ -241,6 +241,31 @@ export function describe258OnCreate() {
   ].join("\n");
 }
 
+export function describe412OnCreate() {
+  return [
+    `osd hana: the database's password policy rejected the generated password (HANA error 412, password policy violation).`,
+    `  The generated password is 28 characters over letters and digits with upper + lower + digit; some systems' policies`,
+    `  demand e.g. a special character. This run created nothing and removed nothing.`,
+    `  Ask the database administrator to relax the policy for the OSD_ users, or create the reader by hand.`,
+  ].join("\n");
+}
+
+// The name is taken (critic M-B): a user with this name already exists --
+// ours from an earlier run (maybe in use by a running extract) or somebody
+// else's. Neither is CREATEd over, neither is dropped by the create path;
+// the message points at the two honest ways on.
+export function describeNameTaken(readerName) {
+  return [
+    `osd hana: the name ${readerName} is taken -- a user with that name already exists on this database.`,
+    `  This tool will not create over it, and it will not drop it: the user is not this run's.`,
+    `  If it is a reader this tool created earlier, remove it explicitly (that path drops only a reader it can prove is its own):`,
+    `    osd hana doctor --drop-reader --reader-name ${readerName}`,
+    `  If it is somebody else's, pick a different name (must match ^OSD_[A-Z0-9_]{1,26}$):`,
+    `    --reader-name ${readerName}_2`,
+    `  Nothing was sent that changes any user.`,
+  ].join("\n");
+}
+
 export function describe258OnGrant(schema, owner) {
   return [
     `osd hana: this login may not grant the schema (HANA error 258, insufficient privilege).`,
@@ -281,8 +306,38 @@ export async function createReader({
 
 async function runCreatePlan({adminClient, connection, readerName, schema, password, store, clientFactory, say}) {
   try {
+    // 0. Existence guard (critic M-B): a user that already exists -- ours
+    // from an earlier run and maybe in use by a running extract, or somebody
+    // else's -- is never CREATEd over and never dropped: the create path may
+    // drop ONLY a user its own CREATE USER created in this very run.
+    let existing;
+    try {
+      existing = await countUsersNamed(adminClient, readerName);
+    } catch (error) {
+      throw new ReaderError(`osd hana: could not check whether ${readerName} already exists -- ${sqlErrorText(error)}\n` +
+        `  Refusing to run CREATE USER without that check: the tool may not create over a user it did not verify, ` +
+        `and it never removes a user this run did not create.`);
+    }
+    if (existing !== 0) {
+      throw new ReaderError(describeNameTaken(readerName));
+    }
+
     // 1. CREATE USER ... -- the one statement with the password on the wire.
-    await adminClient.exec(`CREATE USER ${readerName} PASSWORD ${quotePasswordLiteral(password)} NO FORCE_FIRST_PASSWORD_CHANGE`);
+    try {
+      await adminClient.exec(`CREATE USER ${readerName} PASSWORD ${quotePasswordLiteral(password)} NO FORCE_FIRST_PASSWORD_CHANGE`);
+    } catch (error) {
+      // The CREATE itself failed -- 258 (no USER ADMIN), 331 (the name
+      // existed after all: the guard raced), 412 (password policy), a
+      // network error, anything: this run created nothing, so it may drop
+      // NOTHING. Only failures AFTER a successful CREATE may drop (below).
+      const code = errorCode(error);
+      if (code === 258) throw new ReaderError(describe258OnCreate());
+      if (code === 331) throw new ReaderError(describeNameTaken(readerName));
+      if (code === 412) throw new ReaderError(describe412OnCreate());
+      throw new ReaderError(`osd hana: setting up the reader failed -- ${sqlErrorText(error)}\n` +
+        `  The CREATE USER itself failed: this run created nothing and removed nothing -- a user that may ` +
+        `exist under this name is not this run's to touch.`);
+    }
 
     // From here on any failure drops the user again.
     try {
@@ -338,22 +393,6 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
           : `${cleanupDropFailedText(cleanup)} Remove it by hand: DROP USER ${readerName} CASCADE.`;
       throw new ReaderError(`osd hana: setting up the reader failed -- ${causedBy}\n  ${note}`);
     }
-  } catch (error) {
-    if (error instanceof ReaderError) throw error;
-    if (errorCode(error) === 258) {
-      throw new ReaderError(describe258OnCreate());
-    }
-    // The CREATE itself failed -- usually no user exists. Prove it anyway
-    // (E1: a leftover reader is dropped before every cycle), and when the
-    // drop answers 332, that is "user absent", never the cause.
-    const cleanup = await dropUserQuietly(adminClient, readerName);
-    const cause = sqlErrorText(error);
-    const note = cleanup.dropped
-      ? `A reader ${readerName} existed anyway; it was dropped now.`
-      : cleanup.absent
-        ? `The reader ${readerName} is absent (HANA said 332, invalid user name -- that is "user absent", not the cause).`
-        : cleanupDropFailedText(cleanup);
-    throw new ReaderError(`osd hana: setting up the reader failed -- ${cause}\n  ${note}`);
   } finally {
     await adminClient.disconnect();
   }

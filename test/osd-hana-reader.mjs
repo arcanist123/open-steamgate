@@ -175,14 +175,16 @@ describe("tools/osd-hana: the dedicated reader", function () {
       store: secretStore, clientFactory: factory, say: (text) => said.push(text),
     });
     const statements = log.statements.map((s) => s.sql);
-    // exact shapes, in order (E1: user unquoted, schema quoted as identifier)
-    expect(statements[0]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
-    expect(statements[1]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
-    expect(statements[2]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
+    // exact shapes, in order (E1: user unquoted, schema quoted as identifier);
+    // the existence-guard SELECT comes first (critic M-B)
+    expect(statements[0]).to.equal("SELECT COUNT(*) AS N FROM SYS.USERS WHERE USER_NAME = ?");
+    expect(statements[1]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
+    expect(statements[2]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
+    expect(statements[3]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
     expect(statements.some((s) => s.includes(`FROM "${SCHEMA}"."TADIR"`))).to.equal(true);
     // the password is recoverable only from the one statement that carries it
     // and from the store -- never from the return value (critic M-A)
-    const password = /PASSWORD "([^"]+)"/.exec(statements[0])[1];
+    const password = /PASSWORD "([^"]+)"/.exec(statements[1])[1];
     expect(result.password).to.equal(undefined);
     expect(result.user).to.equal(DEFAULT_READER_NAME);
     expect(result.schema).to.equal(SCHEMA);
@@ -258,6 +260,88 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(schemas.sql).to.not.include(SCHEMA);
   });
 
+  it("M-B: a user that already exists is never CREATEd over and never dropped -- the name-taken message points at --reader-name and --drop-reader (mutation: send CREATE/DROP anyway -> red)", async function () {
+    // the catalogue says OSD_READER already exists: somebody else's reader,
+    // or ours and in use by a running extract -- the create path must refuse
+    // WITHOUT sending CREATE (over somebody's user) and WITHOUT any DROP
+    const {log, factory} = fakeClientFactory([
+      {match: /FROM SYS\.USERS/, rows: [{N: 1}]},
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("taken");
+        expect(error.message).to.include("--reader-name");
+        expect(error.message).to.include("--drop-reader");
+        expect(error.message).to.not.include("dropped");
+      });
+    expect(log.statements.some((s) => s.sql.startsWith("CREATE USER"))).to.equal(false);
+    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
+  });
+
+  it("M-B: a failed CREATE USER sends NO DROP for any failure of the CREATE itself -- 331, 412, anything (mutation: drop on CREATE failure -> red)", async function () {
+    // 331 = the name existed after all (the pre-create check raced): still
+    // nobody this run created, so still no DROP
+    const cases = [
+      {error: 331, message: "user name already exists: OSD_READER", expect: ["taken"]},
+      {error: 412, message: "password policy violation", expect: ["412", "password policy"]},
+      {error: 421, message: "the create failed", expect: ["created nothing"]},
+    ];
+    for (const {error, message, expect: expected} of cases) {
+      const {log, factory} = fakeClientFactory([
+        {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
+        {match: /CREATE USER/, error, message},
+        {match: /DROP USER/, rows: []},
+      ]);
+      await createReader({
+        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+      }).then(
+        () => expect.fail("should refuse"),
+        (caught) => {
+          expect(caught).to.be.an.instanceof(ReaderError);
+          expect(caught.message).to.not.include("dropped");
+          for (const part of expected) expect(caught.message).to.include(part);
+        });
+      expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false, `error ${error} must not drop`);
+    }
+  });
+
+  it("M-B: 331 gets the name-taken message; 412 gets the password-policy message (the generator's alphabet never satisfies a special-character policy)", async function () {
+    const {factory} = fakeClientFactory([
+      {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
+      {match: /CREATE USER/, error: 331, message: "user name already exists"},
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error.message).to.include("taken");
+        expect(error.message).to.include("--reader-name");
+        expect(error.message).to.include("--drop-reader");
+      });
+    const {factory: f2} = fakeClientFactory([
+      {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
+      {match: /CREATE USER/, error: 412, message: "password policy violation"},
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: f2,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error.message).to.include("412");
+        expect(error.message).to.include("password policy");
+        expect(error.message).to.not.include(PASSWORD);
+      });
+  });
+
   it("explains 258 on CREATE USER and sends no DROP (nothing was created)", async function () {
     const {log, factory} = fakeClientFactory([
       {match: /CREATE USER/, error: 258, message: "insufficient privilege"},
@@ -316,7 +400,10 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(log.statements.some((s) => s.sql.startsWith("DROP USER OSD_READER CASCADE"))).to.equal(true);
   });
 
-  it("treats a 332 after a failed create as 'user absent', never as the cause", async function () {
+  it("a failed CREATE USER drops nothing and says the reader was not touched -- 'user absent' belongs to the cleanup of failures AFTER a successful create (mutation: drop on CREATE failure -> red)", async function () {
+    // the old behaviour ran DROP USER after ANY CREATE failure (and read a
+    // 332 from it as "user absent"): M-B forbids the DROP outright -- this
+    // run created no user, so it may remove none
     const {log, factory} = fakeClientFactory([
       {match: /CREATE USER/, error: 421, message: "the create failed"},
       {match: /DROP USER/, error: 332, message: "invalid user name"},
@@ -328,9 +415,10 @@ describe("tools/osd-hana: the dedicated reader", function () {
       () => expect.fail("should refuse"),
       (error) => {
         expect(error.message).to.include("the create failed");
-        expect(error.message).to.include("user absent");
+        expect(error.message).to.include("created nothing");
+        expect(error.message).to.not.include("dropped");
       });
-    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(true);
+    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
   });
 
   it("enforces the secret file modes: dir 0700, file 0600, fchmod even when they existed (mutation: drop fchmod -> red)", function () {
