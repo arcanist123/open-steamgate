@@ -364,9 +364,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
   // the seed (milestone 4): the walk's first dump decides the services and
   // the framework namespaces (tools/hana-closure-seed.mjs, -framework.mjs)
   state.seed ??= state.layers?.[0]?.dump ?? state.dump;
-  const fwNamespaces = frameworkNamespaces(root, seedNamespaces(resolve(root, state.seed)));
+  const framework = frameworkNamespaces(root, seedNamespaces(resolve(root, state.seed)));
+  const fwNamespaces = framework.namespaces;
   const isFramework = frameworkPredicate(fwNamespaces);
-  if (fwNamespaces.length > 0) say(`framework namespaces (the libraries', minus the seed's): ${fwNamespaces.join(", ")}`);
+  say(`framework namespaces (the libraries', minus the seed's): ${fwNamespaces.join(", ") || "none"}${framework.asked.length > 0 ? `; asked, too thin in the libraries: ${framework.asked.map((a) => a.namespace).join(", ")}` : ""}${framework.unavailable !== undefined ? `; UNAVAILABLE (${framework.unavailable}) -- every name is asked` : ""}`);
   saveState(out, state);
   const requestPath = join(out, "closure-request.json");
 
@@ -433,11 +434,11 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const {refused, intake} = mergeInputs(root, dump, layersDirs, env, say, fill, fwNamespaces);
     // what the merge refused to deliver (milestone 4): a kernel splice is a
     // refusal gap of its object; a framework-namespace object a framework gap
-    for (const r of intake.filter((x) => x.reason.startsWith("kernel ") === true)) {
-      const reason = r.reason.split(":")[0];
-      state.refused[r.object] = {kind: r.file.split(".")[1].toUpperCase(), reason, first_finding: `${reason}, ${r.file}${r.line !== undefined ? `:${r.line}` : ""}`};
+    for (const r of intake.filter((x) => x.reason.startsWith("framework namespace") === false)) {
+      const reason = r.reason.split(/[:(]/)[0].trim();
+      state.refused[r.object] = {kind: r.file.split(".")[1].toUpperCase(), reason, intake: true, first_finding: `${reason}, ${r.file}${r.line !== undefined ? `:${r.line}` : ""}`};
     }
-    const fwRefused = intake.filter((x) => x.reason.startsWith("kernel ") === false);
+    const fwRefused = intake.filter((x) => x.reason.startsWith("framework namespace") === true);
     await registerSeed({root, dump: resolve(root, state.seed), say, quiet: state.iteration > 1});
     // the merge refusals join the state's (the gap stands while the object
     // is in no build) and leave when a dump the merge handled carries the
@@ -849,7 +850,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const gapOf = (name, kind, a) => {
       gapNames.add(name);
       // a kernel splice refused at the merge (milestone 4) says so on its gap
-      const splice = state.refused[name]?.reason?.startsWith("kernel ") === true ? state.refused[name] : undefined;
+      const splice = state.refused[name]?.intake === true ? state.refused[name] : undefined;
       const reason = splice?.reason ?? state.missing[name]?.reason;
       return {
         name,
@@ -906,8 +907,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
       writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
         present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps, ...modules.gaps], requireUnstubbed, load, services: serviceClasses(root), // #960: every service's classes, not only the seeds
         searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
-      function_modules: modules.summary, framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {}),
-      refused: Object.entries(state.refused).filter(([, r]) => r.reason?.startsWith("kernel ") === true).map(([name, r]) => ({name, ...r}))});
+      function_modules: modules.summary, framework_names: frameworkByName, framework_namespaces: fwNamespaces,
+      ...(framework.asked.length > 0 ? {namespaces_asked: framework.asked} : {}),
+      ...(framework.unavailable !== undefined ? {framework_namespaces_unavailable: framework.unavailable} : {}), ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {}),
+      refused: Object.entries(state.refused).filter(([, r]) => r.intake === true).map(([name, r]) => ({name, ...r}))});
       return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps, ...modules.gaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }

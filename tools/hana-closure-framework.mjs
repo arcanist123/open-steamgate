@@ -28,29 +28,61 @@ import {join} from "node:path";
 import {libraryFiles} from "./osd-inputs.mjs";
 import {namespaceOf, objectOfLayerFile} from "./hana-closure-intake.mjs";
 
-/** the namespaces of the library files the build loads: `/NS/` per
- *  `#ns#...` file. */
+// how many objects of a namespace the libraries must implement before the
+// namespace counts as THEIRS (a framework namespace of ours). The libraries
+// carry no package or namespace objects (no .devc.xml / .nspc.xml) that
+// would name the namespaces they own, so the count is the evidence: the
+// Gateway contract library holds dozens of /IWBEP/ objects, while
+// open-abap-core holds a single JSON helper of the launchpad namespace --
+// a helper, not that namespace's contract. Below the threshold a name of the
+// namespace is ASKED like any other (the safe side: the tenant may have it),
+// and the summary lists the namespace under `namespaces_asked`.
+export const FRAMEWORK_MIN_OBJECTS = 5;
+
+/** the namespaces of the library files the build loads, with the number of
+ *  distinct objects each: {counts: Map(ns -> objects), error?}. A lookup
+ *  that fails is NOT silent: `error` carries the reason, and the closure's
+ *  summary says framework_namespaces_unavailable (every name is then
+ *  asked, which is safe). */
 export function libraryNamespaces(root) {
-  const out = new Set();
-  let libs = [];
+  const objects = new Map();
+  let libs;
   try {
-    libs = libraryFiles(root);
-  } catch {
-    libs = [];
+    libs = libraryFiles(root, undefined, {includeMissing: true});
+  } catch (error) {
+    return {counts: new Map(), error: String(error?.message ?? error)};
   }
+  // a configured library that yields no file (missing, unreadable: the
+  // listing swallows a read error) makes the namespace list incomplete --
+  // said, not hidden; its names are asked
+  const empty = libs.filter((lib) => (lib.files ?? []).length === 0).map((lib) => lib.folder);
   for (const lib of libs) {
     for (const file of lib.files ?? []) {
-      const ns = namespaceOf(objectOfLayerFile(String(file)));
-      if (ns !== undefined) out.add(ns);
+      const object = objectOfLayerFile(String(file));
+      const ns = namespaceOf(object);
+      if (ns === undefined) continue;
+      const set = objects.get(ns) ?? new Set();
+      set.add(object);
+      objects.set(ns, set);
     }
   }
-  return out;
+  return {counts: new Map([...objects].map(([ns, set]) => [ns, set.size])),
+    ...(empty.length > 0 ? {error: `no file read from the librar${empty.length === 1 ? "y" : "ies"} ${empty.join(", ")}`} : {})};
 }
 
-/** the framework namespaces of one closure: the libraries' minus the
- *  seed's (`seedNamespaces`, tools/hana-closure-seed.mjs). Sorted. */
+/** the framework namespaces of one closure: the libraries' that carry at
+ *  least FRAMEWORK_MIN_OBJECTS objects, minus the seed's
+ *  (`seedNamespaces`, tools/hana-closure-seed.mjs). Returns {namespaces,
+ *  asked: [{namespace, objects}] -- the thin ones, asked instead --,
+ *  unavailable?: reason}. */
 export function frameworkNamespaces(root, seedNamespaces = new Set()) {
-  return [...libraryNamespaces(root)].filter((ns) => seedNamespaces.has(ns) === false).sort();
+  const {counts, error} = libraryNamespaces(root);
+  const candidates = [...counts].filter(([ns]) => seedNamespaces.has(ns) === false).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return {
+    namespaces: candidates.filter(([, n]) => n >= FRAMEWORK_MIN_OBJECTS).map(([ns]) => ns),
+    asked: candidates.filter(([, n]) => n < FRAMEWORK_MIN_OBJECTS).map(([namespace, objects]) => ({namespace, objects})),
+    ...(error !== undefined ? {unavailable: error} : {}),
+  };
 }
 
 /** the predicate over a TADIR name. Pure. */

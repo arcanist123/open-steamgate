@@ -4,15 +4,16 @@
 // (test/helpers/hana-closure-fakes.mjs: the real hana-src-gen, a fake dumper
 // answering from a staged tenant folder). Synthetic names only.
 import {expect} from "chai";
-import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import * as abaplint from "@abaplint/core";
 import {Transpiler} from "@abaplint/transpiler";
 import {run} from "../tools/hana-closure.mjs";
 import {buildCheck} from "../tools/hana-closure-merge.mjs";
 import {cycleName} from "../tools/hana-src-gen.mjs";
-import {kernelSplices} from "../tools/hana-closure-intake.mjs";
-import {objectNameInFinding} from "../tools/hana-closure-framework.mjs";
+import {kernelRefusals, kernelSplices, refuseObjects} from "../tools/hana-closure-intake.mjs";
+import {build} from "../tools/osd-build.mjs";
+import {FRAMEWORK_MIN_OBJECTS, frameworkNamespaces, objectNameInFinding} from "../tools/hana-closure-framework.mjs";
 import {seedServices} from "../tools/hana-closure-seed.mjs";
 import {dumperRequests, outFile, readJson, scratchClosure} from "./helpers/hana-closure-fakes.mjs";
 
@@ -68,7 +69,9 @@ describe("hana-closure milestone 4: the closure on a second service", function (
   });
 
   it("2: names of a library namespace are framework gaps, never asked, never merged from a dump", async () => {
-    const lib = {"#zosdh5x#cl_provided.clas.abap": cls("/zosdh5x/cl_provided", ["CLASS-METHODS run."], {run: ["RETURN."]})};
+    // a library that carries the namespace: FRAMEWORK_MIN_OBJECTS objects of it
+    const lib = Object.fromEntries(["provided", "p2", "p3", "p4", "p5"].map((n) =>
+      [`#zosdh5x#cl_${n}.clas.abap`, cls(`/zosdh5x/cl_${n}`, ["CLASS-METHODS run."], {run: ["RETURN."]})]));
     const seed = cls("zcl_osd_h5x_seed", ["METHODS a.", "METHODS b.", "METHODS c.", "METHODS d."], {
       a: ["/zosdh5x/cl_absent=>run( )."],
       b: ["DATA lo_x TYPE REF TO /zosdh5x/if_absent.", "CLEAR lo_x."],
@@ -91,6 +94,27 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(readdirSync(join(root, "gen", "hana-src", layer, "src")), "refused at the merge").to.deep.equal(["zcl_osd_h5x_seed.clas.abap"]);
     const stubbed = readJson(outFile(root, "closure-stubs.json")).stubs.map((s) => s.method).sort();
     expect(stubbed).to.deep.equal(["A", "B", "C"]);
+  });
+
+  it("2: a namespace the libraries hold too few objects of is asked, and listed; a failed lookup says so", async () => {
+    expect(FRAMEWORK_MIN_OBJECTS).to.equal(5);
+    const lib = {"#zosdh5x#cl_provided.clas.abap": cls("/zosdh5x/cl_provided", ["CLASS-METHODS run."], {run: ["RETURN."]})};
+    const seed = cls("zcl_osd_h5x_seed", ["METHODS a."], {a: ["/zosdh5x/cl_absent=>run( )."]});
+    const {root, env, seedDump} = make({lib, seed: {"zcl_osd_h5x_seed.clas.abap": seed}});
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    expect(allRequested(root), "a thin namespace is asked").to.include("/ZOSDH5X/CL_ABSENT");
+    const summary = readJson(outFile(root, "closure-summary.json"));
+    expect(summary.namespaces_asked).to.deep.equal([{namespace: "/ZOSDH5X/", objects: 1}]);
+    expect(summary.framework_namespaces).to.deep.equal([]);
+    // a lookup that fails is loud: the library folder cannot be read
+    const broken = make({lib});
+    chmodSync(join(broken.root, "fwlib", "src"), 0o000);
+    try {
+      expect(frameworkNamespaces(broken.root).unavailable).to.equal("no file read from the library /fwlib");
+    } finally {
+      chmodSync(join(broken.root, "fwlib", "src"), 0o755);
+    }
   });
 
   it("3: the object-naming wordings a classifier leaves nameless carry their name", () => {
@@ -255,6 +279,46 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     const js = output.objects.map((o) => o.chunk?.raw ?? o.js?.contents ?? "").join("\n");
     expect(js).to.include("osdNotActivated", "the tree's own splice is honoured (the positive control)");
     expect(js).to.not.include("h5xSplice");
+  });
+
+  // the macro bypasses (#968 critic MUST 1): a macro builds the literal from
+  // its argument, so no text prefilter is a necessary condition, and a macro
+  // defined in another file of the object or in another delivered object
+  // expands only when they are parsed together
+  const MACRO = ["DEFINE w.", "  WRITE '@&1 PWNED'.", "END-OF-DEFINITION."];
+  const spliceTree = (files) => new Map([["000-h5x", new Map(Object.entries(files).map(([n, t]) => [`src/${n}`, {content: t}]))]]);
+  const refusedOf = (files) => refuseObjects(spliceTree(files), {read: (f) => f.content}).map((r) => [r.object, r.reason.split(" (")[0]]);
+  it("6: a macro that builds the splice is refused -- in the class, in its macros include, in another delivered include", () => {
+    expect(refusedOf({"zcl_osd_h5x_m.clas.abap": cls("zcl_osd_h5x_m", ["CLASS-METHODS run."], {run: [...MACRO, "w KERNEL."]})}))
+      .to.deep.equal([["ZCL_OSD_H5X_M", "kernel splice"]]);
+    expect(refusedOf({"zcl_osd_h5x_m.clas.abap": cls("zcl_osd_h5x_m", ["CLASS-METHODS run."], {run: ["w KERNEL."]}),
+      "zcl_osd_h5x_m.clas.macros.abap": MACRO.join("\n") + "\n"})).to.deep.equal([["ZCL_OSD_H5X_M", "kernel splice"]]);
+    const includeXml = `<?xml version="1.0" encoding="utf-8"?>\n<abapGit version="v1.0.0" serializer="LCL_OBJECT_PROG" serializer_version="v1.0.0">\n <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">\n  <asx:values>\n   <PROGDIR>\n    <NAME>ZOSD_H5X_INC</NAME>\n    <SUBC>I</SUBC>\n   </PROGDIR>\n  </asx:values>\n </asx:abap>\n</abapGit>\n`;
+    expect(refusedOf({"zosd_h5x_main.prog.abap": "REPORT zosd_h5x_main.\nINCLUDE zosd_h5x_inc.\nSTART-OF-SELECTION.\n  w KERNEL.\n",
+      "zosd_h5x_inc.prog.abap": MACRO.join("\n") + "\n", "zosd_h5x_inc.prog.xml": includeXml})).to.deep.equal([["ZOSD_H5X_MAIN", "kernel splice"]]);
+  });
+
+  it("6: a statement that may call a macro from outside the delivered set fails closed", () => {
+    expect(refusedOf({"zosd_h5x_main.prog.abap": "REPORT zosd_h5x_main.\nINCLUDE zosd_h5x_elsewhere.\nSTART-OF-SELECTION.\n  w KERNEL.\n"}))
+      .to.deep.equal([["ZOSD_H5X_MAIN", "macro not resolvable for the kernel check"]]);
+    // without an outside source the statement is a parse error, no macro:
+    // the build refuses it on its own, nothing to refuse here
+    expect(kernelRefusals([{name: "zosd_h5x_main.prog.abap", text: "REPORT zosd_h5x_main.\nSTART-OF-SELECTION.\n  w KERNEL.\n"}])).to.deep.equal([]);
+  });
+
+  it("6: a plain osd-build refuses a delivered layer carrying a macro-built splice before anything else", async () => {
+    const {root} = make({});
+    const dir = join(root, "gen", "hana-src", "000-h5x-old", "src");
+    mkdirSync(dir, {recursive: true});
+    writeFileSync(join(dir, "zcl_osd_h5x_old.clas.abap"), cls("zcl_osd_h5x_old", ["CLASS-METHODS run."], {run: [...MACRO, "w KERNEL."]}));
+    let error;
+    try {
+      await build({root});
+    } catch (e) {
+      error = e;
+    }
+    expect(String(error?.message)).to.include("refused: kernel splice in a delivered layer -- gen/hana-src/000-h5x-old/src/zcl_osd_h5x_old.clas.abap");
+    expect(existsSync(join(root, "output")), "the transpiler never ran").to.equal(false);
   });
 
   it("6: a delivered layer already on disk with a kernel splice fails the build closed", () => {

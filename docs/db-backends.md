@@ -1198,8 +1198,14 @@ runs the real `hana-src-gen`):
   --refuse-namespace` (`refused_from_dump: true` on the gap). The nameless
   wordings that name an object (`Class or type "X" not found`, `Could not
   resolve top X`) carry the name: a framework gap in a framework namespace,
-  an ordinary ask anywhere else. Note: a library carrying one class of a
-  namespace makes that namespace ours for every seed outside it.
+  an ordinary ask anywhere else. A namespace counts only when the libraries
+  carry at least `FRAMEWORK_MIN_OBJECTS` (5) objects of it -- the libraries
+  hold no package or namespace objects that would name what they own, so
+  the count is the evidence; open-abap-core's single launchpad-namespace JSON
+  helper does not make that namespace ours. A thinner namespace is asked and
+  listed in the summary's `namespaces_asked`; `framework_namespaces` lists
+  the ones that count, and a library the listing cannot read is said in
+  `framework_namespaces_unavailable` (its names are asked).
 - **Asked before stubbed** (the lazy-activation section below).
 - **Registration follows the seed** (`tools/hana-closure-seed.mjs`): the
   seed's services are the registration rows whose DPC (or whose model's MPC)
@@ -1225,12 +1231,19 @@ runs the real `hana-src-gen`):
   transpiler copies `WRITE '@KERNEL <js>'` verbatim into the generated
   module (its `write.js`: a WRITE whose Source starts with the exact
   quote-@KERNEL-space prefix). `hana-src-gen` refuses a delivered object
-  carrying one -- detected on abaplint's statement nodes, the transpiler's
-  own test -- and records it in the manifest's `refused`; the walk files it
-  as a gap with reason `kernel splice` and `file:line`, and the summary's
-  `refused`. The fixed point's positive control fails closed when a
-  delivered layer already on disk carries one. This tree's own `src/` and
-  the libraries are not scanned.
+  carrying one -- the transpiler's own test, on abaplint's MACRO-EXPANDED
+  statements, with every delivered file parsed in one registry: a macro
+  builds the literal from its argument (`WRITE '@&1 x'.` called `w KERNEL.`),
+  in the class, in its macros include or in another delivered include, so
+  no text prefilter can decide it -- and records it in the manifest's
+  `refused`; the walk files it as a gap with reason `kernel splice` and
+  `file:line`, and the summary's `refused`. What cannot be expanded fails
+  closed: an unparsed statement in an object that includes source the
+  delivered set does not carry (an INCLUDE, a type pool) may be a call of a
+  macro defined there -- "macro not resolvable for the kernel check". The
+  same check runs at the start of every `osd-build` and in the fixed point's
+  positive control over the delivered layers already on disk. This tree's
+  own `src/` and the libraries are not scanned.
 
 ## Lazy activation: stubbing what the island cannot close
 
