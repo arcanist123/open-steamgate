@@ -1,0 +1,28 @@
+{
+  "name": "osd-hana-dump",
+  "version": "v2.60.0-19-g0d5767b",
+  "commit": "0d5767b7922ba0763f0e23555be2e2cb577ecd28",
+  "schema": 1,
+  "read_only": true,
+  "capabilities": [
+    "probe",
+    "list",
+    "dump",
+    "names",
+    "packages",
+    "local",
+    "closure",
+    "inactive",
+    "catalog",
+    "ddic",
+    "skip_test_includes",
+    "object_report"
+  ],
+  "targets": {
+    "linux-x64": "4f4b134cc18db77b534fa471adb1895ac94b0106e246611a71660cde2fa4ea15",
+    "linux-arm64": "d5b1aba35794abd7a1c6d44648a79bbe69a5d3fc9761159f85a98821e9c0d1ff",
+    "darwin-x64": "1dfaeacf4e5dbaa206370ec306a94c12daee3efec21cc3da6f3f2f2b37330829",
+    "darwin-arm64": "5ff9f8d0cc7da403383de0ad63ef24a4f8fd80e08bbc1dfca2c9b0ffadd75ded",
+    "win32-x64": "0d33930ef5e008be91458bb2969bc956345cec6442b6ba63e7a6f377f740224c"
+  }
+}

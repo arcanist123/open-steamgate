@@ -31,6 +31,8 @@
     "test/osd-generator-reads.mjs",
     "test/osd-git.mjs",
     "test/osd-git-history.mjs",
+    "test/osd-hana-doctor.mjs",
+    "test/osd-hana-reader.mjs",
     "test/osd-host.mjs",
     "test/osd-icf-apply.mjs",
     "test/osd-icf-registry.mjs",

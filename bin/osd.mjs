@@ -352,7 +352,13 @@ switch (mode) {
     }
     break;
   }
+  case "hana": {
+    // the osd-hana product line (tools/osd-hana/); the verbs dispatch inside
+    const {main} = await import("../tools/osd-hana/osd-hana.mjs");
+    process.exit(await main(rest));
+    break;
+  }
   default:
-    console.error(`osd: unknown mode ${mode}; one of up, serve, build, fetch, gen, unit, run, protocols, compiler, ready, doctor`);
+    console.error(`osd: unknown mode ${mode}; one of up, serve, build, fetch, gen, unit, run, protocols, compiler, ready, doctor, hana`);
     process.exit(2);
 }
