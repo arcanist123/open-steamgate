@@ -20,7 +20,7 @@ import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory, describeNeitherRole, lookupSchemaOwnerLogin} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
-import {plainVerdict, jsonVerdict, readerRoleFromProbe, tlsLine, ipSansExplanation} from "./verdict.mjs";
+import {plainVerdict, jsonVerdict, readerRoleFromProbe, ipSansExplanation} from "./verdict.mjs";
 import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
