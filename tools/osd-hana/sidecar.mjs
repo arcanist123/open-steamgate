@@ -9,9 +9,11 @@
 //             to get it. No download lives here.
 //   verify    before every first use in a process, SHA-256 of the file against
 //             tools/osd-hana/sidecar.lock.json (version, commit, per-target
-//             hashes). Mismatch = refuse and name both hashes. An explicit path
-//             outside the pin is allowed only with --allow-unpinned-sidecar and
-//             is announced loudly.
+//             hashes); and whenever a pin is in play, again immediately before
+//             EVERY spawn (fresh, uncached) so the executed bytes are the
+//             verified bytes. Mismatch = refuse and name both hashes. An
+//             explicit path outside the pin is allowed only with
+//             --allow-unpinned-sidecar and is announced loudly.
 //   handshake --version --json must say schema 1, read_only true, and carry the
 //             capabilities the verb needs; otherwise refuse and name what is
 //             missing.

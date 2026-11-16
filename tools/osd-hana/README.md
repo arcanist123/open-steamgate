@@ -24,7 +24,7 @@ because the sidecar is read-only by construction and cannot create a user.
 | `verdict.mjs` | the plain-language verdict and the `--json` document, from one source so they cannot disagree |
 | `reader.mjs` | the dedicated read-only user: `--create-reader` / `--drop-reader` (the only non-SELECT statements in the module, sent over `hdb`, never the sidecar) |
 | `secret-store.mjs` | where the reader's credentials live: a `get/set/delete` interface; the CLI default is a file under the user's config directory, `0600` in a `0700` directory, enforced with fchmod even when it already existed. The extension will inject VS Code SecretStorage behind the same interface |
-| `redact.mjs` | the redactor: every byte of child stderr passes through it (password, user, host, schema masked) |
+| `redact.mjs` | the redactor: every byte of child stderr AND stdout passes through it before it is printed or embedded (password, user, host masked; secrets shorter than 3 characters are ignored) |
 | `defaults.mjs` | the courtesy check: SHA-256 hashes of the public default passwords of HANA trial images; warn loudly, change nothing |
 
 ## How the doctor runs the sidecar
@@ -35,17 +35,28 @@ because the sidecar is read-only by construction and cannot create a user.
 2. **Verify** — before the first use in a process, SHA-256 of the file against
    `sidecar.lock.json` for this target. A mismatch is refused and names both
    hashes. An explicit path that is not in the pin is refused unless
-   `--allow-unpinned-sidecar` is given, and is then announced loudly.
+   `--allow-unpinned-sidecar` is given, and is then announced loudly. A
+   target the pin does not cover (e.g. win32-arm64) is refused under its own
+   name, never silently mapped to another target.
 3. **Handshake** — `--version --json` must say `schema: 1`, `read_only: true`
    and carry the capabilities the verb needs (`probe` for the doctor); a
    pinned binary must also state the pinned version and commit. Otherwise the
    doctor refuses and names what is missing.
 4. **Run** — credentials reach the child only through its environment
    (`OSD_HANA_USER`, `OSD_HANA_PASSWORD`) — never argv, never a temp file.
-   `spawn` with an argument array, no shell, a timeout that kills the child.
-   stderr passes through the redactor; stdout must be the one JSON line the
-   contract promises. Exit codes 0–5 map to the contract's named outcomes:
-   `0 done, 1 usage, 2 connection, 3 partial, 4 refused, 5 unsupported`.
+   The child gets a **minimal environment**: an allowlist (`PATH`,
+   `HOME`/`USERPROFILE`, `TMPDIR`/`TEMP`/`TMP`, `SystemRoot`, `LANG`/`LC_*`)
+   plus the two credential variables — never the parent's whole environment.
+   The sidecar README names no proxy or SSL variables, so none are
+   forwarded. `spawn` with an argument array, no shell, a timeout that kills
+   the child, and a cap (8 MB) on the output the doctor accumulates.
+   Whenever a pin is in play, **every spawn re-verifies the bytes first**
+   (a fresh, uncached hash — the binary is ~7 MB, so milliseconds): no gap
+   between the verified bytes and the executed bytes. stderr passes through
+   the redactor; stdout is redacted before its one JSON line is parsed —
+   exactly one line, or a refusal, never a guess. Exit codes 0–5 map to the
+   contract's named outcomes: `0 done, 1 usage, 2 connection, 3 partial,
+   4 refused, 5 unsupported`.
 
 The doctor's own exit codes: **0** ready to extract, **1** usage or setup
 (flag errors, sidecar not found / refused, consent declined), **2** cannot
@@ -61,10 +72,12 @@ ABAP server still attached (informational); what kind of login this is
 
 The doctor never refuses a login because it is powerful: every session the
 sidecar opens is read-only at the database level, so extraction is safe with
-any login. That sentence is said exactly once, when the login can write. If
-the password equals a public default of a trial image, the doctor warns
-loudly (hashes in `defaults.mjs`, a courtesy check, one place) and changes
-nothing.
+any login. That sentence is said exactly once, when the login can write — and
+with an unpinned binary (`--allow-unpinned-sidecar`) it is qualified instead:
+"this binary's read-only claim is its own; it was not checksum-verified", in
+the plain text and in `--json`. If the password equals a public default of a
+trial image, the doctor warns loudly (hashes in `defaults.mjs`, a courtesy
+check, one place) and changes nothing.
 
 ## The dedicated reader
 
@@ -72,11 +85,16 @@ nothing.
 
 - shows the exact SQL (password masked) and asks for consent; `--yes` for
   non-interactive use;
+- the reader name must be **ours**: `--reader-name` must match
+  `^OSD_[A-Z0-9_]{1,26}$` (default `OSD_READER`), for create and drop alike —
+  the name is sent UNQUOTED (anything else would be an injection, not a
+  name), and a name that is not ours must never reach `DROP USER` at all;
+- the tenant database reaches **every** connection of the path
+  (administrator, reader proof, drop) — one place builds the driver's options;
 - SQL shape as measured (E1 report): the user name is sent **unquoted** and
-  validated against `^[A-Z][A-Z0-9_]{0,30}$` (`--reader-name`, same pattern) —
-  an unvalidated name would be an injection, not a name; the schema name is
-  **quoted as an identifier** with embedded `"` doubled; in catalogue
-  comparisons it is a **bound parameter**, never concatenated;
+  validated (see above); the schema name is **quoted as an identifier** with
+  embedded `"` doubled; in catalogue comparisons it is a **bound parameter**,
+  never concatenated;
 - the reader's password is CSPRNG-generated (28 characters, upper + lower +
   digit, letters and digits only, so nothing needs escaping on the wire) and
   is never printed, logged or put on argv;
@@ -91,10 +109,32 @@ nothing.
   owner is named as the login that can; error 332 after a failed create means
   "user absent", not the cause;
 - the administrator's password is used for these statements only and is never
-  stored.
+  stored;
+- the reader's credentials go to the secret store under a key of **host,
+  port, database and name**, with the connection facts in the entry. The
+  extension injects VS Code SecretStorage behind the same `get/set/delete`
+  interface.
 
-Windows note: `chmod` has no effect there; the secret file inherits the
-profile's ACLs, and `fchmod` is skipped rather than pretending.
+`--drop-reader` drops **only a reader this tool created**, and says so before
+anything is sent:
+
+- the name must match `^OSD_[A-Z0-9_]{1,26}$` and must not be the login the
+  run is connected as (the current login is necessarily in `SYS.USERS` —
+  dropping it would drop the administrator itself);
+- the secret store must hold an entry for exactly this host + port + database
+  + name. Otherwise the tool refuses — it never drops a user it does not own
+  — and prints the one statement an administrator can run by hand
+  (`DROP USER <name> CASCADE`). There is no force flag, by decision;
+- then consent, `DROP USER <name> CASCADE`, the SYS.USERS absence proof, and
+  the stored secret is removed. A 332 means "already absent": still proved,
+  still removed, said so.
+
+Windows notes: `chmod` has no effect there; the secret file inherits the
+profile's ACLs, and `fchmod` is skipped rather than pretending. A sidecar
+path with no extension resolves to the existing `<path>.exe` (the real name
+of the binary; `spawn` would need it). A target the pin does not cover
+(e.g. win32-arm64) is refused under its own name — never collapsed into
+win32-x64.
 
 ## Filling the pin
 
