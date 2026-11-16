@@ -636,6 +636,25 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).host).to.equal(HOST);
     });
 
+    it("the tenant database reaches EVERY connection of the reader path (critic M-3; mutation: drop databaseName from the proof/drop connect -> red)", async function () {
+      // administrator connect, reader proof connect, drop-reader connect:
+      // one place builds the options, so all of them must carry the tenant
+      // database -- otherwise the proof logs on to the wrong database and
+      // drop-reader's 'absence proved' is checked where the user survives
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD, database: "TENANT1"};
+      const secretStore = store();
+      await createReader({connection, schema: SCHEMA, yes: true, store: secretStore, clientFactory: factory});
+      // and the stored secret names the tenant, so the ownership key can only
+      // ever match the same database again
+      expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME)).database).to.equal("TENANT1");
+      await dropReader({connection, yes: true, store: secretStore, clientFactory: factory});
+      expect(log.connections.length).to.be.at.least(3);
+      for (const options of log.connections) {
+        expect(options.databaseName, `connect as ${options.user}`).to.equal("TENANT1");
+      }
+    });
+
     it("binds catalogue comparisons, never concatenates them (mutation: concatenate -> red)", async function () {
       // the SYS.USERS absence proof of drop-reader takes the reader name as a
       // bound parameter (and the drop below is allowed: the store holds an

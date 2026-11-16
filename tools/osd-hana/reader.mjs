@@ -116,6 +116,21 @@ export function hdbClientFactory({require = createRequire(import.meta.url)} = {}
 
 // ---------------------------------------------------------------- helpers
 
+// ONE place builds the driver's connection options -- the administrator
+// connect, the reader proof connect and the drop-reader connect all go
+// through here, so the tenant database cannot be lost on one path while
+// present on another (critic M-3: a proof or an absence check against the
+// wrong database reports success and leaves the user behind).
+function hdbConnectionOptions(connection, {user, password}) {
+  return {
+    host: connection.host,
+    port: connection.port,
+    user,
+    password,
+    ...(connection.database ? {databaseName: connection.database} : {}),
+  };
+}
+
 // HANA driver errors carry a `code` (the native error number, e.g. 258, 332).
 function errorCode(error) {
   return error?.code ?? error?.dbCode ?? undefined;
@@ -259,11 +274,7 @@ export async function createReader({
   say(consentText({readerName, schema, planLines: plan, store}));
   await askConsent({yes, isTTY, prompt});
 
-  const adminClient = await clientFactory({
-    host: connection.host, port: connection.port, user: connection.user,
-    password: connection.password,
-    ...(connection.database ? {databaseName: connection.database} : {}),
-  });
+  const adminClient = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
   return runCreatePlan({adminClient, connection, readerName, schema, password, store, clientFactory, say});
 }
 
@@ -293,10 +304,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       const readerPassword = password;
       let proofClient;
       try {
-        proofClient = await clientFactory({
-          host: connection.host, port: connection.port, user: readerName,
-          password: readerPassword,
-        });
+        proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword}));
         const {rows} = await proofClient.exec(`SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`, []);
         say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${schema}."TADIR" -- proof it works.`);
       } finally {
@@ -406,9 +414,7 @@ export async function dropReader({
   say(lines);
   await askConsent({yes, isTTY, prompt});
 
-  const client = await clientFactory({
-    host: connection.host, port: connection.port, user: connection.user, password: connection.password,
-  });
+  const client = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
   try {
     let alreadyAbsent = false;
     try {
