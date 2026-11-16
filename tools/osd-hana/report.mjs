@@ -19,6 +19,12 @@ export function planDocuments({plan, request, sidecar, out, dumpDir}) {
 const MB = 1_000_000;
 const mb = (b) => `${(b / MB).toFixed(1)} MB`;
 
+/** SHOULD-6 (critic round 2): names and reasons reach the report from the
+ *  database and the dump; a control character must never land raw in the md
+ *  (or on the terminal) where it could rewrite what the reader sees. Printed
+ *  escaped, never interpreted. */
+export const sanitizeText = (s) => String(s ?? "").replace(/[\x00-\x1f\x7f\x80-\x9f]/g, (c) => `\\x${c.charCodeAt(0).toString(16)}`);
+
 export function renderMdReport(doc) {
   const lines = [];
   const t = doc.totals;
@@ -28,7 +34,7 @@ export function renderMdReport(doc) {
   lines.push(`- dump: \`${doc.dump_dir}\`${doc.dump_reused ? " (reused: same request, sidecar exit 0)" : ""}`);
   lines.push(`- sidecar: ${doc.sidecar.version} (${String(doc.sidecar.commit).slice(0, 7)}), ${doc.sidecar.pinned ? "pinned" : "UNPINNED"}, sha256 ${doc.sidecar.sha256.slice(0, 12)}`);
   lines.push(`- request: \`${JSON.stringify(doc.request)}\``);
-  lines.push(`- folder logic: ${doc.folder_logic.logic} -- ${doc.folder_logic.folders.map((f) => `${f.package} -> ${f.folder}`).join(", ")}`);
+  lines.push(`- folder logic: ${sanitizeText(doc.folder_logic.logic)} -- ${doc.folder_logic.folders.map((f) => `${sanitizeText(f.package)} -> ${sanitizeText(f.folder)}`).join(", ")}`);
   lines.push(`- duration: ${(doc.duration_ms / 1000).toFixed(1)} s`);
   lines.push("");
   if (doc.notice) {
@@ -82,8 +88,8 @@ export function renderMdReport(doc) {
     lines.push("The files are on disk; the parts below are what the dump could not give.");
     lines.push("");
     for (const o of partial) {
-      lines.push(`- ${o.type} ${o.name} (${o.package}):`);
-      for (const p of o.parts) lines.push(`  - ${p.part} -- ${p.disposition}: ${p.reason}`);
+      lines.push(`- ${sanitizeText(o.type)} ${sanitizeText(o.name)} (${sanitizeText(o.package)}):`);
+      for (const p of o.parts) lines.push(`  - ${sanitizeText(p.part)} -- ${sanitizeText(p.disposition)}: ${sanitizeText(p.reason)}`);
     }
   }
   const notWritten = doc.objects.filter((o) => o.status === "skipped" || o.status === "unsupported");
@@ -94,7 +100,7 @@ export function renderMdReport(doc) {
     lines.push("| type | name | package | status | reason | state | generated |");
     lines.push("|---|---|---|---|---|---|---|");
     for (const o of notWritten) {
-      lines.push(`| ${o.type} | ${o.name} | ${o.package} | ${o.status} | ${o.reason ?? ""} | ${o.state} | ${o.generated ? "yes" : ""} |`);
+      lines.push(`| ${sanitizeText(o.type)} | ${sanitizeText(o.name)} | ${sanitizeText(o.package)} | ${o.status} | ${sanitizeText(o.reason ?? "")} | ${o.state} | ${o.generated ? "yes" : ""} |`);
     }
   }
   if (doc.drift && (doc.drift.appeared.length > 0 || doc.drift.disappeared.length > 0)) {
@@ -103,8 +109,8 @@ export function renderMdReport(doc) {
     lines.push("");
     lines.push("The dump was reused; the live listing differs from the dump's own object list:");
     lines.push("");
-    if (doc.drift.appeared.length > 0) lines.push(`- appeared since the dump (listed, not in the dump -- skipped as not-in-dump): ${doc.drift.appeared.join(", ")}`);
-    if (doc.drift.disappeared.length > 0) lines.push(`- disappeared since the dump (in the dump, no longer listed -- not written): ${doc.drift.disappeared.join(", ")}`);
+    if (doc.drift.appeared.length > 0) lines.push(`- appeared since the dump (listed, not in the dump -- skipped as not-in-dump): ${doc.drift.appeared.map(sanitizeText).join(", ")}`);
+    if (doc.drift.disappeared.length > 0) lines.push(`- disappeared since the dump (in the dump, no longer listed -- not written): ${doc.drift.disappeared.map(sanitizeText).join(", ")}`);
   }
   if (doc.dump_errors?.length > 0 || doc.dump_partial === true) {
     lines.push("");
@@ -142,7 +148,7 @@ export function renderMdReport(doc) {
   }
   if (doc.objects.some((o) => o.state !== "A")) {
     lines.push("");
-    lines.push("Inactive content: " + doc.objects.filter((o) => o.state !== "A").map((o) => `${o.type} ${o.name} (${o.state})`).join(", ") + ".");
+    lines.push("Inactive content: " + doc.objects.filter((o) => o.state !== "A").map((o) => `${sanitizeText(o.type)} ${sanitizeText(o.name)} (${o.state})`).join(", ") + ".");
   }
   lines.push("");
   return lines.join("\n");

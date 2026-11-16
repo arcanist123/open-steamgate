@@ -548,14 +548,27 @@ export async function convert({
   };
   for (const o of claimed.values()) {
     o.partNotes = o.partNotes ?? [];
+    const realRoots = [];
+    for (const root of allRoots) {
+      try {
+        realRoots.push(await fs.realpath(root));
+      } catch { /* the root vanished mid-run: the read below fails loudly */ }
+    }
     for (const [k, file] of o.parts) {
       if (file === "") continue; // a marker (SRC of DDLS/DDLX/SRVD), not a file
       let content;
       try {
-        content = await fs.readFile(file, "utf8");
+        // NOTE-5 (critic round 2): a symlink inside a dump directory is not
+        // followed out of it -- a planted dump must not make the converter
+        // copy an arbitrary readable file into the repository as "source"
+        const real = await fs.realpath(file);
+        if (!realRoots.some((root) => real === root || real.startsWith(`${root}${path.sep}`))) {
+          throw new Error("the file resolves outside the dump directory");
+        }
+        content = await fs.readFile(real, "utf8");
       } catch (e) {
         errors.push({program: k, object: o.name, error: e.message});
-        o.partNotes.push({part: `source ${k}`, disposition: "not written", reason: `unreadable in the dump: ${e.message}`});
+        o.partNotes.push({part: `source ${k}`, disposition: "not written", reason: `not readable inside the dump directory: ${e.message}`});
         continue;
       }
       o.parts.set(k, content);

@@ -207,7 +207,7 @@ describe("osd hana extract", function () {
     // sha256 in the report matches the files on disk
     const rep = reportOf(out);
     const clas = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
-    expect(clas.status).to.equal("written");
+    expect(clas.status).to.equal("written-partial"); // component texts not checked (SHOULD-1)
     for (const f of clas.files) {
       expect(f.sha256).to.equal(sha256(join(out, f.path)));
       expect(f.bytes).to.equal(statSync(join(out, f.path)).size);
@@ -373,7 +373,7 @@ describe("osd hana extract", function () {
     writeFileSync(join(full, "something.txt"), "x");
     const r2 = await runExtract(["--out", full]);
     expect(r2.code).to.equal(4);
-    expect(r2.lines.err.join("\n")).to.match(/non-empty output directory/);
+    expect(r2.lines.err.join("\n")).to.match(/does not exist to say this command created/);
   });
 
   it("exit 2 when the sidecar cannot connect; exit 5 when there is no ABAP schema", async function () {
@@ -578,10 +578,10 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     const pkgs = new Set(["ZGRAND", "ZTOP", "ZTOPSUB", "ZOTHER"]);
     expect(decideFolderLogic(pkgs, parents)).to.equal("FULL");
     const paths = folderPaths(pkgs, parents, "FULL");
-    expect(paths.get("ZGRAND")).to.equal("zgrand/");
-    expect(paths.get("ZTOP")).to.equal("zgrand/ztop/");
-    expect(paths.get("ZTOPSUB")).to.equal("zgrand/ztop/ztopsub/");
-    expect(paths.get("ZOTHER")).to.equal("zother/");
+    expect(paths.paths.get("ZGRAND")).to.equal("zgrand/");
+    expect(paths.paths.get("ZTOP")).to.equal("zgrand/ztop/");
+    expect(paths.paths.get("ZTOPSUB")).to.equal("zgrand/ztop/ztopsub/");
+    expect(paths.paths.get("ZOTHER")).to.equal("zother/");
 
     // end to end through the whole command, as the golden test for it
     const fx = variant((list, dump) => {
@@ -709,7 +709,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     const rep = reportOf(out);
     const original = rep.objects.find((x) => x.name === "ZIF_OSD_X2");
     const variant2 = rep.objects.find((x) => x.name === "Zif_Osd_X2");
-    expect(original.status).to.equal("written");
+    expect(original.status).to.equal("written-partial"); // INTF component texts not checked (SHOULD-1)
     expect(variant2.status).to.equal("skipped");
     expect(variant2.reason).to.match(/collision/i);
     expect(existsSync(join(out, "src/osd_x/zif_osd_x2.intf.abap"))).to.equal(true);
@@ -873,10 +873,13 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
       // the vendor source sits in the fixture dump, as the sidecar would have
       // written it for a matched pattern
       writeFileSync(join(dump, "src", "ZCL_SAP_XX=====CS.abap"), "class ZCL_SAP_XX definition. \"VENDOR SOURCE\nendclass.\n");
-      writeObjects(dump, objectsRows(dump).concat([{type: "CLAS", name: "ZCL_SAP_XX", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "W", files: [{path: "src/ZCL_SAP_XX=====CS.abap", state: "A", sha256: "0".repeat(64), bytes: 60}]}]));
     });
+    // ... and the sidecar over-delivers: the row lands in the dump's
+    // objects.jsonl AFTER the request filter (FAKE_SIDECAR_DUMP_APPEND)
+    const appendPath = join(root, `append-${Math.random().toString(16).slice(2)}.jsonl`);
+    writeFileSync(appendPath, JSON.stringify({type: "CLAS", name: "ZCL_SAP_XX", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "W", files: [{path: "src/ZCL_SAP_XX=====CS.abap", state: "A", sha256: "0".repeat(64), bytes: 60}]}) + "\n");
     const out = await fresh("m2b");
-    const r = await runExtract(["--out", out, "--name", "Z%"], {list: fx.list, dump: fx.dump});
+    const r = await runExtract(["--out", out, "--name", "Z%"], {list: fx.list, dump: fx.dump, extra: {FAKE_SIDECAR_DUMP_APPEND: appendPath}});
     expect(r.code, "the run fails, not an ordinary partial").to.equal(4);
     expect(r.lines.err.join("\n")).to.match(/outside the scope/).and.to.match(/ZCL_SAP_XX/).and.to.match(/dump directory/);
     // nothing of the repository was built from it

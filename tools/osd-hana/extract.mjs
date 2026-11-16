@@ -35,7 +35,7 @@ import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {convert, SUPPORTED_TYPES} from "./convert/convert.mjs";
-import {renderMdReport, planDocuments} from "./report.mjs";
+import {renderMdReport, planDocuments, sanitizeText} from "./report.mjs";
 
 export const EXTRACT_EXIT = Object.freeze({
   ok: 0,
@@ -313,7 +313,18 @@ export async function extractMain(argv, {
   await fs.writeFile(requestPath, `${JSON.stringify(request, null, 1)}\n`);
   const listRun = await runVerb(sidecar, "list", {requestPath, out: listDir, fail, connection});
   if (typeof listRun === "number") return listRun;
-  const listed = await readJsonl(path.join(listDir, "objects.jsonl"));
+  const listedRaw = await readJsonl(path.join(listDir, "objects.jsonl"));
+  // SHOULD-5 (critic round 2): an EXACT duplicate id -- the same object
+  // listed twice, e.g. matched by two patterns -- is de-duplicated before
+  // the plan counts it. Ids that really differ only by case stay two rows
+  // and meet the case-collision rule in the converter.
+  const seenListed = new Set();
+  const listed = listedRaw.filter((r) => {
+    const id = `${r.type}:${r.name}`;
+    if (seenListed.has(id)) return false;
+    seenListed.add(id);
+    return true;
+  });
   if (listed.length === 0) {
     // an EMPTY SELECTION is not "no ABAP schema" (N3): the schema is there,
     // the narrowing simply matched nothing -- a usage answer, not a verdict
@@ -463,7 +474,9 @@ export async function extractMain(argv, {
   const scopeSet = new Set(inScopeRows.map((r) => `${norm(r.type)}:${norm(r.name)}`));
   const carriesSource = (r) => (Array.isArray(r.files) && r.files.length > 0)
     || ["w", "written"].includes(String(r.status ?? "").trim().toLowerCase());
-  const outOfScope = dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
+  const outOfScope = reused.ok
+    ? [] // a reused dump was audited when it was fresh; its drift against the live listing is the S4 report below, not over-delivery
+    : dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
   if (outOfScope.length > 0) {
     const list = outOfScope.slice(0, 8).map((r) => `${norm(r.type)}:${norm(r.name)}`).join(", ");
     io.err(`osd hana extract: refusing the dump directory ${dumpDir}: it carries ${outOfScope.length} objects outside the scope (${list}${outOfScope.length > 8 ? ", ..." : ""})`
@@ -792,7 +805,10 @@ export async function inGitTree(dir) {
   let p = path.resolve(dir);
   for (;;) {
     try {
-      const st = await fs.lstat(path.join(p, ".git"));
+      // stat, not lstat (critic round 2 NOTE-3): a working tree whose .git is
+      // a SYMLINK to a git directory elsewhere is still a git tree -- git
+      // itself says so, and so must this check
+      const st = await fs.stat(path.join(p, ".git"));
       if (st.isFile() || st.isDirectory()) return p;
     } catch (e) {
       if (e.code !== "ENOENT") throw e;
@@ -926,13 +942,16 @@ function describeSidecar(verified, handshakeInfo) {
 }
 
 function printPlan(io, plan) {
+  // SHOULD-6: names from the database never reach the terminal raw -- a
+  // control character in a package name could rewrite the plan the user is
+  // about to act on. They are printed escaped, never interpreted.
   const mb = (b) => `${(b / 1_000_000).toFixed(1)} MB`;
-  io.out(`plan: ${plan.inScope} objects in scope (system holds ${plan.onSystem}: ${plan.customer} customer, ${plan.sap} sap)`);
+  io.out(`plan: ${plan.inScope} objects in scope (system holds ${plan.onSystem}: ${plan.customer} customer, ${plan.sap} sap${plan.unknownClass ? `, ${plan.unknownClass} unknown class` : ""})`);
   io.out("  per type:");
   for (const t of plan.perType) {
     const mark = SUPPORTED_TYPES.has(t.type) ? "" : "  (unsupported -- will be listed, not written)";
-    io.out(`    ${t.type.padEnd(8)} ${String(t.inScope).padStart(6)}  ${mb(t.bytes).padStart(10)}${mark}`);
+    io.out(`    ${sanitizeText(t.type).padEnd(8)} ${String(t.inScope).padStart(6)}  ${mb(t.bytes).padStart(10)}${mark}`);
   }
   io.out("  per package:");
-  for (const p of plan.perPackage) io.out(`    ${p.package.padEnd(32)} ${String(p.objects).padStart(6)}  ${mb(p.bytes).padStart(10)}`);
+  for (const p of plan.perPackage) io.out(`    ${sanitizeText(p.package).padEnd(32)} ${String(p.objects).padStart(6)}  ${mb(p.bytes).padStart(10)}`);
 }
