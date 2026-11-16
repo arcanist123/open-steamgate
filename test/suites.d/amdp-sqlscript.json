@@ -18,6 +18,7 @@
     "test/hana-client-control.mjs",
     "test/hana-closure.mjs",
     "test/hana-closure-convexit.mjs",
+    "test/hana-closure-reach.mjs",
     "test/hana-ddic-map.mjs",
     "test/hana-ddic-append-view.mjs",
     "test/hana-ddic-gen.mjs",
