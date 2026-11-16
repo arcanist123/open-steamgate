@@ -91,3 +91,7 @@ docker/workbench/ide-password.txt
 
 # Public RAP oracle sources remain local, never bundled
 corpus-rap/
+
+# the osd-hana-dump sidecars tools/osd-hana/fetch-sidecar.mjs places per
+# target for scripts/package-vsix-platforms.mjs: build output, never tracked
+editors/vscode/bin/

@@ -722,13 +722,29 @@ export function verifiedWebBundle(extension) {
   return record;
 }
 
+// Entries of editors/vscode/ that never enter the universal package:
+//   osd                   never present here; guards a stray dev copy
+//   .osd-provenance.json  the directory's own record, not a part
+//   bin                   the osd-hana-dump sidecars fetch-sidecar places per
+//                         target (gitignored); only a platform package
+//                         (scripts/package-vsix-platforms.mjs) carries one,
+//                         and then only its own
+// dist/ is handled separately (shipped only when the profile asks for it).
+export const UNSTAGED_EXTENSION_ENTRIES = Object.freeze(["osd", ".osd-provenance.json", "bin"]);
+
+/** The editors/vscode/ entries the universal package copies and checks
+ *  against the Git closure: everything but UNSTAGED_EXTENSION_ENTRIES and
+ *  dist/. */
+export function extensionStaticParts(names) {
+  return names.filter(name => !UNSTAGED_EXTENSION_ENTRIES.includes(name) && name !== "dist");
+}
+
 function copyExtensionFiles(extensionDir, profile) {
   mkdirSync(extensionDir, {recursive: true});
-  const staticParts = readdirSync(EXT_DIR).filter(name => name !== "osd" && name !== "dist" && name !== ".osd-provenance.json");
+  const staticParts = extensionStaticParts(readdirSync(EXT_DIR));
   assertExtensionSources(EXT_DIR, staticParts);
   for (const entry of readdirSync(EXT_DIR, {withFileTypes: true})) {
-    if (entry.name === "osd") continue; // never present here; guards a stray dev copy
-    if (entry.name === ".osd-provenance.json") continue;
+    if (UNSTAGED_EXTENSION_ENTRIES.includes(entry.name)) continue;
     // The web bundle ships to the Marketplace only when the build asks for
     // it (OSD_VSIX_WEB=1, after a fresh npm run web:vscode): a dist/ left
     // over from a local build must not ride along by accident.
