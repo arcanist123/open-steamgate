@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 // The FAKE sidecar the osd-hana tests point OSD_HANA_DUMP at (a shebang
 // script, spawned directly, exactly like the real Go binary). It plays
-// `--version --json`, `probe` for several logins and every exit code of the
-// contract -- no network, no database.
+// `--version --json`, `probe` for several logins, `list` and `dump` from
+// synthetic fixture directories, and every exit code of the contract -- no
+// network, no database.
 //
 // Behaviour comes from the environment the TEST sets (never from argv):
 //   FAKE_SIDECAR_HANDSHAKE  JSON patch over the --version --json document
 //                           ({"read_only": false}, {"schema": 2}, drop a
 //                           capability, wrong version ...)
+//   FAKE_SIDECAR_LIST       fixture dir served for `list --out DIR`
+//   FAKE_SIDECAR_DUMP       fixture dir served for `dump --out DIR`
+//   FAKE_SIDECAR_DUMP_APPEND  rows appended to the dump's objects.jsonl AFTER
+//                           the request filter (a sidecar that over-delivers)
+//   FAKE_SIDECAR_REPOSRC_APPEND  reposrc rows appended AFTER the filter (a
+//                           source fetched the request cannot justify)
+//   FAKE_SIDECAR_EXIT       exit code override for list/dump (default 0)
 //   FAKE_SIDECAR_PROBE      scenario name:
 //     owner-tenant    schema_owner, tenant, one ABAP schema, cannot write
 //     admin-system    admin, system database, can write, attached unknown
@@ -40,14 +48,24 @@ function record(entry) {
 }
 
 // The credentials arrived through the environment only; the record proves the
-// fact, never the value.
-if (!DUMP_SCENARIOS) record({
-  argv: args,
-  env: {
-    hadUser: typeof process.env.OSD_HANA_USER === "string" && process.env.OSD_HANA_USER !== "",
-    hadPassword: typeof process.env.OSD_HANA_PASSWORD === "string" && process.env.OSD_HANA_PASSWORD !== "",
-  },
-});
+// fact, never the value. For list/dump the request echo goes into the record
+// too (no credentials in a request -- the tests assert what was fetched).
+{
+  let recordedRequest;
+  const ri = args.indexOf("--request");
+  const rp = ri === -1 ? undefined : args[ri + 1];
+  if (rp !== undefined && rp !== "-") {
+    try { recordedRequest = JSON.parse(readFileSync(rp, "utf8")); } catch { /* unreadable */ }
+  }
+  if (!DUMP_SCENARIOS) record({
+    argv: args,
+    request: recordedRequest,
+    env: {
+      hadUser: typeof process.env.OSD_HANA_USER === "string" && process.env.OSD_HANA_USER !== "",
+      hadPassword: typeof process.env.OSD_HANA_PASSWORD === "string" && process.env.OSD_HANA_PASSWORD !== "",
+    },
+  });
+}
 
 // ---- the probe documents: RECORDED contracts, values varied, no field invented ----
 // test/osd-hana/contract/ holds what the real binary printed (README there).
@@ -71,7 +89,9 @@ if (args[0] === "--version") {
     commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     go: "test",
     os_arch: "test/test",
-    capabilities: ["probe", "list", "dump"],
+    schema: 1,
+    read_only: true,
+    capabilities: ["probe", "list", "dump", "names", "packages", "local", "closure", "inactive", "catalog", "ddic", "skip_test_includes", "object_report"],
   };
   if (args.includes("--json")) {
     let patch = {};
@@ -83,6 +103,95 @@ if (args[0] === "--version") {
     process.stdout.write("osd-hana-dump v9.9.9-test aaaaaaaaaa go-test test/test (read-only)\n");
   }
   process.exit(0);
+}
+
+// ---- list / dump (W3): a fixture directory is copied into --out, the
+// manifest gets the request echo of THIS run, and the contract's one summary
+// line goes to stdout. No network, no database.
+//   FAKE_SIDECAR_LIST   fixture dir for `list` (objects.jsonl, ...)
+//   FAKE_SIDECAR_DUMP   fixture dir for `dump` (objects.jsonl, reposrc.jsonl,
+//                       tables/, src/, counts.json, summary.json)
+//   FAKE_SIDECAR_EXIT   override the exit code (0 default)
+if (args[0] === "list" || args[0] === "dump") {
+  const {cpSync: copySync, writeFileSync, readFileSync, appendFileSync, existsSync} = await import("node:fs");
+  const {join} = await import("node:path");
+  const flag = (name) => {
+    const i = args.indexOf(name);
+    return i === -1 ? undefined : args[i + 1];
+  };
+  const outDir = flag("--out");
+  const requestPath = flag("--request");
+  let request = null;
+  if (requestPath && requestPath !== "-" && existsSync(requestPath)) request = JSON.parse(readFileSync(requestPath, "utf8"));
+  const fixtureDir = process.env[args[0] === "list" ? "FAKE_SIDECAR_LIST" : "FAKE_SIDECAR_DUMP"];
+  if (fixtureDir !== undefined && outDir !== undefined) {
+    copySync(fixtureDir, outDir, {recursive: true});
+    // a dump honours its request the way the real sidecar does: `names` are
+    // SQL LIKE patterns with `\` as the ESCAPE character -- `\x` is the
+    // literal x (so extract's exact-name patterns "ZOSD\_X3" match exactly
+    // that name, and `_`/`%` inside a real name never act as wildcards), an
+    // unescaped `%` is any sequence and an unescaped `_` one arbitrary
+    // character (extract's include shapes "L<grp>U__" match U + 2 chars);
+    // rows the request does not name are not dumped.
+    // FAKE_SIDECAR_DUMP_APPEND adds rows AFTER the filter (a sidecar that
+    // over-delivers -- the M-2 audit).
+    if (args[0] === "dump" && Array.isArray(request?.names)) {
+      const regexEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const like = (pat) => {
+        let re = "^";
+        for (let i = 0; i < pat.length; i++) {
+          const c = pat[i];
+          if (c === "\\" && i + 1 < pat.length) re += regexEscape(pat[++i]); // \x = the literal x
+          else if (c === "%") re += "[\\s\\S]*";
+          else if (c === "_") re += "[\\s\\S]";
+          else re += regexEscape(c);
+        }
+        return new RegExp(`${re}$`);
+      };
+      const matchers = request.names.map(like);
+      const matches = (name) => matchers.some((m) => m.test(name));
+      // the real sidecar's source fetch matches REPOSRC the same way: rows
+      // the request does not name drop out of reposrc.jsonl too
+      const reposrcPath = join(outDir, "reposrc.jsonl");
+      if (existsSync(reposrcPath)) {
+        const srcRows = readFileSync(reposrcPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+        writeFileSync(reposrcPath, srcRows.filter((r) => matches(String(r.program ?? ""))).map((r) => JSON.stringify(r)).join("\n") + (srcRows.length ? "\n" : ""));
+      }
+      const objectsPath = join(outDir, "objects.jsonl");
+      const rows = readFileSync(objectsPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+      // the real sidecar keeps excluded/closure rows in objects.jsonl as
+      // skipped entries; only SOURCE rows the request does not name drop out
+      writeFileSync(objectsPath, rows.filter((r) => matches(r.name) || r.status === "S" || r.status === "skipped").map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
+      const appendPath = process.env.FAKE_SIDECAR_DUMP_APPEND;
+      if (appendPath !== undefined && existsSync(appendPath)) {
+        appendFileSync(objectsPath, readFileSync(appendPath, "utf8"));
+      }
+      // FAKE_SIDECAR_REPOSRC_APPEND adds reposrc rows AFTER the filter (a
+      // sidecar that fetched a source the request cannot justify -- the
+      // round-5 source audit)
+      const srcAppendPath = process.env.FAKE_SIDECAR_REPOSRC_APPEND;
+      if (srcAppendPath !== undefined && existsSync(srcAppendPath)) {
+        appendFileSync(reposrcPath, readFileSync(srcAppendPath, "utf8"));
+      }
+    }
+    // the manifest's sidecar block echoes the request of this run -- a dump
+    // is only reusable when it matches (extract.mjs reusableDump)
+    const manifestPath = join(outDir, "manifest.json");
+    let manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
+    const counts = existsSync(join(outDir, "counts.json")) ? JSON.parse(readFileSync(join(outDir, "counts.json"), "utf8")) : {written: 0, skipped: 0, skipped_excluded: 0, skipped_unsupported: 0};
+    const errorPatch = process.env.FAKE_SIDECAR_ERRORS;
+    const errors = errorPatch !== undefined ? JSON.parse(errorPatch) : [];
+    manifest.sidecar = {
+      name: "osd-hana-dump", version: "v9.9.9-test", commit: "a".repeat(40),
+      request, counts, objects_report: "objects.jsonl", errors,
+    };
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 1)}\n`);
+  }
+  const exit = Number(process.env.FAKE_SIDECAR_EXIT ?? "0");
+  const summaryPath = fixtureDir !== undefined ? join(fixtureDir, "summary.json") : undefined;
+  const summary = summaryPath !== undefined && existsSync(summaryPath) ? JSON.parse(readFileSync(summaryPath, "utf8")) : {ok: exit === 0, exit};
+  process.stdout.write(`${JSON.stringify({...summary, exit})}\n`);
+  process.exit(exit);
 }
 
 if (args[0] !== "probe" && !DUMP_SCENARIOS) {

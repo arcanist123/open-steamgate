@@ -1,11 +1,10 @@
-# tools/osd-hana — `osd hana doctor`
+# tools/osd-hana — `osd hana doctor`, `osd hana extract`
 
 First piece of the "rescue your own ABAP code out of a HANA database whose
 ABAP server is gone or expiring" product line. This module locates, verifies,
 runs and explains the Go sidecar **`osd-hana-dump`** (owned by the sibling
 `vsp` project; the contract between the two is frozen: see `W0-contract.md`
-in the task tree — the tracked facts are restated here). `osd hana extract`
-is the next job and does not exist yet.
+in the task tree — the tracked facts are restated here).
 
 Nothing in this module opens a listening socket, and no statement that is not
 a SELECT is sent — with exactly one exception: `--create-reader` /
@@ -18,6 +17,11 @@ because the sidecar is read-only by construction and cannot create a user.
 |---|---|
 | `osd-hana.mjs` | the `osd hana <verb>` entry; `bin/osd.mjs` dispatches mode `hana` here |
 | `doctor.mjs` | the `doctor` verb: sidecar lifecycle + probe + verdict, exit codes |
+| `extract.mjs` | the `extract` verb: scope → plan → dump → convert → report (see below) |
+| `extract-plan.mjs` | the extract plan document, the consent gate, and `buildDumpRequest` — the ONE function the dump request is built in |
+| `extract-workarea.mjs` | the extract work area: the dump restart rule (`reusableDump`), the marker (atomic), the `src/` refresh that never touches a kept file |
+| `report.mjs` | the extract report: `extract-report.md` and the JSON document, from one source |
+| `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
 | `sidecar.mjs` | locate / verify (SHA-256 pin) / handshake / run the sidecar |
 | `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64), the capabilities, and the public release URL + asset name per target |
 | `fetch-sidecar.mjs` | the BUILD-time fetcher: downloads the pinned release asset per target, verifies SHA-256 against the pin, writes it atomically. Never reached from the `osd hana` verbs |
@@ -153,6 +157,189 @@ with an unpinned binary (`--allow-unpinned-sidecar`) it is qualified instead:
 the plain text and in `--json`. If the password equals a public default of a
 trial image, the doctor warns loudly (hashes in `defaults.mjs`, a courtesy
 check, one place) and changes nothing.
+
+## The extract
+
+`osd hana extract --out <dir>` writes your own code out of the database into
+an abapGit-layout repository (an `.abapgit.xml` and `src/`) that abapGit can
+clone, diff and deploy:
+
+1. **Scope** — fails CLOSED: in scope are exactly the objects the sidecar
+   classifies as `customer` (local packages included; `--no-local` leaves
+   them out). A missing, unknown or differently-cased class is NOT customer:
+   the object is left out, listed as `skipped: unknown-class`, and the run
+   says the sidecar may be newer than this module. `--package`, `--name`
+   (repeatable) and `--author` narrow the selection; the request they build
+   for `list` is schema-1 JSON the sidecar validates field by field.
+   SAP-delivered objects are extracted only with `--include-sap` together
+   with an explicit `--package` or `--name` — then the output directory AND
+   the dump directory must not sit inside a git working tree (extract
+   refuses), and the report and the console carry the notice that the
+   content is the vendor's and must not be published. Table CONTENTS are not
+   extracted; the sidecar's `tables` request field stays reserved.
+2. **Plan** — the sidecar's `list` (no sources read) becomes a per-type and
+   per-package table with counts and byte estimates, a per-AUTHOR table for
+   the local objects (count + bytes — on a trial system that is where
+   several people's untransported work lives), the three biggest packages,
+   and names the types the converter cannot write. When local objects of
+   more than one author are in scope, the plan says so and names the
+   narrowing flags: "local objects of K authors are in scope; narrow with
+   `--author <name>` or `--no-local`". `--dry-run` stops here and never
+   asks; `--json` prints the plan as one document. Names from the database
+   never reach the terminal or the report raw: control characters are
+   printed escaped, never interpreted.
+
+   **The marker** — `.osd-hana/marker.json` records that this directory is
+   this command's and exactly what it wrote (paths with SHA-256). Round 5: a
+   run that stops at the plan — `--dry-run`, a declined prompt, a refused
+   non-interactive run, any refusal before conversion — leaves the marker
+   BYTE-IDENTICAL: the marker is written only where a run commits to writing
+   repository files, and it never SHRINKS (a provisional write carries the
+   last run's file list, so even a crash between the two writes keeps the
+   complete list). Both writes are atomic (temp + rename). Without this, a
+   harmless `--dry-run` emptied the marker and the next real run kept every
+   object ("the marker of the last run does not list it").
+
+   **The commit point** (round 6) — nothing outside the work area
+   `.osd-hana/` changes until the run has passed every refusal: listing →
+   plan → consent → dump (or reuse) → scope audit, and only then the
+   provisional marker, the `src/` refresh, the `.gitignore` line and the
+   conversion. A refusal at any step before it leaves the repository —
+   `src/`, `.abapgit.xml`, `.gitignore`, the last run's report and the
+   marker — byte-identical; the audit's refusal report goes to
+   `.osd-hana/refused-report.md`. The work area ignores itself (`*` in
+   `.osd-hana/.gitignore`), so the raw dump is never committable even
+   before a run has written anything else. `<out>/.gitignore` is never
+   overwritten: a writing run creates it when absent and appends
+   `.osd-hana/` when the line is missing (the report says which); a
+   `--dry-run` or a refused run does neither.
+
+   **Consent** — nothing is dumped without the user having seen the plan.
+   On a terminal the command asks `extract N objects (S MB) into <out>?`
+   after the plan; `y` or `yes` proceeds, anything else (EOF included)
+   declines and nothing is written. A non-interactive run needs `--yes`. A
+   plan above **5 000 objects or 200 MB** (estimated bytes) is LARGE: it
+   needs `--yes-large` instead — a plain `--yes` is refused, and on a
+   terminal the question says so and wants the full `yes`. The numbers live
+   in exactly one place (`LARGE_PLAN` in `extract-plan.mjs`); the prompt,
+   the refusals and this README quote it.
+3. **Dump** — the dump request NAMES the in-scope objects of the listing:
+   exact names, sorted, LIKE-escaped (the sidecar matches
+   `LIKE ? ESCAPE '\'`), in chunks of 500 (one request, one directory per
+   chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) so
+   a big selection cannot blow the sidecar's SQL parameter limit — and never
+   the user's patterns, so nothing of the vendor's is fetched unless
+   `--include-sap` asked for it. Composite objects carry, next to their
+   exact name, the include-name pattern their sources hide behind in
+   REPOSRC — measured on the real bed and confirmed there (round 3): a
+   class's/interface's sources sit behind the 30-character `=`-padded name
+   (`<name padded to 30 with =>%`), a function group's behind its main
+   program and includes (`SAPL<grp>`, `L<grp>___`, below); flat programs and DDIC
+   need only the exact name. TADIR selection stays exact (a padded prefix
+   names exactly one object), so the selection cannot widen.
+   `_` and `%` inside a REAL object name never act as wildcards unnoticed:
+   every literal is LIKE-escaped (`\_`, `\%`, `\\`) — the sidecar matches
+   with `LIKE ? ESCAPE '\'` (checked in its binary's strings), so an escaped
+   underscore matches exactly that name. A function group's include is
+   EXACTLY `L<grp>` + 3 characters (TOP, UXX, U01, F01, …: abapGit's and
+   the function library's naming), so the request carries `SAPL<grp>`
+   exactly and ONE include pattern `L<grp>___` — three single-character
+   wildcards, no letter (round 6). Length pins the match: group `ZA`'s
+   pattern is six characters, group `ZAU`'s includes seven, so a sibling
+   whose name extends the group's can never match (round 5's
+   `L<grp><letter>___` shapes did: `LZAU___` is `LZAUTOP`). The converter's
+   resolver (`convert/ownership.mjs`) splits off exactly those 3 characters
+   — an include that fits no in-scope group by exact length is ownerless
+   and the audit refuses the run. Namespaced groups take their real shape
+   (`/NS/GRP` → `/NS/SAPLGRP` exact, `/NS/LGRP___`). The
+   request is built in ONE function (`buildDumpRequest` in
+   `extract-plan.mjs`): the sidecar's next release selects objects exactly
+   (`requested: {TYPE: [names]}`), and then the patterns go away and only
+   that function changes.
+   **The scope audit** runs on EVERY dump before conversion, reused or fresh
+   (round 5): every object the dump fetched WITH sources must be in the
+   scope set, and every REPOSRC row it fetched must resolve to an in-scope
+   owner (`convert/ownership.mjs` — the one resolver the converter writes
+   by, so the two cannot drift). Anything outside the scope refuses the run
+   (exit 4), names the dump directory so it can be removed, leaves the
+   repository byte-identical (the audit runs before the commit point) —
+   and MARKS the dump: `refused.json` in the dump directory. A marked dump
+   is never reused: the next run refuses it and names the directory to
+   remove, so "just run it again" cannot walk past the refusal. (Sources
+   arriving through the wholesale DD-table dump — DDDDLSRC and friends carry
+   every object's rows, like DD02L — are metadata, not evidence of
+   over-delivery; the object audit covers their objects.)
+   The raw dump never belongs in the repository: the work area ignores
+   itself, and a writing run makes sure `<out>/.gitignore` names
+   `.osd-hana/` (see the commit point in 2).
+   Restartable: an existing dump whose aggregate manifest echoes the same
+   request selection (canonically compared; the derived names may drift with
+   the listing) and finished without errors is reused; anything else is
+   refused, never mixed — and a dump the audit marked refused is refused
+   forever, until it is removed. On a restart the live listing is compared
+   with the reused dump's own object list and drift for objects that
+   APPEARED since the dump is reported (they are skipped as not-in-dump);
+   an object that LEFT the scope makes the reused dump fail the audit
+   (refused, marked, directory named) — the dump then holds code that is no
+   longer yours to keep, and re-dumping is the honest restart. The refusal
+   leaves the previous repository byte-identical; only the re-dump's
+   conversion replaces `src/` and `.abapgit.xml` — see the marker rule in 4.
+4. **Convert** — the dump becomes the repository: folder logic PREFIX when
+   the package names allow it (one hierarchy, every child
+   `<parent>_<suffix>`), otherwise FULL — and under FULL every package's
+   folder is nested under its parent's, as abapGit's
+   `package_to_path` does. File names as abapGit writes them (lower case, a
+   namespace `/` becomes `#`). ABAP is byte-identical to the dump; the XML is
+   abapGit's own layout (BOM, one element per line, its field order), decided
+   from abapGit's serializers, not from single files. The report is built
+   from a ledger: every in-scope object ends in exactly one state, and every
+   part the converter knows it cannot write is a line under its object, in
+   exactly one of two kinds (round 4): `not extracted` — the dump shows the
+   part exists and it was not written (a failed include, foreign keys /
+   indexes / search-help assignments / component texts the dump carries FOR
+   THIS TABLE and this converter does not serialise — round 5 reads the
+   aspect tables per TABNAME, so a table without foreign keys of its own is
+   no longer partial just because the DD tables are in the dump; a
+   translated text pool left out, a sidecar error on the object) — or `not checked` — the
+   dump cannot tell whether the part exists at all. `written-partial` is
+   ONLY for `not extracted`: an object whose only gap is a `not checked`
+   part is `written`, carrying its `unchecked` list ("not checked" is not
+   "partial" — a signal that is always on is no signal). The dump carries no
+   screen/CUA/variant tables at all, so screens, GUI statuses and variants
+   are `not checked` on every PROG/FUGR rather than claimed complete. A type
+   the converter cannot write is never dropped silently: it is listed, and
+   the exit code is 3. Object and package names from the dump are validated
+   as path components (traversal, backslashes, control characters,
+   Windows-reserved names are refused per object); a name collision refuses
+   both objects, never last-writer-wins.
+5. **Report** — always written: `<out>/extract-report.json` and
+   `extract-report.md`: per type on the system / dumped / written /
+   written-partial / skipped / unsupported (the totals always add up to the
+   in-scope count — a mismatch is an internal error, never a silent one),
+   per object its files with SHA-256, package, state (active/inactive,
+   `generated` flagged), its `not extracted` part lines and its `unchecked`
+   list, the sidecar version + pin, the request, the folder logic, the
+   duration. The FIRST line of the md — and the one console line — is the
+   summary, and it never claims completeness while any unchecked part
+   exists: "N objects written. For K of them this tool could not check:
+   <part kinds with counts>." with the losses ("M objects of T could not be
+   fully extracted (...)") named first; "all objects in scope were written"
+   is said only when nothing is unchecked. The per-object unchecked lists
+   stay in the json and in a collapsed section of the md.
+
+Exit codes: **0** everything in scope written — a part the dump cannot even
+check does not count against its object (it is carried as the object's
+`unchecked` list), **3** partial (a part the dump shows exists was not
+extracted, an object skipped or unsupported, or an error — the report says
+what), **1** usage, **2** cannot connect, **4** refused output directory,
+**5** no ABAP schema, **6** internal error (a conversion/write failure or
+the ledger invariant — a best-effort report is written anyway and names the
+failure).
+
+Before publishing an extracted repository: remove `extract-report.json`,
+`extract-report.md` and `.osd-hana/` — they carry absolute local paths (and
+the dump). `.abapgit.xml`'s `MASTER_LANGUAGE` follows the dump's dominant
+TADIR master language, not a hard-coded guess.
 
 ## The dedicated reader
 
