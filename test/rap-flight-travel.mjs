@@ -19,8 +19,14 @@ const write = {"content-type": "application/json", "x-csrf-token": "open-steamga
 const json = {accept: "application/json"};
 // a day from today, as V2 writes a date
 const day = n => { const x = new Date(Date.now() + n * 864e5); return `/Date(${Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate())})/`; };
-// a flight the scenario's generator seeds, its date in V2 form
-const FLIGHT = {CarrierID: "SQ", ConnectionID: "0001", FlightDate: `/Date(${Date.UTC(2027, 5, 23)})/`};
+// the read-only view service of the same pack, over the seeded tables
+const ro = `${origin}/sap/opu/odata/sap/ZOSD_RAPFLIGHT_SRV`;
+// a flight the scenario's generator seeds, picked from the seed itself at run
+// time: the generator windows its flights around the day the build runs (its
+// latest is a Monday "8 months in the future", a rolling date), so a flight
+// date written down here falls out of the seed -- on 2026-11-16 the fixed
+// 2027-06-23 did and this suite went red with no code change
+let flight;
 
 async function call(url, options) {
   const res = await fetch(url, options);
@@ -42,10 +48,21 @@ describe("RAP R7: the flight travel BO served (V2 data requests and V4)", functi
       } catch { /* not listening yet */ }
       await new Promise(r => setTimeout(r, 200));
     }
+    flight = await pickFlight();
   });
   after(() => server?.close());
 
   const get = url => call(url, {headers: json});
+  // the SQ 0001 flight of the day the seed was made, in the shape a booking
+  // write takes; the seed's window rolls with the build day, so the test
+  // reads the date from the seed instead of writing one down
+  const pickFlight = async () => {
+    const res = await get(`${ro}/FlightSet?$filter=Airlineid eq 'SQ' and Connectionid eq '0001'&$top=1&$format=json`);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const row = res.body.d.results[0];
+    assert.ok(row, "the seed holds an SQ 0001 flight");
+    return {CarrierID: row.Airlineid, ConnectionID: row.Connectionid, FlightDate: row.Flightdate};
+  };
   const tag = async url => (await get(url)).headers.get("etag");
   const travel = async (extra = {}) => {
     const res = await call(`${v2}/Travel`, {method: "POST", headers: write, body: JSON.stringify({
@@ -55,7 +72,7 @@ describe("RAP R7: the flight travel BO served (V2 data requests and V4)", functi
     return res.body.d;
   };
   const booking = (id, extra = {}) => call(`${v2}/Travel('${id}')/to_Booking`, {method: "POST", headers: write, body: JSON.stringify({
-    BookingDate: day(0), CustomerID: "000078", ...FLIGHT, FlightPrice: "100.00", CurrencyCode: "EUR", BookingStatus: "N", ...extra})});
+    BookingDate: day(0), CustomerID: "000078", ...flight, FlightPrice: "100.00", CurrencyCode: "EUR", BookingStatus: "N", ...extra})});
   const supplement = (id, bid, price) => call(`${v2}/Booking(TravelID='${id}',BookingID='${bid}')/to_BookSupplement`, {method: "POST", headers: write,
     body: JSON.stringify({SupplementID: "ML-0001", Price: price, CurrencyCode: "EUR"})});
   const supplements = async id => (await get(`${v2}/BookingSupplement?$filter=TravelID eq '${id}'&$format=json`)).body.d.results;
