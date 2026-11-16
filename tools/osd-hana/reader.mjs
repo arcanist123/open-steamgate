@@ -24,7 +24,12 @@
 import {randomBytes} from "node:crypto";
 import {createRequire} from "node:module";
 
-const READER_NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,30}$/;
+// The reader name must be OURS, not merely well-formed: ^OSD_ followed by
+// 1-26 capitals/digits/underscores. The old pattern admitted SYSTEM, SYS and
+// _SYS_REPO, and DROP USER ... CASCADE is then one --yes away from the
+// database's own accounts -- the validation exists for injection, but
+// ownership is the stronger rule (critic M-2).
+const READER_NAME_PATTERN = /^OSD_[A-Z0-9_]{1,26}$/;
 export const DEFAULT_READER_NAME = "OSD_READER";
 
 export class ReaderError extends Error {}
@@ -47,10 +52,20 @@ export function quotePasswordLiteral(password) {
 export function validateReaderName(name, {flag = "--reader-name"} = {}) {
   if (!READER_NAME_PATTERN.test(name)) {
     throw new ReaderError(`osd hana: invalid reader name ${JSON.stringify(name)} -- ` +
-      `${flag} must match ^[A-Z][A-Z0-9_]{0,30}$ (capital letter first, then capitals, digits, underscore). ` +
-      `The name is sent UNQUOTED into CREATE USER, so anything else is not a name but an injection.`);
+      `${flag} must match ^OSD_[A-Z0-9_]{1,26}$ (the tool's own prefix OSD_, then 1-26 capitals, digits, underscore). ` +
+      `The name is sent UNQUOTED into CREATE USER, so anything else is not a name but an injection -- and a name ` +
+      `that is not ours must never reach DROP USER at all.`);
   }
   return name;
+}
+
+/** The secret-store key: host, port, database and reader name together.
+ *  --drop-reader is allowed to drop only when an entry exists for exactly
+ *  this connection and name -- the record --create-reader wrote (critic M-2,
+ *  M-3). An older entry that matches nothing is not a licence: it is ignored,
+ *  and the refusal names the one statement an administrator can run by hand. */
+export function readerStoreKey(connection, readerName) {
+  return [connection.host, String(connection.port), connection.database ?? "", readerName].join("/");
 }
 
 // ------------------------------------------------------------ the password
@@ -199,7 +214,7 @@ async function dropUserQuietly(client, readerName) {
 
 // ------------------------------------------------------------- create path
 
-export function describe258OnCreate(login) {
+export function describe258OnCreate() {
   return [
     `osd hana: this login may not create users (HANA error 258, insufficient privilege).`,
     `  Two ways on:`,
@@ -288,8 +303,11 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
         if (proofClient !== undefined) await proofClient.disconnect();
       }
 
-      // 5. Store the reader's credentials.
-      store.set({user: readerName, password, schema}, readerName);
+      // 5. Store the reader's credentials, keyed by this exact connection and
+      // name -- --drop-reader demands the same key back before it will drop.
+      store.set(
+        {user: readerName, password, schema, host: connection.host, port: connection.port, database: connection.database},
+        readerStoreKey(connection, readerName));
       say(`osd hana: the reader's credentials are stored in ${store.location(readerName)}.`);
       return {user: readerName, password, schema};
     } catch (error) {
@@ -298,7 +316,6 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       // message -- dropping again would only bury the cause under a 332.)
       if (error instanceof ReaderError) throw error;
       const cleanup = await dropUserQuietly(adminClient, readerName);
-      if (error instanceof ReaderError) throw error;
       const causedBy = sqlErrorText(error);
       const note = cleanup.dropped
         ? `The reader ${readerName} was dropped again; nothing was left behind.`
@@ -335,8 +352,21 @@ function cleanupDropFailedText(cleanup) {
 // --------------------------------------------------------------- drop path
 
 /** Drop the reader: DROP USER <name> CASCADE, prove absence, remove the
- *  stored secret. A 332 from the DROP means the user was already absent --
- *  still prove it, still remove the secret, and say so. */
+ *  stored secret. The guards, in order, and each before anything is sent
+ *  (critic M-2):
+ *
+ *  1. the name must match ^OSD_[A-Z0-9_]{1,26}$ -- a name that is not ours
+ *     never reaches DROP USER;
+ *  2. the name must not BE the login this run is connected as -- the current
+ *     login is necessarily in SYS.USERS, so dropping it would drop the
+ *     administrator itself;
+ *  3. the secret store must hold an entry for exactly this host + port +
+ *     database + name -- the record --create-reader wrote. Otherwise the tool
+ *     refuses and prints the one SQL line an administrator can run by hand.
+ *     There is deliberately no force flag.
+ *
+ *  A 332 from the DROP means the user was already absent -- still prove it,
+ *  still remove the secret, and say so. */
 export async function dropReader({
   connection,
   readerName = DEFAULT_READER_NAME,
@@ -348,10 +378,30 @@ export async function dropReader({
   say = () => {},
 } = {}) {
   validateReaderName(readerName);
+  if (readerName === String(connection.user).toUpperCase()) {
+    throw new ReaderError(`osd hana: refusing to drop ${readerName}: that is the login this run is connected as ` +
+      `(it is necessarily in SYS.USERS) -- dropping it would drop the administrator itself. Nothing was sent.`);
+  }
+  const key = readerStoreKey(connection, readerName);
+  const stored = store.get(key);
+  const ours = stored !== undefined
+    && stored.user === readerName
+    && stored.host === connection.host
+    && Number(stored.port) === Number(connection.port)
+    && (stored.database ?? "") === (connection.database ?? "");
+  if (!ours) {
+    throw new ReaderError(`osd hana: refusing to drop ${readerName}: the secret store holds no entry for this ` +
+      `host, port and database -- this tool did not create a reader here, and it never drops a user it does not ` +
+      `own. If a reader ${readerName} really exists on ${connection.host}${connection.database ? `, database ${connection.database}` : ""} ` +
+      `and you are sure it is yours to remove, run this one statement by hand, as a database administrator:\n` +
+      `  DROP USER ${readerName} CASCADE`);
+  }
   const lines = [
     `osd hana: about to drop the dedicated reader ${readerName} (DROP USER ${readerName} CASCADE),`,
     `  prove its absence in SYS.USERS, and remove its stored secret`,
     `  from ${store.location(readerName)}.`,
+    `  This is allowed because the secret store holds the entry this tool wrote for exactly`,
+    `  this host, port and database -- the only user it will ever drop.`,
   ].join("\n");
   say(lines);
   await askConsent({yes, isTTY, prompt});
@@ -372,7 +422,7 @@ export async function dropReader({
     const remaining = await countUsersNamed(client, readerName);
     if (remaining !== 0) throw new ReaderError(`osd hana: ${readerName} still exists (SYS.USERS has ${remaining} row(s)) -- the drop did not take effect`);
     if (!alreadyAbsent) say(`osd hana: absence proved -- SYS.USERS has no row for ${readerName}.`);
-    store.delete(readerName);
+    store.delete(key);
     say(`osd hana: the stored secret was removed from ${store.location(readerName)}.`);
     return {dropped: !alreadyAbsent, absent: true};
   } finally {

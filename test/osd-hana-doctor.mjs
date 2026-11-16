@@ -20,7 +20,7 @@ import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/d
 import {makeRedactor} from "../tools/osd-hana/redact.mjs";
 import {
   DEFAULT_READER_NAME, ConsentRefused, ReaderError,
-  createReader, dropReader, generateReaderPassword, quoteIdentifier, validateReaderName,
+  createReader, dropReader, generateReaderPassword, quoteIdentifier, readerStoreKey, validateReaderName,
 } from "../tools/osd-hana/reader.mjs";
 import {fileSecretStore} from "../tools/osd-hana/secret-store.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
@@ -455,18 +455,29 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       return fileSecretStore(join(root, `secrets-${Math.random().toString(16).slice(2)}`));
     }
 
-    it("validates the reader name: no injection, no quotes, capital first (mutation: drop validation -> red)", function () {
+    // A store seeded with the entry drop-reader demands: an exact match of
+    // host + port + database + name, the record this tool would have written.
+    function seedStore(secretStore, connection, name = DEFAULT_READER_NAME, password = "gone-soon-42") {
+      secretStore.set(
+        {user: name, password, schema: SCHEMA, host: connection.host, port: connection.port, database: connection.database},
+        readerStoreKey(connection, name));
+    }
+
+    it("validates the reader name: only a name that is ours, ^OSD_[A-Z0-9_]{1,26}$ (critic M-2; mutation: admit any uppercase name -> red)", function () {
       expect(validateReaderName(DEFAULT_READER_NAME)).to.equal("OSD_READER");
-      for (const bad of ["X; DROP USER Y", 'AB"C', "1ABC", "osd_reader", "TOO_LONG_NAME_OVER_THIRTY_ONE_XY", "", "A-B"]) {
+      expect(validateReaderName("OSD_R")).to.equal("OSD_R");
+      // the database's own accounts are names, not readers: none of them may
+      // pass -- the old pattern admitted SYSTEM and SYS straight into
+      // DROP USER ... CASCADE
+      for (const bad of ["SYSTEM", "SYS", "_SYS_REPO", "OSDX", "X; DROP USER Y", 'AB"C', "1ABC", "osd_reader", "TOO_LONG_NAME_OVER_THIRTY_ONE_XY", "", "A-B", `OSD_${"A".repeat(27)}`]) {
         expect(() => validateReaderName(bad), bad).to.throw(ReaderError);
       }
-      expect(validateReaderName("OSD_READER_1")).to.equal("OSD_READER_1");
       // and createReader itself refuses a bad name before anything is built
       // or sent -- the entry point is the guard, not the helper alone
       const {log, factory} = fakeClientFactory(SUCCESS_RULES);
       return createReader({
         connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, readerName: "X; DROP USER Y", yes: true,
+        schema: SCHEMA, readerName: "SYSTEM", yes: true,
         store: store(), clientFactory: factory,
       }).then(
         () => expect.fail("should refuse"),
@@ -477,6 +488,61 @@ describe("tools/osd-hana: the osd hana doctor", function () {
           expect(log.statements).to.have.length(0);
           expect(log.connections).to.have.length(0);
         });
+    });
+
+    it("drop-reader without a matching stored secret refuses and names the one SQL line, sending nothing (critic M-2b; mutation: drop the ownership check -> red)", async function () {
+      // the store holds no entry for this host + port + database + name: this
+      // tool did not create a reader here, so it must not drop one -- the
+      // refusal hands the administrator the single statement to run by hand
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      await dropReader({
+        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        readerName: DEFAULT_READER_NAME, yes: true, store: store(), clientFactory: factory,
+      }).then(
+        () => expect.fail("should refuse"),
+        (error) => {
+          expect(error).to.be.an.instanceof(ReaderError);
+          expect(error.message).to.include("DROP USER OSD_READER CASCADE");
+        });
+      expect(log.connections).to.have.length(0);
+      expect(log.statements).to.have.length(0);
+    });
+
+    it("drop-reader refuses a stored secret that belongs to another host or database (the entry must match exactly)", async function () {
+      const secretStore = store();
+      secretStore.set(
+        {user: DEFAULT_READER_NAME, password: "gone-soon-42", schema: SCHEMA, host: "other.example.test", port: 39015, database: "TEN"},
+        readerStoreKey({host: "other.example.test", port: 39015, database: "TEN"}, DEFAULT_READER_NAME));
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      await dropReader({
+        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        readerName: DEFAULT_READER_NAME, yes: true, store: secretStore, clientFactory: factory,
+      }).then(
+        () => expect.fail("should refuse"),
+        (error) => expect(error).to.be.an.instanceof(ReaderError));
+      expect(log.connections).to.have.length(0);
+      expect(log.statements).to.have.length(0);
+    });
+
+    it("drop-reader refuses to drop the login it is connected as (critic M-2c; mutation: remove the identity check -> red)", async function () {
+      // the current login is necessarily in SYS.USERS; a reader name that IS
+      // the login means DROP USER <the administrator itself> CASCADE
+      const secretStore = store();
+      secretStore.set(
+        {user: DEFAULT_READER_NAME, password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015},
+        readerStoreKey({host: HOST, port: 39015}, DEFAULT_READER_NAME));
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      await dropReader({
+        connection: {host: HOST, port: 39015, user: "osd_reader", password: PASSWORD},
+        readerName: DEFAULT_READER_NAME, yes: true, store: secretStore, clientFactory: factory,
+      }).then(
+        () => expect.fail("should refuse"),
+        (error) => {
+          expect(error).to.be.an.instanceof(ReaderError);
+          expect(error.message.toLowerCase()).to.include("login");
+        });
+      expect(log.connections).to.have.length(0);
+      expect(log.statements).to.have.length(0);
     });
 
     it("quotes identifiers as measured: \" doubled, ' passing through", async function () {
@@ -563,18 +629,24 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       const everything = said.join("\n");
       expect(everything).to.not.include(result.password);
       expect(everything).to.include("***");
-      // the secret is stored where the doctor says
+      // the secret is stored where the doctor says, keyed by this connection
       expect(said.join("\n")).to.include(secretStore.location(DEFAULT_READER_NAME));
-      expect(secretStore.get(DEFAULT_READER_NAME).password).to.equal(result.password);
+      const adminConnection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+      expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).password).to.equal(result.password);
+      expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).host).to.equal(HOST);
     });
 
     it("binds catalogue comparisons, never concatenates them (mutation: concatenate -> red)", async function () {
       // the SYS.USERS absence proof of drop-reader takes the reader name as a
-      // bound parameter
+      // bound parameter (and the drop below is allowed: the store holds an
+      // entry for exactly this connection and name)
       const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      const dropStore = store();
+      const dropConnection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+      seedStore(dropStore, dropConnection);
       await dropReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        yes: true, store: store(), clientFactory: factory,
+        connection: dropConnection,
+        yes: true, store: dropStore, clientFactory: factory,
       });
       const sysUsers = log.statements.find((s) => s.sql.includes("FROM SYS.USERS"));
       expect(sysUsers.sql).to.include("USER_NAME = ?");
@@ -694,10 +766,11 @@ describe("tools/osd-hana: the osd hana doctor", function () {
     it("drop-reader: DROP ... CASCADE, absence proved, secret removed (mutation: skip store.delete -> red)", async function () {
       const {log, factory} = fakeClientFactory(SUCCESS_RULES);
       const secretStore = store();
-      secretStore.set({user: "OSD_READER", password: "gone-soon-42"}, "OSD_READER");
+      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+      seedStore(secretStore, connection);
       const said = [];
       const result = await dropReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        connection,
         readerName: DEFAULT_READER_NAME, yes: true, store: secretStore,
         clientFactory: factory, say: (text) => said.push(text),
       });
@@ -705,7 +778,7 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       expect(result.absent).to.equal(true);
       expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
       expect(log.statements.some((s) => s.sql.includes("FROM SYS.USERS"))).to.equal(true);
-      expect(secretStore.get(DEFAULT_READER_NAME)).to.equal(undefined);
+      expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
       expect(said.join("\n")).to.include("absence proved");
     });
 
@@ -715,14 +788,15 @@ describe("tools/osd-hana: the osd hana doctor", function () {
         {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
       ]);
       const secretStore = store();
-      secretStore.set({user: "OSD_READER", password: "gone-soon-42"}, "OSD_READER");
+      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+      seedStore(secretStore, connection);
       const result = await dropReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        connection,
         yes: true, store: secretStore, clientFactory: factory,
       });
       expect(result.dropped).to.equal(false);
       expect(result.absent).to.equal(true);
-      expect(secretStore.get(DEFAULT_READER_NAME)).to.equal(undefined);
+      expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
     });
 
     it("through the doctor: --create-reader runs the whole path and exits 0", async function () {
@@ -734,7 +808,8 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       });
       expect(code).to.equal(0);
       expect(log.statements.some((s) => s.sql.startsWith("CREATE USER"))).to.equal(true);
-      expect(secretStore.get(DEFAULT_READER_NAME)).to.not.equal(undefined);
+      // the stored secret is keyed by this connection (host, port, database, name)
+      expect(secretStore.get(readerStoreKey({host: HOST, port: 39015}, DEFAULT_READER_NAME))).to.not.equal(undefined);
     });
 
     it("the env file feeds the connection, unknown keys are refused", function () {
