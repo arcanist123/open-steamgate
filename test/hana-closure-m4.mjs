@@ -62,6 +62,32 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(cycleName(["b", "a", "c"])).to.equal(cycleName(["c", "b", "a"]));
   });
 
+  it("2: names of a library namespace are framework gaps, never asked, never merged from a dump", async () => {
+    const lib = {"#zosdh5x#cl_provided.clas.abap": cls("/zosdh5x/cl_provided", ["CLASS-METHODS run."], {run: ["RETURN."]})};
+    const seed = cls("zcl_osd_h5x_seed", ["METHODS a.", "METHODS b.", "METHODS c.", "METHODS d."], {
+      a: ["/zosdh5x/cl_absent=>run( )."],
+      b: ["DATA lo_x TYPE REF TO /zosdh5x/if_absent.", "CLEAR lo_x."],
+      c: ["DATA lt_x TYPE /zosdh5x/tt_absent.", "CLEAR lt_x."],
+      d: ["/zosdh5x/cl_provided=>run( )."],
+    });
+    // the seed dump carries one framework-namespace object anyway: refused
+    const absent = cls("/zosdh5x/cl_absent", ["CLASS-METHODS run."], {run: ["RETURN."]});
+    const {root, env, seedDump} = make({lib, seed: {"zcl_osd_h5x_seed.clas.abap": seed, "#zosdh5x#cl_absent.clas.abap": absent}});
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    expect(allRequested(root).filter((n) => n.startsWith("/ZOSDH5X/")), "never asked").to.deep.equal([]);
+    const gaps = readJson(outFile(root, "framework-gaps.json"));
+    const named = gaps.filter((g) => g.name !== undefined);
+    expect(named.map((g) => g.name)).to.include.members(["/ZOSDH5X/CL_ABSENT", "/ZOSDH5X/IF_ABSENT", "/ZOSDH5X/TT_ABSENT"]);
+    expect(named.find((g) => g.name === "/ZOSDH5X/CL_ABSENT").refused_from_dump).to.equal(true);
+    expect(named.find((g) => g.name === "/ZOSDH5X/IF_ABSENT").used_by[0].file).to.equal("zcl_osd_h5x_seed.clas.abap");
+    expect(named.find((g) => g.name === "/ZOSDH5X/TT_ABSENT").used_by).to.not.be.empty;
+    const layer = readdirSync(join(root, "gen", "hana-src")).find((f) => f !== "manifest.json");
+    expect(readdirSync(join(root, "gen", "hana-src", layer, "src")), "refused at the merge").to.deep.equal(["zcl_osd_h5x_seed.clas.abap"]);
+    const stubbed = readJson(outFile(root, "closure-stubs.json")).stubs.map((s) => s.method).sort();
+    expect(stubbed).to.deep.equal(["A", "B", "C"]);
+  });
+
   // a family seed: two services (one SEGW pair, one hand-written DPC) of the
   // seed package, and a registration row of a service outside it
   const FAMILY = (() => {

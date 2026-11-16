@@ -279,7 +279,8 @@ import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
 import {TADIR, readDumpAnswer, requestFor, tadirKinds} from "./hana-closure-request.mjs";
-import {registerSeed} from "./hana-closure-seed.mjs";
+import {registerSeed, seedNamespaces} from "./hana-closure-seed.mjs";
+import {frameworkNamespaces, frameworkNames, frameworkPredicate, splitFrameworkNames, writeFrameworkNames} from "./hana-closure-framework.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
@@ -359,9 +360,12 @@ export async function run(args = process.argv.slice(2), options = {}) {
     delete state.pending;
   }
   let dump = resolve(root, state.dump);
-  // the seed (milestone 4): the walk's first dump decides the services
-  // (tools/hana-closure-seed.mjs)
+  // the seed (milestone 4): the walk's first dump decides the services and
+  // the framework namespaces (tools/hana-closure-seed.mjs, -framework.mjs)
   state.seed ??= state.layers?.[0]?.dump ?? state.dump;
+  const fwNamespaces = frameworkNamespaces(root, seedNamespaces(resolve(root, state.seed)));
+  const isFramework = frameworkPredicate(fwNamespaces);
+  if (fwNamespaces.length > 0) say(`framework namespaces (the libraries', minus the seed's): ${fwNamespaces.join(", ")}`);
   saveState(out, state);
   const requestPath = join(out, "closure-request.json");
 
@@ -425,7 +429,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const fill = Object.keys(state.resolved ?? {}).length > 0
       ? {resolved: state.resolved, dumps: [...state.layers].reverse().map((l) => l.dump)}
       : undefined;
-    const {refused} = mergeInputs(root, dump, layersDirs, env, say, fill);
+    const {refused, intake} = mergeInputs(root, dump, layersDirs, env, say, fill, fwNamespaces);
+    // what the merge refused to deliver (milestone 4): a framework-namespace
+    // object is a framework gap
+    const fwRefused = intake;
     await registerSeed({root, dump: resolve(root, state.seed), say, quiet: state.iteration > 1});
     // the merge refusals join the state's (the gap stands while the object
     // is in no build) and leave when a dump the merge handled carries the
@@ -476,6 +483,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // graph decision's input, in both modes
     const reg = await structuralRegistry(root, say);
     const analysis = analyseIsland({reg, root, classPaths: islandClassPaths(root)});
+    const fwNames = frameworkNames();
     let all = parseFindings(await validationMessage(root, join(out, "closure-stubs.json")));
     let findings = all.filter((f) => island.has(f.file));
     // FIX-1: this iteration's analysis errors, keyed by file ("red, unknown
@@ -518,11 +526,11 @@ export async function run(args = process.argv.slice(2), options = {}) {
       const pendingAtFixedPoint = (name, kind) =>
         objectFilePresent(name, kind, islandFiles) === false &&
         state.missing[name] === undefined && state.refused[name] === undefined &&
-        excludedObjects.has(name) === false &&
+        excludedObjects.has(name) === false && isFramework(name) === false &&
         (state.asked[name] === undefined || resolvedSet.has(name) === false);
       // a name gone from the build -- excluded, or answered
       // missing/refused: the FRIENDS strip's predicate
-      const goneOf = (name) => excludedObjects.has(name) === true ||
+      const goneOf = (name) => excludedObjects.has(name) === true || isFramework(name) === true ||
         state.missing[name] !== undefined || state.refused[name] !== undefined;
       // this run's framework gaps: one entry per distinct nameless finding text
       const gapFindings = new Map();
@@ -614,7 +622,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
                 missingOf: (name) => state.missing[name] !== undefined,
                 asked: (name) => state.asked[name] !== undefined,
                 refusedOf: (name) => state.refused[name] !== undefined,
-                islandFiles, excludedObjects, deferDdic, goneOf});
+                islandFiles, excludedObjects, deferDdic, goneOf, frameworkOf: isFramework});
             } catch (error) {
               // FIX-1: one file's planning must not stop the walk -- recorded,
               // the object leaves the decision material (kept, never excluded)
@@ -625,6 +633,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
               planErrored.add(object);
               continue;
             }
+            for (const fw of plan.framework ?? []) fwNames.add(fw.name, fw.kind, {file: basename, line: fw.line, method: fw.method});
             for (const n of plan.nameless) {
               const entry = gapFindings.get(n.finding) ??
                 {finding: n.finding, ...(n.member !== undefined ? {member: n.member} : {}), used_by: []};
@@ -801,7 +810,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // is a CASCADE of that object's own findings, counted below as
     // "cascade (present)". An object excluded this run is out of the
     // build; its name rides the request's excluded key instead.
-    const {names, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...conversionExitAsks(reg, analysisForNames.objects, root), ...classified.names], island, excludedObjects);
+    const {names: unsplit, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...conversionExitAsks(reg, analysisForNames.objects, root), ...classified.names], island, excludedObjects);
+    // a name in a framework namespace is a framework gap, never an ask
+    const names = splitFrameworkNames(unsplit, isFramework, fwNames, analysisForNames.objects);
+    const frameworkByName = writeFrameworkNames(out, fwNames, fwRefused);
     const cascades = classified.cascades;
     const unclassified = classified.unclassified;
     // and the stubs' eager DDIC names (H5x-1): asked like any classified name
@@ -864,7 +876,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const writtenDdic = ddicWritten(root);
     const ddicCounts = TADIR.filter((k) => (state.resolved?.[k] ?? []).length > 0)
       .map((k) => `${k} ${state.resolved[k].length}/${writtenDdic[k]?.size ?? 0}`).join(", ");
-    say(`iteration ${state.iteration}: ${fresh.length} new name(s), ${gaps.length} gap(s), ${unscoped} outside the island (not asked), ${refusedGaps.length} merge-refusal gap(s), ${cascades} cascade finding(s) skipped, ${structuralCount} structural, ${unclassified.length} unclassified${stubUnresolved === true ? `, ${deferredOnly.length} deferred by stubs, ${stubMap.size} stubbed method(s), ${liftedNow} lifted, framework gaps: ${frameworkGaps}${cycles > 0 ? `, ${cycles} cycle member(s) kept` : ""}` : ""}, ${objects.total} island object(s)${gapKinds !== "" ? `, gaps by kind: ${gapKinds}` : ""}${ddicCounts !== "" ? `, DDIC resolved/written: ${ddicCounts}` : ""}, ${present} cascade (present)${excludedRecords.length > 0 ? `, ${excludedRecords.filter((r) => r.level !== "cycle").length} excluded` : ""}${stubUnresolved === true && guardBySuffix === true ? ", service guard: by suffix, no registration" : ""}`);
+    say(`iteration ${state.iteration}: ${fresh.length} new name(s), ${gaps.length} gap(s), ${unscoped} outside the island (not asked), ${refusedGaps.length} merge-refusal gap(s), ${cascades} cascade finding(s) skipped, ${structuralCount} structural, ${unclassified.length} unclassified${stubUnresolved === true ? `, ${deferredOnly.length} deferred by stubs, ${stubMap.size} stubbed method(s), ${liftedNow} lifted, framework gaps: ${frameworkGaps}${cycles > 0 ? `, ${cycles} cycle member(s) kept` : ""}` : ""}, ${objects.total} island object(s)${gapKinds !== "" ? `, gaps by kind: ${gapKinds}` : ""}${ddicCounts !== "" ? `, DDIC resolved/written: ${ddicCounts}` : ""}, ${present} cascade (present)${excludedRecords.length > 0 ? `, ${excludedRecords.filter((r) => r.level !== "cycle").length} excluded` : ""}${stubUnresolved === true && guardBySuffix === true ? ", service guard: by suffix, no registration" : ""}${frameworkByName > 0 ? `, framework names: ${frameworkByName}` : ""}`);
     for (const line of unclassified) say(`unclassified: ${line}`);
 
     if (fresh.length === 0) {
@@ -880,7 +892,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
       writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
         present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load,
         searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
-      ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {})});
+      framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {})});
       return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }

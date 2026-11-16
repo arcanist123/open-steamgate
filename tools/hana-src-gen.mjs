@@ -38,6 +38,11 @@
 //                       written; exit 1 on drift (generated_at is not
 //                       compared: every run would drift on the clock)
 //   --out <dir>         default gen/hana-src
+//   --refuse-namespace <ns>  repeatable (milestone 4): an object of this
+//                       namespace (`/IWBEP/`) is never written -- the
+//                       closure's framework namespaces; the manifest's
+//                       `refused` names it. Every run also refuses an object
+//                       carrying a kernel splice (tools/hana-closure-intake.mjs)
 //
 // Refusals, named: a layer folder without .abapgit.xml; a folder beside a
 // layer's src/ or a nested one inside it (a converter layer is .abapgit.xml
@@ -64,6 +69,7 @@ import {tmpdir} from "node:os";
 import {join, relative, resolve, sep} from "node:path";
 import {runsAs} from "./osd-main.mjs";
 import {scriptCommandIn} from "./osd-host.mjs";
+import {refuseObjects} from "./hana-closure-intake.mjs";
 
 // the converter's --package glob: % and * are any run of characters, _ is one
 function likeToRegExp(pattern) {
@@ -473,6 +479,11 @@ export async function run(args = process.argv.slice(2), options = {}) {
   const system = take(args, "--system");
   const packages = [];
   while (args.includes("--packages")) packages.push(take(args, "--packages"));
+  // milestone 4: a namespace this tree's libraries provide is never merged
+  // from a dump (tools/hana-closure-intake.mjs); repeatable
+  const refuse = [];
+  while (args.includes("--refuse-namespace")) refuse.push(take(args, "--refuse-namespace"));
+  options = {...options, refuse};
   const check = has(args, "--check");
   const fromDump = has(args, "--from-dump");
   if (args.length > 0) throw new Error(`unknown option ${args.find((a) => a.startsWith("--")) ?? args[0]}`);
@@ -527,6 +538,15 @@ async function generate(layersDirs, out, packages, check, options, provenance = 
     ({tree, groups} = mergedIntended(layersDirs, packages));
     manifest = mergedManifest(layersDirs, groups);
   }
+  // what a dumped source may not bring (milestone 4): a kernel splice, an
+  // object of a namespace the libraries provide -- refused per object, the
+  // manifest's `refused` says which, file and line
+  const refused = refuseObjects(tree, {namespaces: options.refuse ?? [],
+    read: (from) => (typeof from === "string" ? readFileSync(from, "utf8") : from.content)});
+  for (const r of refused) {
+    console.log(`hana-src-gen: ${r.folder}: ${r.object} refused (${r.reason}${r.line !== undefined ? `, ${r.file}:${r.line}` : `, ${r.file}`})`);
+  }
+  if (refused.length > 0) manifest.refused = refused;
   const source = provenance.source ?? (layersDirs.length === 1 ? layersDirs[0] : `${layersDirs.length} layers dir(s)`);
   if (check === true) {
     const drift = driftOf(out, tree, manifest);

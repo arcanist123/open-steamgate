@@ -301,12 +301,15 @@ function filteredDump(root, dump, without) {
  *  own "unknown option", and the message says what it needs. fill (round 7)
  *  carries the resolved DDIC names and the dumps newest-first for the
  *  per-name fill that runs after the steps. */
-export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined) {
+export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined, refuseNamespaces = []) {
   const layersDdic = layersDdicCount(layersDirs);
   const steps = [
     ...(layersDdic > 0 ? [] : [["hana-ddic-gen.mjs", ["--from-dump", dump, "--out", join(root, "gen", "hana-ddic")]]]),
     // the union of every dump so far: ALL the layers dirs, later wins per object
-    ["hana-src-gen.mjs", [...layersDirs.flatMap((d) => ["--layers", d]), "--out", join(root, "gen", "hana-src")]],
+    // milestone 4: a framework namespace is refused from every dump (the
+    // object is never merged)
+    ["hana-src-gen.mjs", [...layersDirs.flatMap((d) => ["--layers", d]), ...refuseNamespaces.flatMap((n) => ["--refuse-namespace", n]),
+      "--out", join(root, "gen", "hana-src")]],
   ];
   if (layersDdic > 0) {
     say(`merge: the layers carry the DDIC XML (${layersDdic} file(s)) -- hana-ddic-gen --from-dump is skipped, the converter is the writer of record`);
@@ -345,7 +348,14 @@ export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined) 
   // the per-name fill (round 7): after the steps, so a step the layers let
   // run has written what it has and the fill writes only the rest
   const fillRefused = fill === undefined ? [] : ddicFill({root, env, say, resolved: fill.resolved, dumps: fill.dumps});
-  return {refused: [...refused.values(), ...fillRefused]};
+  // what hana-src-gen refused to deliver, from its manifest (milestone 4)
+  let intake = [];
+  try {
+    intake = JSON.parse(readFileSync(join(root, "gen", "hana-src", "manifest.json"), "utf8")).refused ?? [];
+  } catch {
+    intake = [];
+  }
+  return {refused: [...refused.values(), ...fillRefused], intake};
 }
 
 // the per-name fill (H5c round 7): the dumps RESOLVED a DDIC name -- the

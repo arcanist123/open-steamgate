@@ -683,10 +683,12 @@ export function frameworkGapList(gapFindings, isSeed = undefined) {
 // EXCLUSION decision reads a stricter one -- and since H5x-2 it is the
 // graph's gate (tools/hana-closure-graph.mjs graphDecide's pendingOf), the
 // loop hands it in.
-function pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects}) {
+// A name in a framework namespace (milestone 4) is never pending: the
+// libraries are its only source, the dumper is never asked.
+function pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects, frameworkOf = () => false}) {
   return asked(name) === false && presentFile(name, kind) === false &&
     missingOf(name) === false && refusedOf(name) === false &&
-    excludedObjects.has(name) === false;
+    excludedObjects.has(name) === false && frameworkOf(name) === false;
 }
 
 // the quoted member token of a nameless finding, where the shape has one --
@@ -710,7 +712,8 @@ const memberOf = (message) => {
  *  is what no stub reaches -- the signature-line findings included, the
  *  decision's material beside the structural definition references. Pure. */
 export function planStubPass({source, findings, basename, refs = [], missingOf = () => false, asked = () => false,
-  refusedOf = () => false, islandFiles = new Set(), excludedObjects = new Set(), deferDdic = false, goneOf = () => false}) {
+  refusedOf = () => false, islandFiles = new Set(), excludedObjects = new Set(), deferDdic = false, goneOf = () => false,
+  frameworkOf = () => false}) {
   // FRIENDS first: the cut stays inside the CLASS DEFINITION line, so the
   // findings' rows survive it (a friend that is gone costs a clause, not
   // the class)
@@ -734,7 +737,7 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   const paths = constructorPaths(work, basename);
   const onConstructorPath = (block) => paths.reach.get(block.className)?.has(block.method) === true;
   const presentFile = (name, kind) => objectFilePresent(name, kind, islandFiles) === true;
-  const pending = (name, kind) => pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects});
+  const pending = (name, kind) => pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects, frameworkOf});
   const present = (name, kind) => presentFile(name, kind) === true && excludedObjects.has(name) === false;
   const findingOf = (refs2, fallbackFinding) => {
     const withFinding = refs2.find((r) => r.finding !== undefined);
@@ -788,6 +791,9 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   const deferred = [];
   const eager = [];
   const nameless = [];
+  // the framework names the stubbed methods name (milestone 4): the
+  // caller records them as framework gaps with these uses
+  const framework = [];
   let dropped = 0;
   for (const block of blocks) {
     if (sigMethods.has(block.method) === true) continue;
@@ -795,6 +801,9 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
     if (inside.length === 0) continue;
     const methodRefs = refs.filter((r) => r.level === "method" && r.method === block.method);
     const {missing, missingKinds} = blockNames(methodRefs, inside);
+    for (const nk of missingKinds) {
+      if (frameworkOf(nk.name) === true) framework.push({name: nk.name, kind: nk.kind, line: inside[0].line, method: block.method});
+    }
     const stub = {...block, missing, missingKinds, finding: inside[0].raw, reason: stubReasonText(inside[0])};
     const byName = new Map(missingKinds.map((n) => [n.name, n]));
     const forName = (nk) => ({
@@ -900,7 +909,7 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   return {source: outSource, stubs: [...stubs, ...sigStubs], unmatched: findings.filter((f) =>
     blocks.some((b) => f.line > b.headerEnd.row && f.line < b.endStart.row) === false),
   eager: [...eager, ...sigEager], deferred: [...deferred, ...sigDeferred], nameless,
-  friendsStripped: friends.stripped};
+  friendsStripped: friends.stripped, framework};
 }
 
 // the parameter names a signature cut removes: the reference's `var` (the

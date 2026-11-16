@@ -16,6 +16,9 @@
 //   hand-written DPC (no SEGW project, no _DPC suffix) is a service the same
 //   way; a service whose DPC_EXT inherits another service's _EXT is still
 //   its own row;
+// - the seed's namespaces: of its packages and its TADIR objects -- the
+//   tenant's own, never a framework namespace of ours
+//   (tools/hana-closure-framework.mjs).
 // registerSeed() hands exactly those services to hana-segw-gen (--service
 // per row, --seed marks the facts), after every merge -- a service whose
 // classes arrive later is registered when they do, and the guard
@@ -24,6 +27,7 @@
 import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {run as segwGen} from "./hana-segw-gen.mjs";
+import {namespaceOf} from "./hana-closure-intake.mjs";
 
 const str = (v) => String(v ?? "").trim();
 const up = (v) => str(v).toUpperCase();
@@ -74,6 +78,17 @@ export function seedServices(dump) {
     out.push({service: str(r.TECHNICAL_NAME), version: str(r.VERSION), dpc, mpc});
   }
   return out.sort((a, b) => (a.service + a.version < b.service + b.version ? -1 : 1));
+}
+
+/** the namespaces the seed holds objects in or is packaged in. */
+export function seedNamespaces(dump) {
+  const {packages, objects} = seedObjects(dump);
+  const out = new Set();
+  for (const name of [...packages, ...objects.map((o) => o.name)]) {
+    const ns = namespaceOf(name);
+    if (ns !== undefined) out.add(ns);
+  }
+  return out;
 }
 
 /** registers exactly the seed's services through hana-segw-gen (--seed,
