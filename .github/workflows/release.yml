@@ -125,6 +125,17 @@ jobs:
           node tools/osd-provenance.mjs verify "$vsix"
           node scripts/release-version.mjs "$RELEASE_TAG" "$vsix" --allow-untagged
           (cd build/vsix && sha256sum "open-steamgate-$version.vsix" > "open-steamgate-$version.vsix.sha256")
+      # The universal package for the platform packages below (vsix_platforms):
+      # one seed, staged once, five packages derived from it.
+      - name: Keep the universal VSIX for the platform packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-universal
+          path: |
+            build/vsix/open-steamgate-*.vsix
+            build/vsix/open-steamgate-*.vsix.osd-provenance.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Generate and scan CHANGELOG, README and FILE_ID.DIZ
         id: leak
         env:
@@ -232,6 +243,94 @@ jobs:
             build/vsix/README.md \
             build/vsix/CHANGELOG.md \
             build/vsix/FILE_ID.DIZ
+
+  # Five platform packages of the extension from this ONE run, each carrying
+  # exactly its own target's osd-hana-dump sidecar (tools/osd-hana/: fetched
+  # from the pinned release and verified by SHA-256 against
+  # sidecar.lock.json by fetch-sidecar, checked again on the packed bytes;
+  # scripts/package-vsix-platforms.mjs). Workflow artifacts only: nothing
+  # here is uploaded to the release or the Marketplace, and the release jobs
+  # do not wait for it.
+  vsix_platforms:
+    needs: vsix
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix-universal
+          path: build/vsix
+      - name: Build, read back and verify the five platform packages
+        env:
+          RELEASE_TAG: ${{ needs.vsix.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG##*v}"
+          node scripts/package-vsix-platforms.mjs --vsix "build/vsix/open-steamgate-$version.vsix" --out build/vsix/platforms
+          count=0
+          for vsix in build/vsix/platforms/*.vsix; do
+            node tools/osd-provenance.mjs verify "$vsix"
+            bins="$(unzip -Z1 "$vsix" | grep '^extension/bin/' | grep -v '/$')"
+            test "$(printf '%s\n' "$bins" | wc -l)" -eq 1
+            printf '%s\t%s\t%s\n' "$(basename "$vsix")" "$(stat -c %s "$vsix")" "$bins"
+            count=$((count + 1))
+          done
+          test "$count" -eq 5
+          if unzip -Z1 "build/vsix/open-steamgate-$version.vsix" | grep -q '^extension/bin/'; then
+            echo '::error::The universal VSIX carries an extension/bin/ entry'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-platforms
+          path: |
+            build/vsix/platforms/*.vsix
+            build/vsix/platforms/*.vsix.osd-provenance.json
+          if-no-files-found: error
+          retention-days: 14
+
+  # Each runner unpacks ITS package and runs the bundled binary from the
+  # extension folder through the packaged lookup (extension/hana-sidecar.js),
+  # then the osd-hana module's own verification (pin + handshake). No
+  # database. Linux arm64 and Intel macOS have no runner here: their packages
+  # are checked by content in vsix_platforms only.
+  vsix_platform_smoke:
+    needs: vsix_platforms
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: linux-x64}
+          - {os: macos-latest, target: darwin-arm64}
+          - {os: windows-latest, target: win32-x64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix-platforms
+          path: build/vsix/platforms
+      - name: Unpack the ${{ matrix.target }} package and run its sidecar
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=(build/vsix/platforms/open-steamgate-"$TARGET"-*.vsix)
+          test "${#found[@]}" -eq 1
+          node scripts/smoke-vsix-sidecar.mjs "${found[0]}"
 
   binary:
     needs: vsix
