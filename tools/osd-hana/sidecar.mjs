@@ -427,7 +427,7 @@ export class Sidecar {
       try {
         summary = JSON.parse(line);
       } catch {
-        throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed no one-line JSON summary on stdout (contract W0); last line: ${redact(line.slice(0, 200))}`, {exit: code, outcome, stderr});
+        throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed no one-line JSON summary on stdout (contract W0); last line: ${redact(line).slice(0, 200)}`, {exit: code, outcome, stderr});
       }
     } else {
       throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed nothing on stdout (the contract promises one JSON line)`, {exit: code, outcome, stderr});

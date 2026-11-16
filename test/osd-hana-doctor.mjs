@@ -182,6 +182,19 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         });
     });
 
+    it("a non-JSON stdout line is quoted redacted FIRST, then truncated -- a password straddling character 200 leaves no prefix (critic; mutation: redact(line.slice(0, 200)) -> red)", async function () {
+      const password = "hunter2pw";
+      const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "non-json-leak"}});
+      await sidecar.run("probe").then(
+        () => expect.fail("a non-JSON line must be refused"),
+        (error) => {
+          expect(error).to.be.an.instanceof(SidecarRunError);
+          expect(error.message).to.include("no one-line JSON summary");
+          expect(error.message).to.include("x".repeat(195) + "***");
+          for (let n = 3; n <= password.length; n++) expect(error.message).to.not.include(password.slice(0, n));
+        });
+    });
+
     it("caps the child's accumulated output (8 MB) with a clear error (critic note; mutation: no cap -> red)", async function () {
       const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "chatty"}, timeoutMs: 15_000});
       await sidecar.run("probe").then(
@@ -850,6 +863,23 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code).to.equal(0);
       expect(h.out.join("\n")).to.include("SCHEMA_***");
       expect(h.allText()).to.not.include(PASSWORD);
+    });
+
+    it("decisions read the RAW document: a password equal to a note token does not turn 'system privileges not readable' into 'not an administrator' (mutation: readProbe(probeRun.display) for the decisions -> red)", async function () {
+      // The masked copy reads "system *** not readable" -- a note the reader
+      // does not recognise -- so a doctor deciding off it would take the
+      // login as known-not-administrator ("neither") instead of asking.
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const {factory, log} = fakeClientFactory(SUCCESS_RULES);
+      const code = await h.runDoctor(["--create-reader", "--yes"], {
+        scenario: "system-privileges-unreadable",
+        env: {OSD_HANA_PASSWORD: "privileges"},
+        deps: {clientFactory: factory, store: h.store()},
+      });
+      expect(code, h.allText()).to.equal(1);
+      expect(h.allText()).to.include("could not read this login's system privileges");
+      expect(h.allText()).to.include("whether it is an administrator (USER ADMIN) is not known");
+      expect(log.connections).to.have.length(0);
     });
 
     it("redactValues masks string values only -- never keys, never numbers (mutation: numbers through the redactor -> red)", function () {

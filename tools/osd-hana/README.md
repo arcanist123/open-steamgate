@@ -62,7 +62,9 @@ because the sidecar is read-only by construction and cannot create a user.
    the redactor; stdout's one JSON line is parsed raw — exactly one line,
    or a refusal, never a guess — and redacted only where it is printed or
    embedded (string values; a numeric password such as `123` never touches
-   a row count). Exit codes 0–5 map to the
+   a row count). Numbers are never masked and a string value equal to
+   (or containing) a credential is, so every decision reads the raw
+   document and a quoted line is redacted before it is truncated. Exit codes 0–5 map to the
    contract's named outcomes: `0 done, 1 usage, 2 connection, 3 partial,
    4 refused, 5 unsupported`.
 
