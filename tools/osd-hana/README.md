@@ -105,10 +105,26 @@ clone, diff and deploy:
    content is the vendor's and must not be published. Table CONTENTS are not
    extracted; the sidecar's `tables` request field stays reserved.
 2. **Plan** — the sidecar's `list` (no sources read) becomes a per-type and
-   per-package table with counts and byte estimates, and names the types the
-   converter cannot write. `--dry-run` stops here; `--json` prints the plan
-   as one document. Names from the database never reach the terminal or the
-   report raw: control characters are printed escaped, never interpreted.
+   per-package table with counts and byte estimates, a per-AUTHOR table for
+   the local objects (count + bytes — on a trial system that is where
+   several people's untransported work lives), the three biggest packages,
+   and names the types the converter cannot write. When local objects of
+   more than one author are in scope, the plan says so and names the
+   narrowing flags: "local objects of K authors are in scope; narrow with
+   `--author <name>` or `--no-local`". `--dry-run` stops here and never
+   asks; `--json` prints the plan as one document. Names from the database
+   never reach the terminal or the report raw: control characters are
+   printed escaped, never interpreted.
+
+   **Consent** — nothing is dumped without the user having seen the plan.
+   On a terminal the command asks `extract N objects (S MB) into <out>?`
+   after the plan; `y` or `yes` proceeds, anything else (EOF included)
+   declines and nothing is written. A non-interactive run needs `--yes`. A
+   plan above **5 000 objects or 200 MB** (estimated bytes) is LARGE: it
+   needs `--yes-large` instead — a plain `--yes` is refused, and on a
+   terminal the question says so and wants the full `yes`. The numbers live
+   in exactly one place (`LARGE_PLAN` in `extract-plan.mjs`); the prompt,
+   the refusals and this README quote it.
 3. **Dump** — the dump request NAMES the in-scope objects of the listing:
    exact names, sorted, LIKE-escaped (the sidecar matches
    `LIKE ? ESCAPE '\'`), in chunks of 500 (one request, one directory per

@@ -34,8 +34,9 @@ import {createHash} from "node:crypto";
 import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
-import {convert, SUPPORTED_TYPES} from "./convert/convert.mjs";
-import {renderMdReport, planDocuments, sanitizeText} from "./report.mjs";
+import {convert} from "./convert/convert.mjs";
+import {renderMdReport, planDocuments} from "./report.mjs";
+import {buildPlan, printPlan, consentGate, LARGE_PLAN, largePlanNumbers} from "./extract-plan.mjs";
 
 export const EXTRACT_EXIT = Object.freeze({
   ok: 0,
@@ -57,6 +58,7 @@ const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
                         [--package <pattern>]... [--name <pattern>]...
                         [--author <user>] [--no-local] [--inactive]
                         [--include-sap] [--dry-run] [--json]
+                        [--yes] [--yes-large]
                         connection flags as the doctor's (--host --port
                         --database --user --schema --env-file
                         --password-stdin --allow-unpinned-sidecar)
@@ -70,10 +72,14 @@ extracted only with --include-sap together with an explicit --package or
 --name; that content is the vendor's and must not be published. Table
 contents are not extracted.
 
-The plan (a per-type and per-package table) is printed first; --dry-run
-stops after it. The dump lands in <out>/.osd-hana/dump (or --dump-dir) and
-is reused when its manifest echoes the same request. The report is written
-to <out>/extract-report.json and extract-report.md.
+The plan (per type, per package, per author for local objects, the biggest
+packages) is printed first; --dry-run stops after it and never asks. Nothing
+is dumped without consent: on a terminal the command asks "extract N objects
+(S MB) into <out>?" after the plan; a non-interactive run needs --yes. A plan
+above ${largePlanNumbers()} needs --yes-large instead (one --yes is not consent for a
+large read). The dump lands in <out>/.osd-hana/dump (or --dump-dir) and is
+reused when its manifest echoes the same request. The report is written to
+<out>/extract-report.json and extract-report.md.
 
 Exit codes: 0 everything in scope written; 3 partial (something written
 partially, skipped or unsupported -- the report says what); 1 usage; 2 cannot
@@ -359,6 +365,14 @@ export async function extractMain(argv, {
     printPlan(io, plan);
   }
   if (flags["dry-run"] === true) return EXTRACT_EXIT.ok;
+
+  // ---- consent (fix round 3, part B): nothing is dumped without the user
+  // having seen the plan. On a terminal the command asks after the plan; a
+  // non-interactive run needs --yes; a LARGE plan needs --yes-large instead.
+  // --dry-run never reaches this (it returned above), --json does not skip it.
+  const consent = await consentGate({flags, io, stdin, isTTY, plan, out});
+  if (consent === "declined") return EXTRACT_EXIT.ok;
+  if (consent === "refused") return EXTRACT_EXIT.usage;
 
   // ---- 3: dump -------------------------------------------------------------
   // M-2 (critic round 2): nothing of the vendor's is fetched unless asked.
@@ -862,40 +876,6 @@ export function isInside(child, parent) {
   return child !== parent && child.startsWith(`${parent}${path.sep}`);
 }
 
-function buildPlan(rows, allRows, unknownClassRows = []) {
-  const perType = new Map();
-  const perPackage = new Map();
-  const byType = new Map();
-  const unknownSet = new Set(unknownClassRows);
-  // the unknown-class rows are part of the selection and are accounted in the
-  // plan's in-scope counts (the ledger will carry them as skipped), but they
-  // contribute no bytes and are never dumped
-  for (const r of [...rows, ...unknownClassRows]) {
-    const t = perType.get(r.type) ?? {type: r.type, inScope: 0, bytes: 0, unsupported: 0, unknownClass: 0};
-    t.inScope++;
-    if (!SUPPORTED_TYPES.has(r.type)) t.unsupported++;
-    if (unknownSet.has(r)) t.unknownClass++;
-    perType.set(r.type, t);
-    if (!rows.includes(r)) continue; // per-package/bytes stay classified-only
-    t.bytes += Number(r.source_bytes_compressed ?? 0);
-    byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
-    const p = perPackage.get(r.package) ?? {package: r.package, objects: 0, bytes: 0};
-    p.objects++;
-    p.bytes += Number(r.source_bytes_compressed ?? 0);
-    perPackage.set(r.package, p);
-  }
-  return {
-    onSystem: allRows.length,
-    customer: allRows.filter((r) => r.class === "customer").length,
-    sap: allRows.filter((r) => r.class === "sap").length,
-    unknownClass: unknownClassRows.length,
-    inScope: rows.length + unknownClassRows.length,
-    perType: [...perType.values()].sort((a, b) => a.type.localeCompare(b.type)),
-    perPackage: [...perPackage.values()].sort((a, b) => a.package.localeCompare(b.package)),
-    unsupportedTypes: [...perType.values()].filter((t) => t.unsupported > 0).map((t) => t.type),
-  };
-}
-
 // SHOULD-4 (critic round 2): the exit-0 gate as a real check. The set of
 // in-scope ids from the listing and the set of ledger keys are compared AS
 // SETS -- no duplicate ledger key, nothing missing, nothing extra, ids
@@ -996,19 +976,4 @@ function describeSidecar(verified, handshakeInfo) {
     commit: handshakeInfo?.commit,
     capabilities: handshakeInfo?.capabilities,
   };
-}
-
-function printPlan(io, plan) {
-  // SHOULD-6: names from the database never reach the terminal raw -- a
-  // control character in a package name could rewrite the plan the user is
-  // about to act on. They are printed escaped, never interpreted.
-  const mb = (b) => `${(b / 1_000_000).toFixed(1)} MB`;
-  io.out(`plan: ${plan.inScope} objects in scope (system holds ${plan.onSystem}: ${plan.customer} customer, ${plan.sap} sap${plan.unknownClass ? `, ${plan.unknownClass} unknown class` : ""})`);
-  io.out("  per type:");
-  for (const t of plan.perType) {
-    const mark = SUPPORTED_TYPES.has(t.type) ? "" : "  (unsupported -- will be listed, not written)";
-    io.out(`    ${sanitizeText(t.type).padEnd(8)} ${String(t.inScope).padStart(6)}  ${mb(t.bytes).padStart(10)}${mark}`);
-  }
-  io.out("  per package:");
-  for (const p of plan.perPackage) io.out(`    ${sanitizeText(p.package).padEnd(32)} ${String(p.objects).padStart(6)}  ${mb(p.bytes).padStart(10)}`);
 }
