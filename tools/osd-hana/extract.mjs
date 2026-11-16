@@ -129,6 +129,15 @@ export async function extractMain(argv, {
   // ---- one rule for every directory this run writes (critic M3 + S2) -------
   // Judged on the REAL locations: symlinks are resolved first, so a symlinked
   // <out> or --dump-dir pointing into a git working tree still counts.
+  // --out naming an existing FILE is a usage error, said -- not an uncaught
+  // ENOTDIR out of readdir deep in the run (critic S3)
+  try {
+    if (!(await fs.lstat(out)).isDirectory()) {
+      return fail(`osd hana extract: --out names an existing file: ${out} -- a directory is required`);
+    }
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
+  }
   const realOut = await realResolve(out);
   const realDump = await realResolve(dumpDir);
   const explicitDumpDir = flags["dump-dir"] !== undefined;
