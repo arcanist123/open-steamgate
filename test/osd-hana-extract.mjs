@@ -507,7 +507,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(t.inScope).to.equal(14);
     expect(t.written + t.writtenPartial + t.skipped + t.unsupported).to.equal(t.inScope);
     const totalsLine = readOut(out, "extract-report.md").split("\n").find((l) => l.startsWith("Totals:"));
-    expect(totalsLine).to.match(/in scope 14 = written 10 \+ written-partial 2 \+ skipped 1 \+ unsupported 1/);
+    expect(totalsLine).to.match(/in scope 14 = written 11 \+ written-partial 1 \+ skipped 1 \+ unsupported 1/);
   });
 
   it("M2: a function module whose include is missing from the dump is a part line and the group is written-partial (mutation: the missing-include check removed)", async function () {
@@ -892,7 +892,7 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     for (const inScope of ["ZCL_OSD_X1", "ZOSD_X3", "ZOSG_X4", "ZTAB_X5", "ZSICF_XC"]) {
       expect(unescaped).to.include(inScope);
     }
-    expect(req.names.length).to.equal(35); // 14 exact names + the group's 21 shape patterns
+    expect(req.names.length).to.equal(37); // 14 exact + 2 padded class patterns + the group's 21 shape patterns
   });
 
   it("M-2b: a dump that delivers objects outside the scope fails the run and names the dump directory (mutation: the audit removed)", async function () {
@@ -931,15 +931,15 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const r = await runExtract(["--out", out], {chunk: 5});
     expect(r.code).to.equal(3);
     const reqs = dumpRequests(from);
-    expect(reqs.length).to.equal(7); // ceil(35 / 5): 14 exact names + the group's 21 shape patterns
+    expect(reqs.length).to.equal(8); // ceil(37 / 5): 14 exact + 2 padded class patterns + the group's 21 shape patterns
     const dumpDir = join(out, ".osd-hana", "dump");
-    for (const part of ["part-00001", "part-00002", "part-00003", "part-00004", "part-00005", "part-00006", "part-00007"]) {
+    for (const part of ["part-00001", "part-00002", "part-00003", "part-00004", "part-00005", "part-00006", "part-00007", "part-00008"]) {
       expect(existsSync(join(dumpDir, part, "objects.jsonl")), part).to.equal(true);
       expect(existsSync(join(dumpDir, part, "manifest.json")), part).to.equal(true);
     }
     // the aggregate manifest echoes the whole request and is what reuse reads
     const aggregate = JSON.parse(readFileSync(join(dumpDir, "manifest.json"), "utf8"));
-    expect(aggregate.sidecar.parts.length).to.equal(7);
+    expect(aggregate.sidecar.parts.length).to.equal(8);
     expect(aggregate.sidecar.errors).to.deep.equal([]);
     // the repository is complete across the parts
     expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
@@ -1439,11 +1439,14 @@ describe("osd hana extract -- fix round 3 (the default scope must not surprise)"
     // the audit is the backstop for a sidecar that fetches it anyway).
     const fx2 = variant((list, dump) => {
       writeFileSync(join(dump, "src", "LZOSG_X4SUBF01.abap"), "FUNCTION z_foreign.\nENDFUNCTION.\n");
-      writeFileSync(join(dump, "reposrc.jsonl"), readFileSync(join(dump, "reposrc.jsonl"), "utf8").trimEnd()
-        + "\n" + JSON.stringify({program: "LZOSG_X4SUBF01", state: "A", changed_by: "SAP", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file: "src/LZOSG_X4SUBF01.abap"}) + "\n");
     });
+    // the twin's REPOSRC row arrives AFTER the request filter (the seam for
+    // "a sidecar fetched a source the request cannot justify") -- the same
+    // shape FAKE_SIDECAR_DUMP_APPEND has for objects
+    const appendSrcPath = join(root, `append-src-${Math.random().toString(16).slice(2)}.jsonl`);
+    writeFileSync(appendSrcPath, JSON.stringify({program: "LZOSG_X4SUBF01", state: "A", changed_by: "SAP", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file: "src/LZOSG_X4SUBF01.abap"}) + "\n");
     const out2 = await fresh("r3-a-ownerless");
-    const r2 = await runExtract(["--out", out2], {list: fx2.list, dump: fx2.dump});
+    const r2 = await runExtract(["--out", out2], {list: fx2.list, dump: fx2.dump, extra: {FAKE_SIDECAR_REPOSRC_APPEND: appendSrcPath}});
     expect(r2.code, "an ownerless source refuses the run").to.equal(4);
     expect(r2.lines.err.join("\n")).to.match(/outside the scope/).and.to.match(/LZOSG_X4SUBF01/);
     expect(existsSync(join(out2, "src")), "nothing was written").to.equal(false);
@@ -1709,7 +1712,8 @@ describe("osd hana extract -- fix round 5 (the audit always; the marker never sh
     expect(refusedRun.code).to.equal(1);
     identical("after a refused non-interactive run");
     // a refusal before conversion: a dump echoing a different request
-    const mismatch = await runExtract(["--out", out, "--name", "ZZZ_NOPE%"]);
+    // (--inactive changes the dump request, so the reuse fingerprint differs)
+    const mismatch = await runExtract(["--out", out, "--inactive"]);
     expect(mismatch.code).to.equal(1);
     identical("after a refusal before conversion");
 
@@ -1737,13 +1741,16 @@ describe("osd hana extract -- fix round 5 (the audit always; the marker never sh
   });
 
   it("M-1/SHOULD-1: the source-level audit -- a source the dump fetched for no in-scope owner refuses the run, on a reused dump too (mutation: the audit reads objects.jsonl only)", async function () {
-    // fresh: a foreign include's source in the dump, no owner resolves
+    // fresh: a foreign include's source fetched (the row arrives AFTER the
+    // request filter -- the seam for a sidecar that fetched wider), and no
+    // owner resolves: group ZAB is not in scope, its shape does not match
     const fx = variant((list, dump) => {
       writeFileSync(join(dump, "src", "LZAB_F01.abap"), "FUNCTION z_foreign.\nENDFUNCTION.\n");
-      writeReposrc5(dump, reposrcRows5(dump).concat([{program: "LZAB_F01", state: "A", changed_by: "SAP", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file: "src/LZAB_F01.abap"}]));
     });
+    const orphanPath = join(root, `orphan-src-${Math.random().toString(16).slice(2)}.jsonl`);
+    writeFileSync(orphanPath, JSON.stringify({program: "LZAB_F01", state: "A", changed_by: "SAP", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file: "src/LZAB_F01.abap"}) + "\n");
     const out = await fresh("r5-src-audit");
-    const r1 = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    const r1 = await runExtract(["--out", out], {list: fx.list, dump: fx.dump, extra: {FAKE_SIDECAR_REPOSRC_APPEND: orphanPath}});
     expect(r1.code, "the orphan source refuses the fresh run").to.equal(4);
     expect(r1.lines.err.join("\n")).to.match(/outside the scope/).and.to.match(/LZAB_F01/);
     expect(existsSync(join(out, "src"))).to.equal(false);
@@ -1800,7 +1807,7 @@ describe("osd hana extract -- fix round 5 (the audit always; the marker never sh
     expect(withFk.status).to.equal("written-partial");
     const fks = withFk.parts.find((p) => /foreign key/i.test(p.part));
     expect(fks.disposition).to.equal("not extracted");
-    expect(fks.reason).to.match(/1 row/).and.to.match(/DD05S|DD08L/);
+    expect(fks.reason).to.match(/2 rows/).and.to.match(/DD05S|DD08L/);
 
     // one more foreign-key row, for the namespaced table: it becomes partial too
     const fx = variant((list, dump) => {

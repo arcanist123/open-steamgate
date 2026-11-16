@@ -11,6 +11,10 @@
 //                           capability, wrong version ...)
 //   FAKE_SIDECAR_LIST       fixture dir served for `list --out DIR`
 //   FAKE_SIDECAR_DUMP       fixture dir served for `dump --out DIR`
+//   FAKE_SIDECAR_DUMP_APPEND  rows appended to the dump's objects.jsonl AFTER
+//                           the request filter (a sidecar that over-delivers)
+//   FAKE_SIDECAR_REPOSRC_APPEND  reposrc rows appended AFTER the filter (a
+//                           source fetched the request cannot justify)
 //   FAKE_SIDECAR_EXIT       exit code override for list/dump (default 0)
 //   FAKE_SIDECAR_PROBE      scenario name:
 //     owner-tenant    schema_owner, tenant, one ABAP schema, cannot write
@@ -104,16 +108,36 @@ if (args[0] === "list" || args[0] === "dump") {
   if (fixtureDir !== undefined && outDir !== undefined) {
     copySync(fixtureDir, outDir, {recursive: true});
     // a dump honours its request the way the real sidecar does: `names` are
-    // LIKE patterns with `\` as the escape character, so extract's
-    // exact-name patterns ("ZOSD\_X3") match exactly that name and a
-    // trailing % is a prefix; rows the request does not name are not dumped.
+    // SQL LIKE patterns with `\` as the ESCAPE character -- `\x` is the
+    // literal x (so extract's exact-name patterns "ZOSD\_X3" match exactly
+    // that name, and `_`/`%` inside a real name never act as wildcards), an
+    // unescaped `%` is any sequence and an unescaped `_` one arbitrary
+    // character (extract's include shapes "L<grp>U__" match U + 2 chars);
+    // rows the request does not name are not dumped.
     // FAKE_SIDECAR_DUMP_APPEND adds rows AFTER the filter (a sidecar that
     // over-delivers -- the M-2 audit).
     if (args[0] === "dump" && Array.isArray(request?.names)) {
-      const unescaped = request.names.map((n) => n.replace(/\\(.)/g, "$1"));
-      const wanted = new Set(unescaped.filter((n) => !n.endsWith("%")));
-      const prefixes = unescaped.filter((n) => n.endsWith("%")).map((n) => n.slice(0, -1));
-      const matches = (name) => wanted.has(name) || prefixes.some((p) => name.startsWith(p));
+      const regexEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const like = (pat) => {
+        let re = "^";
+        for (let i = 0; i < pat.length; i++) {
+          const c = pat[i];
+          if (c === "\\" && i + 1 < pat.length) re += regexEscape(pat[++i]); // \x = the literal x
+          else if (c === "%") re += "[\\s\\S]*";
+          else if (c === "_") re += "[\\s\\S]";
+          else re += regexEscape(c);
+        }
+        return new RegExp(`${re}$`);
+      };
+      const matchers = request.names.map(like);
+      const matches = (name) => matchers.some((m) => m.test(name));
+      // the real sidecar's source fetch matches REPOSRC the same way: rows
+      // the request does not name drop out of reposrc.jsonl too
+      const reposrcPath = join(outDir, "reposrc.jsonl");
+      if (existsSync(reposrcPath)) {
+        const srcRows = readFileSync(reposrcPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+        writeFileSync(reposrcPath, srcRows.filter((r) => matches(String(r.program ?? ""))).map((r) => JSON.stringify(r)).join("\n") + (srcRows.length ? "\n" : ""));
+      }
       const objectsPath = join(outDir, "objects.jsonl");
       const rows = readFileSync(objectsPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
       // the real sidecar keeps excluded/closure rows in objects.jsonl as
@@ -122,6 +146,13 @@ if (args[0] === "list" || args[0] === "dump") {
       const appendPath = process.env.FAKE_SIDECAR_DUMP_APPEND;
       if (appendPath !== undefined && existsSync(appendPath)) {
         appendFileSync(objectsPath, readFileSync(appendPath, "utf8"));
+      }
+      // FAKE_SIDECAR_REPOSRC_APPEND adds reposrc rows AFTER the filter (a
+      // sidecar that fetched a source the request cannot justify -- the
+      // round-5 source audit)
+      const srcAppendPath = process.env.FAKE_SIDECAR_REPOSRC_APPEND;
+      if (srcAppendPath !== undefined && existsSync(srcAppendPath)) {
+        appendFileSync(reposrcPath, readFileSync(srcAppendPath, "utf8"));
       }
     }
     // the manifest's sidecar block echoes the request of this run -- a dump

@@ -38,7 +38,7 @@ import {createHash} from "node:crypto";
 import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
-import {convert} from "./convert/convert.mjs";
+import {convert, outOfScopeSourcePrograms} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
 import {buildPlan, printPlan, consentGate, buildDumpRequest, largePlanNumbers} from "./extract-plan.mjs";
 
@@ -82,7 +82,9 @@ is dumped without consent: on a terminal the command asks "extract N objects
 (S MB) into <out>?" after the plan; a non-interactive run needs --yes. A plan
 above ${largePlanNumbers()} needs --yes-large instead (one --yes is not consent for a
 large read). The dump lands in <out>/.osd-hana/dump (or --dump-dir) and is
-reused when its manifest echoes the same request. The report is written to
+reused when its manifest echoes the same request; a dump the scope audit
+refused is marked refused in its own directory and never reused -- remove it
+and re-run. The report is written to
 <out>/extract-report.json and extract-report.md.
 
 Exit codes: 0 everything in scope written (a part the dump cannot even check
@@ -310,11 +312,14 @@ export async function extractMain(argv, {
   await fs.mkdir(path.join(out, ".osd-hana"), {recursive: true});
   // M-2: the raw dump never belongs in the repository -- <out> is an
   // abapGit-layout repository a user will `git add .` in, so the work area is
-  // ignored by name the moment it exists. The provisional marker claims the
-  // directory before anything is deleted (a crashed run leaves a claim, and
-  // its final form -- the full file list -- is written at the very end).
+  // ignored by name the moment it exists.
   await fs.writeFile(path.join(out, ".gitignore"), ".osd-hana/\n");
-  await writeMarker(markerPath, {schema: 1, tool: "osd hana extract", files: [], kept});
+  // Fix round 5: the marker is NOT touched here any more -- a run that stops
+  // at the plan (--dry-run, a declined prompt, a refusal) must leave the last
+  // run's marker byte-identical, or the next real run would keep every
+  // object. The provisional claim is written where the run commits to writing
+  // repository files (below, before src/ is refreshed), and its final form --
+  // the full file list -- at the very end.
   // the listing is derived data of this very request; the sidecar refuses a
   // non-empty --out, so a restart clears it (the DUMP is the artefact that is
   // never thrown away -- reusableDump below decides over that one)
@@ -455,6 +460,13 @@ export async function extractMain(argv, {
   }
 
   // ---- 4: convert ----------------------------------------------------------
+  // M-2 (fix round 5): from here on the run COMMITS to writing repository
+  // files, so this is where the provisional marker is written -- never
+  // before the plan, the consent gate, the dump or the scope audit, all of
+  // which can stop the run. An existing marker's file list is carried into
+  // the provisional write: the marker never shrinks, so a crash between this
+  // write and the final one leaves the last complete list, not an empty one.
+  await writeMarker(markerPath, {schema: 1, tool: "osd hana extract", files: Array.isArray(marker?.files) ? marker.files : [], kept});
   // the derived repository is refreshed from what THIS run writes -- but only
   // the files the marker listed unchanged (M-5): kept files stay on disk, and
   // the conversion refuses the objects that would overwrite them. Stale files
@@ -475,29 +487,59 @@ export async function extractMain(argv, {
     dumpObjects.push(...await readJsonl(path.join(root, "objects.jsonl")));
   }
   // ---- M-2: the dump delivers exactly the scope, or the run stops ----------
-  // A source the dump fetched although nothing in scope names it is the
-  // vendor's code landing on disk: the run refuses, names the dump directory
-  // (remove it), and writes nothing. Excluded closure rows (the sidecar's
-  // skipped DDIC metadata around the requested objects) are not sources and
-  // do not trip the audit.
+  // Fix round 5 (M-1): the audit runs on EVERY dump before conversion --
+  // reused or fresh. A dump the audit refused is marked refused.json in its
+  // own directory and never reused: the next run refuses it and names the
+  // directory to remove (reusableDump). "Just run it again" must not walk
+  // past the refusal -- the audit is a pure function of dump + scope.
+  // Excluded closure rows (the sidecar's skipped DDIC metadata around the
+  // requested objects) are not sources and do not trip the object audit.
   const norm = (v) => String(v ?? "").trim().toUpperCase();
   const scopeSet = new Set(inScopeRows.map((r) => `${norm(r.type)}:${norm(r.name)}`));
   const carriesSource = (r) => (Array.isArray(r.files) && r.files.length > 0)
     || ["w", "written"].includes(String(r.status ?? "").trim().toLowerCase());
-  const outOfScope = reused.ok
-    ? [] // a reused dump was audited when it was fresh; its drift against the live listing is the S4 report below, not over-delivery
-    : dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
-  if (outOfScope.length > 0) {
-    const list = outOfScope.slice(0, 8).map((r) => `${norm(r.type)}:${norm(r.name)}`).join(", ");
-    io.err(`osd hana extract: refusing the dump directory ${dumpDir}: it carries ${outOfScope.length} objects outside the scope (${list}${outOfScope.length > 8 ? ", ..." : ""})`
+  const outOfScope = dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
+  const auditRoots = dumpRoots.length > 0 ? dumpRoots : [dumpDir];
+  let orphanSources = [];
+  try {
+    // the source-level audit (fix round 5, SHOULD-1): every REPOSRC row the
+    // dump fetched must belong to an in-scope object -- a source fetched for
+    // a sibling (or a name the shapes cannot even justify) is the vendor's
+    // or a stranger's code on disk
+    orphanSources = await outOfScopeSourcePrograms({dump: dumpDir, roots: auditRoots, scopeIds: scopeSet});
+  } catch (e) {
+    // an unreadable dump is the converter's refusal to raise, not the
+    // audit's -- let the conversion path produce its report
+    if (e.code !== "ENOENT") throw e;
+  }
+  if (outOfScope.length > 0 || orphanSources.length > 0) {
+    const objList = outOfScope.slice(0, 8).map((r) => `${norm(r.type)}:${norm(r.name)}`).join(", ");
+    const srcList = orphanSources.slice(0, 8).join(", ");
+    const why = [
+      outOfScope.length > 0
+        ? `${outOfScope.length} object${outOfScope.length === 1 ? "" : "s"} with sources outside the scope (${objList}${outOfScope.length > 8 ? ", ..." : ""})`
+        : undefined,
+      orphanSources.length > 0
+        ? `${orphanSources.length} source row${orphanSources.length === 1 ? "" : "s"} outside the scope -- no in-scope object owns them (${srcList}${orphanSources.length > 8 ? ", ..." : ""})`
+        : undefined,
+    ].filter(Boolean).join("; and ");
+    io.err(`osd hana extract: refusing the dump directory ${dumpDir}: it carries ${why}`
       + " -- the dump was to fetch exactly the in-scope objects, so this is not ours to keep. Remove the dump directory (or pass --dump-dir) and re-run. Nothing was written.");
+    try {
+      // the refusal poisons the dump: never reused (fix round 5, M-1)
+      await fs.writeFile(path.join(dumpDir, "refused.json"), `${JSON.stringify({
+        schema: 1, tool: "osd hana extract", refused_by: "scope audit", when: now().toISOString(), why,
+        objects: outOfScope.map((r) => `${norm(r.type)}:${norm(r.name)}`),
+        sources: orphanSources,
+      }, null, 1)}\n`);
+    } catch { /* marking must not mask the refusal */ }
     try {
       await writeReport(out, {
         schema: 1, out, dump_dir: dumpDir, request: dumpRequest,
         sidecar: describeSidecar(verified, handshakeInfo),
         folder_logic: {logic: "unknown", folders: []},
         plan, totals: totals(plan, [], dumpedCount, undefined, scopeSet),
-        objects: [], errors: [{error: `the dump carries ${outOfScope.length} objects outside the scope: ${list}`}],
+        objects: [], errors: [{error: `the dump is refused: it carries ${why}`}],
         duration_ms: now().getTime() - started,
         notice: flags["include-sap"] === true ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it." : undefined,
       });
@@ -686,7 +728,9 @@ async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
 
 /** Restart rule: an existing dump whose manifest echoes the same request and
  *  whose sidecar exit was 0 (no errors in the manifest block) is reused;
- *  anything else is refused, never mixed. The echo is compared on the
+ *  anything else is refused, never mixed. A dump the scope audit refused
+ *  (refused.json in the dump directory, fix round 5) is never reused either:
+ *  the refusal names the directory to remove. The echo is compared on the
  *  request's SELECTION (schema, flags, provenance -- canonically, so key
  *  order of a re-writing sidecar cannot refuse a reuse, NOTE-6): the explicit
  *  `names` are derived from the live listing and may drift between runs --
@@ -705,6 +749,16 @@ function stableStringify(v) {
 }
 
 export async function reusableDump(dumpDir, request) {
+  // Fix round 5 (M-1): a dump the scope audit refused is marked in its own
+  // directory and NEVER reused -- the next run refuses it and names the
+  // directory to remove, so "just run it again" cannot walk past the refusal.
+  let refused;
+  try {
+    refused = JSON.parse(await fs.readFile(path.join(dumpDir, "refused.json"), "utf8"));
+  } catch { /* not marked */ }
+  if (refused !== undefined) {
+    return {exists: true, ok: false, why: `it was refused by the scope audit (${refused.why ?? "out-of-scope content"}) -- remove the directory and re-run`};
+  }
   let raw;
   try {
     raw = await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8");
@@ -762,7 +816,10 @@ async function foreignOutEntries(out, claimed) {
   }
   const ours = new Set(claimed
     ? [".osd-hana", ".abapgit.xml", ".gitignore", "src", "extract-report.json", "extract-report.md"]
-    : [".osd-hana"]);
+    // unclaimed: the work area, and the .gitignore this command writes on
+    // every run (static text -- round 5: a --dry-run or a declined run also
+    // leaves it, and must not make the next real run refuse the directory)
+    : [".osd-hana", ".gitignore"]);
   return entries.filter((e) => !ours.has(e));
 }
 
@@ -814,7 +871,11 @@ async function pruneEmptyDirs(root) {
 }
 
 async function writeMarker(markerPath, doc) {
-  await fs.writeFile(markerPath, `${JSON.stringify(doc, null, 1)}\n`);
+  // atomic (fix round 5, M-2): temp + rename -- a crash mid-write leaves
+  // either the old or the new marker, never a truncated one
+  const tmp = `${markerPath}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
+  await fs.writeFile(tmp, `${JSON.stringify(doc, null, 1)}\n`);
+  await fs.rename(tmp, markerPath);
 }
 
 // The enclosing git working tree (directory or gitfile), or undefined.

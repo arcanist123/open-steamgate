@@ -15,6 +15,7 @@
 // refusal messages and the README all quote it -- change it here or nowhere.
 import {createInterface} from "node:readline";
 import {SUPPORTED_TYPES} from "./convert/convert.mjs";
+import {mainProgram} from "./convert/program.mjs";
 import {sanitizeText} from "./report.mjs";
 
 // A plan "above 5 000 objects or 200 MB" is LARGE (fix round 3, part B):
@@ -135,21 +136,54 @@ export function printPlan(io, plan) {
 //                          (ZCL_X==========================CS): send
 //                          `<name padded to 30 with =>%`;
 //   FUGR                -- the main program SAPL<grp> and the includes
-//                          L<grp>*: send `SAPL<grp>%` and `L<grp>%`.
+//                          L<grp><suffix> -- sent as exact / shape patterns
+//                          (round 5: see below; no bare `%` prefix).
 //
 // TADIR selection stays exact: a padded prefix names exactly one object, so
-// the selection cannot widen. A source an include pattern happens to fetch
-// for a sibling name (the shapes CAN match one: `L<grp>%` also prefixes a
-// longer group's includes) resolves to no in-scope owner in the converter
-// and is never written -- and if the sidecar ever reports the sibling
-// itself, the post-dump audit refuses the run (tested with the fake).
+// the selection cannot widen.
 //
-// ONE FUNCTION ON PURPOSE: when the sidecar gains an exact
-// `objects: [{type, name}]` request field (asked of its owner -- schema 1
-// refuses the field today), the patterns go away and ONLY this function
-// changes: it sends the exact objects and lets the sidecar expand composite
-// sources itself (its closure machinery already knows how).
+// Fix round 5 (SHOULD-1): the include patterns are SHAPES, not bare
+// prefixes. `L<grp>%` also prefixes a longer sibling group's includes
+// (`LZA%` pulls `LZAB...`), and a source fetched for a sibling is foreign
+// code on disk even when the converter would never write it. What was
+// chosen, and why: the main program is sent EXACTLY (`SAPL<grp>` -- the main
+// program IS that name, no `%` needed), and the includes are sent as their
+// known shapes -- `L<grp>TOP`, `L<grp>UXX`, and `<letter>` + 2 or 3 LIKE
+// wildcard characters (`L<grp>U__`, `L<grp>U___`) for the letters
+// convert/program.mjs's groupSuffix accepts (U F I O P $ V T E). A shape
+// cannot cross into a longer group's name: the letter position and the total
+// length pin the match, so `ZOSG_X4`'s patterns cannot pull `ZOSG_X4_SUB`'s
+// includes (their first character after the group name differs, or their
+// length does). The price is request size -- 21 names per group instead of
+// 3 -- which the 500-name chunking absorbs; the day the sidecar gains an
+// exact `objects: [{type, name}]` request field (asked of its owner --
+// schema 1 refuses the field today), the patterns go away and ONLY this
+// function changes.
+//
+// `_` and `%` inside REAL object names never act as wildcards unnoticed:
+// every literal is LIKE-escaped (`\_`, `\%`, `\\`) -- the real sidecar
+// matches with `LIKE ? ESCAPE '\'` (checked in its binary's strings; the
+// fake mirrors it), so an escaped underscore matches exactly that name.
+// Only the wildcard `_`s appended HERE match one arbitrary character.
+const GROUP_SUFFIX_LETTERS = Object.freeze(["U", "F", "I", "O", "P", "$", "V", "T", "E"]); // keep in step with convert/program.mjs groupSuffix
 const exactNamePattern = (name) => String(name).trim().replace(/([%_\\])/g, "\\$1");
+
+// A group's source patterns: the namespaced shape too -- /NS/GRP's main
+// program is /NS/SAPLGRP and its includes /NS/LGRP... (the converter knows
+// this; mainProgram is its helper) -- a group name carries its namespace.
+function fugrSourcePatterns(rawName) {
+  const m = /^(\/[^/]+\/)?(.+)$/.exec(rawName);
+  const inc = `${m?.[1] ?? ""}L${m?.[2] ?? rawName}`;
+  return [
+    exactNamePattern(mainProgram(rawName)),
+    exactNamePattern(`${inc}TOP`),
+    exactNamePattern(`${inc}UXX`),
+    ...GROUP_SUFFIX_LETTERS.flatMap((l) => [
+      `${exactNamePattern(`${inc}${l}`)}__`,
+      `${exactNamePattern(`${inc}${l}`)}___`,
+    ]),
+  ];
+}
 
 export function buildDumpRequest({rows, inactive = false}) {
   const sourcePatterns = [];
@@ -160,8 +194,7 @@ export function buildDumpRequest({rows, inactive = false}) {
     if (r.type === "CLAS" || r.type === "INTF" || r.type === "BDEF") {
       sourcePatterns.push(exactNamePattern(name.padEnd(30, "=")) + "%");
     } else if (r.type === "FUGR") {
-      sourcePatterns.push(exactNamePattern(`SAPL${name}`) + "%");
-      sourcePatterns.push(exactNamePattern(`L${name}`) + "%");
+      sourcePatterns.push(...fugrSourcePatterns(name));
     }
   }
   return {
