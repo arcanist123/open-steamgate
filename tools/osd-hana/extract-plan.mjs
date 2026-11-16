@@ -115,6 +115,65 @@ export function printPlan(io, plan) {
   }
 }
 
+// ---- the dump request (fix round 3, part A: one function, measured) --------
+// M-2 (critic round 2): nothing of the vendor's is fetched unless asked --
+// the dump request NAMES the in-scope objects of the listing (exact names,
+// LIKE-escaped, sorted, de-duplicated), never the user's patterns; the
+// unknown-class rows are not fetched at all.
+//
+// THE COMPOSITE-SOURCE RULE, measured on the real bed and CONFIRMED there
+// (fix round 3, w3fix3 run, sidecar v2.60.0-19-g0d5767b, pinned): an exact
+// name fetches the TADIR row, the DDIC rows and a flat program's source --
+// but NO sources for a class, interface or function group (11 052 objects
+// came back `no-source` in the round-2 measurement; the round-3 run with
+// these patterns brought every source back, 104 .abap files byte-identical
+// to the first extract round, 0 `no-source` on objects that had sources).
+// The sidecar's source fetch matches REPOSRC program names with the same
+// patterns, and the sources hide behind:
+//
+//   CLAS / INTF / BDEF  -- the 30-character '='-padded name plus a suffix
+//                          (ZCL_X==========================CS): send
+//                          `<name padded to 30 with =>%`;
+//   FUGR                -- the main program SAPL<grp> and the includes
+//                          L<grp>*: send `SAPL<grp>%` and `L<grp>%`.
+//
+// TADIR selection stays exact: a padded prefix names exactly one object, so
+// the selection cannot widen. A source an include pattern happens to fetch
+// for a sibling name (the shapes CAN match one: `L<grp>%` also prefixes a
+// longer group's includes) resolves to no in-scope owner in the converter
+// and is never written -- and if the sidecar ever reports the sibling
+// itself, the post-dump audit refuses the run (tested with the fake).
+//
+// ONE FUNCTION ON PURPOSE: when the sidecar gains an exact
+// `objects: [{type, name}]` request field (asked of its owner -- schema 1
+// refuses the field today), the patterns go away and ONLY this function
+// changes: it sends the exact objects and lets the sidecar expand composite
+// sources itself (its closure machinery already knows how).
+const exactNamePattern = (name) => String(name).trim().replace(/([%_\\])/g, "\\$1");
+
+export function buildDumpRequest({rows, inactive = false}) {
+  const sourcePatterns = [];
+  const exactNames = [];
+  for (const r of rows) {
+    const name = String(r.name).trim().toUpperCase();
+    exactNames.push(exactNamePattern(name));
+    if (r.type === "CLAS" || r.type === "INTF" || r.type === "BDEF") {
+      sourcePatterns.push(exactNamePattern(name.padEnd(30, "=")) + "%");
+    } else if (r.type === "FUGR") {
+      sourcePatterns.push(exactNamePattern(`SAPL${name}`) + "%");
+      sourcePatterns.push(exactNamePattern(`L${name}`) + "%");
+    }
+  }
+  return {
+    schema: 1,
+    names: [...new Set(exactNames.concat(sourcePatterns))].sort(),
+    inactive,
+    catalog: true,
+    ddic: true,
+    provenance: "osd hana extract", // stable: the reuse fingerprint is the whole request, so nothing per-run may enter it
+  };
+}
+
 // ---- consent (fix round 3, part B) -----------------------------------------
 // Returns undefined to go on (consent given), or "declined" / "refused" --
 // extract.mjs maps them to its own exit codes (0 / 1); the symbolic result

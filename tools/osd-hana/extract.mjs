@@ -36,7 +36,7 @@ import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {convert} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
-import {buildPlan, printPlan, consentGate, LARGE_PLAN, largePlanNumbers} from "./extract-plan.mjs";
+import {buildPlan, printPlan, consentGate, buildDumpRequest, largePlanNumbers} from "./extract-plan.mjs";
 
 export const EXTRACT_EXIT = Object.freeze({
   ok: 0,
@@ -376,46 +376,14 @@ export async function extractMain(argv, {
 
   // ---- 3: dump -------------------------------------------------------------
   // M-2 (critic round 2): nothing of the vendor's is fetched unless asked.
-  // The dump request NAMES the in-scope objects -- exact names, LIKE-escaped
-  // (the sidecar matches `LIKE ? ESCAPE '\'`), sorted, chunked -- built from
-  // the listing, never from the user's patterns; the unknown-class rows are
-  // not fetched at all. The sidecar has no per-type objects field yet (its
-  // schema-1 request takes names/packages/local only -- measured on the
-  // binary, "json: unknown field \"objects\""), so exact names are what the
-  // schema can carry; the post-dump audit below catches anything else.
-  const exactNamePattern = (name) => String(name).trim().replace(/([%_\\])/g, "\\$1");
+  // The request is built in ONE function (buildDumpRequest,
+  // ./extract-plan.mjs) from the in-scope rows of the listing -- exact names
+  // plus the include-name patterns that bring a composite object's sources
+  // (the rule and its bed measurement live there, with the note that the
+  // patterns disappear the day the sidecar gains objects: [{type, name}]).
   const chunkSize = typeof dumpChunkSize === "number" && dumpChunkSize > 0 ? dumpChunkSize : 500;
-  // Measured on the real sidecar (v2.60.0-19-g0d5767b, bed run of this
-  // round): an exact name fetches the TADIR row, the DDIC rows and a flat
-  // program's source -- but NO sources for a class, interface or function
-  // group (11 052 objects came back `no-source`): the source fetch matches
-  // REPOSRC program names with the same pattern, and a class's sources live
-  // behind the 30-character `=`-padded include names, a group's behind
-  // SAPL<grp>/L<grp>. So the request carries the exact name (TADIR stays
-  // exact -- nothing outside the scope is SELECTED) plus, for composite
-  // objects, the include-name pattern. An include pattern cannot widen the
-  // selection (its 30-character padded prefix names exactly one object), and
-  // a source the extra pattern fetches for a sibling name resolves to no
-  // in-scope owner in the converter and is never written.
-  const sourcePatterns = [];
-  for (const r of inScopeRows) {
-    const name = String(r.name).trim().toUpperCase();
-    if (r.type === "CLAS" || r.type === "INTF" || r.type === "BDEF") {
-      sourcePatterns.push(exactNamePattern(name.padEnd(30, "=")) + "%");
-    } else if (r.type === "FUGR") {
-      sourcePatterns.push(exactNamePattern(`SAPL${name}`) + "%");
-      sourcePatterns.push(exactNamePattern(`L${name}`) + "%");
-    }
-  }
-  const dumpNames = [...new Set(inScopeRows.map((r) => exactNamePattern(String(r.name).trim().toUpperCase())).concat(sourcePatterns))].sort();
-  const dumpRequest = {
-    schema: 1,
-    names: dumpNames,
-    inactive: flags.inactive === true,
-    catalog: true,
-    ddic: true,
-    provenance: "osd hana extract",
-  };
+  const dumpRequest = buildDumpRequest({rows: inScopeRows, inactive: flags.inactive === true});
+  const dumpNames = dumpRequest.names;
   const dumpRequestPath = path.join(out, ".osd-hana", "dump-request.json");
   const reused = await reusableDump(dumpDir, dumpRequest);
   let dumpErrors = [];

@@ -17,6 +17,7 @@ import {PassThrough} from "node:stream";
 
 import {extractMain, accountsFor} from "../tools/osd-hana/extract.mjs";
 import {reusableDump, inGitTree} from "../tools/osd-hana/extract.mjs";
+import {buildDumpRequest, isLargePlan, largePlanNumbers} from "../tools/osd-hana/extract-plan.mjs";
 import {decideFolderLogic, folderPaths} from "../tools/osd-hana/convert/convert.mjs";
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
 import {buildExtractFixtures} from "./osd-hana/extract-fixtures.mjs";
@@ -1379,6 +1380,75 @@ describe("osd hana extract -- fix round 3 (the default scope must not surprise)"
     expect(text3).to.match(/SECONDDEV\s+2\s+2\.0 MB/);
     expect(text3).to.not.match(/local objects of .* authors are in scope/);
     expect(text3).to.not.match(/DEVUSER\s+\d/);
+  });
+
+  it("A: the audit catches a foreign object the include-pattern shapes COULD fetch (mutation: the audit trusts pattern-named rows)", async function () {
+    // The FUGR include pattern LZOSG_X4% also PREFIXES a longer group's
+    // includes (LZOSG_X4_SUBTOP...): if the sidecar resolves such a REPOSRC
+    // hit to its TADIR object and reports it WITH sources, that is
+    // over-delivery -- the run refuses and names the dump directory.
+    // (The append seam is the filter's AFTER: exactly what a sidecar that
+    // over-delivers would produce for a pattern-matched object.)
+    const fx = variant((list, dump) => {
+      writeFileSync(join(dump, "src", "LZOSG_X4_SUBTOP.abap"), "FUNCTION-POOL zosg_x4_sub. \"SAP-DELIVERED GROUP SOURCE\n");
+    });
+    const appendPath = join(root, `append-r3-${Math.random().toString(16).slice(2)}.jsonl`);
+    writeFileSync(appendPath, JSON.stringify({type: "FUGR", name: "ZOSG_X4_SUB", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "W", files: [{path: "src/LZOSG_X4_SUBTOP.abap", state: "A", sha256: "0".repeat(64), bytes: 60}]}) + "\n");
+    const out = await fresh("r3-a-audit");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump, extra: {FAKE_SIDECAR_DUMP_APPEND: appendPath}});
+    expect(r.code, "over-delivery fails the run, not an ordinary partial").to.equal(4);
+    expect(r.lines.err.join("\n")).to.match(/outside the scope/).and.to.match(/ZOSG_X4_SUB/).and.to.match(/Remove the dump directory/);
+    expect(existsSync(join(out, "src")), "nothing was written").to.equal(false);
+    // the twin, benign shape: the same pattern fetches a foreign INCLUDE's
+    // source WITHOUT its TADIR object -- no owner resolves, nothing is
+    // written, the run is an ordinary partial
+    const fx2 = variant((list, dump) => {
+      writeFileSync(join(dump, "src", "LZOSG_X4SUBF01.abap"), "FUNCTION z_foreign.\nENDFUNCTION.\n");
+      writeFileSync(join(dump, "reposrc.jsonl"), readFileSync(join(dump, "reposrc.jsonl"), "utf8").trimEnd()
+        + "\n" + JSON.stringify({program: "LZOSG_X4SUBF01", state: "A", changed_by: "SAP", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file: "src/LZOSG_X4SUBF01.abap"}) + "\n");
+    });
+    const out2 = await fresh("r3-a-ownerless");
+    const r2 = await runExtract(["--out", out2], {list: fx2.list, dump: fx2.dump});
+    expect(r2.code).to.equal(3);
+    expect(r2.lines.err.join("\n")).to.not.match(/outside the scope/);
+    expect(readdirSync(join(out2, "src", "osd_x")).some((f) => f.includes("zosg_x4sub"))).to.equal(false);
+  });
+
+  it("A: buildDumpRequest is the ONE place the request is built -- exact names, the three measured pattern shapes (mutation: a pattern shape lost or a raw pattern sent)", async function () {
+    const rows = [
+      {type: "CLAS", name: "ZCL_A", package: "$OSD_X"},
+      {type: "INTF", name: "ZIF_B", package: "$OSD_X"},
+      {type: "FUGR", name: "ZOSG_C", package: "$OSD_X"},
+      {type: "PROG", name: "ZOSD_D", package: "$OSD_X"},
+      {type: "TABL", name: "ZTAB_E", package: "$OSD_X"},
+      {type: "DDLS", name: "ZDDL_F", package: "$OSD_X"},
+    ];
+    const req = buildDumpRequest({rows, inactive: false});
+    expect(req).to.deep.equal({
+      schema: 1,
+      names: [
+        "LZOSG\\_C%", "SAPLZOSG\\_C%",
+        "ZCL\\_A", "ZCL\\_A" + "=".repeat(25) + "%",
+        "ZDDL\\_F",
+        "ZIF\\_B", "ZIF\\_B" + "=".repeat(25) + "%",
+        "ZOSD\\_D",
+        "ZOSG\\_C",
+        "ZTAB\\_E",
+      ],
+      inactive: false,
+      catalog: true,
+      ddic: true,
+      provenance: "osd hana extract",
+    });
+    // inactive travels; a user pattern never does
+    expect(buildDumpRequest({rows: [rows[0]], inactive: true}).inactive).to.equal(true);
+    expect(JSON.stringify(buildDumpRequest({rows}))).to.not.match(/ZOSD_%/);
+    // the LARGE-plan rule, at the named boundaries (one place: LARGE_PLAN)
+    expect(isLargePlan({inScope: 5000, bytes: 0})).to.equal(false);
+    expect(isLargePlan({inScope: 5001, bytes: 0})).to.equal(true);
+    expect(isLargePlan({inScope: 0, bytes: 200_000_000})).to.equal(false);
+    expect(isLargePlan({inScope: 0, bytes: 200_000_001})).to.equal(true);
+    expect(largePlanNumbers()).to.equal("5 000 objects / 200 MB");
   });
 });
 

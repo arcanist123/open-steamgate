@@ -131,11 +131,26 @@ clone, diff and deploy:
    chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) so
    a big selection cannot blow the sidecar's SQL parameter limit — and never
    the user's patterns, so nothing of the vendor's is fetched unless
-   `--include-sap` asked for it. After the dump, every object the dump
-   fetched WITH sources on disk is checked against the scope set: anything
-   outside it refuses the run (exit 4), names the dump directory so it can
-   be removed, and writes nothing. `<out>/.gitignore` carries `.osd-hana/`
-   from the first moment — the raw dump never belongs in the repository.
+   `--include-sap` asked for it. Composite objects carry, next to their
+   exact name, the include-name pattern their sources hide behind in
+   REPOSRC — measured on the real bed and confirmed there (round 3): a
+   class's/interface's sources sit behind the 30-character `=`-padded name
+   (`<name padded to 30 with =>%`), a function group's behind its main
+   program and includes (`SAPL<grp>%`, `L<grp>%`); flat programs and DDIC
+   need only the exact name. TADIR selection stays exact (a padded prefix
+   names exactly one object), so the selection cannot widen; an include
+   pattern that happens to match a foreign name (`L<grp>%` also prefixes a
+   longer group's includes) brings at most a source no in-scope owner
+   claims — never written — and if the sidecar ever reports such an object
+   itself, the audit below refuses the run. The request is built in ONE
+   function (`buildDumpRequest` in `extract-plan.mjs`): when the sidecar
+   gains an exact `objects: [{type, name}]` request field (asked of its
+   owner), the patterns go away and only that function changes. After the
+   dump, every object the dump fetched WITH sources on disk is checked
+   against the scope set: anything outside it refuses the run (exit 4),
+   names the dump directory so it can be removed, and writes nothing.
+   `<out>/.gitignore` carries `.osd-hana/` from the first moment — the raw
+   dump never belongs in the repository.
    Restartable: an existing dump whose aggregate manifest echoes the same
    request selection (canonically compared; the names may drift with the
    listing) and finished without errors is reused; anything else is refused,
