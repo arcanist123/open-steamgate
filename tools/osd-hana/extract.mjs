@@ -195,6 +195,10 @@ export async function extractMain(argv, {
   }
   const listDir = path.join(out, ".osd-hana", "list");
   await fs.mkdir(path.join(out, ".osd-hana"), {recursive: true});
+  // the listing is derived data of this very request; the sidecar refuses a
+  // non-empty --out, so a restart clears it (the DUMP is the artefact that is
+  // never thrown away -- reusableDump below decides over that one)
+  await fs.rm(listDir, {recursive: true, force: true});
 
   // ---- 1+2: list + plan ----------------------------------------------------
   const requestPath = path.join(out, ".osd-hana", "request.json");

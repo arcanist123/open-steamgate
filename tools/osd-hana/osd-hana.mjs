@@ -42,9 +42,3 @@ if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${proce
   process.exitCode = await main(process.argv.slice(2));
 }
 
-// A tool run directly (node tools/osd-hana/osd-hana.mjs ...) without the osd
-// binary still works: the binary's dispatch (bin/osd.mjs, mode "hana") is
-// only the hosted path.
-if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  process.exitCode = await main(process.argv.slice(2));
-}
