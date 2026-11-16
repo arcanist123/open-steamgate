@@ -31,7 +31,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
-import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
+import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {convert, SUPPORTED_TYPES} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
 
@@ -84,6 +84,7 @@ export async function extractMain(argv, {
   stdin = process.stdin,
   isTTY = Boolean(stdin?.isTTY),
   callerPath,
+  pinFile, // the TRUSTED seam for the embedding host / tests to name a pin file; the CLI flag --sidecar-pin is a public input and never 'pins' by itself (critic S-E, SHOULD-2 round 2)
   sidecarTimeoutMs = 600_000,
   // the test seam: extra child-env for the sidecar (the FAKE sidecar's
   // scenario knobs reach the child only through it -- the child env is the
@@ -170,8 +171,18 @@ export async function extractMain(argv, {
     return fail(error.message);
   }
   let pin;
+  let foreignPin = false;
   try {
-    pin = loadPin(flags["sidecar-pin"]);
+    // Two ways to name a pin: `pinFile`, the trusted seam the embedding host
+    // (the extension, the tests) uses to substitute its own pin; and the CLI
+    // flag --sidecar-pin, a public input. A pin file that is not the module's
+    // own sidecar.lock.json never makes a binary 'pinned' -- it can check
+    // bytes, but every pinned claim stays false and the run needs
+    // --allow-unpinned-sidecar (critic S-E; extract takes the doctor core's
+    // rule, not a re-implementation -- SHOULD-2 round 2).
+    const pinPath = pinFile ?? flags["sidecar-pin"] ?? DEFAULT_PIN_PATH;
+    pin = loadPin(pinPath);
+    foreignPin = pinFile === undefined && path.resolve(pinPath) !== path.resolve(DEFAULT_PIN_PATH);
   } catch (error) {
     return fail(error.message);
   }
@@ -180,6 +191,7 @@ export async function extractMain(argv, {
     verified = await verifySidecar(sidecarPath, {
       pin,
       allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+      foreignPin,
       loud: (line) => io.err(line.trimEnd()),
     });
   } catch (error) {
@@ -229,6 +241,7 @@ export async function extractMain(argv, {
     // (critic S-3). The binary is ~7 MB; a fresh sha256 read is milliseconds.
     pin,
     allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+    foreignPin,
     loud: (line) => io.err(line.trimEnd()),
   });
 
@@ -259,14 +272,26 @@ export async function extractMain(argv, {
   }
 
   const author = flags.author;
-  const inScopeRows = listed.filter((r) => r.class !== "sap" || flags["include-sap"] === true)
-    .filter((r) => author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase());
-  const scopeIds = new Set(inScopeRows.map((r) => `${r.type}:${r.name}`));
+  const byAuthor = (r) => author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase();
+  // M-1 (critic round 2): the scope fails CLOSED. Only the sidecar's exact
+  // customer class is in scope -- a missing, unknown or differently-cased
+  // class is NOT customer and is never trusted in the unsafe direction.
+  // --include-sap admits the exact sap class; it never admits the unknown.
+  // A sap row without the flag is the sidecar's own exclusion -- not unknown,
+  // deliberately out of scope, counted in the plan's sap column.
+  const isKnownClass = (r) => r.class === "customer" || r.class === "sap";
+  const isClassified = (r) => r.class === "customer" || (flags["include-sap"] === true && r.class === "sap");
+  const inScopeRows = listed.filter(isClassified).filter(byAuthor);
+  const unknownClassRows = listed.filter((r) => !isKnownClass(r)).filter(byAuthor);
+  const scopeIds = new Set([...inScopeRows, ...unknownClassRows].map((r) => `${r.type}:${r.name}`));
   if (scopeIds.size === 0) {
     return fail("osd hana extract: nothing is in scope after the narrowing flags -- nothing to extract.");
   }
+  if (unknownClassRows.length > 0) {
+    io.err(`osd hana extract: ${unknownClassRows.length} listed objects have an unknown classification and were left out -- only the sidecar's exact customer class is in scope; the sidecar may be newer than this module.`);
+  }
 
-  const plan = buildPlan(inScopeRows, listed);
+  const plan = buildPlan(inScopeRows, listed, unknownClassRows);
   if (flags.json === true) {
     io.out(JSON.stringify(planDocuments({plan, request, sidecar: describeSidecar(verified, handshakeInfo), out, dumpDir}), null, 1));
   } else {
@@ -323,7 +348,7 @@ export async function extractMain(argv, {
   let conversion;
   let ledgerAtFailure; // the S3 promise: even a mid-run failure keeps its ledger for the report
   try {
-    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, onLedger: (l) => { ledgerAtFailure = l; }});
+    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, preSkipped: unknownClassRows, onLedger: (l) => { ledgerAtFailure = l; }});
   } catch (error) {
     const entries = ledgerAtFailure?.entries ?? [];
     const reportDoc = {
@@ -366,6 +391,7 @@ export async function extractMain(argv, {
     errors: conversion.errors,
     empty_sources: conversion.emptySources,
     drift,
+    unknown_class: unknownClassRows.length,
     duration_ms: durationMs,
     notice: flags["include-sap"] === true
       ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."
@@ -518,16 +544,22 @@ export function isInside(child, parent) {
   return child !== parent && child.startsWith(`${parent}${path.sep}`);
 }
 
-function buildPlan(rows, allRows) {
+function buildPlan(rows, allRows, unknownClassRows = []) {
   const perType = new Map();
   const perPackage = new Map();
   const byType = new Map();
-  for (const r of rows) {
-    const t = perType.get(r.type) ?? {type: r.type, inScope: 0, bytes: 0, unsupported: 0};
+  const unknownSet = new Set(unknownClassRows);
+  // the unknown-class rows are part of the selection and are accounted in the
+  // plan's in-scope counts (the ledger will carry them as skipped), but they
+  // contribute no bytes and are never dumped
+  for (const r of [...rows, ...unknownClassRows]) {
+    const t = perType.get(r.type) ?? {type: r.type, inScope: 0, bytes: 0, unsupported: 0, unknownClass: 0};
     t.inScope++;
-    t.bytes += Number(r.source_bytes_compressed ?? 0);
     if (!SUPPORTED_TYPES.has(r.type)) t.unsupported++;
+    if (unknownSet.has(r)) t.unknownClass++;
     perType.set(r.type, t);
+    if (!rows.includes(r)) continue; // per-package/bytes stay classified-only
+    t.bytes += Number(r.source_bytes_compressed ?? 0);
     byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
     const p = perPackage.get(r.package) ?? {package: r.package, objects: 0, bytes: 0};
     p.objects++;
@@ -536,9 +568,10 @@ function buildPlan(rows, allRows) {
   }
   return {
     onSystem: allRows.length,
-    customer: allRows.filter((r) => r.class !== "sap").length,
+    customer: allRows.filter((r) => r.class === "customer").length,
     sap: allRows.filter((r) => r.class === "sap").length,
-    inScope: rows.length,
+    unknownClass: unknownClassRows.length,
+    inScope: rows.length + unknownClassRows.length,
     perType: [...perType.values()].sort((a, b) => a.type.localeCompare(b.type)),
     perPackage: [...perPackage.values()].sort((a, b) => a.package.localeCompare(b.package)),
     unsupportedTypes: [...perType.values()].filter((t) => t.unsupported > 0).map((t) => t.type),

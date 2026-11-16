@@ -112,6 +112,7 @@ export async function convert({
   dump,
   out,
   listed,            // the in-scope listing rows: the ledger's spine (M1)
+  preSkipped = [],   // listed rows out of scope by rule: ledger-skipped with their reason (M-1, round 2)
   onLedger = () => {}, // the failure-path seam: extract keeps the ledger even when this throws (S3)
 } = {}) {
   const manifest = JSON.parse(await fs.readFile(path.join(dump, "manifest.json")));
@@ -139,6 +140,11 @@ export async function convert({
 
   // ---- the ledger, from the listing ----------------------------------------
   const ledger = new Ledger(listed);
+  for (const r of preSkipped) {
+    const cls = r.class;
+    ledger.addSkipped(r, `unknown-class: ${cls === undefined || cls === "" ? "the listing carries no classification" : `the classification is "${cls}"`}`
+      + " -- only the sidecar's exact customer class is in scope; left out, the sidecar may be newer than this module");
+  }
   onLedger(ledger);
   const claims = ledger.markCaseCollisions(); // uppercased id -> surviving entry
   for (const [upperId, e] of claims) {

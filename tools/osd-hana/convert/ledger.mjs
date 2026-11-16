@@ -57,6 +57,26 @@ export class Ledger {
     }));
   }
 
+  // A row that is listed but out of scope by rule (unknown class, critic
+  // round 2 M-1) still ends in exactly one ledger state -- skipped, with its
+  // reason -- before the claims are taken.
+  addSkipped(row, reason) {
+    const e = {
+      id: `${row.type}:${row.name}`,
+      type: row.type,
+      name: row.name,
+      package: row.package,
+      status: "skipped",
+      reason,
+      parts: [],
+      files: [],
+      state: row.state ?? "A",
+      generated: row.generated === true,
+    };
+    this.entries.push(e);
+    return e;
+  }
+
   // The case-collision rule (attack 2): objects whose ids differ only by case
   // would fold to ONE output path on a case-insensitive file system --
   // last-writer-wins would silently drop one of them. The first listing row

@@ -35,6 +35,10 @@ export function renderMdReport(doc) {
     lines.push(`> ${doc.notice}`);
     lines.push("");
   }
+  if (doc.unknown_class > 0) {
+    lines.push(`> ${doc.unknown_class} listed objects have an unknown classification and were left out -- only the sidecar's exact customer class is in scope; the sidecar may be newer than this module.`);
+    lines.push("");
+  }
   lines.push("## per object type");
   lines.push("");
   lines.push("| type | in scope | written | written-partial | skipped | unsupported |");
