@@ -45,9 +45,12 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
       store: h.store(), clientFactory: factory, say: (text) => said.push(text),
     });
     const consent = said[0];
-    // both groups, with the login that runs each
+    // both groups, with the login that runs each -- and the reader's own
+    // proof statements under their own heading (critic S-3)
     expect(consent).to.include(`as THIS login (it is both the administrator and the schema owner) -- ${USER}`);
-    // every printed statement, in order
+    expect(consent).to.include("run as the new reader, changes nothing:");
+    // every printed statement, in order: the setup of both roles, then the
+    // reader's two proofs
     const printed = [...consent.matchAll(/^    (.*?)   -- /gm)].map((m) => m[1]);
     expect(printed.map((sql) => sql.replace(new RegExp(READER_PASSWORD_MASK.replace(/[*]/g, "\\$&"), "g"), "PW")))
       .to.deep.equal([
@@ -55,12 +58,16 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
         `ALTER USER ${DEFAULT_READER_NAME} DISABLE PASSWORD LIFETIME`,
         `GRANT CATALOG READ TO ${DEFAULT_READER_NAME}`,
         `GRANT SELECT ON SCHEMA "${SCHEMA}" TO ${DEFAULT_READER_NAME}`,
+        `SELECT COUNT(*) AS N FROM "${SCHEMA}"."TADIR"`,
+        `UPDATE "${SCHEMA}"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`,
       ]);
-    // the executed mutating statements are exactly the printed ones
-    const executed = log.statements.map((s) => s.sql)
-      .filter((sql) => /^(CREATE USER|ALTER USER|GRANT SELECT|GRANT CATALOG READ) /.test(sql));
-    const password = /PASSWORD "([^"]+)"/.exec(executed[0])[1];
-    expect(executed).to.deep.equal(printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password)));
+    // the executed statements are exactly the printed ones -- every printed
+    // statement went out, in the printed order, and nothing else did
+    const password = /PASSWORD "([^"]+)"/.exec(log.statements.find((s) => s.sql.startsWith("CREATE USER")).sql)[1];
+    expect(password).to.not.equal(READER_PASSWORD_MASK);
+    const resolved = printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password));
+    const executed = log.statements.map((s) => s.sql).filter((sql) => resolved.includes(sql));
+    expect(executed).to.deep.equal(resolved);
   });
 
   // ------------------------------------------------------- who runs what

@@ -203,20 +203,41 @@ describe("tools/osd-hana: the dedicated reader", function () {
       store: h.store(), clientFactory: factory, say: (text) => said.push(text),
     });
     const consent = said[0];
-    // the four statement lines the consent screen shows (CREATE, ALTER,
-    // GRANT CATALOG READ, GRANT SELECT)
+    // the statement lines the consent screen shows: CREATE, ALTER,
+    // GRANT CATALOG READ, GRANT SELECT -- and the reader's two proof
+    // statements (critic S-3: they are sent as the reader, so they are on
+    // the screen too, under "run as the new reader, changes nothing")
     const printed = [...consent.matchAll(/^    (.*?)   -- /gm)].map((m) => m[1]);
-    expect(printed).to.have.length(4);
+    expect(printed).to.have.length(6);
     expect(printed[0]).to.include(READER_PASSWORD_MASK);
-    // the mutating statements that were actually sent, in order
-    const executed = log.statements.map((s) => s.sql)
-      .filter((sql) => /^(CREATE USER|ALTER USER|GRANT SELECT|GRANT CATALOG READ) /.test(sql));
-    expect(executed).to.have.length(4);
-    const password = /PASSWORD "([^"]+)"/.exec(executed[0])[1];
+    expect(consent).to.include("run as the new reader, changes nothing:");
+    // every statement that was actually sent and appears on the screen, in
+    // screen order
+    const password = /PASSWORD "([^"]+)"/.exec(log.statements.find((s) => s.sql.startsWith("CREATE USER")).sql)[1];
     expect(password).to.not.equal(READER_PASSWORD_MASK);
+    const resolved = printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password));
+    const executed = log.statements.map((s) => s.sql).filter((sql) => resolved.includes(sql));
     // executed == printed with the mask swapped for the real password -- and
     // nothing else differs
-    expect(executed).to.deep.equal(printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password)));
+    expect(executed).to.deep.equal(resolved);
+  });
+
+  it("S-3: the consent screen names the reader's proof statements AND the cleanup -- the SELECT and the no-row UPDATE probe under 'run as the new reader, changes nothing', and the DROP USER that undoes a failed run (critic S-3 / probe P9; mutation: the reader group dropped from the screen -> red)", async function () {
+    const {factory} = fakeClientFactory(SUCCESS_RULES);
+    const said = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: h.store(), clientFactory: factory, say: (text) => said.push(text),
+    });
+    const consent = said[0];
+    expect(consent).to.include("run as the new reader, changes nothing:");
+    // the two proof statements, under that heading, with their honest whys
+    expect(consent).to.include(`SELECT COUNT(*) AS N FROM "${SCHEMA}"."TADIR"`);
+    expect(consent).to.include(`UPDATE "${SCHEMA}"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`);
+    expect(consent).to.include("the database must refuse this with error 258");
+    // and the cleanup that undoes a failed run is named before consent
+    expect(consent).to.include(`DROP USER ${DEFAULT_READER_NAME} CASCADE`);
   });
 
   it("requires consent: no --yes and no TTY means nothing is sent (mutation: consent always given -> red)", async function () {

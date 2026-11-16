@@ -242,7 +242,12 @@ const MASKED = READER_PASSWORD_MASK;
  *  user, disables the password lifetime and grants CATALOG READ (needed to
  *  dump database procedures / AMDP); the SCHEMA OWNER grants SELECT. On the
  *  measured systems no single login holds both; where one does, both roles
- *  run on the same connection. */
+ *  run on the same connection. The two proof statements at the end run AS
+ *  THE NEW READER after the setup (critic S-3 -- they are on the consent
+ *  screen too, under "run as the new reader, changes nothing"): one SELECT
+ *  proving the reader works, and the no-row UPDATE that MUST be refused with
+ *  HANA error 258 -- it changes nothing even if wrongly allowed, and its
+ *  refusal is what proves the reader cannot write. */
 export function createPlan({readerName, schema, password, catalogRead = true}) {
   const plan = [
     {
@@ -272,6 +277,18 @@ export function createPlan({readerName, schema, password, catalogRead = true}) {
     real: `GRANT SELECT ON SCHEMA ${quoteIdentifier(schema)} TO ${readerName}`,
     why: "read access to the ABAP schema, nothing else",
   });
+  plan.push({
+    role: "reader",
+    sql: `SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`,
+    real: `SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`,
+    why: "proof the reader works: it can read the repository tables",
+  });
+  plan.push({
+    role: "reader",
+    sql: `UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0`,
+    real: `UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0`,
+    why: "proof the reader CANNOT write: the database must refuse this with error 258 -- it changes nothing even if wrongly allowed",
+  });
   return plan;
 }
 
@@ -291,11 +308,19 @@ export function consentText({readerName, schema, plan, logins, store, connection
     lines.push("");
   };
   if (sameLogin) {
-    group(`as THIS login (it is both the administrator and the schema owner) -- ${logins.admin.user}`, plan);
+    group(`as THIS login (it is both the administrator and the schema owner) -- ${logins.admin.user}`,
+      plan.filter((p) => p.role === "admin" || p.role === "owner"));
   } else {
     group(`as the ADMINISTRATOR login ${logins.admin.user}`, plan.filter((p) => p.role === "admin"));
     group(`as the SCHEMA OWNER login ${logins.owner.user}`, plan.filter((p) => p.role === "owner"));
   }
+  // The reader's own proof statements are on the screen too (critic S-3):
+  // they are real statements sent as the reader, and the screen promised
+  // exactness.
+  group("run as the new reader, changes nothing:", plan.filter((p) => p.role === "reader"));
+  lines.push(`  If any statement fails after the reader is created, the reader is dropped again`);
+  lines.push(`  (DROP USER ${readerName} CASCADE, run by the administrator login) -- nothing is left behind.`);
+  lines.push("");
   lines.push(...(transport ?? []));
   lines.push(`  (the password is generated, 28 characters, never printed; it will be stored in`);
   lines.push(`   ${store.location(readerName)})`);
@@ -542,7 +567,10 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
   // through it, whoever failed.
   const adminLogin = logins.admin;
   const ownerLogin = logins.owner;
-  const grantSelect = plan[plan.length - 1];
+  const grantSelect = plan.find((p) => p.role === "owner");
+  const readerProofs = plan.filter((p) => p.role === "reader");
+  const proofSelect = readerProofs[0];
+  const proofWrite = readerProofs[1];
   const adminClient = await clientFactory(hdbConnectionOptions(connection,
     {user: adminLogin.user, password: adminLogin.password, encrypt, trustServerCertificate, ca, tlsServerName}));
   let ownerClient;
@@ -700,11 +728,11 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
       let proofClient;
       try {
         proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword, encrypt, trustServerCertificate, ca, tlsServerName}));
-        const {rows} = await proofClient.exec(`SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`, []);
+        const {rows} = await proofClient.exec(proofSelect.real, []);
         say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${show(schema)}."TADIR" -- proof it works.`);
         let refusedText;
         try {
-          await proofClient.exec(`UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0`, []);
+          await proofClient.exec(proofWrite.real, []);
           // NOT refused (the probe SUCCEEDED): the reader can write. Drop it
           // and fail loudly -- a reader that can write is not the reader this
           // tool promised.
@@ -715,7 +743,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
               ? `  The reader ${readerName} is absent (HANA said 332 -- the drop found nothing to remove).`
               : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
           throw new ReaderError(`osd hana: THE READER CAN WRITE -- the write probe\n` +
-            `    UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0\n` +
+            `    ${proofWrite.sql}\n` +
             `  was NOT refused by the database. This tool refuses to hand out a reader that can write.\n${note}`);
         } catch (error) {
           if (error instanceof ReaderError) throw error;
@@ -738,7 +766,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
                 ? `  The reader ${readerName} is absent (HANA said 332 -- the drop found nothing to remove).`
                 : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
             throw new ReaderError(`osd hana: COULD NOT PROVE that the reader cannot write -- the write probe\n` +
-              `    UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")} SET "PGMID" = "PGMID" WHERE 1 = 0\n` +
+              `    ${proofWrite.sql}\n` +
               `  did not come back with HANA error 258 (insufficient privilege): ${outcome}.\n` +
               `  Only 258 proves the database refuses this reader's writes; this outcome proves nothing, so the reader is\n` +
               `  not handed out and no secret is stored. Re-run the doctor to try again.\n${note}`);
