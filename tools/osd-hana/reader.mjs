@@ -186,7 +186,11 @@ export function sqlErrorText(error) {
   return `${errorCode(error) !== undefined ? `${errorCode(error)} ` : ""}${error?.message ?? String(error)}`;
 }
 
-const MASKED = "***reader-password***";
+// The mask shown in the consent text in place of the generated password.
+// Exported for the test that asserts the printed plan and the executed
+// statements are one source (critic S-C).
+export const READER_PASSWORD_MASK = "***reader-password***";
+const MASKED = READER_PASSWORD_MASK;
 
 export function planStatements({readerName, schema, password}) {
   // The plan shown for consent. The real password goes into the statement
@@ -369,10 +373,10 @@ export async function createReader({
   await askConsent({yes, isTTY, prompt});
 
   const adminClient = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
-  return runCreatePlan({adminClient, connection, readerName, schema, password, store, clientFactory, say});
+  return runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say});
 }
 
-async function runCreatePlan({adminClient, connection, readerName, schema, password, store, clientFactory, say}) {
+async function runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say}) {
   try {
     // 0. Existence guard (critic M-B): a user that already exists -- ours
     // from an earlier run and maybe in use by a running extract, or somebody
@@ -404,8 +408,11 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
     }
 
     // 1. CREATE USER ... -- the one statement with the password on the wire.
+    // Executed from the consent plan: the printed statement and the sent
+    // statement are ONE source, the mask applied at print time only
+    // (critic S-C).
     try {
-      await adminClient.exec(`CREATE USER ${readerName} PASSWORD ${quotePasswordLiteral(password)} NO FORCE_FIRST_PASSWORD_CHANGE`);
+      await adminClient.exec(plan[0].real);
     } catch (error) {
       // The CREATE itself failed -- 258 (no USER ADMIN), 331 (the name
       // existed after all: the guard raced), 412 (password policy), a
@@ -423,11 +430,11 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
     // From here on any failure drops the user again.
     try {
       // 2. ALTER USER ... DISABLE PASSWORD LIFETIME
-      await adminClient.exec(`ALTER USER ${readerName} DISABLE PASSWORD LIFETIME`);
+      await adminClient.exec(plan[1].real);
 
       // 3. GRANT SELECT ON SCHEMA "<schema>" TO <reader>
       try {
-        await adminClient.exec(`GRANT SELECT ON SCHEMA ${quoteIdentifier(schema)} TO ${readerName}`);
+        await adminClient.exec(plan[2].real);
       } catch (error) {
         if (errorCode(error) === 258) {
           const owner = await lookupSchemaOwner(adminClient, schema);

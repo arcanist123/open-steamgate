@@ -12,7 +12,7 @@ import {mkdirSync, statSync, writeFileSync, chmodSync} from "node:fs";
 import {join} from "node:path";
 
 import {
-  DEFAULT_READER_NAME, ConsentRefused, ReaderError,
+  DEFAULT_READER_NAME, ConsentRefused, READER_PASSWORD_MASK, ReaderError,
   createReader, dropReader, generateReaderPassword, quoteIdentifier, readerStoreKey, show, validateReaderName,
 } from "../tools/osd-hana/reader.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
@@ -189,6 +189,33 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(show("A\u001bB")).to.equal("A\\x1bB");
     expect(show("A\rB")).to.equal("A\\x0dB");
     expect(show("A\u007fB")).to.equal("A\\x7fB");
+  });
+
+  it("S-C: the consent screen prints exactly the statements that are executed -- one source, the mask applied at print time only (critic S-C; mutation: rebuild the statements at execution time -> red)", async function () {
+    // the consent text and the wire must come from ONE place: print plan[i].sql,
+    // execute plan[i].real. The mutation is the old structure -- runCreatePlan
+    // rebuilding the statements by hand -- with any one edit of drift.
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const said = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: h.store(), clientFactory: factory, say: (text) => said.push(text),
+    });
+    const consent = said[0];
+    // the three statement lines the consent screen shows
+    const printed = [...consent.matchAll(/^    (.*?)   -- /gm)].map((m) => m[1]);
+    expect(printed).to.have.length(3);
+    expect(printed[0]).to.include(READER_PASSWORD_MASK);
+    // the mutating statements that were actually sent, in order
+    const executed = log.statements.map((s) => s.sql)
+      .filter((sql) => /^(CREATE USER|ALTER USER|GRANT SELECT) /.test(sql));
+    expect(executed).to.have.length(3);
+    const password = /PASSWORD "([^"]+)"/.exec(executed[0])[1];
+    expect(password).to.not.equal(READER_PASSWORD_MASK);
+    // executed == printed with the mask swapped for the real password -- and
+    // nothing else differs
+    expect(executed).to.deep.equal(printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password)));
   });
 
   it("requires consent: no --yes and no TTY means nothing is sent (mutation: consent always given -> red)", async function () {
