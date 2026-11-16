@@ -722,7 +722,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     const rep = reportOf(out);
     const original = rep.objects.find((x) => x.name === "ZIF_OSD_X2");
     const variant2 = rep.objects.find((x) => x.name === "Zif_Osd_X2");
-    expect(original.status).to.equal("written-partial"); // INTF component texts not checked (SHOULD-1)
+    expect(original.status).to.equal("written"); // INTF component texts are only 'not checked' (SHOULD-1, round 4)
     expect(variant2.status).to.equal("skipped");
     expect(variant2.reason).to.match(/collision/i);
     expect(existsSync(join(out, "src/osd_x/zif_osd_x2.intf.abap"))).to.equal(true);

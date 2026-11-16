@@ -167,31 +167,45 @@ clone, diff and deploy:
    abapGit's own layout (BOM, one element per line, its field order), decided
    from abapGit's serializers, not from single files. The report is built
    from a ledger: every in-scope object ends in exactly one state, and every
-   part the converter knows it cannot write (a function include missing from
-   the dump, dynpros, a GUI status, variants, function documentation, a text
-   pool it left out) is a `not written`/`not checked` line under its object —
-   such an object is `written-partial`. The dump carries no screen/CUA/
-   variant tables at all, so screens, GUI statuses and variants are `not
-   checked` on every PROG/FUGR rather than claimed complete. A type the
-   converter cannot write is never dropped silently: it is listed, and the
-   exit code is 3. Object and package names from the dump are validated as
-   path components (traversal, backslashes, control characters,
+   part the converter knows it cannot write is a line under its object, in
+   exactly one of two kinds (round 4): `not extracted` — the dump shows the
+   part exists and it was not written (a failed include, foreign keys the
+   dump carries but this converter does not serialise, a translated text
+   pool left out, a sidecar error on the object) — or `not checked` — the
+   dump cannot tell whether the part exists at all. `written-partial` is
+   ONLY for `not extracted`: an object whose only gap is a `not checked`
+   part is `written`, carrying its `unchecked` list ("not checked" is not
+   "partial" — a signal that is always on is no signal). The dump carries no
+   screen/CUA/variant tables at all, so screens, GUI statuses and variants
+   are `not checked` on every PROG/FUGR rather than claimed complete. A type
+   the converter cannot write is never dropped silently: it is listed, and
+   the exit code is 3. Object and package names from the dump are validated
+   as path components (traversal, backslashes, control characters,
    Windows-reserved names are refused per object); a name collision refuses
    both objects, never last-writer-wins.
 5. **Report** — always written: `<out>/extract-report.json` and
    `extract-report.md`: per type on the system / dumped / written /
    written-partial / skipped / unsupported (the totals always add up to the
-   in-scope count — a mismatch is an internal error, never a silent one), per
-   object its files with SHA-256, package, state (active/inactive, `generated`
-   flagged) and its part lines, the sidecar version + pin, the request, the
-   folder logic, the duration, and the plain sentence "N objects of M could
-   not be fully extracted".
+   in-scope count — a mismatch is an internal error, never a silent one),
+   per object its files with SHA-256, package, state (active/inactive,
+   `generated` flagged), its `not extracted` part lines and its `unchecked`
+   list, the sidecar version + pin, the request, the folder logic, the
+   duration. The FIRST line of the md — and the one console line — is the
+   summary, and it never claims completeness while any unchecked part
+   exists: "N objects written. For K of them this tool could not check:
+   <part kinds with counts>." with the losses ("M objects of T could not be
+   fully extracted (...)") named first; "all objects in scope were written"
+   is said only when nothing is unchecked. The per-object unchecked lists
+   stay in the json and in a collapsed section of the md.
 
-Exit codes: **0** everything in scope fully written, **3** partial (something
-written partially, skipped or unsupported — the report says what), **1**
-usage, **2** cannot connect, **4** refused output directory, **5** no ABAP
-schema, **6** internal error (a conversion/write failure or the ledger
-invariant — a best-effort report is written anyway and names the failure).
+Exit codes: **0** everything in scope written — a part the dump cannot even
+check does not count against its object (it is carried as the object's
+`unchecked` list), **3** partial (a part the dump shows exists was not
+extracted, an object skipped or unsupported, or an error — the report says
+what), **1** usage, **2** cannot connect, **4** refused output directory,
+**5** no ABAP schema, **6** internal error (a conversion/write failure or
+the ledger invariant — a best-effort report is written anyway and names the
+failure).
 
 Before publishing an extracted repository: remove `extract-report.json`,
 `extract-report.md` and `.osd-hana/` — they carry absolute local paths (and
