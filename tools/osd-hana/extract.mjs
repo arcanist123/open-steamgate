@@ -49,7 +49,7 @@ export const EXTRACT_EXIT = Object.freeze({
 
 const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin"];
 const REPEATABLE = ["package", "name"];
-const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "help"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "yes", "yes-large", "help"];
 // the capabilities extract needs from the sidecar (contract W0)
 const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "inactive", "catalog", "ddic"];
 

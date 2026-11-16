@@ -13,6 +13,7 @@ import {execFileSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
+import {PassThrough} from "node:stream";
 
 import {extractMain, accountsFor} from "../tools/osd-hana/extract.mjs";
 import {reusableDump, inGitTree} from "../tools/osd-hana/extract.mjs";
@@ -97,7 +98,7 @@ function makePin() {
   return path;
 }
 
-async function runExtract(argv, {env = {}, out, list, dump, pinFile: pinFileOpt, chunk, extra = {}} = {}) {
+async function runExtract(argv, {env = {}, out, list, dump, pinFile: pinFileOpt, chunk, extra = {}, yes = true, tty = false, answers} = {}) {
   const from = recordLines().length;
   const lines = {out: [], err: [], from};
   const io = {out: (l) => lines.out.push(l), err: (l) => lines.err.push(l)};
@@ -107,17 +108,22 @@ async function runExtract(argv, {env = {}, out, list, dump, pinFile: pinFileOpt,
     OSD_HANA_PASSWORD: PASSWORD,
     ...env,
   };
+  // the consent seam (fix round 3): the suite's runs are non-interactive by
+  // default and carry --yes, so the round-2 tests keep meaning "the run went
+  // all the way"; a test of the consent gate passes yes:false (and tty/answers
+  // for the terminal form).
+  const stdin = tty ? (() => { const s = new PassThrough(); s.isTTY = true; s.end(`${answers ?? "n"}\n`); return s; })() : {isTTY: false};
   // `pinFile` is the TRUSTED seam (the embedding host's own pin, critic S-E);
   // the default test path names it there, a `--sidecar-pin` on ARGV is the
   // public input and must never produce a "pinned" verdict on its own.
   const argvPin = argv.includes("--sidecar-pin");
   const code = await extractMain([
     "--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA,
-  ].concat(argv), {
+  ].concat(yes ? ["--yes"] : []).concat(argv), {
     io,
     env: runEnv,
-    stdin: {isTTY: false},
-    isTTY: false,
+    stdin,
+    isTTY: tty,
     sidecarTimeoutMs: 500,
     // null = no trusted seam on purpose (a test of the public --sidecar-pin)
     pinFile: pinFileOpt === undefined ? pinPath : (pinFileOpt ?? undefined),
@@ -1252,3 +1258,127 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(readOutReport(out)).to.not.match(/hostname/);
   });
 });
+
+// ------------------------------------------------------- fix round 3
+// Part B (the coordinator's decision): local objects stay IN the default
+// scope, but nothing is dumped without the user having seen the plan --
+// consent, the real numbers in the question, the per-author table, and a
+// large plan that needs --yes-large. Each test names the mutation that must
+// turn it RED.
+describe("osd hana extract -- fix round 3 (the default scope must not surprise)", function () {
+
+  const outText = (lines) => lines.out.join("\n");
+  const readJsonlL = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const objectsRowsL = (dir) => readJsonlL(dir, "objects.jsonl");
+  const writeObjectsL = (dir, rows) => writeFileSync(join(dir, "objects.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const rowL = (o) => ({type: o.type, name: o.name, package: o.package, author: o.author ?? "DEVUSER", class: "customer", state: "A", status: "W", files: []});
+  function variant(mutate) {
+    const built = buildExtractFixtures(join(root, `fx3-${Math.random().toString(16).slice(2)}`));
+    if (mutate) mutate(built.list, built.dump);
+    return built;
+  }
+  const dumpRequests = (from = 0) => recordLines().slice(from)
+    .map((l) => JSON.parse(l)).filter((e) => e.argv[0] === "dump").map((e) => e.request);
+
+  it("B: no dump without consent -- a terminal 'n' after the plan leaves nothing (mutation: the consent gate removed)", async function () {
+    const out = await fresh("r3-tty-n");
+    const r = await runExtract(["--out", out], {yes: false, tty: true, answers: "n"});
+    expect(r.code, "a decline is not an error").to.equal(0);
+    expect(r.runs()).to.deep.equal(["--version", "list"]); // the plan ran, the dump did not
+    expect(existsSync(join(out, "src"))).to.equal(false);
+    expect(existsSync(join(out, ".osd-hana", "dump"))).to.equal(false);
+    expect(r.lines.err.join("\n")).to.match(/declined/);
+  });
+
+  it("B: an accepted terminal answer dumps (the question was the only gate)", async function () {
+    const out = await fresh("r3-tty-y");
+    const r = await runExtract(["--out", out], {yes: false, tty: true, answers: "y"});
+    expect(r.code).to.equal(3);
+    expect(r.runs()).to.deep.equal(["--version", "list", "dump"]);
+  });
+
+  it("B: the consent question carries the REAL numbers of this plan (mutation: the numbers hard-coded or dropped)", async function () {
+    const out = await fresh("r3-numbers");
+    const r = await runExtract(["--out", out], {yes: false, tty: true, answers: "n"});
+    expect(r.code).to.equal(0); // declined
+    const question = r.lines.out.find((l) => l.includes("into"));
+    expect(question, "the question stands between the plan and the dump").to.exist;
+    expect(question).to.match(/extract 14 objects \(0\.0 MB\) into /);
+    expect(question).to.match(new RegExp(out.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    expect(question.endsWith("[y/N]")).to.equal(true);
+  });
+
+  it("B: a non-interactive run without --yes dumps nothing and says so (mutation: the consent gate removed)", async function () {
+    const out = await fresh("r3-no-yes");
+    const r = await runExtract(["--out", out], {yes: false});
+    expect(r.code).to.equal(1);
+    expect(r.lines.err.join("\n")).to.match(/--yes/).and.to.match(/consent/);
+    expect(r.runs()).to.deep.equal(["--version", "list"]);
+    expect(existsSync(join(out, "src"))).to.equal(false);
+    expect(existsSync(join(out, ".osd-hana", "dump"))).to.equal(false);
+  });
+
+  it("B: --yes-large -- a LARGE plan refuses a plain --yes and proceeds with --yes-large (mutation: --yes accepted for a large plan)", async function () {
+    // a LARGE selection: 5001 in-scope objects (one above the named number)
+    const fx = variant((list) => {
+      const rows = objectsRowsL(list);
+      const extra = [];
+      for (let i = 0; i < 5001; i++) {
+        extra.push(rowL({type: "PROG", name: `ZBIG_${String(i).padStart(5, "0")}`, package: "$OSD_X"}));
+      }
+      writeObjectsL(list, rows.concat(extra));
+    });
+    const out = await fresh("r3-large-yes");
+    const from = recordLines().length;
+    const r = await runExtract(["--out", out], {yes: true, list: fx.list, dump: fx.dump});
+    expect(r.code, "a plain --yes is not consent for a large plan").to.equal(1);
+    expect(r.lines.err.join("\n")).to.match(/--yes-large/).and.to.match(/LARGE/).and.to.match(/5 000 objects \/ 200 MB/);
+    expect(dumpRequests(from).length).to.equal(0); // refused before any dump
+
+    const out2 = await fresh("r3-large-yeslarge");
+    const from2 = recordLines().length;
+    const r2 = await runExtract(["--out", out2, "--yes-large"], {yes: false, list: fx.list, dump: fx.dump});
+    expect(r2.code).to.equal(3); // the selection runs; most rows are not in the dump fixture
+    expect(dumpRequests(from2).length).to.be.at.least(10); // chunked, 5015 names
+  });
+
+  it("B: the plan carries a per-author table for local objects, the biggest packages, and the multi-author hint (mutation: the table removed)", async function () {
+    const fx = variant((list, dump) => {
+      writeObjectsL(list, objectsRowsL(list).map((o) =>
+        o.name === "ZCL_OSD_X1" ? {...o, author: "SECONDDEV", source_bytes_compressed: 1_500_000}
+          : o.name === "ZOSD_X3" ? {...o, author: "SECONDDEV", source_bytes_compressed: 500_000}
+            : o));
+    });
+    const out = await fresh("r3-authors");
+    const r = await runExtract(["--out", out, "--dry-run", "--json"], {list: fx.list});
+    expect(r.code).to.equal(0);
+    const doc = JSON.parse(r.lines.out.join("\n"));
+    expect(doc.plan.localAuthors).to.equal(2);
+    expect(doc.plan.perAuthor).to.deep.equal([
+      {author: "DEVUSER", objects: 12, bytes: 0},
+      {author: "SECONDDEV", objects: 2, bytes: 2_000_000},
+    ]);
+    expect(doc.plan.bytes).to.equal(2_000_000);
+    expect(doc.plan.biggest[0]).to.deep.equal({package: "$OSD_X", objects: 13, bytes: 2_000_000});
+    expect(doc.plan.biggest.length).to.be.at.least(2);
+
+    // the terminal plan shows the same: the table, the biggest packages, the hint
+    const out2 = await fresh("r3-authors-tty");
+    const r2 = await runExtract(["--out", out2, "--dry-run"], {yes: false, tty: true, answers: "n", list: fx.list});
+    const text = outText(r2.lines);
+    expect(text).to.match(/per author \(local objects\):/);
+    expect(text).to.match(/SECONDDEV\s+2\s+2\.0 MB/);
+    expect(text).to.match(/DEVUSER\s+12\s+0\.0 MB/);
+    expect(text).to.match(/biggest packages: \$OSD_X \(13, 2\.0 MB\), \$OSD_X_SUB \(1, 0\.0 MB\)/);
+    expect(text).to.match(/local objects of 2 authors are in scope; narrow with --author <name> or --no-local/);
+
+    // one author in scope: the hint is gone, the table shows one row
+    const out3 = await fresh("r3-authors-narrow");
+    const r3 = await runExtract(["--out", out3, "--dry-run", "--author", "SECONDDEV"], {list: fx.list});
+    const text3 = outText(r3.lines);
+    expect(text3).to.match(/SECONDDEV\s+2\s+2\.0 MB/);
+    expect(text3).to.not.match(/local objects of .* authors are in scope/);
+    expect(text3).to.not.match(/DEVUSER\s+\d/);
+  });
+});
+
