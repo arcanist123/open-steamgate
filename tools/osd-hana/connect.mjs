@@ -81,10 +81,26 @@ export function readEnvFile(path) {
   return out;
 }
 
+// A visible line prompt on a terminal: the question is written to stderr and
+// the typed answer ECHOES -- this is for login NAMES and yes/no questions,
+// never for a password (the hidden prompt below is for those). Not a terminal
+// (stdin or stderr) is a refusal, never a silent read.
+export async function promptVisible(question, {input = process.stdin, output = process.stderr} = {}) {
+  if (input?.isTTY !== true || output?.isTTY !== true) {
+    throw new UsageError("osd hana: this question needs a terminal -- stdin and stderr are not both terminals here, so there is nobody to answer it");
+  }
+  const {createInterface} = await import("node:readline");
+  const rl = createInterface({input, output});
+  return new Promise((resolvePromise) => rl.question(question, (answer) => {
+    rl.close();
+    resolvePromise(answer);
+  }));
+}
+
 // A hidden prompt on a TTY: raw mode, every character swallowed, nothing
 // echoed. Not a TTY (a test, a pipe) is a refusal, never a read: hanging on
 // stdin that will never speak is worse than a clear error.
-async function promptHidden(question, {input = process.stdin, output = process.stderr, isTTY = input.isTTY} = {}) {
+export async function promptHidden(question, {input = process.stdin, output = process.stderr, isTTY = input.isTTY} = {}) {
   if (!isTTY) throw new UsageError("osd hana: a password is missing and stdin is not a terminal -- use --password-stdin, HANA_PASSWORD in --env-file, or OSD_HANA_PASSWORD");
   return new Promise((resolvePromise, reject) => {
     output.write(question);

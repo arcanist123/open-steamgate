@@ -14,7 +14,7 @@
 // This module holds no SQL of its own except through ./reader.mjs (the only
 // place a non-SELECT statement exists) and opens no listening socket (task
 // B.5).
-import {UsageError, parseFlags, collectConnection} from "./connect.mjs";
+import {UsageError, parseFlags, collectConnection, promptHidden as defaultPromptHidden, promptVisible as defaultPromptVisible} from "./connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory, describeNeitherRole, lookupSchemaOwnerLogin} from "./reader.mjs";
@@ -88,7 +88,10 @@ export async function doctorMain(argv, {
   callerPath,
   store = defaultSecretStore(),
   clientFactory,
-  prompt,
+  prompt, // combined override of BOTH prompts below -- the test seam the injected-prompt tests use
+  promptVisible, // a visible line question (login NAMES, consent): default is readline over stdin + stderr
+  promptHidden, // the hidden password question (never echoes): default is connect.mjs's raw-mode prompt
+  stderr = process.stderr, // the stream the default prompts write to and check isTTY on -- the doctor asks only when stdin AND stderr are a terminal (critic M-2)
   pinFile, // the TRUSTED seam for the embedding host / tests to name a pin file; the CLI flag --sidecar-pin is a public input and never 'pins' by itself (critic S-E)
   sidecarExtraEnv, // the test seam: extra child-env for the sidecar; the CLI never sets it
   sidecarTimeoutMs = 120_000,
@@ -110,6 +113,20 @@ export async function doctorMain(argv, {
     io.err(message);
     return DOCTOR_EXIT.usage;
   };
+  // The TWO prompt seams of the guided flow (critic M-2), each with a
+  // PRODUCTION default wired here -- in the real CLI no test injects anything,
+  // and the doctor really asks: a VISIBLE line question for a login NAME (the
+  // answer echoes), the HIDDEN prompt for a password (raw mode, nothing
+  // echoed). One function for both used to mean the login name was typed
+  // blind or the password echoed, depending on the seam; two functions, two
+  // defaults, one rule. `prompt`, when a caller injects it, overrides both
+  // (the test seam the older tests use). The defaults run over `stdin` and
+  // `stderr`, and canPrompt checks the SAME two streams: the doctor asks only
+  // when stdin AND stderr are a terminal -- what is checked is what would be
+  // used.
+  const promptVisibleFn = promptVisible ?? prompt ?? ((question) => defaultPromptVisible(question, {input: stdin, output: stderr}));
+  const promptHiddenFn = promptHidden ?? prompt ?? ((question) => defaultPromptHidden(question, {input: stdin, output: stderr}));
+  const canPrompt = isTTY === true && stderr?.isTTY === true;
   // critic round-2 NOTE-4: the unpinned/foreign-pin WARNING used to fire on
   // the initial verify AND again on every per-spawn re-verification -- the
   // same first line twice or more per run. Warn ONCE per run: a set of first
@@ -207,7 +224,7 @@ export async function doctorMain(argv, {
   // ---- connection --------------------------------------------------------
   let connection;
   try {
-    connection = await collectConnection({flags, env, stdin, isTTY, prompt});
+    connection = await collectConnection({flags, env, stdin, isTTY, prompt: promptHiddenFn});
   } catch (error) {
     if (error instanceof UsageError) return fail(`osd hana: ${error.message.replace(/^osd hana: /, "")}`);
     return fail(`osd hana: taking the password failed: ${error.message}`);
@@ -295,13 +312,13 @@ export async function doctorMain(argv, {
               suggest = undefined;
             }
           }
-          secondLogin = await collectSecondLogin({role, flags, env, isTTY, prompt, suggest});
+          secondLogin = await collectSecondLogin({role, flags, env, canPrompt, promptVisible: promptVisibleFn, promptHidden: promptHiddenFn, suggest});
         }
       }
       const catalogRead = flags["no-catalog-read"] !== true;
       const result = verb === "create-reader"
         ? await createReader({connection, schema: schemaName, readerName, yes: flags.yes === true, isTTY, store,
-            clientFactory: clientFactory ?? hdbClientFactory(), prompt,
+            clientFactory: clientFactory ?? hdbClientFactory(), prompt: promptVisibleFn,
             encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             role, secondLogin, catalogRead,
             say: (text) => io.out(text),
@@ -333,7 +350,7 @@ export async function doctorMain(argv, {
               }
             }})
         : await dropReader({connection, readerName, yes: flags.yes === true, isTTY, store,
-            clientFactory: clientFactory ?? hdbClientFactory(), prompt,
+            clientFactory: clientFactory ?? hdbClientFactory(), prompt: promptVisibleFn,
             encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             say: (text) => io.out(text)});
       if (verb === "create-reader" && flags["no-catalog-read"] === true) {
@@ -477,24 +494,26 @@ function describeSidecar(verified, handshakeInfo) {
 
 /** The second login of the guided two-login flow. `role` is the PRESENT
  *  login's role; when it holds only one, the login holding the OTHER role is
- *  asked for here: the name from --owner-user / --admin-user (or a prompt on
- *  a terminal, with the catalogue's suggestion as the default), the password
- *  from $OSD_HANA_OWNER_PASSWORD / $OSD_HANA_ADMIN_PASSWORD or a hidden
- *  prompt. There is deliberately no --owner-password-stdin (task: the
+ *  asked for here: the name from --owner-user / --admin-user (or the VISIBLE
+ *  prompt on a terminal, with the catalogue's suggestion as the default), the
+ *  password from $OSD_HANA_OWNER_PASSWORD / $OSD_HANA_ADMIN_PASSWORD or the
+ *  HIDDEN prompt (nothing echoed). Two separate seams -- one function for
+ *  both questions used to mean the login name was typed blind or the password
+ *  echoed (critic M-2). `canPrompt` comes from doctorMain: stdin AND stderr
+ *  are a terminal. There is deliberately no --owner-password-stdin (task: the
  *  non-interactive shape is --owner-user + the env variable), and no
  *  --password flag anywhere: argv is visible to every user of the machine.
  *  Neither extra password is stored; createReader uses it for its statements
  *  and drops it. Throws ReaderError -- a setup refusal -- when no channel
  *  gives what is needed; nothing has been sent at that point. */
-async function collectSecondLogin({role, flags, env, isTTY, prompt, suggest}) {
+async function collectSecondLogin({role, flags, env, canPrompt, promptVisible, promptHidden, suggest}) {
   const askOwner = role === "admin"; // the OTHER login is the schema owner
   const label = askOwner ? "schema owner" : "administrator";
   const userFlag = askOwner ? "--owner-user" : "--admin-user";
   const envVar = askOwner ? "OSD_HANA_OWNER_PASSWORD" : "OSD_HANA_ADMIN_PASSWORD";
-  const canPrompt = isTTY === true && typeof prompt === "function";
   let user = flags[askOwner ? "owner-user" : "admin-user"];
   if (user === undefined && canPrompt) {
-    user = String(await prompt(`${label} login${suggest !== undefined ? ` [${suggest}]` : ""}: `)).trim();
+    user = String(await promptVisible(`${label} login${suggest !== undefined ? ` [${suggest}]` : ""}: `)).trim();
     if (user === "" && suggest !== undefined) user = suggest;
   }
   if (user === undefined || user === "") {
@@ -512,7 +531,7 @@ async function collectSecondLogin({role, flags, env, isTTY, prompt, suggest}) {
         `  There is deliberately no --${askOwner ? "owner" : "admin"}-password-stdin and no --password flag: argv is visible to every user of the machine.\n` +
         `  Nothing was sent.`);
     }
-    password = await prompt(`${label} password for ${user} (hidden): `, {isTTY});
+    password = await promptHidden(`${label} password for ${user} (hidden): `);
     if (typeof password !== "string" || password === "") {
       throw new ReaderError(`osd hana: the ${label} login's password is empty -- refused, like every empty password. Nothing was sent.`);
     }

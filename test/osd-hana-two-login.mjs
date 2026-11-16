@@ -10,6 +10,7 @@
 // Every guard here has a named mutation behind it: the test goes red when the
 // guard is removed. The mutations are listed in REPORT.md next to each test.
 import {expect} from "chai";
+import {PassThrough} from "node:stream";
 
 import {
   DEFAULT_READER_NAME, READER_PASSWORD_MASK, ReaderError,
@@ -368,7 +369,7 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
       scenario: "admin-system",
       isTTY: true,
       deps: {
-        clientFactory: factory, store: h.store(),
+        clientFactory: factory, store: h.store(), stderr: {isTTY: true},
         prompt: async (question) => {
           asked.push(question);
           // empty answer to the login question: the suggestion must be used
@@ -381,6 +382,62 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
     expect(asked.some((q) => q.includes("schema owner login") && q.includes("[SCHEMA_OWNER_LOGIN]"))).to.equal(true);
     const grant = log.statements.find((s) => s.sql.startsWith("GRANT SELECT"));
     expect(grant.user).to.equal("SCHEMA_OWNER_LOGIN");
+  });
+
+  it("on a REAL terminal with the DEFAULT wiring (no injected prompt) the doctor asks: a visible question for the login name (the answer echoes), a hidden one for the password (nothing echoes) (critic M-2; mutation: the default prompts unwired -> red)", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const stdin = new PassThrough();
+    stdin.isTTY = true;
+    stdin.setRawMode = () => {};
+    const stderr = new PassThrough();
+    stderr.isTTY = true;
+    let stderrText = "";
+    stderr.on("data", (chunk) => { stderrText += chunk.toString("utf8"); });
+    const secretStore = h.store();
+    const run = h.runDoctor(["--create-reader", "--yes"], {
+      scenario: "admin-system",
+      isTTY: true,
+      deps: {clientFactory: factory, store: secretStore, stdin, stderr},
+    });
+    const waitFor = async (fragment) => {
+      for (let i = 0; i < 500 && !stderrText.includes(fragment); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(stderrText.includes(fragment), `the doctor never asked: ${JSON.stringify(fragment)}`).to.equal(true);
+    };
+    // the visible question for the login NAME
+    await waitFor("schema owner login");
+    stdin.write(`${OWNER}\n`);
+    // the hidden question for the password
+    await waitFor(`password for ${OWNER}`);
+    // the name reached stderr BEFORE the password question was asked: the
+    // visible prompt echoed the typed answer
+    expect(stderrText.includes(OWNER), "the typed login name must be echoed").to.equal(true);
+    expect(stderrText.indexOf("password for")).to.be.greaterThan(stderrText.indexOf(OWNER));
+    expect(stderrText).to.not.include(OWNER_PW);
+    stdin.write(`${OWNER_PW}\n`);
+    const code = await run;
+    expect(code, h.allText() + "\n--stderr--\n" + stderrText).to.equal(0);
+    // the hidden path NEVER echoes: no character of the password on stderr
+    expect(stderrText).to.not.include(OWNER_PW);
+    const grant = log.statements.find((s) => s.sql.startsWith("GRANT SELECT"));
+    expect(grant, "the grant ran as the prompted login").to.not.equal(undefined);
+    expect(grant.user).to.equal(OWNER);
+  });
+
+  it("stdin is a terminal but stderr is NOT: the doctor does not ask -- the TTY check is on BOTH streams, and the refusal text stays true (critic M-2; mutation: the stderr half of the TTY check dropped -> red)", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const code = await h.runDoctor(["--create-reader", "--yes"], {
+      scenario: "admin-system",
+      isTTY: true,
+      deps: {clientFactory: factory, store: h.store(), stderr: {isTTY: false}},
+    });
+    expect(code).to.equal(1);
+    const text = h.allText();
+    expect(text).to.include("Nothing was sent");
+    expect(text).to.include("--owner-user");
+    // nothing mutating went out: only the informational suggestion lookup ran
+    expect(log.statements.every((s) => s.sql.startsWith("SELECT"))).to.equal(true);
   });
 
   it("the doctor refuses the two-login flow without the second login's password: $OSD_HANA_OWNER_PASSWORD named, nothing sent (mutation: the missing-password guard dropped -> red)", async function () {
