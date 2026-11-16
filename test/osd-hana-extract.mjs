@@ -1168,6 +1168,51 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(intf.status).to.equal("written-partial");
   });
 
+  it("NOTE-1: the sentence separates honest incompleteness from loss (mutation: the unchecked-only sentence removed)", async function () {
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).filter((o) => ["PROG", "FUGR"].includes(o.type) && o.class === "customer"));
+    });
+    const out = await fresh("n1");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3); // the parts are not checked -- still not a clean exit 0
+    expect(reportOf(out).sentence).to.match(/as far as this tool checks/).and.to.match(/not checked/);
+    // and where something is really lost, the sentence says "could not be fully extracted" as before
+    const out2 = await fresh("n1b");
+    await runExtract(["--out", out2]);
+    expect(reportOf(out2).sentence).to.match(/could not be fully extracted/);
+  });
+
+  it("NOTE-4: a function name from TFDIR that is not a usable file name is a part line, not a run-ending throw (mutation: the component check removed)", async function () {
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).filter((o) => o.type === "FUGR"));
+      // the hostile name reaches a file name through TFDIR.FUNCNAME; its
+      // include resolves through TFDIR.INCLUDE like any function's
+      writeFileSync(join(dump, "src", "LZOSG_X4U02.abap"), "FUNCTION z_evil.\nENDFUNCTION.\n");
+      writeReposrc(dump, reposrcRows(dump).concat([{program: "LZOSG_X4U02", state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file: "src/LZOSG_X4U02.abap"}]));
+      writeTable(dump, "TFDIR", tableRows(dump, "TFDIR").concat([{FUNCNAME: "Z_E\\VIL", PNAME: "SAPLZOSG_X4", PNAME_MAIN: "", INCLUDE: "02", FMODE: "", UTASK: ""}]));
+    });
+    const out = await fresh("n4");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3); // the run continues -- not the internal error the backstop throw produced
+    const rep = reportOf(out);
+    expect(rep.internal_error).to.equal(undefined);
+    const fugr = rep.objects.find((o) => o.name === "ZOSG_X4");
+    expect(fugr.parts.some((p) => /usable file name/.test(p.reason ?? "") && /VIL/.test(p.part))).to.equal(true);
+    expect(readdirSync(join(out, "src", "osd_x")).some((f) => f.includes("\\"))).to.equal(false);
+  });
+
+  it("NOTE-7: DDIC texts prefer the master language over E, and carry its language key (mutation: E preferred again)", async function () {
+    const fx = variant((list, dump) => {
+      writeTable(dump, "TADIR", tableRows(dump, "TADIR").map((r) => ({...r, MASTERLANG: "D"})));
+      writeTable(dump, "DD02T", tableRows(dump, "DD02T").concat([{TABNAME: "ZTAB_X5", AS4LOCAL: "A", DDLANGUAGE: "D", DDTEXT: "Synthetische Tabelle"}]));
+    });
+    const out = await fresh("n7");
+    await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    const xml = readFileSync(join(out, "src/osd_x/ztab_x5.tabl.xml"), "utf8");
+    expect(xml).to.match(/<DDLANGUAGE>D<\/DDLANGUAGE>/);
+    expect(xml).to.match(/<DDTEXT>Synthetische Tabelle<\/DDTEXT>/);
+  });
+
   it("NOTE-3: a working tree whose .git is a symlink is still a git tree (mutation: lstat only)", async function () {
     const s = variant();
     const real = await fresh("n3-realgit");

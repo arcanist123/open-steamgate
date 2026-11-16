@@ -244,7 +244,8 @@ export async function convert({
     const n = key(r.CLSNAME);
     if (!seoTxLangs.has(n)) seoTxLangs.set(n, new Set());
     seoTxLangs.get(n).add(key(r.LANGU));
-    if (!seoTx.has(n) || key(r.LANGU) === "E") seoTx.set(n, r);
+    const cur = seoTx.get(n);
+    if (cur === undefined || key(r.LANGU) === masterLanguage || (key(cur.LANGU) !== masterLanguage && key(r.LANGU) === "E")) seoTx.set(n, r);
   }
   const repotext = new Map();
   const poolLangs = new Map();
@@ -282,6 +283,7 @@ export async function convert({
   };
   const signatures = new Map();
   const fmTexts = new Map();
+  const curLang = new Map(); // NOTE-7: the language the chosen short text carries
   for (const r of (await rows(allRoots, "FUPARAREF", true)).filter((r) => key(r.R3STATE || "A") === "A").sort((a, b) => Number(a.PPOSITION || 0) - Number(b.PPOSITION || 0))) {
     const fm = key(r.FUNCNAME);
     if (!signatures.has(fm)) signatures.set(fm, []);
@@ -296,7 +298,11 @@ export async function convert({
     const fm = key(r.FUNCNAME);
     if (!tftitLangs.has(fm)) tftitLangs.set(fm, new Set());
     tftitLangs.get(fm).add(key(r.SPRAS));
-    if (!fmTexts.has(fm) || key(r.SPRAS) === "E") fmTexts.set(fm, String(r.STEXT ?? "").trim());
+    const cur = fmTexts.get(fm);
+    if (cur === undefined || key(r.SPRAS) === masterLanguage || (curLang.get(fm) !== masterLanguage && key(r.SPRAS) === "E")) {
+      fmTexts.set(fm, String(r.STEXT ?? "").trim());
+      curLang.set(fm, key(r.SPRAS));
+    }
   }
 
   const fmByInclude = new Map();
@@ -395,11 +401,15 @@ export async function convert({
   const dd02tLangs = new Map(); // table -> every language DD02T carries (SHOULD-1)
   {
     const active = (r) => key(r.AS4LOCAL || "A") === "A";
+    // NOTE-7 (critic round 2): prefer the repository's master language over
+    // a hard-coded E -- on a non-English system the E text under the E key
+    // contradicted .abapgit.xml's MASTER_LANGUAGE
     const text = async (t, col) => {
       const m = new Map();
       for (const r of (await table(t)).filter(active)) {
         const n = key(r[col]);
-        if (!m.has(n) || key(r.DDLANGUAGE) === "E") m.set(n, r);
+        const cur = m.get(n);
+        if (cur === undefined || key(r.DDLANGUAGE) === masterLanguage || (key(cur.DDLANGUAGE) !== masterLanguage && key(r.DDLANGUAGE) === "E")) m.set(n, r);
       }
       return m;
     };

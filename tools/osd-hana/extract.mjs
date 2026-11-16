@@ -597,7 +597,7 @@ export async function extractMain(argv, {
     // that it could not deliver everything
     reportDoc.sentence = `the sidecar reported ${dumpErrors.length} error${dumpErrors.length === 1 ? "" : "s"} on this dump${dumpPartial ? " (exit partial)" : ""} -- the report lists them on their objects; nothing is claimed complete`;
   } else {
-    reportDoc.sentence = sentence(totalsDoc);
+    reportDoc.sentence = sentence(totalsDoc, conversion.entries);
   }
   await writeReport(out, reportDoc);
 
@@ -942,9 +942,16 @@ function totals(plan, entries, dumpedCount, dumpedInScope, scopeIds) {
   return t;
 }
 
-function sentence(t) {
+function sentence(t, entries = []) {
   if (t.writtenPartial + t.skipped + t.unsupported === 0) return `all ${t.inScope} objects in scope were written`;
   const byType = t.notExtracted.map((x) => `${x.type} ${x.count}`).join(", ");
+  // NOTE-1 (critic round 2): exit 3 says nothing when every non-written
+  // status is only 'not checked' -- separate honest incompleteness from loss.
+  const uncheckedOnly = entries.filter((e) => e.status === "written-partial" && (e.parts ?? []).length > 0 && (e.parts ?? []).every((p) => p.disposition === "not checked"));
+  const lost = t.writtenPartial + t.skipped + t.unsupported - uncheckedOnly.length;
+  if (lost <= 0) {
+    return `all ${t.inScope} objects in scope were written as far as this tool checks -- ${uncheckedOnly.length} object${uncheckedOnly.length === 1 ? "" : "s"} carry 'not checked' parts the dump cannot tell (screens, GUI statuses, variants, documentation, component texts)`;
+  }
   return `${t.writtenPartial + t.skipped + t.unsupported} objects of ${t.inScope} could not be fully extracted (${byType})`;
 }
 

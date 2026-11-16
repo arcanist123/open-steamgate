@@ -8,6 +8,7 @@
 // ("src/<folder>/<stem>.<suffix>") -- or `{skip: reason, parts}` when nothing
 // can be written for the object.
 import {filename, key, lf, leaf, node, abapgitXmlDoc} from "./xml.mjs";
+import {unsafeComponent} from "./ledger.mjs";
 import {assembleClass, clasXml, intfXml, progXml, includeXml, fugrXml, includePrefix, mainProgram} from "./program.mjs";
 
 // Every program-shaped object: the dump carries no screen/CUA/variant tables
@@ -109,12 +110,27 @@ export function planObjectFiles(o, ctx) {
       // beside it (PROGDIR, plain <abapGit version="v1.0.0">); a module's
       // file has none
       if (!fm) {
+        // NOTE-4 (critic round 2): include names go through the same
+        // component check as object and package names -- on Windows a
+        // backslash here must skip the include with a line, not throw for
+        // the whole run at the containment backstop
+        if (unsafeComponent(filename(prog)) !== undefined) {
+          parts.push({part: `include ${prog}`, disposition: "not written", reason: `the include name is not a usable file name (${unsafeComponent(filename(prog))})`});
+          continue;
+        }
         put(`fugr.${filename(prog)}.abap`, source);
         const t = prog === mainProgram(o.name) ? mainPool : {node: undefined, notes: []};
         parts.push(...t.notes);
         put(`fugr.${filename(prog)}.xml`, includeXml(prog, ctx.trdir.get(prog), t.node));
         includes.push(prog);
       } else {
+        // NOTE-4: the function name comes from TFDIR and reaches a file name
+        // -- the same component check; per object, never the containment
+        // throw for the whole run
+        if (unsafeComponent(filename(fm)) !== undefined) {
+          parts.push({part: `function ${fm}`, disposition: "not written", reason: `the function name is not a usable file name (${unsafeComponent(filename(fm))})`});
+          continue;
+        }
         const r = ctx.fmRow.get(fm);
         functions.push({name: fm, remote: key(r.FMODE) === "R" ? "R" : "", update: key(r.UTASK), text: ctx.fmTexts.get(fm), params: ctx.signatures.get(fm)});
         put(`fugr.${filename(fm)}.abap`, source);
