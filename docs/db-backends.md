@@ -1174,6 +1174,61 @@ the no-test-code rule is held in the fake host's own staging as well as in
 `test/hana-src-gen.mjs` against the real tool. No HANA is reachable from
 CI; the real iteration is dell's, on the bed.
 
+### A second service and a family (milestone 4)
+
+The closure ran on a second service and on a five-service family; six
+defects of the walk came out of it, each now a fake-dumper loop scenario in
+`test/hana-closure-m4.mjs` (its harness, `test/helpers/hana-closure-fakes.mjs`,
+runs the real `hana-src-gen`):
+
+- **Bounded layer names.** A package cycle's layer was named by joining every
+  member; a 30-package basis cycle died with ENAMETOOLONG in the merge. The
+  name is now `<order>-cycle-<first member, 40 at most>-<count>-<hash of the
+  sorted member list>` (`cycleName` in `tools/hana-src-gen.mjs`), the full
+  list in the layer's `members.json` (two dot parts: neither abaplint's
+  registry nor `tools/osd-inputs.mjs` reads it as an object) and in the
+  manifest's `cycle`. Nothing reads the folder name back.
+- **Framework gaps by namespace.** The namespaces of the library files the
+  build loads (`libraryFiles`), minus every namespace the seed holds objects
+  in or is packaged in, are ours (`tools/hana-closure-framework.mjs`). A name
+  in one of them that the build does not resolve is a framework gap --
+  `framework-gaps.json` entries with `name`, `namespace` and `used_by`,
+  "framework names: N" on the line -- never pending, never asked; a dump that
+  brings such an object anyway has it refused by `hana-src-gen
+  --refuse-namespace` (`refused_from_dump: true` on the gap). The nameless
+  wordings that name an object (`Class or type "X" not found`, `Could not
+  resolve top X`) carry the name: a framework gap in a framework namespace,
+  an ordinary ask anywhere else. Note: a library carrying one class of a
+  namespace makes that namespace ours for every seed outside it.
+- **Asked before stubbed** (the lazy-activation section below).
+- **Registration follows the seed** (`tools/hana-closure-seed.mjs`): the
+  seed's services are the registration rows whose DPC (or whose model's MPC)
+  is a class of the seed's packages; after every merge `hana-segw-gen
+  --from-dump <seed> --seed --service ...` registers exactly those, and the
+  guard protects the classes of the seed's services that have not arrived
+  yet too (`from-dump.json` `selection: "seed"`). A hand-written DPC is a
+  service like any other row. The summary carries `seed_services` (service,
+  version, dpc, mpc, registered).
+- **Function modules as findings** (`tools/hana-closure-fm.mjs`): the
+  island's `CALL FUNCTION` statements with a literal name, structurally;
+  present when a function group of the build defines the module.
+  `closure-summary.json` `function_modules: {called, present, absent,
+  dynamic, by_name, dynamic_calls}`, a `FUNC` gap per absent module with
+  `used_by` in `closure-gaps.json`, and in the stub rounds a call to an
+  absent module makes its method a stub candidate whose raise says
+  `function module <name> not in the island`. The dumper is not asked for
+  function groups.
+- **No kernel splice from a dump** (`tools/hana-closure-intake.mjs`): the
+  transpiler copies `WRITE '@KERNEL <js>'` verbatim into the generated
+  module (its `write.js`: a WRITE whose Source starts with the exact
+  quote-@KERNEL-space prefix). `hana-src-gen` refuses a delivered object
+  carrying one -- detected on abaplint's statement nodes, the transpiler's
+  own test -- and records it in the manifest's `refused`; the walk files it
+  as a gap with reason `kernel splice` and `file:line`, and the summary's
+  `refused`. The fixed point's positive control fails closed when a
+  delivered layer already on disk carries one. This tree's own `src/` and
+  the libraries are not scanned.
+
 ## Lazy activation: stubbing what the island cannot close
 
 A class compiles as a whole or not at all. That is why the closure above
@@ -1220,7 +1275,7 @@ it while each iteration writes its own decision beside them. The body
 stubs and the signature stubs land in ONE rewrite pass over one parse
 (FIX-1: two passes computed the signature stubs' offsets against the
 pre-rewrite source and crashed `offsetAt` past the shrunken source on bed
-run 17 — a class whose body stubs had moved its lines). What stays lazy is code and only code. A name of a DDIC kind —
+run 17 — a class whose body stubs had moved its lines). Until milestone 4 code stayed lazy; since then nothing pending does (below). A name of a DDIC kind —
 TABL, DTEL, DOMA, TTYP, SHLP, and the kind-less triple — that a
 would-be-stubbed method names is requested from the dumper in the same
 iteration: a DDIC closure is cheap and pulls no code, and a stub over a
@@ -1240,9 +1295,15 @@ beside it where the shape has one (a method, attribute or component; a
 Variable cascade's quoted token is the local variable, not the member) and
 a `used_by` of every file, line and method that hit it, sorted — "framework
 gaps: N" on the iteration line. When the dumper answered missing for a
-DDIC name, that name is a gap and the stub records it; a code kind (CLAS,
-INTF, FUGR, PROG) remains deferred as before; `--defer-ddic` keeps the
-round-3 behaviour, every name of a stubbed method lazy.
+DDIC name, that name is a gap and the stub records it. Since milestone 4 a
+class or interface a would-be-stubbed method names is treated the same way:
+absent from the island and never asked, it is asked now and the body stays
+one round; the method is stubbed once the dumper answered missing or the
+answer still fails. Round 3 deferred code names (never asked), and a helper
+class named only by a static call -- a shape the structural pass does not
+carry -- was stubbed and never asked on the second service's run, while the
+structurally carried code names were asked all along. `--defer-ddic` keeps
+the round-3 behaviour, every name of a stubbed method lazy.
 
 **The load path (B6, 2026-11-14).** A class constructor runs when its
 module loads: in this runtime every class constructor runs while
@@ -1382,8 +1443,9 @@ name only when present), or when a seed method matching a
 `--require-unstubbed <glob>` (repeatable; `*_GET_ENTITYSET`, or
 `CLASS=>METHOD`) is stubbed.
 
-The names a stub waits for are not gaps: the service ACTIVATES without
-them, so they leave `requested` and the gaps file and travel in a new
+The names a stub waits for are not gaps (since milestone 4 only
+`--defer-ddic` leaves any name of a stub unasked; the default asks first):
+the service ACTIVATES without them, so they leave `requested` and the gaps file and travel in a new
 optional request key, `deferred: {kind: [names]}`, beside
 `requested`/`seen`. The dumper's reader reads `requested`/`seen` and
 ignores unknown keys — the file stays schema 1, and nobody asks the
