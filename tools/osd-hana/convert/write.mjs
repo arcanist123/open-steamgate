@@ -43,6 +43,8 @@ export function planObjectFiles(o, ctx) {
     const code = (s) => cls.has(s) && !comment(cls.get(s));
     if (code("CL") && code("CCIMP")) {
       ctx.errors.push({object: o.name, error: "local classes in both CL and CCIMP includes"});
+      // M-4 (critic round 2): the dropped copy is a line, not silence
+      parts.push({part: "local classes (CCIMP)", disposition: "not written", reason: "local types exist in both the CL and the CCIMP include -- the CCIMP copy is dropped (abapGit stores one locals block)"});
       cls.delete("CCIMP");
     } else if (code("CL")) cls.set("CCIMP", cls.get("CL"));
     for (const [s, ext] of [["CCDEF", "locals_def"], ["CCIMP", "locals_imp"], ["CCMAC", "macros"], ["CCAU", "testclasses"]]) {

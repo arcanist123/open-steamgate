@@ -145,7 +145,7 @@ export async function convert({
     const id = `${type}:${name}`;
     if (objects.has(id)) continue;
     const sc = sidecarObjects.get(id);
-    objects.set(id, {id, type, name, pkg, row: r, sc, parts: new Map(), files: []});
+    objects.set(id, {id, type, name, pkg, row: r, sc, parts: new Map(), partNotes: [], files: []});
   }
 
   // ---- the ledger, from the listing ----------------------------------------
@@ -332,8 +332,13 @@ export async function convert({
     const o = resolve(p);
     if (!o || !claimed.has(o.id)) continue;
     const active = list.find((r) => key(r.state || "A") === "A") ?? list[0];
+    // M-4 (critic round 2): a source the dump could not deliver is a PART
+    // LINE on its object -- the object is written-partial, never `written`
+    // with an include silently missing, and report.errors alone is not an
+    // accounting.
     if (active.error) {
       errors.push({program: p, error: String(active.error)});
+      o.partNotes.push({part: `include ${p}`, disposition: "not written", reason: `the dump could not deliver the source: ${String(active.error)}`});
       continue;
     }
     if (active.empty) {
@@ -342,6 +347,7 @@ export async function convert({
     }
     if (!active.file || path.isAbsolute(active.file) || active.file.split(/[\\/]/).includes("..")) {
       errors.push({program: p, error: "invalid source path"});
+      o.partNotes.push({part: `include ${p}`, disposition: "not written", reason: `the dump names an unusable source path (${String(active.file ?? "none")})`});
       continue;
     }
     const partKey = o.type === "CLAS" || o.type === "INTF" || o.type === "BDEF" ? p.slice(30) : p;
@@ -449,7 +455,7 @@ export async function convert({
     return s ?? "A";
   };
   for (const o of claimed.values()) {
-    o.partNotes = [];
+    o.partNotes = o.partNotes ?? [];
     for (const [k, file] of o.parts) {
       if (file === "") continue; // a marker (SRC of DDLS/DDLX/SRVD), not a file
       let content;
