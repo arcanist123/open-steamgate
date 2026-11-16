@@ -10,6 +10,7 @@
     "test/vscode-abapgit-zip.mjs",
     "test/vscode-debug.mjs",
     "test/vscode-extension.mjs",
+    "test/vscode-hana-extract.mjs",
     "test/vscode-hana-sidecar.mjs",
     "test/vscode-kernel-diagnostics.mjs",
     "test/vscode-launcher.mjs",
