@@ -1,0 +1,34 @@
+{
+  "pinned": "v2.62.0",
+  "probe": {
+    "ok": "recorded",
+    "db": "recorded",
+    "abap_schemas": "recorded",
+    "login_class": "recorded",
+    "admin_privileges": "source",
+    "notes": "source",
+    "tls": "announced"
+  },
+  "probe.abap_schemas[]": {
+    "schema": "recorded",
+    "owned_by_login": "recorded",
+    "non_select_on_schema": "recorded",
+    "non_select_kinds": "source",
+    "basis_release": "recorded",
+    "clients": "recorded",
+    "reposrc_rows": "recorded",
+    "tadir_rows": "recorded",
+    "abap_attached": "recorded"
+  },
+  "error": {
+    "ok": "recorded",
+    "exit": "recorded",
+    "error": "recorded"
+  },
+  "values": {
+    "db": ["tenant", "system"],
+    "login_class": ["schema_owner", "admin", "other"],
+    "abap_attached": ["yes", "no", "unknown"],
+    "tls": ["verified", "unverified", "off"]
+  }
+}

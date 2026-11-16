@@ -22,6 +22,7 @@ import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory,
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict, readerRoleFromProbe, ipSansExplanation} from "./verdict.mjs";
+import {readProbe, saysNoAbapSchema} from "./probe-doc.mjs";
 import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
@@ -377,7 +378,7 @@ export async function doctorMain(argv, {
                   loud: loudOnce,
                 });
                 const run = await readerSidecar.run("probe", {args: probeArgs});
-                readerProbeDocument = run.summary.probe ?? run.summary;
+                readerProbeDocument = run.summary;
                 const view = {host: connection.host, port: connection.port, database: connection.database, user};
                 io.out(`osd hana: the reader's own probe -- the sidecar run as ${user}:`);
                 for (const line of plainVerdict(readerProbeDocument, {connection: view, sidecar: describeSidecar(verified, handshakeInfo)})) {
@@ -477,8 +478,10 @@ export async function doctorMain(argv, {
     io.err(error.message);
     return DOCTOR_EXIT.connection;
   }
-  const probe = probeRun.summary.probe ?? probeRun.summary;
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
+  // The probe document is the REAL binary's flat one-line answer, read in one
+  // place (probe-doc.mjs; recorded contracts in test/osd-hana/contract/).
+  const probe = readProbe(probeRun.summary);
+  const schemas = probe.schemas;
 
 
   // ---- --create-reader and the verdict follow; the drop ran above ----
@@ -495,9 +498,26 @@ export async function doctorMain(argv, {
       if (/IP SAN/i.test(errorText)) io.err(ipSansExplanation());
       return DOCTOR_EXIT.connection;
     }
-    case "unsupported":
-      io.err(`osd hana: no ABAP schema found on this database${probeRun.summary.error ? ` (${probeRun.summary.error})` : ""} -- there is no ABAP code to rescue here.`);
+    case "unsupported": {
+      // Exit 5 comes in two shapes, and only one of them is a finding. The
+      // real binary prints its probe document with `abap_schemas: null` when
+      // no ABAP schema is readable by this login -- that POSITIVELY says so.
+      // An error line instead ("M_DATABASE: ...", "looking for ABAP
+      // schemas: ...") means the sidecar could not examine the database at
+      // all: that is not "no ABAP schema", and is not reported as one.
+      if (saysNoAbapSchema(probe)) {
+        io.err("osd hana: no ABAP schema readable by this login was found on this database -- there is no ABAP code to rescue here with this login.");
+        if (connection.schema !== undefined) {
+          io.err(`  (the probe looked only for the schema named with --schema / HANA_SCHEMA; run without it to see every ABAP schema this login can read.)`);
+        }
+        io.err("  A login without SELECT on the ABAP schema sees none: try the schema's owner, or an administrator.");
+        for (const note of probe.notes) io.err(`  Note from the sidecar: ${note}`);
+      } else {
+        io.err(`osd hana: the sidecar could not examine this database (unsupported system): ${probe.error ?? "it gave no reason"}`);
+        io.err("  This is NOT a finding that the database holds no ABAP schema -- the examination itself failed.");
+      }
       return DOCTOR_EXIT.noAbapSchema;
+    }
     case "usage":
       return fail(`osd hana: the sidecar refused the probe as a usage error: ${probeRun.summary.error ?? "unknown"}`);
     case "partial":
@@ -507,10 +527,19 @@ export async function doctorMain(argv, {
       return fail(`osd hana: unmapped sidecar outcome: ${probeRun.outcome}`);
   }
 
+  if (!probe.schemasReported) {
+    // "done", but the answer carries no abap_schemas list at all: the binary
+    // and this module disagree about the document. Said as exactly that --
+    // never as "no ABAP schema" (the defect this guard exists for: an
+    // invented field name read as an empty list on a healthy system).
+    return fail(`osd hana: the sidecar's probe answered without an ABAP schema list (the field "abap_schemas" is missing) -- ` +
+      `this is NOT a finding that there is none: the sidecar binary and this module disagree about the probe document ` +
+      `(sidecar ${handshakeInfo?.version ?? "?"}). Nothing was assumed.`);
+  }
   if (schemas.length === 0) {
-    // The sidecar said "done" but found nothing: same answer as its own
-    // unsupported, same exit code.
-    io.err("osd hana: no ABAP schema found -- there is no ABAP code to rescue from this database.");
+    // "done" with a list that is positively empty: same answer as the
+    // sidecar's own exit 5, same exit code.
+    io.err("osd hana: no ABAP schema readable by this login was found -- there is no ABAP code to rescue from this database with this login.");
     return DOCTOR_EXIT.noAbapSchema;
   }
 

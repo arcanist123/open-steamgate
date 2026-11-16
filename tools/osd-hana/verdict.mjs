@@ -2,13 +2,11 @@
 // never seen a HANA can act on it (task B.2). One place, so the plain text and
 // the --json document cannot disagree.
 //
-// The probe's shape is the sidecar README's: db (tenant|system),
-// login_class (schema_owner|admin|other), non_select_on_schema
-// (bool or {yes, kinds}), abap_attached (yes|no|unknown), tls
-// (verified|unverified|off when the sidecar has the capability), and one
-// entry per ABAP schema with basis_release, clients, reposrc_rows, tadir_rows,
-// owned_by_login. Every field read here tolerates its absence -- the sidecar
-// is a moving binary, and the doctor degrades to "unknown", never to a crash.
+// The probe's shape is the REAL binary's, read in one place: probe-doc.mjs
+// (recorded contracts in test/osd-hana/contract/). Every function here takes
+// the raw one-line document or the already-read model. A field the verdict
+// needs and the sidecar did not report is SAID ("the sidecar did not report
+// X") -- never rendered as "none", "no" or "no ABAP schema".
 //
 // Every name the PLAIN verdict prints goes through show() (critic round-2
 // SHOULD-2, the S-B class one door over): the schema names come from the
@@ -17,39 +15,49 @@
 // reach the terminal raw. --json is safe on its own (JSON.stringify escapes).
 
 import {show} from "./reader.mjs";
+import {isAdministrator, ownsAbapSchema, readProbe} from "./probe-doc.mjs";
 
-// True when the login can do more than read on the ABAP schema.
+// True when the login can do more than read on an ABAP schema the probe
+// reports: it owns one, holds a privilege other than SELECT on one (the real
+// document says so PER SCHEMA: non_select_on_schema + non_select_kinds), or
+// is an administrator.
 export function canWrite(probe = {}) {
-  const nsos = probe.non_select_on_schema;
-  if (nsos === true) return true;
-  if (typeof nsos === "object" && nsos !== null) {
-    if (nsos.yes === true) return true;
-    if (Array.isArray(nsos.kinds) && nsos.kinds.length > 0) return true;
-  }
-  if (probe.login_class === "admin") return true;
-  return false;
+  const p = readProbe(probe);
+  if (isAdministrator(p)) return true;
+  return p.schemas.some((s) => s.ownedByLogin === true || s.nonSelect === true || s.nonSelectKinds.length > 0);
+}
+
+/** False when the document does not let us say whether the login can write:
+ *  no positive finding, and a schema whose non_select_on_schema (or the
+ *  login class itself) was not reported. */
+export function writeAbilityKnown(probe = {}) {
+  const p = readProbe(probe);
+  if (canWrite(p)) return true;
+  if (p.loginClass === undefined) return false;
+  return p.schemas.every((s) => s.nonSelect !== undefined && s.ownedByLogin !== undefined);
 }
 
 export function loginClassText(probe = {}) {
-  switch (probe.login_class) {
+  switch (readProbe(probe).loginClass) {
     case "schema_owner": return "the ABAP schema's owner";
     case "admin": return "an administrator";
     case "other": return "another kind of login (not the schema owner, not an administrator)";
-    default: return "of an unknown class";
+    default: return "of a class the sidecar did not report";
   }
 }
 
 /** Which role the present login holds in the guided two-login create flow
- *  (task item 1), worked out from the probe: "admin" (USER ADMIN, not the
- *  owner), "owner", "both" (one login that can do both -- it exists on some
- *  systems), or "neither" (the doctor explains and sends nothing). The
- *  administrator role is the probe's "admin" login_class; the owner role is
- *  the "schema_owner" class or a schema the probe reports as owned by this
- *  login. */
+ *  (task item 1), worked out from the probe: "admin" (an administrator, not
+ *  the owner), "owner", "both" (one login that can do both -- it exists on
+ *  some systems), or "neither" (the doctor explains and sends nothing). The
+ *  real binary reports a login that owns the schema as login_class
+ *  "schema_owner" even when it is an administrator too, and lists the
+ *  administrator privileges beside it -- so "both" is read off
+ *  admin_privileges + ownership, not off the class alone. */
 export function readerRoleFromProbe(probe = {}) {
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
-  const isAdmin = probe.login_class === "admin";
-  const ownsSchema = probe.login_class === "schema_owner" || schemas.some((s) => s.owned_by_login === true);
+  const p = readProbe(probe);
+  const isAdmin = isAdministrator(p);
+  const ownsSchema = ownsAbapSchema(p);
   if (isAdmin && ownsSchema) return "both";
   if (isAdmin) return "admin";
   if (ownsSchema) return "owner";
@@ -57,9 +65,10 @@ export function readerRoleFromProbe(probe = {}) {
 }
 
 export function dbText(probe = {}) {
-  if (probe.db === "tenant") return "a tenant database";
-  if (probe.db === "system") return "the system database (SYSTEMDB)";
-  return "of an unknown kind";
+  const db = readProbe(probe).db;
+  if (db === "tenant") return "a tenant database";
+  if (db === "system") return "the system database (SYSTEMDB)";
+  return "a database whose kind the sidecar did not report";
 }
 
 // The safety sentence, kept in one place so it is said exactly once (task
@@ -85,7 +94,7 @@ export function safetyNote({pinned} = {}) {
 // One plain sentence each; absent when the binary is older (no capability,
 // no field -- the doctor degrades to silence, never to a crash).
 export function tlsLine(probe = {}) {
-  switch (probe.tls) {
+  switch (readProbe(probe).tls) {
     case "verified": return "TLS: on -- the server's certificate was verified (encrypted, and the server authenticated).";
     case "unverified": return "TLS: on -- but the server's certificate was NOT verified (--trust-server-certificate?): encrypted, but the server is not authenticated.";
     case "off": return "TLS: off -- the connection is NOT encrypted.";
@@ -110,51 +119,67 @@ export function ipSansExplanation() {
 }
 
 export function schemaLines(probe = {}) {
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
-  if (schemas.length === 0) return ["ABAP schema: none found."];
-  return schemas.map((s) => {
-    const release = s.basis_release !== undefined ? `, release ${s.basis_release}` : "";
-    const clients = Array.isArray(s.clients) && s.clients.length > 0 ? `, clients ${s.clients.join(", ")}` : "";
+  const p = readProbe(probe);
+  if (!p.schemasReported) return ["ABAP schema: the sidecar did not report any list of ABAP schemas (abap_schemas) -- this is NOT a finding that there is none."];
+  if (p.schemas.length === 0) return ["ABAP schema: none readable by this login."];
+  return p.schemas.map((s) => {
+    const release = s.basisRelease !== undefined ? `, release ${show(s.basisRelease)}` : "";
+    const clients = s.clients !== undefined && s.clients.length > 0 ? `, clients ${s.clients.map((c) => show(c)).join(", ")}` : "";
     const size = [];
-    if (s.reposrc_rows !== undefined) size.push(`${s.reposrc_rows} source rows (REPOSRC)`);
-    if (s.tadir_rows !== undefined) size.push(`${s.tadir_rows} repository objects (TADIR)`);
+    if (s.reposrcRows !== undefined) size.push(`${s.reposrcRows} source rows (REPOSRC)`);
+    if (s.tadirRows !== undefined) size.push(`${s.tadirRows} repository objects (TADIR)`);
     const sizeText = size.length > 0 ? `, repository: ${size.join(", ")}` : "";
-    const owned = s.owned_by_login === true ? " (owned by this login)" : "";
+    const owned = s.ownedByLogin === true ? " (owned by this login)" : "";
     return `ABAP schema ${s.name === undefined ? "?" : show(String(s.name))}${owned}: found${release}${clients}${sizeText}.`;
   });
+}
+
+function attachedLines(p) {
+  const one = (attached, of) => {
+    if (attached === "yes") return `ABAP server still attached${of}: yes (informational -- you do not need it; the database alone is enough).`;
+    if (attached === "no") return `ABAP server still attached${of}: no (informational).`;
+    if (attached === "unknown") return `ABAP server still attached${of}: unknown (informational -- this login may not see the sessions).`;
+    return `ABAP server still attached${of}: the sidecar did not report it (informational).`;
+  };
+  if (p.schemas.length <= 1) return [one(p.schemas[0]?.abapAttached, "")];
+  return p.schemas.map((s) => one(s.abapAttached, ` to ${s.name === undefined ? "?" : show(String(s.name))}`));
 }
 
 /** The plain verdict, one line per finding, ready to print. `sidecar.pinned`
  *  decides which safety sentence the moment earns (see safetyNote). */
 export function plainVerdict(probe = {}, {connection, sidecar} = {}) {
+  const p = readProbe(probe);
   const lines = [];
   lines.push("Verdict for the ABAP rescue:");
-  lines.push(`  Reachable: yes -- logged on as ${connection?.user === undefined ? "?" : show(String(connection.user))} to ${connection?.host ?? "?"}, ${dbText(probe)}.`);
-  lines.push(...schemaLines(probe).map((l) => `  ${l}`));
-  const attached = probe.abap_attached;
-  if (attached === "yes") {
-    lines.push("  ABAP server still attached: yes (informational -- you do not need it; the database alone is enough).");
-  } else if (attached === "no") {
-    lines.push("  ABAP server still attached: no (informational).");
-  } else {
-    lines.push("  ABAP server still attached: unknown (informational -- this login may not see the sessions).");
-  }
-  lines.push(`  This login is ${loginClassText(probe)}${canWrite(probe) ? " and can do more than read on the schema" : " and can only read"}.`);
-  const tls = tlsLine(probe);
+  lines.push(`  Reachable: yes -- logged on as ${connection?.user === undefined ? "?" : show(String(connection.user))} to ${connection?.host ?? "?"}, ${dbText(p)}.`);
+  lines.push(...schemaLines(p).map((l) => `  ${l}`));
+  if (p.schemas.length > 0) lines.push(...attachedLines(p).map((l) => `  ${l}`));
+  const ability = canWrite(p)
+    ? " and can do more than read on the schema"
+    : (writeAbilityKnown(p) ? " and can only read" : "; whether it can do more than read, the sidecar did not report");
+  lines.push(`  This login is ${loginClassText(p)}${ability}.`);
+  const tls = tlsLine(p);
   if (tls !== undefined) lines.push(`  ${tls}`);
-  if (canWrite(probe)) lines.push(`  ${safetyNote(sidecar)}`);
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
-  if (schemas.length > 0) {
+  if (canWrite(p)) lines.push(`  ${safetyNote(sidecar)}`);
+  for (const note of p.notes) lines.push(`  Note from the sidecar: ${show(note)}`);
+  if (p.missing.length > 0) {
+    lines.push(`  NOT REPORTED by the sidecar: ${p.missing.map((m) => show(m)).join(", ")} -- the verdict above is incomplete where it depends on these; nothing is assumed for them.`);
+  }
+  if (p.schemas.length > 0) {
     lines.push("  Ready to extract: yes -- the next step is `osd hana extract`.");
+  } else if (p.schemasReported) {
+    lines.push("  Ready to extract: no -- there is no ABAP schema here this login can read.");
   } else {
-    lines.push("  Ready to extract: no -- there is no ABAP schema here to rescue code from.");
+    lines.push("  Ready to extract: unknown -- the sidecar's answer names no ABAP schema list.");
   }
   return lines;
 }
 
-/** The --json document: the same findings as data. No password field, ever. */
+/** The --json document: the same findings as data. No password field, ever.
+ *  `probe` is the sidecar's document as it came; `verdict` is what the doctor
+ *  read from it; `verdict.missing` names what the sidecar did not report. */
 export function jsonVerdict(probe, {connection, sidecar, warnings = []}) {
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
+  const p = readProbe(probe);
   return {
     command: "osd hana doctor",
     sidecar,
@@ -162,16 +187,19 @@ export function jsonVerdict(probe, {connection, sidecar, warnings = []}) {
       host: connection?.host, port: connection?.port, database: connection?.database,
       user: connection?.user, schema: connection?.schema,
     },
-    probe,
+    probe: p.raw,
     verdict: {
       reachable: true,
-      db: probe.db ?? "unknown",
-      abapSchemas: schemas.map((s) => s.name ?? "?"),
-      loginClass: probe.login_class ?? "unknown",
-      canWrite: canWrite(probe),
-      abapAttached: probe.abap_attached ?? "unknown",
-      readyToExtract: schemas.length > 0,
-      safetyNote: canWrite(probe) ? safetyNote(sidecar) : undefined,
+      db: p.db ?? "unknown",
+      abapSchemas: p.schemas.map((s) => s.name ?? "?"),
+      loginClass: p.loginClass ?? "unknown",
+      canWrite: canWrite(p) ? true : (writeAbilityKnown(p) ? false : "unknown"),
+      abapAttached: p.schemas.length === 1 ? (p.schemas[0].abapAttached ?? "unknown") : p.schemas.map((s) => s.abapAttached ?? "unknown"),
+      tls: p.tls,
+      readyToExtract: p.schemas.length > 0,
+      safetyNote: canWrite(p) ? safetyNote(sidecar) : undefined,
+      notes: p.notes,
+      missing: p.missing,
     },
     warnings,
   };
