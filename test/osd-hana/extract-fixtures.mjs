@@ -4,7 +4,7 @@
 // (captures travel as jsonl), so the hand-made data lives HERE and the files
 // materialise under the test's tmpdir. Every name is synthetic (ZCL_OSD_X1,
 // TESTLOGIN-shaped authors); nothing here was ever read from a database.
-import {mkdirSync, writeFileSync, rmSync} from "node:fs";
+import {mkdirSync, readFileSync, writeFileSync, rmSync} from "node:fs";
 import {join} from "node:path";
 
 /** Builds the `list` and `dump` fixture directories; returns their paths. */
@@ -210,4 +210,48 @@ jsonl(T, "DD08L.jsonl", [
 ]);
 
   return {list: L, dump: D};
+}
+
+/** Appends a NAMESPACED function group /NS/GRP_Y2 to built fixtures -- the
+ *  round-5 golden case (SHOULD-2): its main program is /NS/SAPLGRP_Y2 and its
+ *  includes are /NS/LGRP_Y2TOP and /NS/LGRP_Y2U01 (a function Z_OSD_Y2_FM
+ *  lives in the U01 include). The base fixtures stay byte-identical; only the
+ *  tests that ask for the namespaced group pay for it. */
+export function addNamespacedFunctionGroup({list, dump}) {
+  const T = join(dump, "tables");
+  const readJsonl = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const appendJsonl = (dir, name, rows) => writeFileSync(join(dir, name), readJsonl(dir, name).concat(rows).map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const P = "$OSD_X";
+  const objFile = (path, bytes) => ({path, state: "A", sha256: "0".repeat(64), bytes});
+  mkdirSync(join(dump, "src", "NS"), {recursive: true});
+  const abap = (name, body) => {
+    writeFileSync(join(dump, "src", name), body);
+    return `src/${name}`;
+  };
+  const mainSrc = abap("/NS/SAPLGRP_Y2.abap", "FUNCTION-POOL nsgrp_y2.\n");
+  const topSrc = abap("/NS/LGRP_Y2TOP.abap", "DATA g_y2 TYPE i.\n");
+  const u01Src = abap("/NS/LGRP_Y2U01.abap", "FUNCTION z_osd_y2_fm.\n  g_y2 = 1.\nENDFUNCTION.\n");
+  const objects = [
+    {type: "FUGR", name: "/NS/GRP_Y2", package: P, author: "DEVUSER", class: "customer", state: "A", status: "W",
+      files: [objFile(mainSrc, mainSrc.length), objFile(topSrc, topSrc.length), objFile(u01Src, u01Src.length)]},
+  ];
+  appendJsonl(dump, "objects.jsonl", objects);
+  appendJsonl(list, "objects.jsonl", objects);
+  appendJsonl(dump, "reposrc.jsonl", [
+    {program: "/NS/SAPLGRP_Y2", state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 1, sha256: "1".repeat(64), file: mainSrc},
+    {program: "/NS/LGRP_Y2TOP", state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 1, sha256: "1".repeat(64), file: topSrc},
+    {program: "/NS/LGRP_Y2U01", state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 3, sha256: "1".repeat(64), file: u01Src},
+  ]);
+  const tadir = (type, name) => ({PGMID: "R3TR", OBJECT: type, OBJ_NAME: name, DEVCLASS: P, AUTHOR: "DEVUSER", MASTERLANG: "E", GENFLAG: "", SRCSYSTEM: "SYN"});
+  appendJsonl(T, "TADIR.jsonl", [tadir("FUGR", "/NS/GRP_Y2")]);
+  appendJsonl(T, "TRDIR.jsonl", [
+    {NAME: "/NS/SAPLGRP_Y2", SUBC: "F", DBAPL: "S", DBNA: "D$", APPL: "S", FIXPT: "X", LDBNAME: "D$S", UCCHECK: "X"},
+    {NAME: "/NS/LGRP_Y2TOP", SUBC: "I", DBAPL: "S", DBNA: "D$", APPL: "S", FIXPT: "X", LDBNAME: "D$S", UCCHECK: "X"},
+  ]);
+  appendJsonl(T, "TFDIR.jsonl", [{FUNCNAME: "Z_OSD_Y2_FM", PNAME: "/NS/SAPLGRP_Y2", PNAME_MAIN: "", INCLUDE: "01", FMODE: "", UTASK: ""}]);
+  appendJsonl(T, "TLIBG.jsonl", [{AREA: "/NS/GRP_Y2", UNAME: "DEVUSER"}]);
+  appendJsonl(T, "FUPARAREF.jsonl", [
+    {FUNCNAME: "Z_OSD_Y2_FM", R3STATE: "A", PARAMETER: "IV_Y", PARAMTYPE: "I", PPOSITION: "1", STRUCTURE: "ZTAB_X5-TRAVEL_ID", DEFAULTVAL: "", OPTIONAL: "", REFERENCE: "", TYPE: "", REF_CLASS: ""},
+  ]);
+  appendJsonl(T, "TFTIT.jsonl", [{FUNCNAME: "Z_OSD_Y2_FM", SPRAS: "E", STEXT: "Namespaced synthetic function"}]);
 }
