@@ -118,6 +118,12 @@ function sha256File(path) {
  *  --allow-unpinned-sidecar, because that flag says "I know what I am running",
  *  and a mismatch says the opposite.
  *
+ *  `foreignPin: true` (critic S-E): the pin came from the caller (--sidecar-pin
+ *  naming a file other than the module's own sidecar.lock.json). The binary is
+ *  still checked against it, but the "pinned" claim stays FALSE for every
+ *  purpose -- a pin the user supplies is the user's claim, not this module's
+ *  pinning -- and the run needs --allow-unpinned-sidecar like any unpinned one.
+ *
  *  `fresh: true` skips the per-process cache and hashes again -- the re-check
  *  immediately before a spawn (critic S-3): no gap between the verified bytes
  *  and the executed bytes. The binary is ~7 MB, so a re-read is milliseconds;
@@ -131,6 +137,7 @@ export async function verifySidecar(path, {
   loud = (line) => process.stderr.write(line),
   digest = sha256File,
   fresh = false,
+  foreignPin = false,
 } = {}) {
   const cached = fresh ? undefined : verifiedInProcess.get(path);
   if (cached !== undefined) return cached;
@@ -143,18 +150,27 @@ export async function verifySidecar(path, {
     throw new SidecarVerifyError(`osd-hana: cannot read the sidecar at ${path}: ${error.message}`);
   }
   let result;
-  if (expected !== undefined && expected === actual) {
+  if (!foreignPin && expected !== undefined && expected === actual) {
     result = {path, sha256: actual, pinned: true, target};
-  } else if (expected === undefined || pin.targets[target] === undefined) {
+  } else if (expected === undefined || foreignPin) {
     if (!allowUnpinned) {
-      throw new SidecarVerifyError(`osd-hana: the sidecar at ${path} is not covered by the pin file\n` +
-        `  (no pinned hash for target ${target ?? "unknown"}). Refusing.\n` +
-        `  The pinned ${SIDECAR_NAME} is ${pin.version} (${pin.commit.slice(0, 7)}).\n` +
-        `  To run an unpinned sidecar deliberately, pass --allow-unpinned-sidecar.`);
+      throw new SidecarVerifyError(foreignPin
+        ? `osd-hana: --sidecar-pin names a file that is not the module's own pin.\n` +
+          `  A pin the caller supplies can check bytes, but it never makes a binary 'pinned' -- that claim\n` +
+          `  is reserved for the module's own sidecar.lock.json (a wrapper script pinning its own binary is\n` +
+          `  its own authority, not this tool's). Refusing.\n` +
+          `  To run this sidecar anyway, pass --allow-unpinned-sidecar; it then runs as UNPINNED.`
+        : `osd-hana: the sidecar at ${path} is not covered by the pin file\n` +
+          `  (no pinned hash for target ${target ?? "unknown"}). Refusing.\n` +
+          `  The pinned ${SIDECAR_NAME} is ${pin.version} (${pin.commit.slice(0, 7)}).\n` +
+          `  To run an unpinned sidecar deliberately, pass --allow-unpinned-sidecar.`);
     }
     result = {path, sha256: actual, pinned: false, target};
-    loud(`osd-hana: WARNING -- running an UNPINNED sidecar at ${path} (sha256 ${actual}, target ${target ?? "unknown"}).\n` +
-      `  It is not the pinned ${SIDECAR_NAME} ${pin.version}; its output is not covered by any checksum.\n`);
+    loud(foreignPin
+      ? `osd-hana: WARNING -- the pin file is not the module's own; the sidecar at ${path} runs as UNPINNED\n` +
+        `  (sha256 ${actual}, target ${target ?? "unknown"}). Its output is not covered by any checksum this tool stands behind.\n`
+      : `osd-hana: WARNING -- running an UNPINNED sidecar at ${path} (sha256 ${actual}, target ${target ?? "unknown"}).\n` +
+        `  It is not the pinned ${SIDECAR_NAME} ${pin.version}; its output is not covered by any checksum.\n`);
   } else {
     throw new SidecarVerifyError(`osd-hana: refusing the sidecar at ${path}: checksum mismatch.\n` +
       `  pinned (${target}): ${expected}\n` +
@@ -347,6 +363,7 @@ export class Sidecar {
     // default, not the caller's discipline.
     pin,
     allowUnpinned = false,
+    foreignPin = false, // critic S-E: the pin is the caller's, not the module's own
     loud = (line) => process.stderr.write(line),
   } = {}) {
     this.path = path;
@@ -357,7 +374,7 @@ export class Sidecar {
     this.extraEnv = extraEnv;
     this.beforeSpawn = beforeSpawn
       ?? (pin !== undefined
-        ? () => verifySidecar(path, {pin, allowUnpinned, fresh: true, loud})
+        ? () => verifySidecar(path, {pin, allowUnpinned, foreignPin, fresh: true, loud})
         : undefined);
   }
 

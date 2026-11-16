@@ -1444,6 +1444,119 @@ carries its own ABAP Unit test
 (`src/hana/zcx_osd_not_activated.clas.testclasses.abap`), which asserts
 the text and the raise. No HANA is reachable from CI.
 
+## The reads frontier: which methods a read can reach
+
+Milestone 4, phase 1: the analysis, not yet the walk. The walk above closes
+every name an island object mentions, in every method of every object the
+island holds. On the five-service launchpad family (family U) that did not
+converge: of the 255 code names it asked, 178 were needed by no read, and 149
+of the 170 it could locate sat in a *definition* -- half of them of objects
+no read keeps. `tools/hana-closure-reach.mjs` computes what a read needs
+instead, from an abaplint registry of the island (one SyntaxLogic pass per
+object, through the structural pass's `analyseObject`) and the registered
+services (service -> DPC_EXT / MPC_EXT, the registration's own shape). It
+decides nothing; phase 2 wires it into the walk behind a flag.
+
+Two sets, one least fixed point (monotone, so the answer does not depend on
+the order anything is visited, and a fresh run equals a resumed one):
+
+- **Entry points.** One table, `ENTRY_TABLE`: what `src/gateway` calls on a
+  GET -- `GET_ENTITYSET` (direct, navigation, an `$expand` row),
+  `GET_EXPANDED_ENTITYSET`, `GET_ENTITY`, `GET_EXPANDED_ENTITY`,
+  `GET_STREAM`, the function import by GET (off unless asked:
+  `--function-imports`), the DPC's constructor, the MPC's `DEFINE` and
+  constructor. Each is resolved on the registered class's chain (the
+  nearest implementation, as the dispatcher would run it). `WRITE_CALLS`
+  lists what the same classes call on the other methods. The test parses
+  the dispatcher, the model reader and the `$metadata` writer with abaplint
+  and asserts that the calls they make on the DPC interface, the abstract
+  model and the registry are exactly the two tables, so a call the
+  dispatcher gains has to be classified and a row nobody calls fails. The
+  class constructor of every kept class is an entry too: this runtime runs
+  them at load.
+- **Reachable methods.** From the entries, over the scope's resolved
+  method references: a static or `super->` call reaches that
+  implementation; an instance call on a class reaches its implementation
+  and every redefinition in a *kept* subclass; an interface method reaches
+  every kept implementer; an instantiation (`NEW`, `CREATE OBJECT`,
+  `RAISE EXCEPTION TYPE`) the constructor; `RAISE EVENT` every handler of
+  that event in a kept class (and `SET HANDLER` is a call). Where the scope
+  could not resolve the receiver, the call goes by method name over the
+  kept classes, an alias to the method it stands for -- the one
+  over-approximation, counted in the summary's call-reference line.
+- **Kept objects.** The registered classes and their island superclasses;
+  an island object a reachable body names; one a kept definition needs
+  **hard** -- superclass, `INTERFACES`, a qualified `x=>name`, a structured
+  type, an exception class in `RAISING`. A kept definition that names
+  something only as a bare `TYPE REF TO x` (an attribute, a parameter, a
+  table of references) needs no more than a **shell**, an empty definition
+  of that name; the shell is **promoted** to a real dependency the moment a
+  reachable body reaches through such a reference (`->` on a variable or a
+  returned reference of that type, or a call the scope resolves to the
+  object). Friends stay with today's strip rule.
+
+What comes out (`--json`, every list sorted): the entries, the kept objects
+with the rule and the evidence line that kept them, the reachable methods
+with the call that reached them, the unreachable methods per kept class,
+the definition dependencies split hard / shell with their line, the shells
+and the promotions, and the **asks**: what the frontier would issue (the
+hard definition names of kept objects, and every name in a reachable body --
+eagerly, code kinds included) against what it would not (and why: object
+not kept, unreachable method, shell). A name in a namespace this tree's
+libraries own is never an ask; the namespaces are derived from the
+libraries `abap_transpile.json` lists, minus the seed's own (a library that
+carries one class of the seed's namespace does not make the seed's
+namespace ours). Dynamic method calls, dynamic `CREATE OBJECT`, dynamic
+`CALL FUNCTION`, BAdI calls and raised events on read paths are recorded
+with the method, never followed or guessed; an interface call that only
+unkept island classes answer is listed beside them -- an implementer
+created where no name shows it. Two values are reported and never applied:
+the **alarm** (`--alarms <json>`, `[{label, pattern}]` matched against each
+kept object and its package folder, printed with the chain that kept it; the
+pattern list is private) and the **tripwire** (kept code objects against
+`--cap`, default 400, and the number of code asks).
+
+    node tools/hana-closure-reach.mjs --island <dir> [--island <dir>...] \
+      --services <json> [--json <out>] [--alarms <json>] [--cap <n>] \
+      [--function-imports] [--framework-namespace /NS/]
+
+`--island` is repeatable and later wins per file, so a walk's layer folders
+can be given in order; `--services` takes `gen/hana-segw/from-dump.json`
+or a plain list. The registry around the island is this tree's libraries
+and `src/`, as dependencies.
+
+Measured offline on the saved experiment (private data, nothing of it in the
+tree): on the family's iteration-3 island (162 code objects, 1683 methods,
+five services) 86 objects kept and 412 methods reachable; the request would
+carry 34 code names and 43 DDIC-kind names (the experiment's next request
+carried 132 and 252), 0 in a library namespace (9 recorded as framework
+names), 0 alarms. The scope-resolved numbers sit just under the design's
+token-level upper bound (85 / 446): the prototype also listed the model's
+`GET_LAST_MODIFIED` / `LOAD_TEXT_ELEMENTS` and the DPC's subscription check
+as entries, which nothing in `src/gateway` calls; it reached an exception
+class's constructor wherever a body named the class (a `CATCH` included),
+where only an instantiation runs it; and it dispatched instance calls by
+name where the scope resolved them. On the Gateway basic sample (service G)
+every read method of the sixteen sets its oracle requests read is
+reachable, and the DPC_EXT's unreachable methods are exactly its writes,
+change sets and actions.
+
+Not covered: the libraries are not walked, so a callback from a framework
+class into island code is invisible (the dispatcher's own callbacks are
+the entry table); a shell is promoted by member access only, not by an
+incompatible assignment; a missing class named only by `NEW x( )` in a
+body is not an ask (the scope records nothing for it); BAdI names count as
+code asks. Tests: `test/hana-closure-reach.mjs` -- a synthetic island
+with one case per rule (two kept implementers and one unkept, a
+redefinition in a kept and an unkept subclass, a super call, an alias and
+a by-name call through an unresolved receiver, a class constructor's call,
+a bare reference beside a qualified type and a `RAISING`, a promoted
+shell, eager code and DDIC asks, a library namespace, a dynamic call and
+an event on and off the read path, a method only an unreachable method
+calls, a cycle), the island added in three orders giving byte-identical
+JSON, the entry table bound to `src/gateway`, and the CLI. One mutation per
+rule, each red.
+
 ## A host over an existing schema: tools/hana-serve.mjs
 
 Built 2026-11-13 (H5x-4 B3). The ordinary server cannot boot in
@@ -1552,3 +1665,139 @@ and a GET under both prefixes, 405, the trace with its control (and a copy
 without it failing the check), the bind log; one write added to the boot
 turns it red. `test/gateway-metadata-diff.mjs` covers the diff with two
 synthetic documents.
+
+### The host's two safety nets (milestone 4): tools/hana-host-guard.mjs
+
+A service delivered by somebody else runs in this process, so the host
+promises two more things, both installed by `tools/hana-serve.mjs` before a
+class module of the generation loads (a class constructor runs at load).
+
+**The threat model, first.** The in-process guard is a defence against
+what delivered code *does* -- through the ABAP layer and the libraries
+under it: an HTTP client, a destination, a lookup, a job, a stub it runs
+into and swallows -- and against accidents. No list of patched entry points
+inside the process is ever known to be complete, so it claims no
+completeness. Against hostile delivered *source* the controls are two, and
+neither lives in this module: (i) refusing kernel splices when the island
+is merged, and (ii) running the host in an operating-system sandbox with no
+network except loopback to the database and its own port. The guard is
+**not a sandbox against hostile delivered *source***. A `WRITE '@KERNEL
+…'` line is spliced into the transpiled module as JavaScript (the
+transpiler's `WRITE` turns such a literal into code, by design: our own
+`src/` uses it, `ZCX_OSD_NOT_ACTIVATED` among them), and JavaScript in
+this process can do what the process can. The cheap doors are locked too
+(below), but what closes the rest is (1) refusing a delivered source that
+carries a kernel splice when the island is merged, and (2) running the host
+where the operating system gives it no route out -- a container or sandbox
+with no outbound network and a read-only file system outside its own
+directories, which the product's compose file is to provide. Until both are
+in place, a delivered source that was not read is trusted with the process.
+
+**Outbound calls are refused.** The seam is the lowest one the host controls:
+Node's own entry points, patched in this process (`installOutboundGuard`).
+`net.Socket.prototype.connect` is the socket every TCP, TLS, HTTP(S), http2,
+`fetch`, WebSocket and local (unix) socket client connects through; UDP
+`send`/`connect`; every `dns` lookup and resolve (a lookup is a packet, and
+a name can carry data), callback and promise forms and the `Resolver`s;
+`child_process` (all seven, the ESM named exports synced) and
+`worker_threads.Worker`, since a child or a worker has modules nothing here
+patched; `process.binding` for the socket and process bindings; `fetch` and
+`WebSocket` once more to name the URL. For the ways *in*, what is patched
+is `net.Server.prototype.listen` and `net.Server.prototype._listen2` (the
+step below it that does the bind; every `listen` variant measured -- a
+port, a path, `{fd}`, a handle, http/https/tls/http2 servers, a subclass's
+own `listen` -- reaches one of the two), each answering only for the one
+server the host marked (`allowListener`, by object, not by a port generated
+code could reuse) and for the window of the host's own start (osd-bind's
+`::1` twin, opened and closed inside one `listening` event); UDP `bind` is
+refused, and so are `process.dlopen` (an addon opens sockets below
+every seam here), `inspector.open`, `process._debugProcess` and
+`process.kill(…, 'SIGUSR1')` (a debugger that listens is somebody else
+taking the process). Each refuses by throwing `OSD_OUTBOUND_REFUSED` before
+a socket exists, default deny, no allow-list. The error's message names the
+kind only (`hana-serve refuses outbound network calls (dns)`): an error can
+travel into a response -- `GET_LAST_ERROR`, or a plain error crossing the
+ABAP, which `CATCH cx_root` does not catch and the host answers 500 with
+`OSD/REFUSED` and no more -- so the target lives in the record only, a URL
+by its origin (no user, path or query) and anything else cut at 120
+characters. In the host every patched entry point and the stub hook are
+**locked** (`lockProperty`: a non-configurable accessor whose setter ignores
+an assignment and records it as `tampered`), and before every request the
+host checks by identity that the hook and each entry point are still the
+ones it installed; one that is not answers 500 (`OSD/TAMPERED`), recorded.
+The one exception is the database's own: what the database client opens
+inside its `connect()` (the host wraps it, `asOwnDatabase`) and later
+reconnects to that same endpoint -- which also admits a second client to
+it, such as the AMDP destination's own connection. The class library's HTTP client
+(open-abap-core `CL_HTTP_CLIENT`) is wrapped on top
+(`installHttpClientGuard`) so the refusal reads the way a system without a
+route out says it: `CREATE_BY_URL` and `CREATE_BY_DESTINATION` hand out a
+client (creating one opens nothing; the library's `CREATE_BY_DESTINATION` is
+a todo-assert otherwise), `SEND` raises the classic
+`HTTP_COMMUNICATION_FAILURE` with `GET_LAST_ERROR` naming the refusal, and
+its connect is refused even toward the database's endpoint.
+
+**Every stub raise is seen.** `installStubHook` sets
+`globalThis.osdNotActivated`, which `ZCX_OSD_NOT_ACTIVATED`'s constructor
+calls before any `CATCH` can see the exception; the hook reads the class and
+method off the stack (the first frame in a `*.clas.mjs` that is not the
+exception class). Stubs and refusals land in one record per request
+(`AsyncLocalStorage`), so a provider that swallows either and answers 200
+still leaves its trace. `--stub-trace <file>` writes the record as JSON
+lines, the file `0600` -- also one an earlier run left with another mode --
+in a directory created `0700`, truncated per run: a `boot` line first
+(`probe`, the stubbed class constructors' signals from the load, the
+refusals of the boot), then one line per request under `/sap/opu/odata`,
+those refused before the ABAP included: `{method, path, status, stubs:
+[{class, method, reason}], refused: [{kind, target, …}], tampered:
+[{what}]}`, written when the response ends, before the client has it. The
+record never goes into a response header or body. Without the option nothing is kept and
+each event is one stderr line (`not activated: <class>=><method>: <reason>`,
+`hana-serve: refused outbound <kind> <target>`). The boot raises one
+synthetic stub through the loaded exception class and checks that the hook
+saw it -- the positive control; with `--stub-trace` a hook that did not see
+it refuses the start.
+
+What stays open at the process level, all of it reachable only from
+delivered *source* (a kernel splice) and all of it closed by the two
+measures above, not by this module:
+- an in-process patch list can always be incomplete: a Node entry point
+  not named above (an internal path a later Node release adds, a module
+  this list never looked at) is open until somebody finds it -- round 2 of
+  the review found `_listen2` that way. Not closed here, by class:
+  `node:fs` and every other file or pipe API, `node:vm`/`eval` (the same
+  patched modules, but no further restriction), timers and `process.on`
+  hooks that outlive a request, `process.exit`/`abort`, environment and
+  memory reads (`process.env` holds the database password);
+- `node:fs` directly: a file written, read or replaced anywhere the
+  process may (the ABAP's own `OPEN DATASET` is refused outside its roots,
+  `tools/osd-dataset.mjs`; a direct import is not);
+- raw sockets to the database's own endpoint (allowed: it is the
+  database's);
+- a native module the process already loaded, or one loaded by a path the
+  guard does not see (`process.dlopen` itself is refused; `require` of a
+  `.node` file goes through it);
+- the debugger by other means: `--inspect` given to the process, or a
+  SIGUSR1 sent from outside it (only the process's own `kill` is guarded);
+- anything that changes the guard before it is installed (none of the
+  generation's code runs before it) or a property a delivered splice
+  defines that the host does not check;
+- anything outside this process, such as a file the service writes for
+  somebody else to send.
+`CL_HTTP_CLIENT=>CREATE_INTERNAL` stays the library's todo-assert: a
+caller gets a 500, fail closed.
+
+`tools/hana-closure-report.mjs` widened in the same milestone:
+`serviceClasses(root)` reads the island's own registration (the dump facts
+in `gen/hana-segw`, the island's `*.iwsv.xml` / `*.iwmo.xml`, joined as the
+SEGW registry joins them, never by suffix) and follows each registered
+DPC's and MPC's superclass chain through the island (abaplint's class
+definition); given those `services`, `closureSummary` lists per service
+which of its classes carry stubs and applies `--require-unstubbed` to every
+one of them -- a DPC inheriting another service's `_EXT` class, a
+hand-written DPC without a SEGW project. The closure loop
+(`tools/hana-closure.mjs`) does not hand `services` to `closureSummary` yet;
+until it passes `services: serviceClasses(root)`, a run's summary checks the
+seeds as before. Tests: `test/hana-host-guard.mjs`
+(the twin `ZOSD_M4G_SRV`, `test/hana-m4`, with a local listener that must
+receive nothing).

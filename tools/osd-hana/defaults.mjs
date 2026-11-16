@@ -4,15 +4,20 @@
 // is one of a handful of defaults the trial images ship with, the doctor says
 // so loudly and changes nothing -- the verdict, the exit code and every
 // behaviour are the same. It is not a password audit: the list is tiny, the
-// values below are published in SAP's own installation guides, and they are
-// kept as SHA-256 hashes so this file does not become a dictionary. A real
-// password policy question belongs to the database, not to us.
+// values are published in SAP's own installation guides, and the source
+// holds them ONLY as the hex SHA-256 digests below, so this file does not
+// become a dictionary. A real password policy question belongs to the
+// database, not to us.
 import {createHash} from "node:crypto";
 
-// Computed once at load; the entries are the hex SHA-256 of the published
-// defaults ("HXEHana1" -- the SAP HANA Express installation guide; "manager" --
-// the HANA system-user default of older trial images).
-const DEFAULTS = ["HXEHana1", "manager"].map((value) => createHash("sha256").update(value).digest("hex"));
+// The hex SHA-256 digests of the published defaults: the SAP HANA Express
+// installation-guide password, and the HANA system-user default of older
+// trial images. (The plaintexts are public -- they are printed in SAP's own
+// guides -- but they do not need to live in this repository.)
+const DEFAULTS = [
+  "25c714351de366e71c2483cf82309cf072f676ab91b9071766bd2321fab0cd0f",
+  "6ee4a469cd4e91053847f5d3fcb61dbcc91e8f0ef10be7748da4c4a1ba382d17",
+];
 
 export function isPublicDefaultPassword(password) {
   if (typeof password !== "string" || password === "") return false;

@@ -16,10 +16,12 @@
 // B.5).
 import {UsageError, parseFlags, collectConnection} from "./connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
+import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
-import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
+import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict} from "./verdict.mjs";
+import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
   ok: 0,
@@ -29,12 +31,13 @@ export const DOCTOR_EXIT = Object.freeze({
 });
 
 const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "reader-name", "sidecar-pin"];
-const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "help"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "encrypt", "trust-server-certificate", "help"];
 
 const USAGE = `Usage: osd hana doctor [--host H] [--port P] [--database NAME] [--user U]
                         [--schema NAME] [--env-file <file>] [--password-stdin]
                         [--json] [--allow-unpinned-sidecar]
                         [--create-reader | --drop-reader [--reader-name NAME] [--yes]]
+                        [--encrypt | --trust-server-certificate]
 
 Checks a HANA database and says, plainly, whether your ABAP code can be
 rescued out of it: reachable? tenant or system database? ABAP schema found?
@@ -53,6 +56,12 @@ hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
 
 --create-reader sets up a dedicated read-only database user (asks for
 consent; --yes answers it non-interactively). --drop-reader removes it.
+
+The reader path talks to the database through the Node driver hdb. Without
+--encrypt that connection is NOT encrypted and the new password travels in
+clear text (the consent text says so): use a trusted network or --encrypt
+(TLS with certificate validation, hdb's useTLS). --trust-server-certificate
+encrypts without validating the server's certificate and says so loudly.
 Exit codes: 0 ready to extract; 1 usage; 2 cannot connect or log on;
 5 no ABAP schema.`;
 
@@ -65,6 +74,7 @@ export async function doctorMain(argv, {
   store = defaultSecretStore(),
   clientFactory,
   prompt,
+  pinFile, // the TRUSTED seam for the embedding host / tests to name a pin file; the CLI flag --sidecar-pin is a public input and never 'pins' by itself (critic S-E)
   sidecarExtraEnv, // the test seam: extra child-env for the sidecar; the CLI never sets it
   sidecarTimeoutMs = 120_000,
 } = {}) {
@@ -107,8 +117,20 @@ export async function doctorMain(argv, {
     return fail(error.message);
   }
   let pin;
+  let foreignPin = false;
   try {
-    pin = loadPin(flags["sidecar-pin"]);
+    // Two ways to name a pin: `pinFile`, the trusted seam the embedding host
+    // (the extension, the tests) uses to substitute its own pin; and the CLI
+    // flag --sidecar-pin, a public input. A pin file that is not the
+    // module's own sidecar.lock.json never makes a binary 'pinned' -- it can
+    // check bytes, but every pinned claim stays false and the run needs
+    // --allow-unpinned-sidecar (critic S-E).
+    const pinPath = pinFile ?? flags["sidecar-pin"] ?? DEFAULT_PIN_PATH;
+    pin = loadPin(pinPath);
+    // pinFile is the embedding host's own substitution (the extension names
+    // its bundled pin, the tests name a generated one): trusted. Only a
+    // --sidecar-pin the CLI user supplied is 'foreign' (critic S-E).
+    foreignPin = pinFile === undefined && resolve(pinPath) !== resolve(DEFAULT_PIN_PATH);
   } catch (error) {
     return fail(error.message);
   }
@@ -117,6 +139,7 @@ export async function doctorMain(argv, {
     verified = await verifySidecar(path, {
       pin,
       allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+      foreignPin,
       loud: (line) => io.err(line.trimEnd()),
     });
   } catch (error) {
@@ -160,6 +183,7 @@ export async function doctorMain(argv, {
     // binary is ~7 MB; a fresh sha256 read is milliseconds.
     pin,
     allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+    foreignPin,
     loud: (line) => io.err(line.trimEnd()),
   });
   // The user and the password are credentials and travel in the child's
@@ -198,12 +222,22 @@ export async function doctorMain(argv, {
       const result = verb === "create-reader"
         ? await createReader({connection, schema: schemaName, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
+            encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             say: (text) => io.out(text)})
         : await dropReader({connection, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
+            encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             say: (text) => io.out(text)});
       if (flags.json === true) {
-        io.out(JSON.stringify({...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), reader: result}, null, 1));
+        // the create result deliberately carries no password -- the secret
+        // store is its only holder (critic M-A); --json reports the facts a
+        // caller can act on and nothing that unlocks anything
+        io.out(JSON.stringify({
+          ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
+          reader: verb === "create-reader"
+            ? {user: result.user, schema: result.schema, stored_at: result.storedAt}
+            : {dropped: result.dropped, absent: result.absent},
+        }, null, 1));
       }
       return DOCTOR_EXIT.ok;
     } catch (error) {
@@ -213,8 +247,11 @@ export async function doctorMain(argv, {
       }
       if (typeof error?.code === "number") {
         // The database refused: a connection or logon problem of the
-        // administrator login (hdb reports native codes).
-        io.err(`osd hana: the database refused (${error.code}): ${error.message}`);
+        // administrator login (hdb reports native codes). The driver message
+        // is quoted -- through the redactor holding this run's password
+        // (critic note), because a driver text can repeat a value verbatim.
+        const redact = makeRedactor([connection.password]);
+        io.err(redact(`osd hana: the database refused (${error.code}): ${error.message}`));
         return DOCTOR_EXIT.connection;
       }
       io.err(`osd hana: ${error.message}`);

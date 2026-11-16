@@ -24,8 +24,21 @@
 //   guard's own set -- is excluded, or one a registration or an island file
 //   names is not an island object;
 // - a seed-class method matches a --require-unstubbed glob and is stubbed.
-import {readFileSync, writeFileSync} from "node:fs";
+//
+// Milestone 4: the seeds are not the whole service. A service's DPC may
+// inherit from ANOTHER service's _EXT class, and a hand-written DPC need
+// not have a SEGW project nor a suffix; both run methods no seed glob
+// looked at. serviceClasses(root) reads the registration the island has
+// (gen/hana-segw/from-dump.json and the island's *.iwsv.xml / *.iwmo.xml,
+// joined the way tools/segw-registry.mjs joins them -- never a name suffix)
+// and follows each registered class's superclass chain through the island
+// (abaplint's class definition); closureSummary, given those `services`,
+// reports per service which of its classes carry stubs and applies
+// --require-unstubbed to every one of them.
+import {readdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
+import * as abaplint from "@abaplint/core";
+import {dumpFacts, mergeRegistrations, registeredServices, segwRegistrations} from "./segw-registry.mjs";
 
 // ---------------------------------------------------------- state, argv ----
 
@@ -140,6 +153,72 @@ export function unstubbedGlob(glob) {
     ? `${String(cls).toUpperCase()}=>${String(method).toUpperCase()}` : String(method).toUpperCase());
 }
 
+/** the island's class files by object name: `<name>.clas.abap` below
+ *  gen/hana-src (a `#ns#` file name is /NS/), the later file winning */
+function islandClassFiles(root) {
+  const files = new Map();
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, {withFileTypes: true}).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory()) walk(join(dir, entry.name));
+      else if (/^[^.]+\.clas\.abap$/i.test(entry.name) === true) {
+        files.set(entry.name.replace(/\.clas\.abap$/i, "").replace(/#/g, "/").toUpperCase(), join(dir, entry.name));
+      }
+    }
+  };
+  walk(join(root, "gen", "hana-src"));
+  return files;
+}
+
+/** the superclass a class file names (abaplint's class definition, never a
+ *  regex over ABAP), upper case, or undefined */
+export function superClassOf(filename, source) {
+  const reg = new abaplint.Registry().addFile(new abaplint.MemoryFile(filename, source)).parse();
+  const obj = reg.getFirstObject();
+  const name = obj?.getType?.() === "CLAS" ? obj.getClassDefinition?.()?.superClassName : undefined;
+  return name === undefined || name === "" ? undefined : String(name).toUpperCase();
+}
+
+/** The registered services of the island at `root` and the classes each
+ *  runs: [{service, dpc, mpc, classes}] -- the registered DPC and MPC and
+ *  every superclass of either that is an island class, in chain order. The
+ *  registration is the island's own: the dump facts (gen/hana-segw) merged
+ *  under the island's *.iwsv.xml / *.iwmo.xml the way the SEGW registry
+ *  merges them. A class outside the island ends its chain (the framework's
+ *  base classes are not the service's). */
+export function serviceClasses(root) {
+  const xml = segwRegistrations([join(root, "gen", "hana-src")]);
+  const facts = dumpFacts(join(root, "gen", "hana-segw"));
+  const {entries} = mergeRegistrations(xml, facts?.services ?? []);
+  const files = islandClassFiles(root);
+  const supers = new Map();
+  const superOf = (name) => {
+    if (supers.has(name) === false) {
+      const file = files.get(name);
+      supers.set(name, file === undefined ? undefined : superClassOf(file.slice(file.lastIndexOf("/") + 1), readFileSync(file, "utf8")));
+    }
+    return supers.get(name);
+  };
+  const chain = (start) => {
+    const out = [];
+    for (let name = String(start ?? "").trim().toUpperCase(); name !== "" && files.has(name) === true && out.includes(name) === false; name = superOf(name) ?? "") {
+      out.push(name);
+    }
+    return out;
+  };
+  return registeredServices(entries).map((e) => {
+    const dpc = String(e.dpc).toUpperCase();
+    const mpc = String(e.mpc).toUpperCase();
+    return {service: String(e.external ?? e.service), dpc, mpc, classes: [...new Set([...chain(dpc), ...chain(mpc)])]};
+  }).sort((a, b) => (a.service < b.service ? -1 : a.service > b.service ? 1 : 0));
+}
+
 /** the run summary and its failures. Inputs: `seeds` -- the seed classes
  *  (the closure guard's set); `named` -- those a registration or an island
  *  file named, which must be island objects (a base derived off an _EXT
@@ -149,9 +228,12 @@ export function unstubbedGlob(glob) {
  *  `lifted` -- the stubs this run lifted ({object, class, method}, see
  *  trackLifted); `gaps` -- [{name, kind}]; `requireUnstubbed` -- the
  *  globs; `load` -- {loads, error, built?} from the load check (B6);
- *  `searchHelps` -- the summary's search_helps block, passed through.
- *  Pure. */
-export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, lifted = [], gaps, requireUnstubbed = [], load, searchHelps}) {
+ *  `searchHelps` -- the summary's search_helps block, passed through;
+ *  `services` -- serviceClasses(root): with it the summary carries a
+ *  `services` block (per service the classes that carry stubs) and
+ *  --require-unstubbed covers every class of every service, not only the
+ *  seeds. Pure. */
+export function closureSummary({fixedPoint = true, iterations, islandObjects, seeds, named = seeds, present, excluded, stubs, lifted = [], gaps, requireUnstubbed = [], load, searchHelps, services}) {
   const seedList = [...(seeds ?? [])].map((s) => String(s).toUpperCase()).sort();
   const seedSet = new Set(seedList);
   const excludedList = [...(excluded ?? [])].map((s) => String(s).toUpperCase()).sort();
@@ -167,11 +249,36 @@ export function closureSummary({fixedPoint = true, iterations, islandObjects, se
       if (namedSet.has(seed) === true) failures.push(`seed class ${seed} is not an island object`);
     } else if (excludedSet.has(seed) === true) failures.push(`seed class ${seed} is excluded from the build`);
   }
+  // milestone 4: every class a registered service runs, seeds or not
+  const stubOf = (s) => ({class: String(s.object ?? s.class).toUpperCase(), method: String(s.method).toUpperCase()});
+  const byClass = new Map();
+  for (const s of stubs ?? []) {
+    const one = stubOf(s);
+    if (byClass.has(one.class) === false) byClass.set(one.class, new Set());
+    byClass.get(one.class).add(one.method);
+  }
+  const serviceBlock = services === undefined ? undefined : services.map((svc) => {
+    const stubbed = svc.classes.filter((c) => byClass.has(c) === true)
+      .map((c) => ({class: c, methods: [...byClass.get(c)].sort()}));
+    return {service: svc.service, dpc: svc.dpc, mpc: svc.mpc, classes: [...svc.classes], stubbed};
+  });
+  const checked = new Map(seedStubs.map((s) => [`${s.class}|${s.method}`, {...s, services: []}]));
+  for (const svc of serviceBlock ?? []) {
+    for (const {class: cls, methods} of svc.stubbed) {
+      for (const method of methods) {
+        const key = `${cls}|${method}`;
+        if (checked.has(key) === false) checked.set(key, {class: cls, method, services: []});
+        checked.get(key).services.push(svc.service);
+      }
+    }
+  }
   for (const glob of requireUnstubbed) {
     const match = unstubbedGlob(glob);
-    const hit = seedStubs.filter((s) => match(s.class, s.method) === true);
+    const hit = [...checked.values()].filter((s) => match(s.class, s.method) === true)
+      .sort((a, b) => (a.class + "|" + a.method < b.class + "|" + b.method ? -1 : 1));
     if (hit.length > 0) {
-      failures.push(`--require-unstubbed ${glob}: ${hit.length} seed method(s) stubbed: ${hit.map((s) => `${s.class}=>${s.method}`).join(", ")}`);
+      const what = services === undefined ? "seed method(s)" : "service method(s)";
+      failures.push(`--require-unstubbed ${glob}: ${hit.length} ${what} stubbed: ${hit.map((s) => `${s.class}=>${s.method}${s.services.length > 0 ? ` (${s.services.join(", ")})` : ""}`).join(", ")}`);
     }
   }
   // B6: a fixed point whose build is green and whose generation does not
@@ -191,6 +298,7 @@ export function closureSummary({fixedPoint = true, iterations, islandObjects, se
     excluded: excludedList,
     gaps: (gaps ?? []).map((g) => ({name: g.name, kind: g.kind})),
     seed: {classes: seedList, stubbed_methods: seedStubs},
+    ...(serviceBlock !== undefined ? {services: serviceBlock} : {}),
     // milestone 3: the search helps the island names (tools/hana-closure-shlp.mjs
     // searchHelpSummary); a seed's value-help set whose help is missing is
     // listed under `unserved`, never a failure
