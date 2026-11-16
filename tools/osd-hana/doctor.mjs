@@ -383,7 +383,9 @@ export async function doctorMain(argv, {
                   loud: loudOnce,
                 });
                 const run = await readerSidecar.run("probe", {args: probeArgs});
-                readerProbeDocument = run.summary;
+                // printed and embedded only: the masked copy (parse raw, redact
+                // where printed)
+                readerProbeDocument = run.display;
                 const view = {host: connection.host, port: connection.port, database: connection.database, user};
                 io.out(`osd hana: the reader's own probe -- the sidecar run as ${user}:`);
                 for (const line of plainVerdict(readerProbeDocument, {connection: view, sidecar: describeSidecar(verified, handshakeInfo)})) {
@@ -411,7 +413,7 @@ export async function doctorMain(argv, {
         // the document carries the drop facts without a probe verdict.
         io.out(JSON.stringify(verb === "create-reader"
           ? {
-            ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
+            ...jsonVerdict(shown, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
             reader: {user: result.user, schema: result.schema, stored_at: result.storedAt},
             ...(readerProbeDocument !== undefined ? {reader_probe: readerProbeDocument} : {}),
           }
@@ -485,7 +487,13 @@ export async function doctorMain(argv, {
   }
   // The probe document is the REAL binary's flat one-line answer, read in one
   // place (probe-doc.mjs; recorded contracts in test/osd-hana/contract/).
+  // Parse raw, redact where printed: `probe` is the document as DATA (every
+  // decision below reads it); `shown` is the same document with its string
+  // values masked, and it is the only one that reaches the terminal or the
+  // --json output. Numbers are never masked -- a short numeric password
+  // ("123") must not turn the count 1234 into ***4.
   const probe = readProbe(probeRun.summary);
+  const shown = readProbe(probeRun.display);
   const schemas = probe.schemas;
 
 
@@ -496,7 +504,7 @@ export async function doctorMain(argv, {
       break;
     case "connection": {
       const errorText = probeRun.summary.error ?? "";
-      io.err(`osd hana: cannot connect or log on: ${errorText || "the sidecar said so"}`);
+      io.err(`osd hana: cannot connect or log on: ${probeRun.display.error || "the sidecar said so"}`);
       // The measured trial-image failure gets its own explanation (W0
       // "Additions"): a verified TLS connection to an IP address is refused
       // because the self-signed certificate carries no IP SANs.
@@ -516,18 +524,18 @@ export async function doctorMain(argv, {
           io.err(`  (the probe looked only for the schema named with --schema / HANA_SCHEMA; run without it to see every ABAP schema this login can read.)`);
         }
         io.err("  A login without SELECT on the ABAP schema sees none: try the schema's owner, or an administrator.");
-        for (const note of probe.notes) io.err(`  Note from the sidecar: ${note}`);
+        for (const note of shown.notes) io.err(`  Note from the sidecar: ${note}`);
       } else {
-        io.err(`osd hana: the sidecar could not examine this database (unsupported system): ${probe.error ?? "it gave no reason"}`);
+        io.err(`osd hana: the sidecar could not examine this database (unsupported system): ${shown.error ?? "it gave no reason"}`);
         io.err("  This is NOT a finding that the database holds no ABAP schema -- the examination itself failed.");
       }
       return DOCTOR_EXIT.noAbapSchema;
     }
     case "usage":
-      return fail(`osd hana: the sidecar refused the probe as a usage error: ${probeRun.summary.error ?? "unknown"}`);
+      return fail(`osd hana: the sidecar refused the probe as a usage error: ${probeRun.display.error ?? "unknown"}`);
     case "partial":
     case "refused":
-      return fail(`osd hana: the sidecar ended with the outcome "${probeRun.outcome}", which a probe cannot produce: ${probeRun.summary.error ?? ""}`);
+      return fail(`osd hana: the sidecar ended with the outcome "${probeRun.outcome}", which a probe cannot produce: ${probeRun.display.error ?? ""}`);
     default:
       return fail(`osd hana: unmapped sidecar outcome: ${probeRun.outcome}`);
   }
@@ -553,9 +561,9 @@ export async function doctorMain(argv, {
   }
 
   if (flags.json === true) {
-    io.out(JSON.stringify(jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), null, 1));
+    io.out(JSON.stringify(jsonVerdict(shown, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), null, 1));
   } else {
-    for (const line of plainVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo)})) io.out(line);
+    for (const line of plainVerdict(shown, {connection, sidecar: describeSidecar(verified, handshakeInfo)})) io.out(line);
     for (const warning of warnings) io.out(`  WARNING: ${warning}`);
   }
   return DOCTOR_EXIT.ok;

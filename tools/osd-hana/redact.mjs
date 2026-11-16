@@ -54,3 +54,22 @@ export function redactingSink(write, redact) {
     return write.call(this, chunk, encoding, cb);
   };
 }
+
+// A parsed document, masked for printing: every STRING value goes through the
+// redactor, at any depth; keys, numbers, booleans and null pass untouched.
+// This is the rule that keeps the parser and the printer apart: the sidecar's
+// one JSON line is parsed RAW (a short or numeric password such as "123" run
+// over the JSON text would turn the count 1234 into ***4), and only what is
+// printed or embedded for a person goes through here. A credential is never a
+// number in the document, so a password that equals a number is still never
+// printed; one the sidecar echoes inside a string value is masked.
+export function redactValues(value, redact) {
+  if (typeof value === "string") return redact(value);
+  if (Array.isArray(value)) return value.map((item) => redactValues(item, redact));
+  if (value !== null && typeof value === "object") {
+    const out = {};
+    for (const [key, item] of Object.entries(value)) out[key] = redactValues(item, redact);
+    return out;
+  }
+  return value;
+}

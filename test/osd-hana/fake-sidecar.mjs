@@ -20,6 +20,7 @@
 //     echo-stderr     like owner-tenant, but repeats the run's host, user,
 //                     schema and password on stderr first (redactor fodder)
 //     hang            never answers: sleeps 5 s, for the timeout test
+//     non-json-leak   exit 0, one non-JSON line with the password at offset 195
 //   FAKE_SIDECAR_RECORD     a file the fake appends its argv and which
 //                           credentials arrived through the environment to
 //                           (the password value itself is NEVER written --
@@ -175,6 +176,10 @@ const PROBES = {
   // print nothing.
   "stdout-leak": errorDoc(2, `logon failed for password ${process.env.OSD_HANA_PASSWORD ?? "?"}`),
   "stdout-leak-doc": okDoc({}, {...SMALL, schema: `SCHEMA_${process.env.OSD_HANA_PASSWORD ?? "?"}`, abap_attached: "no"}),
+  // Parse before redact: counts whose digits contain a short numeric
+  // password ("123"), so a redactor run over the raw JSON text would turn
+  // 1234 into ***4 and break the document; the counts must arrive as numbers.
+  "numeric-counts": okDoc({login_class: "schema_owner"}, {...OWNED, reposrc_rows: 1234, tadir_rows: 1123}),
   // exit 5 WITHOUT the probe document: the sidecar could not examine the
   // database at all (its error line) -- not a positive "no ABAP schema"
   unsupported: errorDoc(5, "looking for ABAP schemas: insufficient privilege"),
@@ -226,6 +231,12 @@ if (scenario === "hang") {
 } else if (scenario === "two-lines") {
   // one JSON line or an error, not a guess: two lines must be refused
   process.stdout.write(`${JSON.stringify(PROBES["owner-tenant"].document)}\n${JSON.stringify({ok: true})}\n`);
+  process.exit(0);
+} else if (scenario === "non-json-leak") {
+  // not JSON at all, with the password straddling character 200 of the
+  // line: the error quotes the line truncated -- it must redact FIRST, or
+  // the cut leaves a prefix of the secret the redactor no longer matches
+  process.stdout.write(`${"x".repeat(195)}${process.env.OSD_HANA_PASSWORD ?? ""} and more after it\n`);
   process.exit(0);
 } else if (scenario === "chatty") {
   // more output than the doctor will accumulate: the cap, not the timeout,
