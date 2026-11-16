@@ -118,7 +118,12 @@ export function progXml(name, dir, tpool) {
 
 // ---- FUGR -----------------------------------------------------------------
 
-export const groupSuffix = /^(?:TOP|UXX|[UFIOP$VTE][0-9A-Z]{2,3})$/;
+// A group's include is EXACTLY its include prefix + 3 characters (TOP, UXX,
+// U01, F01, ...: abapGit's and the function library's naming) -- fix round 6
+// (CRITIC round 4 MUST-2): the length, not a letter set, decides, because a
+// 4-character split is ambiguous whenever the 3-character one names a group
+// (LZAUTOP is group ZAU's TOP, never group ZA's "UTOP").
+export const GROUP_INCLUDE_SUFFIX_LENGTH = 3;
 // /NS/SAPLX -> /NS/X; SAPLX -> X
 export function groupFromMain(p) {
   const m = /^(\/[^/]+\/)?SAPL(.+)$/.exec(p);

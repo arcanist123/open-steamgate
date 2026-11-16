@@ -41,6 +41,11 @@ export function renderMdReport(doc) {
   lines.push(`- request: \`${JSON.stringify(doc.request)}\``);
   lines.push(`- folder logic: ${sanitizeText(doc.folder_logic.logic)} -- ${doc.folder_logic.folders.map((f) => `${sanitizeText(f.package)} -> ${sanitizeText(f.folder)}`).join(", ")}`);
   lines.push(`- duration: ${(doc.duration_ms / 1000).toFixed(1)} s`);
+  // fix round 6 (SHOULD-1): what happened to <out>/.gitignore -- a user's
+  // file is appended to, never overwritten, and the report says which
+  if (doc.gitignore?.action === "appended") lines.push("- .gitignore: the `.osd-hana/` line was appended to your existing file (nothing else in it changed)");
+  else if (doc.gitignore?.action === "created") lines.push("- .gitignore: created with the `.osd-hana/` line");
+  else if (doc.gitignore?.action === "unchanged") lines.push("- .gitignore: unchanged (it already ignores `.osd-hana/`)");
   lines.push("");
   if (doc.notice) {
     lines.push(`> ${doc.notice}`);

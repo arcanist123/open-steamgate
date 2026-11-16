@@ -21,9 +21,10 @@ import {createHash} from "node:crypto";
 import {createInterface} from "node:readline";
 import {key, filename, repoDotXml, decodeTextpool, tpoolNode} from "./xml.mjs";
 import {tablXml, dtelXml, domaXml, ttypXml, shlpXml, viewXml} from "./ddic.mjs";
-import {groupFromMain, mainProgram, groupSuffix} from "./program.mjs";
+import {groupFromMain, mainProgram} from "./program.mjs";
 import {Ledger, unsafeComponent} from "./ledger.mjs";
 import {planObjectFiles} from "./write.mjs";
+import {resolveProgramOwner, programOwnerMaps} from "./ownership.mjs";
 
 // Objects this converter can write. A type outside this set that is IN SCOPE
 // is never dropped silently: it comes back as `unsupported` and the process
@@ -338,31 +339,12 @@ export async function convert({
 
   const sourceOwner = new Map();
   function resolve(program) {
+    // the resolution rules live in ./ownership.mjs -- the extract verb's
+    // source-level scope audit (fix round 5) must resolve EXACTLY like the
+    // converter writes, or the two will drift
     const p = key(program);
-    if (sourceOwner.has(p)) return sourceOwner.get(p);
-    let o = objects.get(`PROG:${p}`) || objects.get(`INTF:${p}`);
-    if (!o && p.length > 30 && p[30] !== "") {
-      const base = p.slice(0, 30).replace(/=+$/, "");
-      const suffix = p.slice(30);
-      o = objects.get(`CLAS:${base}`) || objects.get(`INTF:${base}`);
-      if (o && o.type === "INTF" && !/^(?:IU|IP|IT)$/.test(suffix)) o = undefined;
-      if (o && o.type === "CLAS" && !/^(CU|CO|CI|CP|CT|CS|CL|CCDEF|CCIMP|CCMAC|CCAU|CM[0-9A-Z]{3})$/.test(suffix)) o = undefined;
-      if (!o && /^BDI?$/.test(suffix)) o = objects.get(`BDEF:${base}`);
-    }
-    if (!o) o = groupByProgram.get(p);
-    const m = /^(\/[^/]+\/)?L(.+)$/.exec(p);
-    if (!o && m) {
-      for (const n of [3, 4]) {
-        const suffix = m[2].slice(-n);
-        const g = (m[1] || "") + m[2].slice(0, -n);
-        if (m[2].length > n && groupSuffix.test(suffix) && groupByName.has(g)) {
-          o = groupByName.get(g);
-          break;
-        }
-      }
-    }
-    sourceOwner.set(p, o || null);
-    return o;
+    if (!sourceOwner.has(p)) sourceOwner.set(p, resolveProgramOwner(p, {objects, groupByProgram, groupByName}));
+    return sourceOwner.get(p);
   }
 
   const emptySources = {count: 0};
@@ -491,13 +473,36 @@ export async function convert({
   // Translations the converter leaves out (one language is written) are
   // "not extracted" and name the language.
   const dumpHasTable = async (t) => {
+    const hit = dumpHasTableCache.get(t);
+    if (hit !== undefined) return hit;
+    let carried = false;
     for (const root of allRoots) {
       try {
         await fs.access(path.join(root, "tables", `${t}.jsonl`));
-        return true;
+        carried = true;
+        break;
       } catch { /* not carried by this root */ }
     }
-    return false;
+    dumpHasTableCache.set(t, carried);
+    return carried;
+  };
+  // Fix round 5 (SHOULD-3): the real sidecar dumps the DD aspect tables
+  // (DD05S/DD08L ...) alongside EVERY table, so "the file exists" says
+  // nothing about THIS table -- the decision reads the rows keyed by the
+  // table's own name (active version).
+  const aspectRowCounts = new Map(); // table -> Map(tabname -> active row count)
+  const aspectRows = async (t) => {
+    const hit = aspectRowCounts.get(t);
+    if (hit !== undefined) return hit;
+    const counts = new Map();
+    for (const r of await rows(allRoots, t, true)) {
+      const n = key(r.TABNAME);
+      if (n === "") continue;
+      if (r.AS4LOCAL !== undefined && key(r.AS4LOCAL) !== "A") continue;
+      counts.set(n, (counts.get(n) ?? 0) + 1);
+    }
+    aspectRowCounts.set(t, counts);
+    return counts;
   };
   const coverageAspects = [
     ["foreign keys", ["DD05S", "DD08L"]],
@@ -506,6 +511,7 @@ export async function convert({
     ["component texts", ["DD03T"]],
   ];
   const notCarriedTables = [];
+  const dumpHasTableCache = new Map();
   for (const [, tables] of coverageAspects) {
     for (const t of tables) if (!(await dumpHasTable(t)) && !notCarriedTables.includes(t)) notCarriedTables.push(t);
   }
@@ -513,10 +519,24 @@ export async function convert({
   for (const o of claimed.values()) {
     if (o.type === "TABL") {
       for (const [aspect, tables] of coverageAspects) {
-        const carried = await dumpHasTable(tables[0]) || (tables[1] !== undefined && await dumpHasTable(tables[1]));
-        o.partNotes.push(carried
-          ? {part: `${aspect} (${tables.join("/")})`, disposition: "not extracted", reason: `${aspect}: the dump carries ${tables.join("/")} but this converter does not write them`}
-          : {part: `${aspect} (${tables.join("/")})`, disposition: "not checked", reason: `the dump carries none of ${tables.join("/")}, so it cannot be told whether this table has ${aspect}`});
+        const carried = [];
+        for (const t of tables) if (await dumpHasTable(t)) carried.push(t);
+        if (carried.length === 0) {
+          // the dump carries none of the aspect's tables: it cannot even be
+          // told whether THIS table has the part -- "not checked", never a
+          // loss (round 4)
+          o.partNotes.push({part: `${aspect} (${tables.join("/")})`, disposition: "not checked", reason: `the dump carries none of ${tables.join("/")}, so it cannot be told whether this table has ${aspect}`});
+          continue;
+        }
+        let n = 0;
+        for (const t of carried) n += (await aspectRows(t)).get(o.name) ?? 0;
+        if (n > 0) {
+          // the dump SHOWS this table's rows and this converter does not
+          // write them: a real loss, the only kind that makes written-partial
+          o.partNotes.push({part: `${aspect} (${tables.join("/")})`, disposition: "not extracted", reason: `${aspect}: ${n} row${n === 1 ? "" : "s"} for THIS table in ${carried.join("/")} are in the dump and this converter does not write them`});
+        }
+        // rows only for other tables: this table has no such part -- no line
+        // at all (the DD tables merely existing in the dump is not a loss)
       }
       const langs = [...(dd02tLangs.get(o.name) ?? [])].filter((l) => l !== "E").sort();
       if (langs.length > 0) o.partNotes.push({part: "table texts", disposition: "not extracted", reason: `table texts in language${langs.length === 1 ? "" : "s"} ${langs.join(", ")} are not extracted (only the E text is written)`});
@@ -719,6 +739,55 @@ async function* repoLists(roots) {
     }
   }
   for (const list of groups.values()) yield list;
+}
+
+// ---- the source-level scope audit (fix round 5, SHOULD-1 riding M-1) -------
+// Every REPOSRC row of the dump must resolve to an IN-SCOPE owner: the
+// request's include shapes can, on a badly built request or a sidecar that
+// matches wider, bring a sibling's sources, and a source with no in-scope
+// owner is foreign code sitting in <out>/.osd-hana/dump/src even though it
+// is never written to the repository. Runs on a FRESH and on a REUSED dump
+// alike (fix round 5, M-1). Returns the sorted programs whose source the
+// dump carries for nobody in scope; the caller refuses the run, names them
+// and marks the dump directory refused. A source row for an object the
+// sidecar already reported is the OBJECT audit's business (extract.mjs);
+// CDS-like sources arrive through the wholesale DD-table dump (DDDDLSRC &
+// friends carry every object's rows, like DD02L), so they are metadata here,
+// not evidence of over-delivery -- the object audit covers their objects.
+export async function outOfScopeSourcePrograms({dump, roots, scopeIds}) {
+  const allRoots = roots ?? [dump];
+  const objects = new Map(); // TYPE:NAME -> {id, type} -- THE LISTING's in-scope ids, not the dump's TADIR: the scope is the live selection, and a source resolving into the dump's TADIR but out of the listing is exactly the drift case
+  for (const id of scopeIds) {
+    const sep = id.indexOf(":");
+    const type = id.slice(0, sep);
+    objects.set(id, {id, type, name: id.slice(sep + 1)});
+  }
+  const {groupByProgram, groupByName} = programOwnerMaps({objects, tfdir: await rows(allRoots, "TFDIR", true), tlibg: await rows(allRoots, "TLIBG", true)});
+  const bad = new Set();
+  for (const root of allRoots) {
+    let list;
+    try {
+      list = await readJsonlFile(path.join(root, "reposrc.jsonl"));
+    } catch (e) {
+      if (e.code === "ENOENT") continue; // the converter demands the file and will fail loudly on its own
+      throw e;
+    }
+    for (const r of list) {
+      const p = key(r.program);
+      if (p === "" || bad.has(p)) continue;
+      const owner = resolveProgramOwner(p, {objects, groupByProgram, groupByName});
+      if (!owner || !scopeIds.has(owner.id)) bad.add(p);
+    }
+  }
+  return [...bad].sort();
+}
+
+async function readJsonlFile(file) {
+  const out = [];
+  for await (const line of createInterface({input: createReadStream(file, {encoding: "utf8"}), crlfDelay: Infinity})) {
+    if (line.trim()) out.push(JSON.parse(line));
+  }
+  return out;
 }
 
 const protectedKeptReason = (rel, kept) => {
