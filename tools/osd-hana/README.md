@@ -162,6 +162,20 @@ clone, diff and deploy:
    harmless `--dry-run` emptied the marker and the next real run kept every
    object ("the marker of the last run does not list it").
 
+   **The commit point** (round 6) — nothing outside the work area
+   `.osd-hana/` changes until the run has passed every refusal: listing →
+   plan → consent → dump (or reuse) → scope audit, and only then the
+   provisional marker, the `src/` refresh, the `.gitignore` line and the
+   conversion. A refusal at any step before it leaves the repository —
+   `src/`, `.abapgit.xml`, `.gitignore`, the last run's report and the
+   marker — byte-identical; the audit's refusal report goes to
+   `.osd-hana/refused-report.md`. The work area ignores itself (`*` in
+   `.osd-hana/.gitignore`), so the raw dump is never committable even
+   before a run has written anything else. `<out>/.gitignore` is never
+   overwritten: a writing run creates it when absent and appends
+   `.osd-hana/` when the line is missing (the report says which); a
+   `--dry-run` or a refused run does neither.
+
    **Consent** — nothing is dumped without the user having seen the plan.
    On a terminal the command asks `extract N objects (S MB) into <out>?`
    after the plan; `y` or `yes` proceeds, anything else (EOF included)
@@ -182,39 +196,44 @@ clone, diff and deploy:
    REPOSRC — measured on the real bed and confirmed there (round 3): a
    class's/interface's sources sit behind the 30-character `=`-padded name
    (`<name padded to 30 with =>%`), a function group's behind its main
-   program and includes (`SAPL<grp>%`, `L<grp>%`); flat programs and DDIC
+   program and includes (`SAPL<grp>`, `L<grp>___`, below); flat programs and DDIC
    need only the exact name. TADIR selection stays exact (a padded prefix
-   names exactly one object), so the selection cannot widen; an include
+   names exactly one object), so the selection cannot widen.
    `_` and `%` inside a REAL object name never act as wildcards unnoticed:
    every literal is LIKE-escaped (`\_`, `\%`, `\\`) — the sidecar matches
    with `LIKE ? ESCAPE '\'` (checked in its binary's strings), so an escaped
-   underscore matches exactly that name. For a function group the request
-   names the SHAPES, not a bare prefix (round 5): `SAPL<grp>` exactly (the
-   main program IS that name), the includes as `L<grp>TOP`, `L<grp>UXX` and
-   one `L<grp><letter>` + 2 or 3 LIKE wildcard characters per suffix letter
-   the converter accepts (`L<grp>U__`, `L<grp>U___`) — a shape cannot cross
-   into a longer sibling group's name, where `L<grp>%` pulled `LZAB...` for
-   group `ZA`. Namespaced groups take their real shape (`/NS/GRP` →
-   `/NS/SAPLGRP` exact, `/NS/LGRP` + shapes). The price is request size — 21
-   names per group instead of 3 — which the 500-name chunking absorbs. The
+   underscore matches exactly that name. A function group's include is
+   EXACTLY `L<grp>` + 3 characters (TOP, UXX, U01, F01, …: abapGit's and
+   the function library's naming), so the request carries `SAPL<grp>`
+   exactly and ONE include pattern `L<grp>___` — three single-character
+   wildcards, no letter (round 6). Length pins the match: group `ZA`'s
+   pattern is six characters, group `ZAU`'s includes seven, so a sibling
+   whose name extends the group's can never match (round 5's
+   `L<grp><letter>___` shapes did: `LZAU___` is `LZAUTOP`). The converter's
+   resolver (`convert/ownership.mjs`) splits off exactly those 3 characters
+   — an include that fits no in-scope group by exact length is ownerless
+   and the audit refuses the run. Namespaced groups take their real shape
+   (`/NS/GRP` → `/NS/SAPLGRP` exact, `/NS/LGRP___`). The
    request is built in ONE function (`buildDumpRequest` in
-   `extract-plan.mjs`): when the sidecar gains an exact
-   `objects: [{type, name}]` request field (asked of its owner), the
-   patterns go away and only that function changes.
+   `extract-plan.mjs`): the sidecar's next release selects objects exactly
+   (`requested: {TYPE: [names]}`), and then the patterns go away and only
+   that function changes.
    **The scope audit** runs on EVERY dump before conversion, reused or fresh
    (round 5): every object the dump fetched WITH sources must be in the
    scope set, and every REPOSRC row it fetched must resolve to an in-scope
    owner (`convert/ownership.mjs` — the one resolver the converter writes
    by, so the two cannot drift). Anything outside the scope refuses the run
-   (exit 4), names the dump directory so it can be removed, writes nothing —
+   (exit 4), names the dump directory so it can be removed, leaves the
+   repository byte-identical (the audit runs before the commit point) —
    and MARKS the dump: `refused.json` in the dump directory. A marked dump
    is never reused: the next run refuses it and names the directory to
    remove, so "just run it again" cannot walk past the refusal. (Sources
    arriving through the wholesale DD-table dump — DDDDLSRC and friends carry
    every object's rows, like DD02L — are metadata, not evidence of
    over-delivery; the object audit covers their objects.)
-   `<out>/.gitignore` carries `.osd-hana/` from the first moment — the raw
-   dump never belongs in the repository.
+   The raw dump never belongs in the repository: the work area ignores
+   itself, and a writing run makes sure `<out>/.gitignore` names
+   `.osd-hana/` (see the commit point in 2).
    Restartable: an existing dump whose aggregate manifest echoes the same
    request selection (canonically compared; the derived names may drift with
    the listing) and finished without errors is reused; anything else is
@@ -224,8 +243,9 @@ clone, diff and deploy:
    APPEARED since the dump is reported (they are skipped as not-in-dump);
    an object that LEFT the scope makes the reused dump fail the audit
    (refused, marked, directory named) — the dump then holds code that is no
-   longer yours to keep, and re-dumping is the honest restart. `src/` and
-   `.abapgit.xml` are refreshed — see the marker rule in 4.
+   longer yours to keep, and re-dumping is the honest restart. The refusal
+   leaves the previous repository byte-identical; only the re-dump's
+   conversion replaces `src/` and `.abapgit.xml` — see the marker rule in 4.
 4. **Convert** — the dump becomes the repository: folder logic PREFIX when
    the package names allow it (one hierarchy, every child
    `<parent>_<suffix>`), otherwise FULL — and under FULL every package's
