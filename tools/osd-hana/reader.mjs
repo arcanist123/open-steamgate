@@ -623,15 +623,41 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
     }
 
     // From here on any failure drops the user again, by the administrator
-    // connection.
+    // connection. Every statement is named in the failure message (critic
+    // S-2): which login failed at which statement, and the database's code.
     try {
       // 2. ALTER USER ... DISABLE PASSWORD LIFETIME (administrator login)
-      await adminClient.exec(plan[1].real);
+      try {
+        await adminClient.exec(plan[1].real);
+      } catch (error) {
+        await refused({label: "administrator", user: adminLogin.user, item: plan[1], error});
+      }
 
       // 3. GRANT CATALOG READ TO <reader> (administrator login; only with
-      // it can the reader's dump see database procedures / AMDP)
+      // it can the reader's dump see database procedures / AMDP). A 258 here
+      // has its own ways-on (critic S-2): leave the grant out, or use an
+      // administrator login that may grant CATALOG READ.
       if (catalogRead) {
-        await adminClient.exec(plan[2].real);
+        try {
+          await adminClient.exec(plan[2].real);
+        } catch (error) {
+          if (errorCode(error) === 258) {
+            const cleanup = await dropAgain();
+            const note = cleanup.dropped
+              ? `  The reader ${readerName} was dropped again by the administrator connection; nothing was left behind.`
+              : cleanup.absent
+                ? `  The reader ${readerName} is absent (HANA said 332 -- the drop found nothing to remove).`
+                : `  ${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
+            throw new ReaderError(`osd hana: the administrator login ${adminLogin.user} failed at: ${plan[2].sql}\n` +
+              `  the database said: ${redact(sqlErrorText(error))}\n` +
+              `  This login holds USER ADMIN but may not GRANT CATALOG READ (HANA error 258, insufficient privilege) --\n` +
+              `  granting it needs CATALOG READ itself, with grant option. Two ways on:\n` +
+              `  1. re-run with --no-catalog-read: the reader is created without the grant, but then the database\n` +
+              `     procedures (AMDP) cannot be extracted -- the dump reports them as an error;\n` +
+              `  2. use an administrator login that may grant CATALOG READ.\n${note}`);
+          }
+          await refused({label: "administrator", user: adminLogin.user, item: plan[2], error});
+        }
       }
 
       // 4. GRANT SELECT ON SCHEMA "<schema>" TO <reader> -- the SCHEMA OWNER

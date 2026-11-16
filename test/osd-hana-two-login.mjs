@@ -202,8 +202,57 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
         expect(error.message).to.include("421");
         expect(error.message).to.include("dropped again");
         expect(error.message).to.include(ADMIN); // which login
+        expect(error.message).to.include("ALTER USER"); // WHICH statement (critic S-2)
         expect(error.message).to.not.include(OWNER_PW);
         expect(error.message).to.not.include(ADMIN_PW);
+      });
+    expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`)).to.equal(true);
+  });
+
+  it("GRANT CATALOG READ refused with 258: the message names the login and the statement and gives this grant its own ways-on (--no-catalog-read, or a login that may grant it); the reader is dropped (critic S-2 / probe P2; mutation: the catch-all buries the statement -> red)", async function () {
+    const {log, factory} = fakeClientFactory([
+      {match: /GRANT CATALOG READ/, error: 258, message: "insufficient privilege"},
+      ...SUCCESS_RULES.filter((r) => !/GRANT CATALOG READ/.test(r.match.source)),
+    ]);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    await createReader({
+      connection, schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      role: "admin", secondLogin: {user: OWNER, password: OWNER_PW},
+      store: secretStore, clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include(`administrator login ${USER} failed at`);
+        expect(error.message).to.include(`GRANT CATALOG READ TO ${DEFAULT_READER_NAME}`);
+        expect(error.message).to.include("258");
+        // this refusal's own ways-on
+        expect(error.message).to.include("--no-catalog-read");
+        expect(error.message).to.include("dropped again");
+      });
+    expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`)).to.equal(true);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME)), "no secret for a dropped reader").to.equal(undefined);
+  });
+
+  it("GRANT CATALOG READ refused with another error (331): the message still names the login and the statement, and the reader is dropped (critic S-2; mutation: the catch-all buries the statement -> red)", async function () {
+    const {log, factory} = fakeClientFactory([
+      {match: /GRANT CATALOG READ/, error: 331, message: "grant not possible here"},
+      ...SUCCESS_RULES.filter((r) => !/GRANT CATALOG READ/.test(r.match.source)),
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      role: "both",
+      store: h.store(), clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include(`administrator login ${USER} failed at`);
+        expect(error.message).to.include(`GRANT CATALOG READ TO ${DEFAULT_READER_NAME}`);
+        expect(error.message).to.include("331");
+        expect(error.message).to.include("dropped again");
       });
     expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`)).to.equal(true);
   });
