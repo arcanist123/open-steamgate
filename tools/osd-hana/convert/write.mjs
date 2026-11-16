@@ -121,8 +121,14 @@ export function planObjectFiles(o, ctx) {
     for (const r of ctx.fmsOfGroup.get(o.name) ?? []) {
       const inc = key(r.INCLUDE);
       const fm = key(r.FUNCNAME);
-      if (fm !== "" && inc !== "" && !o.parts.has(inc)) {
-        parts.push({part: `function ${fm}`, disposition: "not written", reason: `include ${inc} has no source in the dump`});
+      // TFDIR.INCLUDE carries the bare suffix ("01"); the include's PROGRAM
+      // is the U-include the function library generates (LZOSG_X4U01) -- the
+      // same name fmByInclude is keyed by. Measured on the real bed: the
+      // number alone is never a parts key, and comparing against it mourned
+      // every function whose include the dump DID carry.
+      const incProgram = `${includePrefix(o.name)}U${inc}`;
+      if (fm !== "" && inc !== "" && !o.parts.has(incProgram)) {
+        parts.push({part: `function ${fm}`, disposition: "not written", reason: `include ${incProgram} has no source in the dump`});
       }
     }
     if (files.length === 0) return {skip: "nothing could be written for this function group", parts};

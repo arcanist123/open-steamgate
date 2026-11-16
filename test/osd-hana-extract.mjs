@@ -490,7 +490,13 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     const part = fugr.parts.find((p) => /Z_OSD_X4_FM2/.test(p.part));
     expect(part, "a part line names the lost function").to.exist;
     expect(part.disposition).to.equal("not written");
-    expect(part.reason).to.match(/include 02/);
+    expect(part.reason).to.match(/include LZOSG_X4U02/);
+    // TFDIR.INCLUDE carries the bare number ("01"); the include's PROGRAM is
+    // LZOSG_X4U01 and IS in the dump -- the present function must not be
+    // mourned too (measured on the real bed: both groups lost nothing, the
+    // pre-fix check said "include 01 has no source" for a dumped include)
+    expect(fugr.parts.find((p) => p.part === "function Z_OSD_X4_FM"),
+      "the function whose include IS dumped gets no false 'not written' line").to.equal(undefined);
     expect(readOut(out, "src/osd_x/zosg_x4.fugr.xml")).to.not.match(/Z_OSD_X4_FM2/);
     expect(rep.errors).to.deep.equal([]);
   });
