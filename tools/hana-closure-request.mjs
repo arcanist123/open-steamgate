@@ -2,6 +2,8 @@
 // request file the dumper's reader reads. Carved out of tools/hana-closure.mjs
 // (milestone 3, the search helps): the loop module was at its size ceiling,
 // and the request is the part with its own contract.
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
 
 // the ten TADIR kinds, in the order the request file lists them: VIEW since
 // milestone 3 -- a search help's selection method can be a view (a help
@@ -89,4 +91,51 @@ export function requestFor({iteration, generation, fresh, asked, gaps, deferred,
     result.excluded = list;
   }
   return result;
+}
+
+/** the dump's answer to the request (moved out of tools/hana-closure.mjs,
+ *  milestone 4: the loop module was at its size ceiling): what the dump's
+ *  own manifest says the dictionary answered, read on every continuation.
+ *  Every name in closure.missing (the requested names the dictionary does
+ *  not have) joins state.missing with the kind it is missing under; a name
+ *  a later round reports resolved leaves it. The answer is PER KIND -- a
+ *  kind-less name is asked under TABL, DTEL and TTYP, and a name that
+ *  resolved under one of them is one the dictionary HAS: `missing` under
+ *  the other two is not "does not exist". The resolved names accumulate per
+ *  kind in state.resolved (round 7: the per-name DDIC fill and the
+ *  iteration line read them across all dumps). The kinds the dumper's
+ *  closure does not follow (`closure.unhandled`) make a gap with the reason
+ *  unless a kind's missing already said does-not-exist or a round resolved
+ *  it. A dump without a manifest answers nothing. Mutates state. */
+export function readDumpAnswer(state, dump) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(join(dump, "manifest.json"), "utf8"));
+  } catch {
+    return;
+  }
+  const resolved = new Set();
+  state.resolved ??= {};
+  for (const [kind, list] of Object.entries(manifest.closure?.resolved ?? {})) {
+    state.resolved[kind] = [...new Set([...(state.resolved[kind] ?? []),
+      ...list.map((n) => String(n).trim().toUpperCase())])];
+    for (const name of state.resolved[kind]) resolved.add(name);
+  }
+  for (const name of resolved) delete state.missing[name];
+  for (const [kind, list] of Object.entries(manifest.closure?.missing ?? {})) {
+    for (const name of list) {
+      const upper = String(name).trim().toUpperCase();
+      if (state.asked[upper] !== undefined && resolved.has(upper) === false) {
+        state.missing[upper] = {kind, iteration: state.asked[upper].iteration};
+      }
+    }
+  }
+  for (const [kind, list] of Object.entries(manifest.closure?.unhandled ?? {})) {
+    for (const name of list) {
+      const upper = String(name).trim().toUpperCase();
+      if (state.asked[upper] !== undefined && resolved.has(upper) === false && state.missing[upper] === undefined) {
+        state.missing[upper] = {kind, iteration: state.asked[upper].iteration, reason: "unhandled by the dumper's closure"};
+      }
+    }
+  }
 }

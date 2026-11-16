@@ -68,6 +68,11 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
     DATA mv_source_entity_type TYPE string.
     DATA ms_navigation    TYPE ty_navigation.
     DATA mv_select        TYPE string.
+* the $skiptoken of the URL, as written (get_skiptoken, milestone 4). The
+* dispatcher fills $select, search and the source type already; this one
+* it does not fill yet (one line in build_context, named in the PR that
+* brought the getter), so a provider reads '' as on a request without one
+    DATA mv_skiptoken     TYPE string.
     DATA mv_aggregate     TYPE abap_bool.
 * R8: the Fiori Elements V4 draft list filter (IsActiveEntity eq false or
 * SiblingEntity/IsActiveEntity eq null): each instance once, its draft when
@@ -123,6 +128,11 @@ CLASS zcl_stg_request_context DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_literal) TYPE string.
   PRIVATE SECTION.
+* $select in ABAP field names plus the set's keys; empty for none or *
+    METHODS selected_fields
+      RETURNING
+        VALUE(rt_fields) TYPE /iwbep/t_mgw_tech_field_names.
+
     METHODS tech_navigation_path
       RETURNING
         VALUE(rt_path) TYPE /iwbep/t_mgw_tech_navi.
@@ -640,6 +650,81 @@ CLASS zcl_stg_request_context IMPLEMENTATION.
       ls_row-multiplicity       = ls_step-multiplicity.
       APPEND ls_row TO rt_path.
       lv_source = ls_step-target_type.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_source_entity_type_name.
+* milestone 4, the members a second generated service calls: the source
+* entity type of a navigation ('' for a direct read: the dispatcher fills
+* it on a navigation only, as the source set), the search option, the
+* skip token, and the selected fields in ABAP names with the keys added
+    rv_source_entity_type = mv_source_entity_type.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_search_string.
+    rv_search_string = mv_search_string.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_skiptoken.
+    rv_skiptoken = mv_skiptoken.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_select_with_mandtry_fields.
+    rt_selected_fields = selected_fields( ).
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entity~get_source_entity_type_name.
+    rv_source_entity_type = mv_source_entity_type.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entity~get_select_with_mandtry_fields.
+    rt_selected_fields = selected_fields( ).
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entity_u~get_entity_type_name.
+    rv_entity_type = mv_entity_type.
+  ENDMETHOD.
+
+  METHOD selected_fields.
+* What a provider is allowed to leave out: the properties the URL's $select
+* names, in ABAP field names (a provider compares them with its own
+* constants of ABAP names), with the key fields added -- a provider must
+* always read those. No $select, or one that selects everything (*), is an
+* empty list: everything is selected. A name of no property of the set (a
+* navigation property, a path below an expansion) adds nothing. A disabled
+* property is no property of the set (the model info leaves it out), so it
+* never appears here; the dispatcher refuses a $select naming it (400).
+    DATA lt_names    TYPE string_table.
+    DATA lv_name     TYPE string.
+    DATA ls_property TYPE zcl_stg_model_info=>ty_property.
+    DATA lv_field    TYPE /iwbep/mgw_tech_name.
+
+    IF mv_select IS INITIAL.
+      RETURN.
+    ENDIF.
+    SPLIT mv_select AT ',' INTO TABLE lt_names.
+    LOOP AT lt_names INTO lv_name.
+      lv_name = condense( lv_name ).
+      IF lv_name = '*'.
+        CLEAR rt_fields.
+        RETURN.
+      ENDIF.
+      READ TABLE ms_set-properties INTO ls_property WITH KEY name = lv_name.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      lv_field = ls_property-fieldname.
+      READ TABLE rt_fields WITH KEY table_line = lv_field TRANSPORTING NO FIELDS.
+      IF sy-subrc <> 0.
+        APPEND lv_field TO rt_fields.
+      ENDIF.
+    ENDLOOP.
+    LOOP AT ms_set-properties INTO ls_property WHERE is_key = abap_true.
+      lv_field = ls_property-fieldname.
+      READ TABLE rt_fields WITH KEY table_line = lv_field TRANSPORTING NO FIELDS.
+      IF sy-subrc <> 0.
+        APPEND lv_field TO rt_fields.
+      ENDIF.
     ENDLOOP.
   ENDMETHOD.
 

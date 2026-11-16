@@ -40,6 +40,8 @@ import * as abaplint from "@abaplint/core";
 import {classifyFindings, nameFromAbapFile} from "./hana-closure-exclude.mjs";
 import {requestKindOf, stripFriends, cutSignatureParams} from "./hana-closure-graph.mjs";
 import {recordStub} from "./hana-closure-report.mjs";
+import {objectNameInFinding} from "./hana-closure-framework.mjs";
+import {moduleStubReason} from "./hana-closure-fm.mjs";
 
 // the island class and interface files a stub pass may rewrite or exclude:
 // gen/hana-src/**/*.clas.abap, the locals includes beside them, and the
@@ -588,9 +590,23 @@ function serviceGuard(root) {
     if (/(?:_DPC|_MPC)_EXT$/.test(upper) === true) names.add(upper.replace(/_EXT$/, ""));
   };
   let registered = false;
+  const services = [];
   try {
     const facts = JSON.parse(readFileSync(join(root, "gen", "hana-segw", "from-dump.json"), "utf8"));
-    for (const entry of facts.services ?? []) {
+    // milestone 4: a seed-selected registration (tools/hana-closure-seed.mjs)
+    // guards the seed's services whose classes have not arrived yet too --
+    // service -> classes come from the registration rows, so a hand-written
+    // DPC (no _DPC suffix) is protected the same way
+    const rows = [...(facts.services ?? []), ...(facts.selection === "seed" ? facts.skipped ?? [] : [])];
+    // the service -> classes mapping of the guard (milestone 4): what the
+    // summary carries as seed_services and the widened guard reads
+    for (const entry of rows) {
+      if (entry.dpc !== undefined) {
+        services.push({service: entry.service, version: entry.version, dpc: entry.dpc, ...(entry.mpc !== undefined ? {mpc: entry.mpc} : {}),
+          registered: (facts.services ?? []).includes(entry)});
+      }
+    }
+    for (const entry of rows) {
       add(entry.dpc);
       add(entry.mpc);
       registered = true;
@@ -629,15 +645,15 @@ function serviceGuard(root) {
     }
   };
   walk(join(root, "gen", "hana-src"));
-  return {names, named, registered};
+  return {names, named, registered, services};
 }
 
 /** the seed classes the run summary checks (H5x-4 B1): `all` the guard's
  *  set, `named` those a registration or an island file named -- the ones
  *  that must be island objects. */
 export function seedClasses(root) {
-  const {names, named} = serviceGuard(root);
-  return {all: names, named};
+  const {names, named, services} = serviceGuard(root);
+  return {all: names, named, services};
 }
 
 /** the framework-gaps.json list from the loop's accumulation map: one entry
@@ -669,10 +685,12 @@ export function frameworkGapList(gapFindings, isSeed = undefined) {
 // EXCLUSION decision reads a stricter one -- and since H5x-2 it is the
 // graph's gate (tools/hana-closure-graph.mjs graphDecide's pendingOf), the
 // loop hands it in.
-function pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects}) {
+// A name in a framework namespace (milestone 4) is never pending: the
+// libraries are its only source, the dumper is never asked.
+function pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects, frameworkOf = () => false}) {
   return asked(name) === false && presentFile(name, kind) === false &&
     missingOf(name) === false && refusedOf(name) === false &&
-    excludedObjects.has(name) === false;
+    excludedObjects.has(name) === false && frameworkOf(name) === false;
 }
 
 // the quoted member token of a nameless finding, where the shape has one --
@@ -696,7 +714,8 @@ const memberOf = (message) => {
  *  is what no stub reaches -- the signature-line findings included, the
  *  decision's material beside the structural definition references. Pure. */
 export function planStubPass({source, findings, basename, refs = [], missingOf = () => false, asked = () => false,
-  refusedOf = () => false, islandFiles = new Set(), excludedObjects = new Set(), deferDdic = false, goneOf = () => false}) {
+  refusedOf = () => false, islandFiles = new Set(), excludedObjects = new Set(), deferDdic = false, goneOf = () => false,
+  frameworkOf = () => false}) {
   // FRIENDS first: the cut stays inside the CLASS DEFINITION line, so the
   // findings' rows survive it (a friend that is gone costs a clause, not
   // the class)
@@ -720,7 +739,7 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   const paths = constructorPaths(work, basename);
   const onConstructorPath = (block) => paths.reach.get(block.className)?.has(block.method) === true;
   const presentFile = (name, kind) => objectFilePresent(name, kind, islandFiles) === true;
-  const pending = (name, kind) => pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects});
+  const pending = (name, kind) => pendingOf(name, kind, {asked, missingOf, refusedOf, presentFile, excludedObjects, frameworkOf});
   const present = (name, kind) => presentFile(name, kind) === true && excludedObjects.has(name) === false;
   const findingOf = (refs2, fallbackFinding) => {
     const withFinding = refs2.find((r) => r.finding !== undefined);
@@ -774,13 +793,44 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   const deferred = [];
   const eager = [];
   const nameless = [];
+  // the framework names the stubbed methods name (milestone 4): the
+  // caller records them as framework gaps with these uses
+  const framework = [];
   let dropped = 0;
   for (const block of blocks) {
     if (sigMethods.has(block.method) === true) continue;
-    const inside = findings.filter((f) => f.line > block.headerEnd.row && f.line < block.endStart.row);
-    if (inside.length === 0) continue;
+    const within = findings.filter((f) => f.line > block.headerEnd.row && f.line < block.endStart.row);
+    if (within.length === 0) continue;
+    // a call to a function module nobody provides (tools/hana-closure-fm.mjs,
+    // milestone 4) is a finding of the walk, not of the transpiler: alone, it
+    // stubs the method with the module in the raise text; beside other
+    // findings, those decide and the cut takes the call with the body
+    const inside = within.filter((f) => f.fm === undefined);
+    if (inside.length === 0) {
+      const names = within.map((f) => f.fm);
+      stubs.push({...block, missing: [], missingKinds: [], finding: within[0].raw, reason: moduleStubReason(names)});
+      continue;
+    }
     const methodRefs = refs.filter((r) => r.level === "method" && r.method === block.method);
     const {missing, missingKinds} = blockNames(methodRefs, inside);
+    // the nameless wordings that name an object (`Class or type "X" not
+    // found`, `Could not resolve top X`): the object is a name like any
+    // other (milestone 4) -- asked, or a framework gap in a framework
+    // namespace -- never a nameless framework gap
+    const objectNamed = new Set();
+    for (const f of inside) {
+      if (refMatched(methodRefs, f) === true) continue;
+      const named = objectNameInFinding(f.message);
+      if (named === undefined) continue;
+      objectNamed.add(f);
+      if (missing.includes(named.name) === false) {
+        missing.push(named.name);
+        missingKinds.push({...named, finding: f.raw, message: f.message});
+      }
+    }
+    for (const nk of missingKinds) {
+      if (frameworkOf(nk.name) === true) framework.push({name: nk.name, kind: nk.kind, line: inside[0].line, method: block.method});
+    }
     const stub = {...block, missing, missingKinds, finding: inside[0].raw, reason: stubReasonText(inside[0])};
     const byName = new Map(missingKinds.map((n) => [n.name, n]));
     const forName = (nk) => ({
@@ -791,7 +841,7 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
     const fallbackNames = classifyFindings(inside.filter((f) => refMatched(methodRefs, f) === false)).names;
     const collectNameless = () => {
       for (const f of inside) {
-        if (refMatched(methodRefs, f) === true || fallbackNames.some((n) => n.finding === f.raw) === true) continue;
+        if (refMatched(methodRefs, f) === true || fallbackNames.some((n) => n.finding === f.raw) === true || objectNamed.has(f) === true) continue;
         // a parse the build cannot structure is not a member the
         // framework lacks: it is stubbed, never a framework gap
         if (f.structure === true) continue;
@@ -799,8 +849,6 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
         nameless.push({finding: f.message, ...(member !== undefined ? {member} : {}), line: f.line, method: stub.method});
       }
     };
-    const code = missingKinds.filter((nk) => isCodeKind(nk.kind) === true);
-    const ddic = missingKinds.filter((nk) => isCodeKind(nk.kind) === false);
     if (onConstructorPath(block) === true && missingKinds.some((nk) => pending(nk.name, nk.kind) === true)) {
       // on a class constructor's path every pending name is asked now, code
       // kinds included, and the body stays one more round: the dumper may
@@ -821,22 +869,22 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
       }
       continue;
     }
-    if (code.length > 0) {
-      // a code-kind name remains: the method is stubbed, the code names
-      // stay deferred (lazy, grows on the miss), and its DDIC names are
-      // asked from the dumper in this iteration -- eager, not deferred
-      stubs.push(stub);
-      for (const nk of code) {
-        if (present(nk.name, nk.kind) === false) deferred.push(forName(nk));
+    if (missingKinds.some((nk) => pending(nk.name, nk.kind) === true)) {
+      // a name this iteration's request can still bring -- a dictionary
+      // name, and since milestone 4 a class or interface simply absent from
+      // the island and never asked: it is ASKED now (eager), and the body
+      // stays one more round. The method is stubbed only once the dumper
+      // answered missing, or the answer still fails. (Round 3 kept code
+      // names lazy -- `deferred`, never asked -- and a helper class named
+      // only by a static call in a constructor, which the structural pass
+      // does not carry, was stubbed and never asked.)
+      // the dictionary names rejoin the classification with their finding
+      // (the body stays, so does the finding); the code names are eager --
+      // a static call's text the classifier does read, an object-naming
+      // wording it does not
+      for (const nk of missingKinds) {
+        if (isCodeKind(nk.kind) === true && pending(nk.name, nk.kind) === true) eager.push(forName(nk));
       }
-      for (const nk of ddic) {
-        if (pending(nk.name, nk.kind) === true) eager.push(forName(nk));
-      }
-      continue;
-    }
-    if (ddic.some((nk) => pending(nk.name, nk.kind) === true)) {
-      // a dictionary name this iteration's request can still bring: the
-      // body stays one more round, the finding rejoins the classification
       dropped += 1;
       continue;
     }
@@ -886,7 +934,7 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   return {source: outSource, stubs: [...stubs, ...sigStubs], unmatched: findings.filter((f) =>
     blocks.some((b) => f.line > b.headerEnd.row && f.line < b.endStart.row) === false),
   eager: [...eager, ...sigEager], deferred: [...deferred, ...sigDeferred], nameless,
-  friendsStripped: friends.stripped};
+  friendsStripped: friends.stripped, framework};
 }
 
 // the parameter names a signature cut removes: the reference's `var` (the

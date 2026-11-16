@@ -99,6 +99,40 @@ ABAP Unit sessions started by the extension; it does not change Watch expression
 syntax or provide a browser debugger. Custom child properties are for inspection;
 edit ABAP values in source rather than using Set Value on the projected children.
 
+## Rescue your ABAP code from a HANA database
+
+**OSD: Extract my code from HANA** (desktop only) copies your own ABAP code out
+of a HANA database whose ABAP server is gone or about to expire, into an
+abapGit-layout folder you can clone, diff and deploy. It reads only; it never
+writes to the database.
+
+1. **Connection.** Enter the host, port, tenant database (optional) and user,
+   or pick a remembered connection. The password is asked in a password box
+   and used for this run only. You can remember the connection in your
+   settings (`osd.hanaExtract.connections`); a password is never stored
+   there.
+2. **Check.** The database is checked first and the verdict is shown in plain
+   words: reachable, ABAP schema found, release and size, what kind of login
+   this is. If your login can write, you are told why extraction is still
+   safe, and you can create a dedicated read-only user first. That shows the
+   exact SQL (grouped by the login that runs each statement) and sends
+   nothing unless you choose **Yes**; if a second login is needed, you are
+   asked for it. The new user's generated password is kept in VS Code's
+   secret storage, and later runs can log on as that user.
+3. **Plan.** The objects in scope are listed by type and, for local
+   objects, by author, with their size. You can narrow to one author or leave
+   local packages out.
+4. **Extract.** Choose an empty folder and confirm "Extract N objects (S MB)
+   into ...?". Progress can be cancelled; cancelling stops the reader. The
+   report (`extract-report.md`) opens when it finishes. If not everything
+   could be written, you get a warning with the report's first sentence and
+   the report lists every object.
+
+The reader (`osd-hana-dump`) is bundled per platform. Without one, the command
+explains how to point `OSD_HANA_DUMP` at the pinned binary. Before you publish
+an extracted folder, delete `extract-report.json`, `extract-report.md` and
+`.osd-hana/`: they contain local paths and the raw dump.
+
 ## Current limits
 
 - Portable AMDP support is limited. HANA-specific SQLScript needs HANA, and some methods are not portable to SQLite.

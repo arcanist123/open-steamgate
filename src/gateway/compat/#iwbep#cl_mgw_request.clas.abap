@@ -136,4 +136,33 @@ CLASS /iwbep/cl_mgw_request IMPLEMENTATION.
     RETURN.
   ENDMETHOD.
 
+  METHOD /iwbep/if_mgw_req_entity~get_source_entity_type_name.
+* milestone 4: the facets' new getters, empty here like every other one
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entity~get_select_with_mandtry_fields.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_source_entity_type_name.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_search_string.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_skiptoken.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_select_with_mandtry_fields.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entity_u~get_entity_type_name.
+    RETURN.
+  ENDMETHOD.
+
 ENDCLASS.

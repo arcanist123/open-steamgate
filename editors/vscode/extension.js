@@ -2762,6 +2762,7 @@ function desktopOutputs(context) {
 function activate(context) {
   const [output, classrunOutput, systemOutput] = desktopOutputs(context);
   require("./abapgit-zip-command.js").registerAbapgitZipCommand(vscode, context, output, osdHomeOf, isOpenSteamgatePath);
+  require("./hana-extract-command.js").registerHanaExtractCommand(vscode, context, output, () => [activeController?.launcher?.osdHome, osdHomeOf(), (() => { try { const seed = bundledSeedDir(context); return seed && bundledHomeDir(context, seed); } catch { return undefined; } })()]);
   // The cleanup is synchronous and precedes this window's own launcher.
   // A live lock from another window protects its home.
   try {

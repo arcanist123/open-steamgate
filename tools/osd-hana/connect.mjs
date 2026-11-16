@@ -21,8 +21,10 @@ export class UsageError extends Error {}
 /** `--double-dash` flags only: a bare `-host` is a usage error here, so a
  *  typo cannot silently become a positional word. Returns {flags, rest} where
  *  flags maps the long name to the last value given; boolean flags map to
- *  `true`; repeated value flags keep the last one. */
-export function parseFlags(argv, {valueFlags, booleanFlags}) {
+ *  `true`; repeated value flags keep the last one -- unless the name is listed
+ *  in `repeatable`, in which case the values collect in an array (W3's
+ *  extract: --package, --name). */
+export function parseFlags(argv, {valueFlags, booleanFlags, repeatable = []}) {
   const flags = {};
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
@@ -52,7 +54,8 @@ export function parseFlags(argv, {valueFlags, booleanFlags}) {
     } else {
       throw new UsageError(`osd hana: unknown or misshaped flag --${key}`);
     }
-    flags[key] = value;
+    if (repeatable.includes(key)) (flags[key] ??= []).push(value);
+    else flags[key] = value;
   }
   return {flags, rest};
 }

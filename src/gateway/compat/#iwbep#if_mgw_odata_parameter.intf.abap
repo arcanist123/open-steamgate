@@ -2,6 +2,7 @@ INTERFACE /iwbep/if_mgw_odata_parameter PUBLIC.
 
   INTERFACES /iwbep/if_mgw_odata_property.
   ALIASES set_label_from_text_element FOR /iwbep/if_mgw_odata_property~set_label_from_text_element.
+  ALIASES set_disabled FOR /iwbep/if_mgw_odata_property~set_disabled.
 
   ALIASES set_type_edm_string FOR /iwbep/if_mgw_odata_property~set_type_edm_string.
   ALIASES set_type_edm_int32 FOR /iwbep/if_mgw_odata_property~set_type_edm_int32.

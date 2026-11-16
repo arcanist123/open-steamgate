@@ -43,6 +43,7 @@ import {basename, join} from "node:path";
 import {scriptCommandIn, toolCommandIn} from "./osd-host.mjs";
 import {parseFindings} from "./hana-closure.mjs";
 import {islandTestCode} from "./hana-src-gen.mjs";
+import {assertNoDeliveredSplice} from "./hana-closure-intake.mjs";
 
 const TOOLS = fileURLToPath(new URL(".", import.meta.url));
 
@@ -213,6 +214,10 @@ export function buildVerdict(status, output) {
  *  toolCommandIn like every tool of this tree. Returns the verdict (with
  *  the finding count for the report line); throws through buildVerdict. */
 export function buildCheck({root, env, say}) {
+  // milestone 4: a delivered layer with a kernel splice never reaches the
+  // transpiler -- the merge refuses such an object; an island an older merge
+  // left on disk fails closed here
+  assertNoDeliveredSplice(root);
   const [command, ...argv] = toolCommandIn(env, join(TOOLS, "osd-build.mjs"), []);
   say("build: osd-build.mjs (the fixed point's positive control)");
   const child = spawnSync(command, argv, {cwd: root, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024});
@@ -301,12 +306,15 @@ function filteredDump(root, dump, without) {
  *  own "unknown option", and the message says what it needs. fill (round 7)
  *  carries the resolved DDIC names and the dumps newest-first for the
  *  per-name fill that runs after the steps. */
-export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined) {
+export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined, refuseNamespaces = []) {
   const layersDdic = layersDdicCount(layersDirs);
   const steps = [
     ...(layersDdic > 0 ? [] : [["hana-ddic-gen.mjs", ["--from-dump", dump, "--out", join(root, "gen", "hana-ddic")]]]),
     // the union of every dump so far: ALL the layers dirs, later wins per object
-    ["hana-src-gen.mjs", [...layersDirs.flatMap((d) => ["--layers", d]), "--out", join(root, "gen", "hana-src")]],
+    // milestone 4: a framework namespace is refused from every dump (the
+    // object is never merged), as is any object with a kernel splice
+    ["hana-src-gen.mjs", [...layersDirs.flatMap((d) => ["--layers", d]), ...refuseNamespaces.flatMap((n) => ["--refuse-namespace", n]),
+      "--out", join(root, "gen", "hana-src")]],
   ];
   if (layersDdic > 0) {
     say(`merge: the layers carry the DDIC XML (${layersDdic} file(s)) -- hana-ddic-gen --from-dump is skipped, the converter is the writer of record`);
@@ -345,7 +353,14 @@ export function mergeInputs(root, dump, layersDirs, env, say, fill = undefined) 
   // the per-name fill (round 7): after the steps, so a step the layers let
   // run has written what it has and the fill writes only the rest
   const fillRefused = fill === undefined ? [] : ddicFill({root, env, say, resolved: fill.resolved, dumps: fill.dumps});
-  return {refused: [...refused.values(), ...fillRefused]};
+  // what hana-src-gen refused to deliver, from its manifest (milestone 4)
+  let intake = [];
+  try {
+    intake = JSON.parse(readFileSync(join(root, "gen", "hana-src", "manifest.json"), "utf8")).refused ?? [];
+  } catch {
+    intake = [];
+  }
+  return {refused: [...refused.values(), ...fillRefused], intake};
 }
 
 // the per-name fill (H5c round 7): the dumps RESOLVED a DDIC name -- the

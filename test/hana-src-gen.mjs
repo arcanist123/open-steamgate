@@ -112,14 +112,16 @@ describe("hana-src-gen: the tenant's sources as input layers", () => {
       expect(await run(["--layers", f.root, "--out", out(f.root)])).to.equal(0);
       // one folder at the smallest member's order; no folder per member
       expect(readdirSync(out(f.root)).sort()).to.deep.equal([
-        "003-cycle-osd-tmp-zosd-h4-x+osd-tmp-zosd-h4-y", "manifest.json"]);
-      const merged = join(out(f.root), "003-cycle-osd-tmp-zosd-h4-x+osd-tmp-zosd-h4-y");
+        "003-cycle-osd-tmp-zosd-h4-x-2-c6943b5f78", "manifest.json"]);
+      // milestone 4: a bounded name (first member, count, hash), the members in members.json
+      const merged = join(out(f.root), "003-cycle-osd-tmp-zosd-h4-x-2-c6943b5f78");
+      expect(JSON.parse(readFileSync(join(merged, "members.json"), "utf8")).cycle).to.deep.equal(["osd-tmp-zosd-h4-x", "osd-tmp-zosd-h4-y"]);
       expect(readFileSync(join(merged, "src", "zosd_h4_x.prog.abap"), "utf8")).to.equal("REPORT zosd_h4_x.\n");
       expect(readFileSync(join(merged, "src", "zosd_h4_y.prog.abap"), "utf8")).to.equal("REPORT zosd_h4_y.\n");
       expect(readFileSync(join(merged, ".abapgit.xml"), "utf8")).to.equal(ABAPGIT_XML);
       const manifest = JSON.parse(readFileSync(join(out(f.root), "manifest.json"), "utf8"));
       expect(manifest.layers).to.deep.equal([{
-        name: "cycle-osd-tmp-zosd-h4-x+osd-tmp-zosd-h4-y", package: null, order: 3, objects: {PROG: 2},
+        name: "cycle-osd-tmp-zosd-h4-x-2-c6943b5f78", package: null, order: 3, objects: {PROG: 2},
         cycle: ["osd-tmp-zosd-h4-x", "osd-tmp-zosd-h4-y"],
       }]);
     } finally {

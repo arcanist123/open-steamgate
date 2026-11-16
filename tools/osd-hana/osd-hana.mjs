@@ -1,13 +1,15 @@
 // The `osd hana <verb>` entry (bin/osd.mjs dispatches "hana" here). The
-// product line's verbs: doctor (this module, tools/osd-hana/) and extract
-// (the next job -- refused here with a clear message, not silently).
+// product line's verbs: doctor and extract, both in tools/osd-hana/.
 //
 // Run from the CLI as `osd hana doctor ...`; this module is also imported
-// directly by test/osd-hana-doctor.mjs, which injects the io/seams.
+// directly by the tests (test/osd-hana-doctor.mjs, test/osd-hana-extract.mjs),
+// which inject the io/seams.
 import {doctorMain} from "./doctor.mjs";
+import {extractMain} from "./extract.mjs";
 
 const VERBS = {
   doctor: doctorMain,
+  extract: extractMain,
 };
 
 const HELP = `Usage: osd hana <verb> [flags]
@@ -15,7 +17,8 @@ const HELP = `Usage: osd hana <verb> [flags]
 Verbs:
   doctor    check a HANA database and say whether your ABAP code can be
             rescued out of it (osd hana doctor --help for the flags)
-  extract   not in this build yet -- it is the next job of the product line
+  extract   write your own code out of it into an abapGit-layout repository
+            (osd hana extract --help for the flags)
 `;
 
 export async function main(argv, deps = {}) {
@@ -24,13 +27,8 @@ export async function main(argv, deps = {}) {
     (deps.io?.out ?? ((line) => process.stdout.write(`${line}\n`)))(HELP);
     return 0;
   }
-  const verbMain = verb === "extract" ? undefined : VERBS[verb];
+  const verbMain = VERBS[verb];
   if (verbMain === undefined) {
-    if (verb === "extract") {
-      // named in the help, refused here: the next job of the product line
-      process.stderr.write("osd hana: extract is not in this build yet -- it is the next job of the product line.\n");
-      return 1;
-    }
     process.stderr.write(`osd hana: unknown verb "${verb}" -- one of doctor, extract\n${HELP}`);
     return 1;
   }
@@ -43,3 +41,4 @@ export async function main(argv, deps = {}) {
 if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   process.exitCode = await main(process.argv.slice(2));
 }
+

@@ -10,6 +10,8 @@
     "test/vscode-abapgit-zip.mjs",
     "test/vscode-debug.mjs",
     "test/vscode-extension.mjs",
+    "test/vscode-hana-extract.mjs",
+    "test/vscode-hana-sidecar.mjs",
     "test/vscode-kernel-diagnostics.mjs",
     "test/vscode-launcher.mjs",
     "test/vscode-serving-front.mjs",
@@ -18,7 +20,8 @@
     "test/vscode-warm.mjs",
     "test/vscode-warm-ready.mjs",
     "test/vscode-process-tree.mjs",
-    "test/vsix-content-types.mjs"
+    "test/vsix-content-types.mjs",
+    "test/vsix-platforms.mjs"
   ],
   "groups": {
     "packaging": [

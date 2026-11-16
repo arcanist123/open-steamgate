@@ -18,6 +18,7 @@
     "vsix:marketplace": "OSD_VSIX_PROFILE=marketplace OSD_VSIX_PRERELEASE=1 node scripts/build-vsix.mjs",
     "prevsix": "node tools/osd-node-check.mjs",
     "vsix:install": "node scripts/install-vsix.mjs",
+    "vsix:platforms": "node scripts/package-vsix-platforms.mjs",
     "binary": "bun scripts/build-binary.mjs",
     "binary:sea": "bun scripts/build-sea.mjs sea",
     "binary:bundle": "bun scripts/build-sea.mjs bundle",

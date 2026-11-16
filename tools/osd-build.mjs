@@ -43,6 +43,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import {buildIdentity, assertToolchain, describeBuild} from "./osd-transpiler.mjs";
 import {describeDuplicates, excludePatterns, layers} from "./osd-inputs.mjs";
 import {excludedObjectFiles} from "./hana-closure-exclusions.mjs";
+import {assertNoDeliveredSplice} from "./hana-closure-intake.mjs";
 import {transpile, selectedModules, isBinaryFilename, listFiles} from "./osd-transpile.mjs";
 import {makeReadRecord, markIncomplete, readEntry, readGeneratorLog, READS, sha256, withSeedReads} from "./osd-read-record.mjs";
 import {inputFoldersOf, packReadsOf, packsOf, seedsBuilt, userFoldersOf, webappsOf} from "./osd-packs.mjs";
@@ -701,6 +702,7 @@ export function activeOverlay(overlay) {
 
 export async function build(options = {}) {
   const root = resolve(options.root ?? process.env.OSD_ROOT ?? process.cwd());
+  assertNoDeliveredSplice(root); // M4: a delivered layer (gen/hana-src) with a kernel splice is never transpiled
   options = {...options, overlay: await sourceBuildOverlay(root, options)};
   const log = options.log ?? (() => {});
   const paths = layout(root);

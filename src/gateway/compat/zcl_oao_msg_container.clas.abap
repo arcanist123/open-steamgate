@@ -3,6 +3,8 @@ CLASS zcl_oao_msg_container DEFINITION PUBLIC.
 * the DPC adds while processing, read by the error response.
 * Overlay (H5x-3) of the library's copy: the interface carries add_message,
 * the member the SEGW sample calls per message it forwards.
+* Milestone 4: reset, and add_message_from_exception (a page service hands
+* its exceptions to the container).
   PUBLIC SECTION.
     INTERFACES /iwbep/if_message_container.
 
@@ -64,6 +66,37 @@ CLASS zcl_oao_msg_container IMPLEMENTATION.
       CONDENSE ls_message-message.
     ENDIF.
     APPEND ls_message TO mt_messages.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_message_container~reset.
+    CLEAR mt_messages.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_message_container~add_message_from_exception.
+* one message per exception, the outer one first and then what it wraps
+* (unless iv_add_previous is off): an error, its text the exception's text,
+* its message class and number the exception's T100 key when it has one
+    DATA lx_current TYPE REF TO cx_root.
+    DATA lo_t100    TYPE REF TO if_t100_message.
+    DATA ls_message TYPE bapiret2.
+
+    lx_current = io_exception.
+    WHILE lx_current IS BOUND.
+      CLEAR ls_message.
+      ls_message-type    = 'E'.
+      ls_message-message = lx_current->get_text( ).
+      TRY.
+          lo_t100 ?= lx_current.
+          ls_message-id     = lo_t100->t100key-msgid.
+          ls_message-number = lo_t100->t100key-msgno.
+        CATCH cx_sy_move_cast_error ##NO_HANDLER.
+      ENDTRY.
+      APPEND ls_message TO mt_messages.
+      IF iv_add_previous = abap_false.
+        EXIT.
+      ENDIF.
+      lx_current = lx_current->previous.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD get_messages.

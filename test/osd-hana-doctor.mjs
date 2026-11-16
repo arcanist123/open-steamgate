@@ -14,7 +14,7 @@ import {doctorMain} from "../tools/osd-hana/doctor.mjs";
 import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, resetVerifiedSidecars, runSidecarRaw, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
-import {makeRedactor} from "../tools/osd-hana/redact.mjs";
+import {makeRedactor, redactValues} from "../tools/osd-hana/redact.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
 import {readerStoreKey} from "../tools/osd-hana/reader.mjs";
 import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
@@ -182,6 +182,19 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         });
     });
 
+    it("a non-JSON stdout line is quoted redacted FIRST, then truncated -- a password straddling character 200 leaves no prefix (critic; mutation: redact(line.slice(0, 200)) -> red)", async function () {
+      const password = "hunter2pw";
+      const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "non-json-leak"}});
+      await sidecar.run("probe").then(
+        () => expect.fail("a non-JSON line must be refused"),
+        (error) => {
+          expect(error).to.be.an.instanceof(SidecarRunError);
+          expect(error.message).to.include("no one-line JSON summary");
+          expect(error.message).to.include("x".repeat(195) + "***");
+          for (let n = 3; n <= password.length; n++) expect(error.message).to.not.include(password.slice(0, n));
+        });
+    });
+
     it("caps the child's accumulated output (8 MB) with a clear error (critic note; mutation: no cap -> red)", async function () {
       const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "chatty"}, timeoutMs: 15_000});
       await sidecar.run("probe").then(
@@ -242,7 +255,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const text = h.allText();
       expect(text).to.include("tenant database");
       expect(text).to.include("TESTSCHEMA");
-      expect(text).to.include("release 7.57");
+      expect(text).to.include("release 757/0000000001");
       expect(text).to.include("clients 100, 200");
       expect(text).to.include("1234 source rows");
       expect(text).to.include("2345 repository objects");
@@ -763,8 +776,9 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(redact(`{"user":"TESTLOGIN"}`)).to.equal(`{"user":"***"}`);
       expect(redact(`WHERE S = '${SCHEMA}'`)).to.not.include(SCHEMA);
       expect(redact("nothing secret here")).to.equal("nothing secret here");
-      expect(canWrite({non_select_on_schema: {kinds: ["USER ADMIN"]}})).to.equal(true);
-      expect(canWrite({non_select_on_schema: false})).to.equal(false);
+      // the real probe document says it PER SCHEMA (non_select_on_schema + non_select_kinds)
+      expect(canWrite({login_class: "other", abap_schemas: [{schema: SCHEMA, owned_by_login: false, non_select_on_schema: true, non_select_kinds: ["INSERT"]}]})).to.equal(true);
+      expect(canWrite({login_class: "other", abap_schemas: [{schema: SCHEMA, owned_by_login: false, non_select_on_schema: false}]})).to.equal(false);
     });
 
     it("NOTE: the courtesy check's source holds hex digests only -- no plaintext defaults anywhere in the file (mutation: keep the literals -> red)", async function () {
@@ -790,6 +804,88 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code).to.equal(2);
       expect(h.allText()).to.include("the database refused");
       expect(h.allText()).to.not.include(PASSWORD);
+    });
+  });
+
+  // ---------------------------- parse the sidecar's stdout, THEN redact
+  // The redactor protects what is PRINTED; the parser must see the raw
+  // document. A short or numeric password ("123") masked inside the raw JSON
+  // text turned the row count 1234 into ***4 and broke the document.
+  describe("the sidecar's answer is parsed raw and redacted only where printed", function () {
+    it("password 123 with reposrc_rows 1234 / tadir_rows 1123: the verdict shows the true numbers, exit 0 (mutation: redact stdout before parse -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "numeric-counts", env: {OSD_HANA_PASSWORD: "123"}});
+      expect(code).to.equal(0);
+      expect(h.allText()).to.include("1234 source rows");
+      expect(h.allText()).to.include("1123 repository objects");
+      expect(h.allText()).to.not.include("***");
+    });
+
+    it("--json keeps numbers as numbers and the true counts (mutation: redact the serialised JSON text -> red)", async function () {
+      const code = await h.runDoctor(["--json"], {scenario: "numeric-counts", env: {OSD_HANA_PASSWORD: "123"}});
+      expect(code).to.equal(0);
+      const doc = JSON.parse(h.out.join("\n"));
+      expect(doc.probe.abap_schemas[0].reposrc_rows).to.equal(1234);
+      expect(doc.probe.abap_schemas[0].tadir_rows).to.equal(1123);
+    });
+
+    it("a password that is a substring of the schema name: the parsed document keeps the true name, the printed one is masked (mutation: summary from redacted text -> red)", async function () {
+      const password = SCHEMA.slice(2, 7); // "STSCH"
+      const sidecar = new Sidecar(h.fakePath, {
+        credentials: {user: USER, password, host: HOST, schema: SCHEMA},
+        timeoutMs: 2000,
+        extraEnv: {FAKE_SIDECAR_PROBE: "numeric-counts"},
+      });
+      const run = await sidecar.run("probe", {args: ["--host", HOST]});
+      expect(run.summary.abap_schemas[0].schema).to.equal(SCHEMA);
+      expect(run.summary.abap_schemas[0].reposrc_rows).to.equal(1234);
+      expect(run.display.abap_schemas[0].schema).to.not.include(password);
+      expect(run.display.abap_schemas[0].reposrc_rows).to.equal(1234);
+      // and the doctor, end to end: exit 0, the probe's own copy of the name
+      // is masked in --json (the connection block repeats the caller's own
+      // --schema, which is input, not sidecar output), the counts are true
+      const code = await h.runDoctor(["--json"], {scenario: "numeric-counts", env: {OSD_HANA_PASSWORD: password}});
+      expect(code).to.equal(0);
+      const doc = JSON.parse(h.out.join("\n"));
+      expect(doc.probe.abap_schemas[0].schema).to.equal("TE***EMA");
+      expect(doc.verdict.abapSchemas).to.deep.equal(["TE***EMA"]);
+      expect(doc.probe.abap_schemas[0].tadir_rows).to.equal(1123);
+    });
+
+    it("a sidecar that echoes the password inside `error`: masked in the output, still the connection outcome (mutation: print summary.error raw -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "stdout-leak", env: {OSD_HANA_PASSWORD: "123"}});
+      expect(code).to.equal(2);
+      expect(h.allText()).to.include("logon failed for password ***");
+      expect(h.allText()).to.not.include("password 123");
+    });
+
+    it("a credential inside a string value of a done document is masked in the PLAIN verdict too (mutation: plain verdict from the raw document -> red)", async function () {
+      const code = await h.runDoctor([], {scenario: "stdout-leak-doc"});
+      expect(code).to.equal(0);
+      expect(h.out.join("\n")).to.include("SCHEMA_***");
+      expect(h.allText()).to.not.include(PASSWORD);
+    });
+
+    it("decisions read the RAW document: a password equal to a note token does not turn 'system privileges not readable' into 'not an administrator' (mutation: readProbe(probeRun.display) for the decisions -> red)", async function () {
+      // The masked copy reads "system *** not readable" -- a note the reader
+      // does not recognise -- so a doctor deciding off it would take the
+      // login as known-not-administrator ("neither") instead of asking.
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const {factory, log} = fakeClientFactory(SUCCESS_RULES);
+      const code = await h.runDoctor(["--create-reader", "--yes"], {
+        scenario: "system-privileges-unreadable",
+        env: {OSD_HANA_PASSWORD: "privileges"},
+        deps: {clientFactory: factory, store: h.store()},
+      });
+      expect(code, h.allText()).to.equal(1);
+      expect(h.allText()).to.include("could not read this login's system privileges");
+      expect(h.allText()).to.include("whether it is an administrator (USER ADMIN) is not known");
+      expect(log.connections).to.have.length(0);
+    });
+
+    it("redactValues masks string values only -- never keys, never numbers (mutation: numbers through the redactor -> red)", function () {
+      const redact = makeRedactor(["123", "SECRET"]);
+      const out = redactValues({n: 1234, f: 1.123, b: true, z: null, "123": "a123b", list: [1123, "x SECRET y", {deep: "123"}]}, redact);
+      expect(out).to.deep.equal({n: 1234, f: 1.123, b: true, z: null, "123": "a***b", list: [1123, "x *** y", {deep: "***"}]});
     });
   });
 });

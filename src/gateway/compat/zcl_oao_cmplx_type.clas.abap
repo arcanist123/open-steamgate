@@ -7,6 +7,7 @@ CLASS zcl_oao_cmplx_type DEFINITION PUBLIC.
     INTERFACES /iwbep/if_mgw_odata_cmplx_type.
 
     DATA mv_structure_name TYPE string.
+    DATA mv_disabled       TYPE abap_bool.
   PRIVATE SECTION.
     DATA mt_properties TYPE /iwbep/if_mgw_med_odata_types=>ty_t_mgw_odata_properties.
 ENDCLASS.
@@ -15,6 +16,12 @@ CLASS zcl_oao_cmplx_type IMPLEMENTATION.
 
   METHOD /iwbep/if_mgw_odata_item~set_label_from_text_element.
     ASSERT 1 = 'todo'.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_item~set_disabled.
+* milestone 4: the item member every element carries; a complex type is not
+* disabled by the services read so far, and $metadata keeps it
+    mv_disabled = iv_disabled.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_odata_cmplx_type~bind_structure.

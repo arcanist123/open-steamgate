@@ -2,7 +2,8 @@
 // connection from flags / env file / stdin / a hidden prompt, run the
 // sidecar's `probe` (read-only, no names needed), and say the verdict plainly.
 // Exit codes: 0 ready to extract, 1 usage or setup, 2 cannot connect / log on,
-// 5 no ABAP schema found. `--json` prints the same findings as one JSON
+// 5 no ABAP schema readable by this login (or the sidecar could not examine
+// the database -- the message says which). `--json` prints the same findings as one JSON
 // document.
 //
 // The doctor never refuses a login because it is powerful (task B.3): the
@@ -22,6 +23,7 @@ import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory,
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict, readerRoleFromProbe, ipSansExplanation} from "./verdict.mjs";
+import {ownsAbapSchema, readProbe, saysNoAbapSchema} from "./probe-doc.mjs";
 import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
@@ -81,7 +83,7 @@ clear text (the consent text says so): use a trusted network or --encrypt
 (TLS with certificate validation, hdb's useTLS). --trust-server-certificate
 encrypts without validating the server's certificate and says so loudly.
 Exit codes: 0 ready to extract; 1 usage; 2 cannot connect or log on;
-5 no ABAP schema.`;
+5 no ABAP schema readable by this login, or the database could not be examined.`;
 
 export async function doctorMain(argv, {
   io = {out: (line) => process.stdout.write(`${line}\n`), err: (line) => process.stderr.write(`${line}\n`)},
@@ -330,6 +332,10 @@ export async function doctorMain(argv, {
         // deliberately no --owner-password-stdin: non-interactive use names
         // the login with the flag and brings the password through the env).
         role = readerRoleFromProbe(probe);
+        if (role === "unknown") {
+          // the sidecar could not read the system privileges: ask, never assume
+          role = await askAdministratorRole({owns: ownsAbapSchema(probe), flags, canPrompt, promptVisible: promptVisibleFn});
+        }
         if (role === "neither") {
           io.err(describeNeitherRole(schemaName));
           return DOCTOR_EXIT.usage;
@@ -377,7 +383,9 @@ export async function doctorMain(argv, {
                   loud: loudOnce,
                 });
                 const run = await readerSidecar.run("probe", {args: probeArgs});
-                readerProbeDocument = run.summary.probe ?? run.summary;
+                // printed and embedded only: the masked copy (parse raw, redact
+                // where printed)
+                readerProbeDocument = run.display;
                 const view = {host: connection.host, port: connection.port, database: connection.database, user};
                 io.out(`osd hana: the reader's own probe -- the sidecar run as ${user}:`);
                 for (const line of plainVerdict(readerProbeDocument, {connection: view, sidecar: describeSidecar(verified, handshakeInfo)})) {
@@ -405,7 +413,7 @@ export async function doctorMain(argv, {
         // the document carries the drop facts without a probe verdict.
         io.out(JSON.stringify(verb === "create-reader"
           ? {
-            ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
+            ...jsonVerdict(shown, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
             reader: {user: result.user, schema: result.schema, stored_at: result.storedAt},
             ...(readerProbeDocument !== undefined ? {reader_probe: readerProbeDocument} : {}),
           }
@@ -477,8 +485,16 @@ export async function doctorMain(argv, {
     io.err(error.message);
     return DOCTOR_EXIT.connection;
   }
-  const probe = probeRun.summary.probe ?? probeRun.summary;
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
+  // The probe document is the REAL binary's flat one-line answer, read in one
+  // place (probe-doc.mjs; recorded contracts in test/osd-hana/contract/).
+  // Parse raw, redact where printed: `probe` is the document as DATA (every
+  // decision below reads it); `shown` is the same document with its string
+  // values masked, and it is the only one that reaches the terminal or the
+  // --json output. Numbers are never masked -- a short numeric password
+  // ("123") must not turn the count 1234 into ***4.
+  const probe = readProbe(probeRun.summary);
+  const shown = readProbe(probeRun.display);
+  const schemas = probe.schemas;
 
 
   // ---- --create-reader and the verdict follow; the drop ran above ----
@@ -488,29 +504,55 @@ export async function doctorMain(argv, {
       break;
     case "connection": {
       const errorText = probeRun.summary.error ?? "";
-      io.err(`osd hana: cannot connect or log on: ${errorText || "the sidecar said so"}`);
+      io.err(`osd hana: cannot connect or log on: ${probeRun.display.error || "the sidecar said so"}`);
       // The measured trial-image failure gets its own explanation (W0
       // "Additions"): a verified TLS connection to an IP address is refused
       // because the self-signed certificate carries no IP SANs.
       if (/IP SAN/i.test(errorText)) io.err(ipSansExplanation());
       return DOCTOR_EXIT.connection;
     }
-    case "unsupported":
-      io.err(`osd hana: no ABAP schema found on this database${probeRun.summary.error ? ` (${probeRun.summary.error})` : ""} -- there is no ABAP code to rescue here.`);
+    case "unsupported": {
+      // Exit 5 comes in two shapes, and only one of them is a finding. The
+      // real binary prints its probe document with `abap_schemas: null` when
+      // no ABAP schema is readable by this login -- that POSITIVELY says so.
+      // An error line instead ("M_DATABASE: ...", "looking for ABAP
+      // schemas: ...") means the sidecar could not examine the database at
+      // all: that is not "no ABAP schema", and is not reported as one.
+      if (saysNoAbapSchema(probe)) {
+        io.err("osd hana: no ABAP schema readable by this login was found on this database -- there is no ABAP code to rescue here with this login.");
+        if (connection.schema !== undefined) {
+          io.err(`  (the probe looked only for the schema named with --schema / HANA_SCHEMA; run without it to see every ABAP schema this login can read.)`);
+        }
+        io.err("  A login without SELECT on the ABAP schema sees none: try the schema's owner, or an administrator.");
+        for (const note of shown.notes) io.err(`  Note from the sidecar: ${note}`);
+      } else {
+        io.err(`osd hana: the sidecar could not examine this database (unsupported system): ${shown.error ?? "it gave no reason"}`);
+        io.err("  This is NOT a finding that the database holds no ABAP schema -- the examination itself failed.");
+      }
       return DOCTOR_EXIT.noAbapSchema;
+    }
     case "usage":
-      return fail(`osd hana: the sidecar refused the probe as a usage error: ${probeRun.summary.error ?? "unknown"}`);
+      return fail(`osd hana: the sidecar refused the probe as a usage error: ${probeRun.display.error ?? "unknown"}`);
     case "partial":
     case "refused":
-      return fail(`osd hana: the sidecar ended with the outcome "${probeRun.outcome}", which a probe cannot produce: ${probeRun.summary.error ?? ""}`);
+      return fail(`osd hana: the sidecar ended with the outcome "${probeRun.outcome}", which a probe cannot produce: ${probeRun.display.error ?? ""}`);
     default:
       return fail(`osd hana: unmapped sidecar outcome: ${probeRun.outcome}`);
   }
 
+  if (!probe.schemasReported) {
+    // "done", but the answer carries no abap_schemas list at all: the binary
+    // and this module disagree about the document. Said as exactly that --
+    // never as "no ABAP schema" (the defect this guard exists for: an
+    // invented field name read as an empty list on a healthy system).
+    return fail(`osd hana: the sidecar's probe answered without an ABAP schema list (the field "abap_schemas" is missing) -- ` +
+      `this is NOT a finding that there is none: the sidecar binary and this module disagree about the probe document ` +
+      `(sidecar ${handshakeInfo?.version ?? "?"}). Nothing was assumed.`);
+  }
   if (schemas.length === 0) {
-    // The sidecar said "done" but found nothing: same answer as its own
-    // unsupported, same exit code.
-    io.err("osd hana: no ABAP schema found -- there is no ABAP code to rescue from this database.");
+    // "done" with a list that is positively empty: same answer as the
+    // sidecar's own exit 5, same exit code.
+    io.err("osd hana: no ABAP schema readable by this login was found -- there is no ABAP code to rescue from this database with this login.");
     return DOCTOR_EXIT.noAbapSchema;
   }
 
@@ -519,9 +561,9 @@ export async function doctorMain(argv, {
   }
 
   if (flags.json === true) {
-    io.out(JSON.stringify(jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), null, 1));
+    io.out(JSON.stringify(jsonVerdict(shown, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), null, 1));
   } else {
-    for (const line of plainVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo)})) io.out(line);
+    for (const line of plainVerdict(shown, {connection, sidecar: describeSidecar(verified, handshakeInfo)})) io.out(line);
     for (const warning of warnings) io.out(`  WARNING: ${warning}`);
   }
   return DOCTOR_EXIT.ok;
@@ -536,6 +578,31 @@ function describeSidecar(verified, handshakeInfo) {
     version: handshakeInfo?.version,
     commit: handshakeInfo?.commit,
   };
+}
+
+/** The probe said "system privileges not readable": whether the present
+ *  login is an administrator is UNKNOWN, so the role is asked, not assumed
+ *  (ownership is known either way). On a terminal one yes/no question; off a
+ *  terminal the second-login flag answers it -- --admin-user names the
+ *  administrator, so this login acts as the schema owner, --owner-user names
+ *  the owner, so this login acts as the administrator -- and without one the
+ *  doctor refuses with the reason. Nothing has been sent at that point. */
+async function askAdministratorRole({owns, flags, canPrompt, promptVisible}) {
+  if (owns && flags["admin-user"] !== undefined) return "owner";
+  if (!owns && flags["owner-user"] !== undefined) return "admin";
+  const why = "the sidecar could not read this login's system privileges, so whether it is an administrator (USER ADMIN) is not known";
+  if (!canPrompt) {
+    throw new ReaderError(`osd hana: ${why}.\n` +
+      (owns
+        ? "  This login owns the ABAP schema. Name an administrator login with --admin-user (its password in $OSD_HANA_ADMIN_PASSWORD), or re-run on a terminal to be asked.\n"
+        : "  If this login is an administrator, name the schema owner's login with --owner-user (its password in $OSD_HANA_OWNER_PASSWORD), or re-run on a terminal to be asked;\n" +
+          "  otherwise re-run with an administrator or the schema owner's login.\n") +
+      "  Nothing was sent.");
+  }
+  const answer = String(await promptVisible(`osd hana: ${why}. Is this login an administrator (holds USER ADMIN)? [y/n]: `)).trim().toLowerCase();
+  if (answer === "y" || answer === "yes") return owns ? "both" : "admin";
+  if (answer === "n" || answer === "no") return owns ? "owner" : "neither";
+  throw new ReaderError("osd hana: no answer to whether this login is an administrator (y or n). Nothing was sent.");
 }
 
 /** The second login of the guided two-login flow. `role` is the PRESENT
