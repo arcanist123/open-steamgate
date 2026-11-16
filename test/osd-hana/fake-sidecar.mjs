@@ -105,16 +105,20 @@ if (args[0] === "list" || args[0] === "dump") {
     copySync(fixtureDir, outDir, {recursive: true});
     // a dump honours its request the way the real sidecar does: `names` are
     // LIKE patterns with `\` as the escape character, so extract's
-    // exact-name patterns ("ZOSD\_X3") match exactly that name; rows the
-    // request does not name are not dumped. FAKE_SIDECAR_DUMP_APPEND adds
-    // rows AFTER the filter (a sidecar that over-delivers -- the M-2 audit).
+    // exact-name patterns ("ZOSD\_X3") match exactly that name and a
+    // trailing % is a prefix; rows the request does not name are not dumped.
+    // FAKE_SIDECAR_DUMP_APPEND adds rows AFTER the filter (a sidecar that
+    // over-delivers -- the M-2 audit).
     if (args[0] === "dump" && Array.isArray(request?.names)) {
-      const wanted = new Set(request.names.map((n) => n.replace(/\\(.)/g, "$1")));
+      const unescaped = request.names.map((n) => n.replace(/\\(.)/g, "$1"));
+      const wanted = new Set(unescaped.filter((n) => !n.endsWith("%")));
+      const prefixes = unescaped.filter((n) => n.endsWith("%")).map((n) => n.slice(0, -1));
+      const matches = (name) => wanted.has(name) || prefixes.some((p) => name.startsWith(p));
       const objectsPath = join(outDir, "objects.jsonl");
       const rows = readFileSync(objectsPath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
       // the real sidecar keeps excluded/closure rows in objects.jsonl as
       // skipped entries; only SOURCE rows the request does not name drop out
-      writeFileSync(objectsPath, rows.filter((r) => wanted.has(r.name) || r.status === "S" || r.status === "skipped").map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
+      writeFileSync(objectsPath, rows.filter((r) => matches(r.name) || r.status === "S" || r.status === "skipped").map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
       const appendPath = process.env.FAKE_SIDECAR_DUMP_APPEND;
       if (appendPath !== undefined && existsSync(appendPath)) {
         appendFileSync(objectsPath, readFileSync(appendPath, "utf8"));

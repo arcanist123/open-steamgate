@@ -371,7 +371,29 @@ export async function extractMain(argv, {
   // schema can carry; the post-dump audit below catches anything else.
   const exactNamePattern = (name) => String(name).trim().replace(/([%_\\])/g, "\\$1");
   const chunkSize = typeof dumpChunkSize === "number" && dumpChunkSize > 0 ? dumpChunkSize : 500;
-  const dumpNames = [...new Set(inScopeRows.map((r) => String(r.name).trim().toUpperCase()))].sort().map(exactNamePattern);
+  // Measured on the real sidecar (v2.60.0-19-g0d5767b, bed run of this
+  // round): an exact name fetches the TADIR row, the DDIC rows and a flat
+  // program's source -- but NO sources for a class, interface or function
+  // group (11 052 objects came back `no-source`): the source fetch matches
+  // REPOSRC program names with the same pattern, and a class's sources live
+  // behind the 30-character `=`-padded include names, a group's behind
+  // SAPL<grp>/L<grp>. So the request carries the exact name (TADIR stays
+  // exact -- nothing outside the scope is SELECTED) plus, for composite
+  // objects, the include-name pattern. An include pattern cannot widen the
+  // selection (its 30-character padded prefix names exactly one object), and
+  // a source the extra pattern fetches for a sibling name resolves to no
+  // in-scope owner in the converter and is never written.
+  const sourcePatterns = [];
+  for (const r of inScopeRows) {
+    const name = String(r.name).trim().toUpperCase();
+    if (r.type === "CLAS" || r.type === "INTF" || r.type === "BDEF") {
+      sourcePatterns.push(exactNamePattern(name.padEnd(30, "=")) + "%");
+    } else if (r.type === "FUGR") {
+      sourcePatterns.push(exactNamePattern(`SAPL${name}`) + "%");
+      sourcePatterns.push(exactNamePattern(`L${name}`) + "%");
+    }
+  }
+  const dumpNames = [...new Set(inScopeRows.map((r) => exactNamePattern(String(r.name).trim().toUpperCase())).concat(sourcePatterns))].sort();
   const dumpRequest = {
     schema: 1,
     names: dumpNames,

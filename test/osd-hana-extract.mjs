@@ -862,10 +862,20 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     // exact names, LIKE-escaped (the sidecar matches with ESCAPE '\\')
     expect(req.names).to.include("ZOSD\\_X3");
     expect(req.names).to.include("ZCL\\_OSD\\_X1");
-    // every in-scope name is there, nothing else
-    const unescaped = new Set(req.names.map((n) => n.replace(/\\(.)/g, "$1")));
-    expect(unescaped.has("ZCL_SAP_XE")).to.equal(false);
-    expect(unescaped.size).to.equal(14);
+    // composite objects carry the include-name pattern their sources hide
+    // behind: a class's REPOSRC names are the 30-character '='-padded name
+    // plus a suffix; a group's are SAPL<grp>/L<grp>. TADIR selection stays
+    // exact (the padded prefix names exactly one object).
+    expect(req.names).to.include("ZCL\\_OSD\\_X1" + "=".repeat(20) + "%");
+    expect(req.names).to.include("SAPLZOSG\\_X4%");
+    expect(req.names).to.include("LZOSG\\_X4%");
+    // every in-scope name is there; the vendor's is not, in no spelling
+    const unescaped = req.names.map((n) => n.replace(/\\(.)/g, "$1"));
+    expect(unescaped.filter((n) => n.includes("SAP_XE"))).to.deep.equal([]);
+    for (const inScope of ["ZCL_OSD_X1", "ZOSD_X3", "ZOSG_X4", "ZTAB_X5", "ZSICF_XC"]) {
+      expect(unescaped).to.include(inScope);
+    }
+    expect(unescaped.filter((n) => !n.endsWith("%")).length).to.equal(14);
   });
 
   it("M-2b: a dump that delivers objects outside the scope fails the run and names the dump directory (mutation: the audit removed)", async function () {
@@ -904,15 +914,15 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const r = await runExtract(["--out", out], {chunk: 5});
     expect(r.code).to.equal(3);
     const reqs = dumpRequests(from);
-    expect(reqs.length).to.equal(3); // ceil(14 / 5)
+    expect(reqs.length).to.equal(4); // ceil(19 / 5): 14 exact names + the include patterns
     const dumpDir = join(out, ".osd-hana", "dump");
-    for (const part of ["part-00001", "part-00002", "part-00003"]) {
+    for (const part of ["part-00001", "part-00002", "part-00003", "part-00004"]) {
       expect(existsSync(join(dumpDir, part, "objects.jsonl")), part).to.equal(true);
       expect(existsSync(join(dumpDir, part, "manifest.json")), part).to.equal(true);
     }
     // the aggregate manifest echoes the whole request and is what reuse reads
     const aggregate = JSON.parse(readFileSync(join(dumpDir, "manifest.json"), "utf8"));
-    expect(aggregate.sidecar.parts.length).to.equal(3);
+    expect(aggregate.sidecar.parts.length).to.equal(4);
     expect(aggregate.sidecar.errors).to.deep.equal([]);
     // the repository is complete across the parts
     expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
