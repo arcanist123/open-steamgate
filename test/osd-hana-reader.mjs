@@ -696,6 +696,75 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
   });
 
+  it("S-D: --encrypt reaches every connection of the reader path as hdb's documented useTLS (critic S-D; mutation: drop the option -> red)", async function () {
+    // hdb documents useTLS: true for encrypted connections with certificate
+    // validation; the flag must reach the client factory on the
+    // administrator connect, the reader proof and the drop-reader connects
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD, database: "TEN"};
+    await createReader({connection, schema: SCHEMA, yes: true, store: secretStore, clientFactory: factory, encrypt: true});
+    expect(log.connections.length).to.be.at.least(2);
+    for (const options of log.connections) {
+      expect(options.useTLS, `connect as ${options.user}`).to.equal(true);
+      expect(options.rejectUnauthorized, `connect as ${options.user}`).to.equal(undefined);
+    }
+    await dropReader({connection, yes: true, store: secretStore, clientFactory: factory, encrypt: true});
+    for (const options of log.connections) {
+      expect(options.useTLS, `drop connect as ${options.user}`).to.equal(true);
+    }
+  });
+
+  it("S-D: --trust-server-certificate implies TLS without validation and says so loudly (critic S-D; mutation: validate anyway / stay silent -> red)", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const said = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+      trustServerCertificate: true,
+      say: (text) => said.push(text),
+    });
+    for (const options of log.connections) {
+      expect(options.useTLS).to.equal(true);
+      expect(options.rejectUnauthorized).to.equal(false);
+    }
+    // said loudly, before the consent question, even with --yes
+    expect(said[0]).to.include("certificate is NOT validated");
+    expect(said[0]).to.include("--trust-server-certificate");
+  });
+
+  it("S-D: without --encrypt the consent text says the new password travels in clear and points at --encrypt (critic S-D; mutation: stay silent -> red)", async function () {
+    const {factory} = fakeClientFactory(SUCCESS_RULES);
+    const said = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+      say: (text) => said.push(text),
+    });
+    expect(said[0]).to.include("NOT encrypted");
+    expect(said[0]).to.include("password travels in clear");
+    expect(said[0]).to.include("--encrypt");
+    // and with --encrypt the consent says the connection is encrypted
+    const said2 = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+      encrypt: true,
+      say: (text) => said2.push(text),
+    });
+    expect(said2[0]).to.include("encrypted");
+  });
+
+  it("S-D: through the doctor: --encrypt and --trust-server-certificate are CLI flags that reach the connections", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const code = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
+      deps: {clientFactory: factory},
+    });
+    expect(code, h.allText()).to.equal(0);
+    expect(log.connections.length).to.be.at.least(2);
+    for (const options of log.connections) expect(options.useTLS).to.equal(true);
+  });
+
   it("M-A: --create-reader --yes --json reports {user, schema, stored_at} and the generated password is in no output (mutation: return the password -> red)", async function () {
     // the documented machine-readable path is the one a CI log captures: the
     // generated password must be in NONE of it -- the store is its only sink

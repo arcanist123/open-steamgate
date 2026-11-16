@@ -167,14 +167,49 @@ export function hdbClientFactory({require = createRequire(import.meta.url)} = {}
 // through here, so the tenant database cannot be lost on one path while
 // present on another (critic M-3: a proof or an absence check against the
 // wrong database reports success and leaves the user behind).
-function hdbConnectionOptions(connection, {user, password}) {
+//
+// Encryption (critic S-D), from hdb's documented options (node-hdb README,
+// "Encrypted network communication"): `useTLS: true` opens a TLS socket with
+// certificate validation (the options reach tls.connect, Node's default trust
+// store applies, and hdb sets servername to the host); `rejectUnauthorized:
+// false` is the documented tls.connect escape hatch, passed through by hdb,
+// for "encrypt, but do not authenticate the server".
+function hdbConnectionOptions(connection, {user, password, encrypt = false, trustServerCertificate = false}) {
   return {
     host: connection.host,
     port: connection.port,
     user,
     password,
     ...(connection.database ? {databaseName: connection.database} : {}),
+    ...(trustServerCertificate
+      ? {useTLS: true, rejectUnauthorized: false}
+      : encrypt
+        ? {useTLS: true}
+        : {}),
   };
+}
+
+// The consent text's encryption lines (critic S-D). Said ALWAYS, in every
+// mode -- an unencrypted run must never stay silent about the new password
+// crossing the network inside CREATE USER.
+export function transportLines({encrypt, trustServerCertificate, host, port, secret = "the new password travels"}) {
+  if (trustServerCertificate) {
+    return [
+      `  WARNING -- --trust-server-certificate: the connection to ${host}:${port} is ENCRYPTED, but the server's`,
+      `  certificate is NOT validated -- a machine that can intercept the traffic can impersonate the server.`,
+      `  Use this only on a network you trust.`,
+    ];
+  }
+  if (encrypt) {
+    return [
+      `  The connection to ${host}:${port} is encrypted (TLS; the server certificate is validated against the trust store).`,
+    ];
+  }
+  return [
+    `  WARNING -- the connection to ${host}:${port} is NOT encrypted: ${secret} in clear text.`,
+    `  Use a trusted network, or pass --encrypt (TLS, certificate validated); on a trusted network whose`,
+    `  certificate cannot be checked, --trust-server-certificate encrypts without validation and says so.`,
+  ];
 }
 
 // HANA driver errors carry a `code` (the native error number, e.g. 258, 332).
@@ -361,6 +396,8 @@ export async function createReader({
   prompt,
   say = () => {},
   generatePassword = generateReaderPassword,
+  encrypt = false,               // --encrypt: TLS with certificate validation (hdb useTLS)
+  trustServerCertificate = false, // --trust-server-certificate: TLS without validation, said loudly
 } = {}) {
   validateReaderName(readerName);
   // Before any consent text is built: a name that carries control characters
@@ -369,14 +406,18 @@ export async function createReader({
   validateSchemaName(schema);
   const password = generatePassword();
   const plan = planStatements({readerName, schema, password});
-  say(consentText({readerName, schema, planLines: plan, store, connection}));
+  say(consentText({
+    readerName, schema, planLines: plan, store, connection,
+    transport: transportLines({encrypt, trustServerCertificate, host: connection.host, port: connection.port}),
+  }));
   await askConsent({yes, isTTY, prompt});
 
-  const adminClient = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
-  return runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say});
+  const adminClient = await clientFactory(hdbConnectionOptions(connection,
+    {user: connection.user, password: connection.password, encrypt, trustServerCertificate}));
+  return runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt, trustServerCertificate});
 }
 
-async function runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say}) {
+async function runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt = false, trustServerCertificate = false}) {
   try {
     // 0. Existence guard (critic M-B): a user that already exists -- ours
     // from an earlier run and maybe in use by a running extract, or somebody
@@ -448,7 +489,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       const readerPassword = password;
       let proofClient;
       try {
-        proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword}));
+        proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: readerPassword, encrypt, trustServerCertificate}));
         const {rows} = await proofClient.exec(`SELECT COUNT(*) AS N FROM ${quoteIdentifier(schema)}.${quoteIdentifier("TADIR")}`, []);
         say(`osd hana: the reader ${readerName} connected and read ${rows[0]?.N ?? "?"} rows of ${show(schema)}."TADIR" -- proof it works.`);
       } finally {
@@ -538,6 +579,8 @@ export async function dropReader({
   clientFactory = hdbClientFactory(),
   prompt,
   say = () => {},
+  encrypt = false,
+  trustServerCertificate = false,
 } = {}) {
   validateReaderName(readerName);
   if (readerName === String(connection.user).toUpperCase()) {
@@ -566,7 +609,7 @@ export async function dropReader({
   // its store created, and it must not drop it.
   let proofClient;
   try {
-    proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: stored.password}));
+    proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: stored.password, encrypt, trustServerCertificate}));
     await proofClient.exec(`SELECT 1 AS ONE FROM DUMMY`);
   } catch (error) {
     throw new ReaderError(refuseDropText(readerName,
@@ -584,11 +627,15 @@ export async function dropReader({
     `  The stored password just logged on as ${readerName} on this host, port and database -- the user`,
     `  is the one this tool's store created. The system identity recorded at create time will be`,
     `  compared before the DROP, and the DROP itself runs with the administrator login.`,
+    ...transportLines({
+      encrypt, trustServerCertificate, host: connection.host, port: connection.port,
+      secret: "the administrator's password and these statements travel",
+    }),
   ].join("\n");
   say(lines);
   await askConsent({yes, isTTY, prompt});
 
-  const client = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
+  const client = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password, encrypt, trustServerCertificate}));
   try {
     // Ownership proof, part 2 (critic S-A): the installation identity recorded
     // at create time must match what the catalogue says now -- a matching

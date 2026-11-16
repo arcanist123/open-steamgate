@@ -29,12 +29,13 @@ export const DOCTOR_EXIT = Object.freeze({
 });
 
 const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "reader-name", "sidecar-pin"];
-const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "help"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "create-reader", "drop-reader", "yes", "allow-unpinned-sidecar", "encrypt", "trust-server-certificate", "help"];
 
 const USAGE = `Usage: osd hana doctor [--host H] [--port P] [--database NAME] [--user U]
                         [--schema NAME] [--env-file <file>] [--password-stdin]
                         [--json] [--allow-unpinned-sidecar]
                         [--create-reader | --drop-reader [--reader-name NAME] [--yes]]
+                        [--encrypt | --trust-server-certificate]
 
 Checks a HANA database and says, plainly, whether your ABAP code can be
 rescued out of it: reachable? tenant or system database? ABAP schema found?
@@ -53,6 +54,12 @@ hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
 
 --create-reader sets up a dedicated read-only database user (asks for
 consent; --yes answers it non-interactively). --drop-reader removes it.
+
+The reader path talks to the database through the Node driver hdb. Without
+--encrypt that connection is NOT encrypted and the new password travels in
+clear text (the consent text says so): use a trusted network or --encrypt
+(TLS with certificate validation, hdb's useTLS). --trust-server-certificate
+encrypts without validating the server's certificate and says so loudly.
 Exit codes: 0 ready to extract; 1 usage; 2 cannot connect or log on;
 5 no ABAP schema.`;
 
@@ -198,9 +205,11 @@ export async function doctorMain(argv, {
       const result = verb === "create-reader"
         ? await createReader({connection, schema: schemaName, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
+            encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             say: (text) => io.out(text)})
         : await dropReader({connection, readerName, yes: flags.yes === true, isTTY, store,
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
+            encrypt: flags.encrypt === true, trustServerCertificate: flags["trust-server-certificate"] === true,
             say: (text) => io.out(text)});
       if (flags.json === true) {
         // the create result deliberately carries no password -- the secret
