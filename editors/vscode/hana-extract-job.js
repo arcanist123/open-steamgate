@@ -36,10 +36,11 @@ function makeRedactor() {
   return redact;
 }
 
-/** One job in the forked host. Resolves {code, verdict?, plan?} or
+/** One job in the forked host. Resolves {code, verdict?, plan?, consent?} or
  *  {cancelled: true}; rejects on a host failure (message redacted).
- *  `onAsk({kind, question})` answers a module question (may resolve
- *  undefined = declined); `onSecretSet(key, value)` / `onSecretDelete(key)`
+ *  `onAsk({kind, question, plan?})` answers a module question (may resolve
+ *  undefined = declined; a rejection is answered ""); kind "consent" asks
+ *  about a listing that changed since the confirmed plan (plan = its numbers); `onSecretSet(key, value)` / `onSecretDelete(key)`
  *  are awaited before the job resolves; `onLine(stream, line)` sees the
  *  module's io. `token` is a VS Code CancellationToken. */
 function runHostJob(message, {
@@ -66,8 +67,6 @@ function runHostJob(message, {
       serialization: "json",
       windowsHide: true,
     });
-    // the stdin channel extract's consent question reads from
-    child.answerConsent = (text) => { if (child.connected) child.send({t: "stdin", text}); };
     onChild(child);
     const secretWrites = [];
     let settled = false;
@@ -80,12 +79,12 @@ function runHostJob(message, {
     child.on("message", (m) => {
       if (m?.t === "out" || m?.t === "err") onLine(m.t, redact(m.line));
       else if (m?.t === "ask") {
-        Promise.resolve(onAsk({kind: m.kind, question: m.question})).then((value) => {
+        Promise.resolve().then(() => onAsk({kind: m.kind, question: m.question, plan: m.plan})).then((value) => {
           if (child.connected) child.send({t: "answer", id: m.id, value: value ?? ""});
         }, () => { if (child.connected) child.send({t: "answer", id: m.id, value: ""}); });
       } else if (m?.t === "secret-set") secretWrites.push(Promise.resolve(onSecretSet(m.key, m.value)));
       else if (m?.t === "secret-delete") secretWrites.push(Promise.resolve(onSecretDelete(m.key)));
-      else if (m?.t === "done") result = {code: m.code, verdict: m.verdict, plan: m.plan};
+      else if (m?.t === "done") result = {code: m.code, verdict: m.verdict, plan: m.plan, consent: m.consent};
       else if (m?.t === "fail") result = {failure: redact(m.message)};
     });
     child.on("error", (error) => settle(reject, new Error(redact(error.message))));

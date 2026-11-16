@@ -178,6 +178,7 @@
         },
         "osd.hanaExtract.connections": {
           "type": "array",
+          "scope": "application",
           "default": [],
           "items": {
             "type": "object",

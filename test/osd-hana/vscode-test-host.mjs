@@ -16,6 +16,7 @@ runHost({
   clientFactory: factory,
   pinFile: config.pinFile,
   sidecarExtraEnv: config.sidecarExtraEnv,
+  ...(config.consentTimeoutMs !== undefined ? {consentTimeoutMs: config.consentTimeoutMs} : {}),
   onFinish: async () => {
     if (config.clientLog) appendFileSync(config.clientLog, `${JSON.stringify(log)}\n`); // one line per job
   },

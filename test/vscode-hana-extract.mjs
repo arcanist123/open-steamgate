@@ -6,7 +6,8 @@
 // test; each was confirmed RED (see the job report).
 import {expect} from "chai";
 import {createHash} from "node:crypto";
-import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
+import {EventEmitter} from "node:events";
+import {chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {tmpdir} from "node:os";
 import path from "node:path";
@@ -55,7 +56,9 @@ const recordLines = () => {
  *  secret checks can read one place. */
 function vscodeStub(script = {}) {
   const rec = {inputs: [], picks: [], messages: [], output: [], progress: [], commands: [], settings: [], secrets: new Map(), secretOps: [], dialogs: []};
+  // the user (global) value and a workspace value, as VS Code keeps them apart
   const settings = new Map(Object.entries(script.settings ?? {}));
+  const workspaceSettings = new Map(Object.entries(script.workspaceSettings ?? {}));
   const cancelHooks = [];
   const answerMessage = (kind) => async (text, ...rest) => {
     const options = typeof rest[0] === "object" && rest[0] !== null ? rest.shift() : {};
@@ -82,8 +85,9 @@ function vscodeStub(script = {}) {
     },
     workspace: {
       getConfiguration: () => ({
-        get: (key, fallback) => (settings.has(key) ? settings.get(key) : fallback),
-        update: async (key, value, target) => { rec.settings.push({key, value, target}); settings.set(key, value); },
+        get: (key, fallback) => (workspaceSettings.has(key) ? workspaceSettings.get(key) : settings.has(key) ? settings.get(key) : fallback),
+        inspect: (key) => ({key, globalValue: settings.get(key), workspaceValue: workspaceSettings.get(key)}),
+        update: async (key, value, target) => { rec.settings.push({key, value, target}); (target === 1 ? settings : workspaceSettings).set(key, value); },
       }),
     },
     commands: {
@@ -130,16 +134,16 @@ function defaultMessage(text, buttons) {
 
 /** Registers the command against the stub and starts it; `done` settles
  *  when the command does. */
-function startCommand(script = {}, {sidecarExtraEnv = {}, pin = pinPath, dump = fakePath, clientLog} = {}) {
+function startCommand(script = {}, {sidecarExtraEnv = {}, pin = pinPath, dump = fakePath, clientLog, homes = [ROOT], consentTimeoutMs} = {}) {
   const stub = vscodeStub(script);
   const env = {
     ...process.env,
     OSD_HANA_DUMP: dump,
-    OSD_HANA_VSCODE_TEST: JSON.stringify({pinFile: pin, clientLog, sidecarExtraEnv: {
+    OSD_HANA_VSCODE_TEST: JSON.stringify({pinFile: pin, clientLog, consentTimeoutMs, sidecarExtraEnv: {
       FAKE_SIDECAR_RECORD: recordPath, FAKE_SIDECAR_LIST: fixtures.list, FAKE_SIDECAR_DUMP: fixtures.dump, ...sidecarExtraEnv}}),
   };
   delete env.OSD_HANA_PASSWORD;
-  registerHanaExtractCommand(stub.api, stub.context, stub.output, () => [ROOT], {hostScript: TEST_HOST, env, tmpdir: root, sidecar: noBundledSidecar});
+  registerHanaExtractCommand(stub.api, stub.context, stub.output, () => homes, {hostScript: TEST_HOST, env, tmpdir: root, sidecar: noBundledSidecar});
   const from = recordLines().length;
   stub.runs = () => recordLines().slice(from).map((r) => r.argv[0]);
   stub.done = stub.rec.run();
@@ -150,6 +154,34 @@ async function runCommand(script, options) {
   const stub = startCommand(script, options);
   await stub.done;
   return stub;
+}
+
+/** A copy of a list fixture whose objects.jsonl the test may rewrite. */
+const listCopy = (from, name) => {
+  const dir = path.join(root, name);
+  rmSync(dir, {recursive: true, force: true});
+  cpSync(from, dir, {recursive: true});
+  return dir;
+};
+const keepRows = (dir, names) => {
+  const file = path.join(dir, "objects.jsonl");
+  writeFileSync(file, readFileSync(file, "utf8").split("\n").filter((l) => l && names.includes(JSON.parse(l).name)).join("\n") + "\n");
+};
+
+const REAL_MODULE = path.join(ROOT, "tools", "osd-hana");
+/** A home whose tools/osd-hana is a FAKE module: the helpers the command
+ *  imports re-exported from the real one, doctor.mjs / extract.mjs given. */
+function fakeModuleHome(name, {doctor = "export async function doctorMain() { return 1; }\n", extract = "export async function extractMain() { return 1; }\n"} = {}) {
+  const home = path.join(root, name);
+  const dir = path.join(home, "tools", "osd-hana");
+  rmSync(home, {recursive: true, force: true});
+  mkdirSync(dir, {recursive: true});
+  for (const file of ["reader-shared.mjs", "extract-plan.mjs", "verdict.mjs"]) {
+    writeFileSync(path.join(dir, file), `export * from ${JSON.stringify(pathToFileURL(path.join(REAL_MODULE, file)).href)};\n`);
+  }
+  writeFileSync(path.join(dir, "doctor.mjs"), doctor);
+  writeFileSync(path.join(dir, "extract.mjs"), extract);
+  return home;
 }
 
 const freshOut = (name) => {
@@ -373,6 +405,215 @@ describe("VS Code: Extract my code from HANA", function () {
     const last = stub.rec.messages.at(-1);
     expect(last.kind).to.equal("warning");
     expect(last.text).to.match(/^osd: Cancelled; the reader was stopped/);
+    expect(last.text, "a late cancel may leave converted files: said so").to.match(/may hold .*files it had already converted/);
+  });
+
+  // ---- the module's own consent, answered from the LIVE plan (critic MUST) --
+  for (const [answer, dumped] of [["Extract", true], [undefined, false], ["throw", false]]) {
+    it(`the listing changes between the plan and the run: asked again; ${answer === "throw" ? "a failing modal" : answer === undefined ? "dismissing it" : "Extract"} ${dumped ? "dumps" : "sends no dump"} (mutation: the live plan not compared / always yes)`, async () => {
+      const out = freshOut(`changed-${String(answer)}`);
+      const list = listCopy(cleanFixtures.list, `list-changed-${String(answer)}`);
+      const stub = await runCommand({
+        folder: out,
+        pick: (items, options) => {
+          // the plan was shown: the next listing (the real run's) has one object less
+          if (/^Plan:/.test(options.title)) keepRows(list, ["ZCL_OSD_X1"]);
+          return defaultPick(items);
+        },
+        message: (text, buttons) => {
+          if (/listing changed/.test(text)) {
+            if (answer === "throw") throw new Error("the modal failed");
+            return answer;
+          }
+          return defaultMessage(text, buttons);
+        },
+      }, {sidecarExtraEnv: {FAKE_SIDECAR_LIST: list, FAKE_SIDECAR_DUMP: cleanFixtures.dump}});
+      const again = stub.rec.messages.find((m) => /listing changed/.test(m.text));
+      expect(again, stub.rec.messages.map((m) => m.text).join("\n")).to.not.equal(undefined);
+      expect(again.text).to.match(/now 1 objects/);
+      expect(again.options.modal).to.equal(true);
+      if (dumped) {
+        expect(stub.runs()).to.include("dump");
+      } else {
+        expect(stub.runs()).to.not.include("dump");
+        expect(stub.rec.messages.at(-1).text).to.equal("osd: Declined -- nothing was dumped.");
+      }
+    });
+  }
+
+  it("the same listing is answered without asking again (positive control for the test above)", async () => {
+    const out = freshOut("unchanged");
+    const stub = await runCommand({folder: out}, {sidecarExtraEnv: {FAKE_SIDECAR_LIST: cleanFixtures.list, FAKE_SIDECAR_DUMP: cleanFixtures.dump}});
+    expect(stub.rec.messages.some((m) => /listing changed/.test(m.text))).to.equal(false);
+    expect(stub.runs()).to.include("dump");
+  });
+
+  // The real module redacts the SIDECAR's stdout with the run's password before
+  // it parses it (tools/osd-hana/sidecar.mjs), so a three-character password
+  // that occurs in the fake sidecar's own numbers breaks the module before the
+  // command is reached. This test therefore runs a FAKE module (doctor + extract
+  // speaking the module's --json and consent protocol) and checks the
+  // command's side alone: the plan 1234 objects / 1 234 000 bytes carries both
+  // passwords, unredacted in the helper and redacted on display.
+  const SHORT_DOCTOR = "export async function doctorMain(argv, {io}) { io.out(JSON.stringify({verdict: {abapSchemas: ['S'], canWrite: false}})); return 0; }\n";
+  const SHORT_EXTRACT = [
+    "import {writeFileSync} from 'node:fs';",
+    "import {join} from 'node:path';",
+    "const plan = {inScope: 1234, bytes: 1234000, onSystem: 1234, customer: 1234, sap: 0, localAuthors: 1,",
+    "  perType: [{type: 'CLAS', inScope: 1234, bytes: 1234000, unsupported: 0}], perAuthor: [], biggest: []};",
+    "export async function extractMain(argv, {io, stdin}) {",
+    "  const out = argv[argv.indexOf('--out') + 1];",
+    "  io.out(JSON.stringify({plan}, null, 1));",
+    "  if (argv.includes('--dry-run')) return 0;",
+    "  io.out(`extract 1234 objects (1.2 MB) into ${out}? [y/N]`);",
+    "  const line = await new Promise((resolve) => { let buf = ''; stdin.on('data', (d) => { buf += d; if (buf.includes('\\n')) resolve(buf.split('\\n')[0]); }); stdin.on('end', () => resolve(buf)); });",
+    "  io.out(`answer=${line}`);",
+    "  if (line !== 'yes') { io.err('osd hana extract: declined -- nothing was dumped'); return 0; }",
+    "  writeFileSync(join(out, 'extract-report.md'), '# report\\n\\n1234 objects written.\\n');",
+    "  return 0;",
+    "}",
+  ].join("\n");
+  for (const shortPassword of ["000", "123"]) {
+    it(`a short password (${shortPassword}) inside the plan's numbers (1234 objects) does not decide the consent: answered yes, no hang, no false Declined (mutation: the consent read off redacted lines)`, async function () {
+      this.timeout(30000);
+      const home = fakeModuleHome(`fake-short-${shortPassword}`, {doctor: SHORT_DOCTOR, extract: SHORT_EXTRACT});
+      const out = freshOut(`short-${shortPassword}`);
+      const stub = await runCommand({
+        folder: out,
+        input: (options) => (/password for TESTLOGIN/.test(options.title) ? shortPassword : defaultInput(options)),
+      }, {homes: [home]});
+      const texts = stub.rec.messages.map((m) => m.text);
+      expect(texts).to.include(`Extract 1234 objects (1.2 MB) into ${out}?`);
+      expect(texts.some((t) => /listing changed/.test(t)), texts.join("\n")).to.equal(false);
+      expect(texts).to.not.include("osd: Declined -- nothing was dumped.");
+      expect(stub.rec.output).to.include("answer=yes");
+      expect(texts.at(-1)).to.match(/^osd: Extracted into/);
+      // the display is still redacted: the plan's numbers show masked there
+      expect(stub.rec.output.join("\n")).to.include("***");
+    });
+  }
+
+  // ---- the second redaction fence and database text in notifications --------
+  it("the module's own output carrying the password is masked in the output channel and every notification; database text cannot form a link or an icon (mutation: redact.add(login.password) removed)", async () => {
+    const home = fakeModuleHome("fake-leaky", {doctor: [
+      "export async function doctorMain(argv, {io, env}) {",
+      "  io.out(`connecting with ${env.OSD_HANA_PASSWORD}`);",
+      "  io.err(`osd hana: refused [open](command:workbench.action.reloadWindow) $(gear) ${env.OSD_HANA_PASSWORD}`);",
+      "  return 2;",
+      "}",
+    ].join("\n")});
+    const stub = await runCommand({}, {homes: [home]});
+    expect(stub.rec.output.join("\n")).to.include("connecting with ***");
+    expect(stub.rec.everything()).to.not.include(PASSWORD);
+    const error = stub.rec.messages.at(-1);
+    expect(error.kind).to.equal("error");
+    expect(error.text).to.equal("osd: Cannot connect or log on to the database: refused \uff3bopen\uff3d(command:workbench.action.reloadWindow) \\$(gear) ***");
+  });
+
+  it("an error escaping the flow is redacted before the output channel and the notification (mutation: the catch not redacted)", async () => {
+    const stub = await runCommand({message: (text) => {
+      if (/is ready to extract/.test(text)) throw new Error(`boom with ${PASSWORD}`);
+      return undefined;
+    }}, {sidecarExtraEnv: {FAKE_SIDECAR_LIST: cleanFixtures.list, FAKE_SIDECAR_DUMP: cleanFixtures.dump}});
+    expect(stub.rec.output.at(-1)).to.equal("osd: boom with ***");
+    expect(stub.rec.messages.at(-1)).to.include({kind: "error", text: "osd: boom with ***"});
+    expect(stub.rec.everything()).to.not.include(PASSWORD);
+  });
+
+  // ---- remembered connections: the user's value only (critic, attack path) --
+  it("a workspace value of the connections is ignored and never copied into the user's settings; a stored schema is not read (mutation: get() instead of inspect().globalValue / schema read)", async () => {
+    const evil = {host: "evil.example.test", port: 1, user: "EVIL", schema: "EVIL_SCHEMA"};
+    // 1. a remembered (global) entry with a schema, and a workspace entry
+    const first = await runCommand({
+      settings: {"hanaExtract.connections": [{host: HOST, port: 39015, user: "TESTLOGIN", schema: "EVIL_SCHEMA"}]},
+      workspaceSettings: {"hanaExtract.connections": [evil]},
+    });
+    const connections = first.rec.picks.find((p) => /connection/.test(p.options.title ?? ""));
+    expect(connections.items.map((i) => i.label)).to.deep.equal([`$(database) TESTLOGIN@${HOST}:39015`, "$(add) New connection…"]);
+    expect(recordLines().map((r) => r.argv).flat()).to.not.include("EVIL_SCHEMA");
+    expect(first.rec.settings).to.deep.equal([]);
+    // 2. nothing global, a workspace entry: the new connection is remembered alone
+    const second = await runCommand({
+      workspaceSettings: {"hanaExtract.connections": [evil]},
+      message: (text, buttons) => (/Remember/.test(text) ? "Remember" : undefined),
+    });
+    expect(second.rec.inputs[0].title).to.match(/host/);
+    expect(second.rec.settings).to.deep.equal([{key: "hanaExtract.connections", value: [{host: HOST, port: 39015, user: "TESTLOGIN"}], target: 1}]);
+    expect(JSON.stringify(second.rec.settings)).to.not.include("evil");
+  });
+});
+
+describe("VS Code: Extract my code from HANA -- the helper answers the module's consent", function () {
+  this.timeout(20000);
+  const CONSENT_EXTRACT = [
+    "export async function extractMain(argv, {io, stdin}) {",
+    "  const i = argv.indexOf('--with-plan');",
+    "  if (i !== -1) io.out(JSON.stringify({plan: {inScope: Number(argv[i + 1]), bytes: 1000}}));",
+    "  io.out('extract 2 objects (0.0 MB) into /x? [y/N]');",
+    "  const line = await new Promise((resolve) => { let buf = ''; stdin.on('data', (d) => { buf += d; if (buf.includes('\\n')) resolve(buf.split('\\n')[0]); }); stdin.on('end', () => resolve(buf)); });",
+    "  io.out(`answer=${line}`);",
+    "  return 0;",
+    "}",
+  ].join("\n");
+
+  const runExtract = async (argv, {answer, consentTimeoutMs = 10000} = {}) => {
+    const {runHost} = await import("../editors/vscode/hana-extract-host.mjs");
+    const home = fakeModuleHome("fake-consent", {extract: CONSENT_EXTRACT});
+    const proc = new EventEmitter();
+    proc.connected = true;
+    proc.env = {PATH: process.env.PATH};
+    proc.pid = process.pid;
+    proc.sent = [];
+    const done = new Promise((resolve) => {
+      proc.send = (message, callback) => {
+        proc.sent.push(message);
+        if (message.t === "ask" && answer !== undefined) setImmediate(() => proc.emit("message", {t: "answer", id: message.id, value: answer}));
+        if (message.t === "done" || message.t === "fail") resolve(message);
+        callback?.();
+      };
+    });
+    proc.disconnect = () => { proc.connected = false; };
+    runHost({proc, consentTimeoutMs});
+    proc.emit("message", {t: "run", verb: "extract", argv, moduleRoot: path.join(home, "tools", "osd-hana"), password: PASSWORD, confirmed: {inScope: 2, bytes: 1000}});
+    const result = await done;
+    return {result, sent: proc.sent, asks: proc.sent.filter((m) => m.t === "ask"), lines: proc.sent.filter((m) => m.t === "out").map((m) => m.line)};
+  };
+
+  it("no live JSON plan: \"no\" is sent and nobody is asked (mutation: a missing plan answered yes / asked)", async () => {
+    const {result, asks, lines} = await runExtract([]);
+    expect(lines).to.include("answer=no");
+    expect(asks).to.deep.equal([]);
+    expect(result).to.include({t: "done", code: 0, consent: "declined"});
+  });
+
+  it("the live plan equals the confirmed one: \"yes\" without asking", async () => {
+    const {result, asks, lines} = await runExtract(["--with-plan", "2"]);
+    expect(lines).to.include("answer=yes");
+    expect(asks).to.deep.equal([]);
+    expect(result.consent).to.equal("given");
+  });
+
+  it("a changed live plan is asked with its numbers; \"yes\" answers yes, anything else no", async () => {
+    const yes = await runExtract(["--with-plan", "3"], {answer: "yes"});
+    expect(yes.asks).to.have.lengthOf(1);
+    expect(yes.asks[0]).to.deep.include({kind: "consent", plan: {inScope: 3, bytes: 1000}});
+    expect(yes.lines).to.include("answer=yes");
+    const other = await runExtract(["--with-plan", "3"], {answer: ""});
+    expect(other.lines).to.include("answer=no");
+    expect(other.result.consent).to.equal("declined");
+  });
+
+  it("an ask nobody answers times out as \"no\": the helper never waits forever (mutation: the timeout removed)", async () => {
+    const {result, asks, lines} = await runExtract(["--with-plan", "3"], {consentTimeoutMs: 300});
+    expect(asks).to.have.lengthOf(1);
+    expect(lines).to.include("answer=no");
+    expect(result.consent).to.equal("declined");
+  });
+
+  it("a failing ask is a no", async () => {
+    const {decideConsent} = await import("../editors/vscode/hana-extract-host.mjs");
+    expect(await decideConsent({livePlan: {inScope: 3, bytes: 1}, confirmed: {inScope: 2, bytes: 1}, askConsent: () => { throw new Error("x"); }})).to.equal(false);
+    expect(await decideConsent({livePlan: {inScope: 3, bytes: 1}, confirmed: {inScope: 2, bytes: 1}, askConsent: async () => { throw new Error("x"); }})).to.equal(false);
   });
 });
 
@@ -394,6 +635,7 @@ describe("VS Code: Extract my code from HANA -- manifest", function () {
     expect(manifest.activationEvents).to.include("onCommand:osd.hanaExtract");
     expect(manifest.contributes.menus.commandPalette).to.deep.include({command: "osd.hanaExtract", when: "!isWeb && !osd.web"});
     const setting = manifest.contributes.configuration.properties["osd.hanaExtract.connections"];
+    expect(setting.scope, "a workspace cannot set it").to.equal("application");
     expect(Object.keys(setting.items.properties)).to.deep.equal(["host", "port", "database", "user"]);
     expect(setting.items.additionalProperties).to.equal(false);
   });
@@ -401,11 +643,12 @@ describe("VS Code: Extract my code from HANA -- manifest", function () {
   it("plan rows: actions first, then the plan read-only; names from the database are escaped", () => {
     const items = planItems({inScope: 3, bytes: 2_500_000, localAuthors: 2,
       perType: [{type: "CLAS", inScope: 2, bytes: 2_000_000, unsupported: 0}, {type: "SICF", inScope: 1, bytes: 0, unsupported: 1}],
-      perAuthor: [{author: "A\u001b[2K", objects: 1, bytes: 1}, {author: "B", objects: 2, bytes: 2}], biggest: []});
+      perAuthor: [{author: "A\u001b[2K", objects: 1, bytes: 1}, {author: "B", objects: 2, bytes: 2}], biggest: [{package: "$(gear)[x](command:y)", objects: 1, bytes: 1}]});
     expect(items[0]).to.include({label: "$(cloud-download) Extract 3 objects (2.5 MB)"});
     expect(items.filter((i) => i.action?.kind === "narrow").map((i) => i.label)).to.deep.equal([
-      "$(person) Only the local objects of A\\x1b[2K", "$(person) Only the local objects of B", "$(filter) Leave local packages ($...) out"]);
+      "$(person) Only the local objects of A\\x1b\uff3b2K", "$(person) Only the local objects of B", "$(filter) Leave local packages ($...) out"]);
     expect(items.find((i) => i.label === "SICF").detail).to.match(/cannot be written yet/);
     expect(JSON.stringify(items)).to.not.include("\u001b");
+    expect(items.at(-1).label, "no icon, no link out of a package name").to.equal("\\$(gear)\uff3bx\uff3d(command:y)");
   });
 });

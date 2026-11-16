@@ -45,15 +45,36 @@ function findModuleRoot(homes, exists = fs.existsSync) {
   return undefined;
 }
 
+/** Text from the database (or from the module quoting it) made safe for a
+ *  notification or a quick pick: control characters escaped, `$(` kept from
+ *  becoming an icon, and `[` / `]` replaced by their full-width forms so no
+ *  `[text](command:...)` link can be formed (notifications render links). */
+function shown(text) {
+  return String(text ?? "")
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`)
+    .replace(/\[/g, "\uff3b").replace(/\]/g, "\uff3d")
+    .replace(/\$\(/g, "\\$(");
+}
+
+/** The remembered connections: the USER (global) value only -- a workspace
+ *  can never put a host in front of this command -- and of each entry only
+ *  host, port, database and user. */
+function rememberedConnections(config) {
+  const value = config.inspect?.(SETTING)?.globalValue;
+  return (Array.isArray(value) ? value : [])
+    .filter((c) => c && typeof c.host === "string" && c.host !== "" && c.port && typeof c.user === "string" && c.user !== "")
+    .map(({host, port, database, user}) => ({host, port, ...(typeof database === "string" && database !== "" ? {database} : {}), user}));
+}
+
 const mb = (bytes) => `${(Number(bytes ?? 0) / 1_000_000).toFixed(1)} MB`;
 const label = (c) => `${c.user}@${c.host}:${c.port}${c.database ? `/${c.database}` : ""}`;
 const sameConnection = (a, b) => a.host === b.host && String(a.port) === String(b.port) && (a.database ?? "") === (b.database ?? "") && a.user === b.user;
 
 /** The quick-pick rows of a plan: the actions first, then the plan itself as
  *  read-only rows under separators (counts by type, per author, the biggest
- *  packages). Names come from the database: control characters are escaped. */
+ *  packages). Names come from the database: they go through shown(). */
 function planItems(plan, {separator = -1, noLocal = false, author} = {}) {
-  const clean = (s) => String(s ?? "").replace(/[\x00-\x1f\x7f-\x9f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`);
+  const clean = shown;
   const items = [{label: `$(cloud-download) Extract ${plan.inScope} objects (${mb(plan.bytes)})`, action: {kind: "extract"}}];
   if (author === undefined && Number(plan.localAuthors ?? 0) > 1) {
     for (const a of plan.perAuthor ?? []) {
@@ -113,8 +134,7 @@ async function reportSentence(out) {
 
 const importModule = (root, file) => import(pathToFileURL(path.join(root, file)).href);
 
-async function extractFromHana(vscode, context, output, {moduleRoot, callerPath, hostScript, env = process.env, tmpdir = os.tmpdir()}) {
-  const redact = makeRedactor();
+async function extractFromHana(vscode, context, output, {moduleRoot, callerPath, hostScript, env = process.env, tmpdir = os.tmpdir(), redact = makeRedactor()}) {
   const log = (line) => output.appendLine(redact(line));
   const errors = [];
   const config = () => vscode.workspace.getConfiguration("osd");
@@ -122,7 +142,7 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
   const {isLargePlan, largePlanNumbers} = await importModule(moduleRoot, "extract-plan.mjs");
 
   // ---- 1. the connection ---------------------------------------------------
-  const remembered = (config().get(SETTING, []) ?? []).filter((c) => c && c.host && c.port && c.user);
+  const remembered = rememberedConnections(config());
   let connection;
   if (remembered.length > 0) {
     const pick = await vscode.window.showQuickPick([
@@ -177,7 +197,7 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
 
   const job = (verb, argv, title, extra = {}) => vscode.window.withProgress(
     {location: vscode.ProgressLocation.Notification, title, cancellable: true},
-    (progress, token) => runHostJob({t: "run", verb, argv, moduleRoot, password: login.password, callerPath, secrets: {}}, {
+    (progress, token) => runHostJob({t: "run", verb, argv, moduleRoot, password: login.password, callerPath, secrets: {}, ...extra.message}, {
       hostScript, env, token, redact,
       onLine: (stream, line) => {
         log(line);
@@ -192,7 +212,7 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
       onSecretSet: (key, value) => context.secrets.store(SECRET_PREFIX + key, JSON.stringify(value)),
       onSecretDelete: (key) => context.secrets.delete(SECRET_PREFIX + key),
     }));
-  const lastError = () => errors.at(-1)?.replace(/^osd hana( extract)?: /, "");
+  const lastError = () => { const e = errors.at(-1)?.replace(/^osd hana( extract)?: /, ""); return e === undefined ? undefined : shown(e); };
   const base = () => ["--host", connection.host, "--port", String(connection.port), "--user", login.user,
     ...(connection.database ? ["--database", connection.database] : []),
     ...(connection.schema ? ["--schema", connection.schema] : [])];
@@ -213,10 +233,10 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
   if (verdict === undefined) return;
   const schemas = verdict.doc.verdict?.abapSchemas ?? [];
   if (schemas.length > 1 && connection.schema === undefined) {
-    const pick = await vscode.window.showQuickPick(schemas.map((s) => ({label: String(s)})),
+    const pick = await vscode.window.showQuickPick(schemas.map((s) => ({label: shown(s), schema: String(s)})),
       {title: "Extract my code from HANA: this database holds several ABAP schemas", ignoreFocusOut: true});
     if (pick === undefined) return;
-    connection = {...connection, schema: pick.label};
+    connection = {...connection, schema: pick.schema};
   }
   for (const line of verdict.plain ?? []) log(line);
   if (!remembered.some((c) => sameConnection(c, connection))) {
@@ -244,7 +264,7 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
       }
       login = {user: entry.user, password: entry.password, reader: true};
       redact.add(login.password);
-      void vscode.window.showInformationMessage(`osd: Created the read-only user ${entry.user}; its password is in VS Code SecretStorage. The extraction logs on as ${entry.user}.`);
+      void vscode.window.showInformationMessage(`osd: Created the read-only user ${shown(entry.user)}; its password is in VS Code SecretStorage. The extraction logs on as ${shown(entry.user)}.`);
     }
   }
 
@@ -293,41 +313,34 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
   if (sure !== "Extract") return;
 
   errors.length = 0;
-  let consent = "none"; // none | given | declined
-  let child;
-  let livePlan;
+  // The module asks its own consent on the LIVE listing. The helper answers it
+  // from the module's unredacted JSON plan: the numbers confirmed above are a
+  // yes; a listing that changed comes here (kind "consent") and is asked
+  // again; anything but "Extract" -- a dismissed or failed modal -- is a no.
   const result = await job("extract", [...base(), "--out", out, "--json", ...narrowArgs()], `Extracting into ${path.basename(out)}`, {
-    onChild: (c) => { child = c; },
-    onLine: (stream, line) => {
-      if (stream !== "out") return;
-      if (line.trimStart().startsWith("{") && livePlan === undefined) {
-        try { livePlan = JSON.parse(line).plan; } catch { /* not the plan */ }
-      } else if (/^extract \d+ objects .*\? \[y\/N\]/.test(line)) {
-        // the module's own consent, on the LIVE listing: the same numbers the
-        // user just confirmed are answered; a listing that changed is asked again
-        void (async () => {
-          let yes = livePlan !== undefined && livePlan.inScope === plan.inScope && livePlan.bytes === plan.bytes;
-          if (!yes && livePlan !== undefined) {
-            yes = (await vscode.window.showWarningMessage(`The listing changed since the plan: now ${livePlan.inScope} objects (${mb(livePlan.bytes)}). Extract them into ${out}?`, {modal: true}, "Extract")) === "Extract";
-          }
-          consent = yes ? "given" : "declined";
-          child?.answerConsent(yes ? "yes\n" : "no\n");
-        })();
+    message: {confirmed: {inScope: plan.inScope, bytes: plan.bytes}},
+    onAsk: async ({kind, plan: live}) => {
+      if (kind !== "consent" || typeof live?.inScope !== "number") return "no";
+      try {
+        const again = await vscode.window.showWarningMessage(`The listing changed since the plan: now ${live.inScope} objects (${mb(live.bytes)}). Extract them into ${out}?`, {modal: true}, "Extract");
+        return again === "Extract" ? "yes" : "no";
+      } catch {
+        return "no";
       }
     },
   });
   if (result.cancelled) {
-    void vscode.window.showWarningMessage(`osd: Cancelled; the reader was stopped. ${out} holds this command's unfinished work area (.osd-hana/); choose an empty folder next time, or delete that folder first.`);
+    void vscode.window.showWarningMessage(`osd: Cancelled; the reader was stopped. ${out} may hold this command's unfinished work area (.osd-hana/) and files it had already converted; choose an empty folder next time, or delete that folder first.`);
     return;
   }
-  if (consent === "declined") { void vscode.window.showInformationMessage("osd: Declined -- nothing was dumped."); return; }
+  if (result.consent === "declined") { void vscode.window.showInformationMessage("osd: Declined -- nothing was dumped."); return; }
   const reportMd = path.join(out, "extract-report.md");
   const showReport = async () => {
     if (fs.existsSync(reportMd)) await vscode.commands.executeCommand("markdown.showPreview", vscode.Uri.file(reportMd));
   };
   if (result.code === 0 || result.code === 3) {
     await showReport();
-    const sentence = redact(await reportSentence(out));
+    const sentence = shown(redact(await reportSentence(out)));
     const text = result.code === 0
       ? `osd: Extracted into ${out}. ${sentence}`
       : `osd: Extracted only in part into ${out}: ${sentence} The report lists every object.`;
@@ -389,6 +402,9 @@ async function createReader(vscode, {job, base, connection, redact, errors, last
 
 function registerHanaExtractCommand(vscode, context, output, homesOf, deps = {}) {
   context.subscriptions.push(vscode.commands.registerCommand(COMMAND, async () => {
+    // one redactor per run, shared with the catch below: an error carrying a
+    // secret of this run is masked there too
+    const redact = makeRedactor();
     try {
       const moduleRoot = findModuleRoot(homesOf());
       if (moduleRoot === undefined) return vscode.window.showErrorMessage(MODULE_NEEDED);
@@ -404,14 +420,14 @@ function registerHanaExtractCommand(vscode, context, output, homesOf, deps = {})
         if (SIDECAR_ERRORS.has(error?.code)) return vscode.window.showErrorMessage(error.message);
         throw error;
       }
-      return await extractFromHana(vscode, context, output, {moduleRoot, callerPath, env, hostScript: deps.hostScript, tmpdir: deps.tmpdir});
+      return await extractFromHana(vscode, context, output, {moduleRoot, callerPath, env, hostScript: deps.hostScript, tmpdir: deps.tmpdir, redact});
     } catch (error) {
-      const message = `osd: ${String(error?.message ?? error)}`;
+      const message = shown(redact(`osd: ${String(error?.message ?? error)}`));
       output.appendLine(message);
       return vscode.window.showErrorMessage(message);
     }
   }));
 }
 
-module.exports = {registerHanaExtractCommand, extractFromHana, findModuleRoot, planItems,
+module.exports = {registerHanaExtractCommand, extractFromHana, findModuleRoot, planItems, shown, rememberedConnections,
   extractExitText, doctorExitText, reportSentence, MODULE_NEEDED, SIDECAR_ERRORS, COMMAND, SECRET_PREFIX};
