@@ -571,8 +571,21 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
   const readerProofs = plan.filter((p) => p.role === "reader");
   const proofSelect = readerProofs[0];
   const proofWrite = readerProofs[1];
-  const adminClient = await clientFactory(hdbConnectionOptions(connection,
-    {user: adminLogin.user, password: adminLogin.password, encrypt, trustServerCertificate, ca, tlsServerName}));
+  let adminClient;
+  try {
+    adminClient = await clientFactory(hdbConnectionOptions(connection,
+      {user: adminLogin.user, password: adminLogin.password, encrypt, trustServerCertificate, ca, tlsServerName}));
+  } catch (error) {
+    // The ADMINISTRATOR login's logon failure names that login (critic S-4):
+    // before this, the raw driver error escaped to the caller's top level,
+    // which redacted only the PRESENT login's password and did not say which
+    // login had failed. The driver's code is PRESERVED -- a logon/connect
+    // failure stays a cannot-connect error for the caller (exit 2, the IP
+    // SANs explanation still fires), it just says which login it was now.
+    // CREATE has not run yet: nothing to clean up.
+    throw Object.assign(new Error(`osd hana: the administrator login ${adminLogin.user} failed to log on -- ${redact(sqlErrorText(error))}\n` +
+      `  The CREATE USER had not run yet: nothing was created and nothing needs cleaning up.`), {code: error.code});
+  }
   let ownerClient;
   // Best-effort cleanup by the administrator connection: a 332 means the
   // user is absent (the consequence of a failed create) -- that is success
@@ -816,7 +829,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
         `  (the administrator login ${adminLogin.user} ran the statements up to here)\n  ${note}`);
     }
   } finally {
-    await adminClient.disconnect();
+    if (adminClient !== undefined) await adminClient.disconnect();
     if (ownerClient !== undefined) await ownerClient.disconnect();
   }
 }

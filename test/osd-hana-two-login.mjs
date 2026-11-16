@@ -511,8 +511,7 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
     expect(log.statements.some((s) => /^(CREATE USER|ALTER USER|GRANT)/.test(s.sql))).to.equal(false);
   });
 
-  it("the present login is the schema owner: the doctor asks for an administrator login (--admin-user + $OSD_HANA_ADMIN_PASSWORD) and the roles land on the right connections (mutation: the roles swapped -> red)", async function () {
-    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+  it("the present login is the schema owner: the doctor asks for an administrator login (--admin-user + $OSD_HANA_ADMIN_PASSWORD) and the roles land on the right connections (mutation: the roles swapped -> red)", async function () {    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const code = await h.runDoctor(["--create-reader", "--yes", "--admin-user", ADMIN], {
       scenario: "owner-tenant",
       env: {OSD_HANA_ADMIN_PASSWORD: ADMIN_PW},
@@ -525,6 +524,28 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
     expect(create.user).to.equal(ADMIN);
     const grant = log.statements.find((s) => s.sql.startsWith("GRANT SELECT"));
     expect(grant.user).to.equal(USER);
+  });
+
+  it("the second login's logon failure NAMES that login and never echoes its password -- even when the driver text repeats the password verbatim (critic S-4 / probe P4; mutation: the password printed raw -> red)", async function () {
+    const base = fakeClientFactory(SUCCESS_RULES);
+    const factory = async (options) => {
+      if (options.user === "ADMIN2") {
+        throw Object.assign(new Error(`authentication failed for ADMIN2 using ${options.password}`), {code: 10});
+      }
+      return base.factory(options);
+    };
+    const code = await h.runDoctor(["--create-reader", "--yes", "--admin-user", "ADMIN2", "--database", "TEN"], {
+      scenario: "owner-tenant",
+      env: {OSD_HANA_ADMIN_PASSWORD: "admin2-secret-pw-9"},
+      deps: {clientFactory: factory, store: h.store()},
+    });
+    expect(code).to.equal(2); // a logon failure stays a cannot-connect (exit 2), it just names the login now
+    const text = h.allText();
+    expect(text).to.not.include("admin2-secret-pw-9"); // redacted, like every password in play
+    expect(text).to.include("ADMIN2"); // WHICH login failed
+    expect(text).to.include("administrator login ADMIN2 failed to log on");
+    // nothing was created: the logon happened before CREATE USER
+    expect(base.log.statements.some((s) => /CREATE USER/.test(s.sql))).to.equal(false);
   });
 
   it("a login that is NEITHER administrator nor owner: the doctor explains what is needed and sends NOTHING (mutation: CREATE attempted anyway -> red)", async function () {

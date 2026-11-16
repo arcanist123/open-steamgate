@@ -312,9 +312,12 @@ export async function doctorMain(argv, {
       return DOCTOR_EXIT.usage;
     }
     const readerName = flags["reader-name"] ?? "OSD_READER";
+    // Declared here, not inside the try: the catch below must know which
+    // logins were in play (critic S-4 -- the redactor covers the second
+    // login's password too, and the message says which logins were used).
+    let role = "both";
+    let secondLogin;
     try {
-      let role = "both";
-      let secondLogin;
       if (verb === "create-reader") {
         // The guided TWO-LOGIN flow: which role the present login has, the
         // doctor works out from the probe (task item 1). "neither" explains
@@ -422,13 +425,20 @@ export async function doctorMain(argv, {
         return DOCTOR_EXIT.usage;
       }
       if (typeof error?.code === "number") {
-        // The database refused: a connection or logon problem of the
-        // administrator login (hdb reports native codes). The driver message
-        // is quoted -- through the redactor holding this run's password
-        // (critic note), because a driver text can repeat a value verbatim.
-        const redact = makeRedactor([connection.password]);
+        // The database refused: a connection or logon problem (hdb reports
+        // native codes). The driver message is quoted -- through the redactor
+        // holding EVERY password in play (critic S-4: the second login's
+        // password too -- a driver text can repeat a value verbatim), because
+        // a driver text can repeat a value verbatim.
+        const redact = makeRedactor([connection.password, secondLogin?.password]);
         const text = redact(`osd hana: the database refused (${error.code}): ${error.message}`);
         io.err(text);
+        // and the logins this run actually connected with are named (critic
+        // S-4: a wrong $OSD_HANA_ADMIN_PASSWORD used to read as "the database
+        // refused" with no hint that it was the second login)
+        io.err(secondLogin !== undefined
+          ? `  Logins this run connected with: ${connection.user} and the ${role === "admin" ? "schema-owner" : "administrator"} login ${secondLogin.user} -- the message above says which one the database refused.`
+          : `  The login this run connected with: ${connection.user}.`);
         // the "no IP SANs" TLS failure, explained the same way as on the
         // sidecar's path (the hdb connection fails with the same fact)
         if (/IP SAN/i.test(text)) io.err(ipSansExplanation());

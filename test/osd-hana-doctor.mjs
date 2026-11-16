@@ -286,6 +286,38 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code2).to.equal(5);
     });
 
+    it("critic S-4: a database refusal that reaches the top level names the login this run connected with (mutation: the logins line dropped -> red)", async function () {
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const secretStore = h.store();
+      secretStore.set(
+        {user: "OSD_READER", password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015,
+          system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}},
+        readerStoreKey({host: HOST, port: 39015}, "OSD_READER"));
+      // the reader logon proof succeeds; the ADMINISTRATOR connection (the
+      // present login) fails -- that raw driver error reaches the doctor's
+      // top-level "database refused" path
+      const {log, factory} = fakeClientFactory([
+        ...SUCCESS_RULES,
+        {user: USER, match: /DROP USER/, rows: []},
+        {user: "OSD_READER", match: /FROM DUMMY/, rows: [{ONE: 1}]},
+      ]);
+      const broken = async (options) => {
+        if (options.user === USER) {
+          throw Object.assign(new Error("communication link failure"), {code: -10709});
+        }
+        return factory(options);
+      };
+      const code = await h.runDoctor(["--drop-reader", "--yes"], {
+        scenario: "owner-tenant",
+        deps: {store: secretStore, clientFactory: broken},
+      });
+      expect(code).to.equal(2);
+      const text = h.allText();
+      expect(text).to.include("the database refused");
+      // WHICH login this run was connected as is named
+      expect(text).to.include(`connected with: ${USER}`);
+    });
+
     it("NOTE-5 (round 2): --drop-reader is NOT gated behind a successful probe -- it runs before the probe and works after the ABAP schema is gone (mutation: gate the drop behind the probe -> red)", async function () {
       // the ABAP schema was removed: the probe exits 5 ("unsupported") -- and
       // THAT is exactly when the reader must be tearable down. The drop proves
