@@ -9,6 +9,8 @@
 //   walkFiles / clearUnprotected / pruneEmptyDirs -- the src/ refresh that
 //       never touches a kept file;
 //   writeMarker -- the marker, atomic (fix round 5, M-2);
+//   ensureGitignoreLine -- the `.osd-hana/` line, appended, never an
+//       overwrite (fix round 6, SHOULD-1);
 //   sha256File / readJsonl -- small readers.
 import fs from "node:fs/promises";
 import {readFileSync} from "node:fs";
@@ -105,9 +107,9 @@ export async function foreignOutEntries(out, claimed) {
   }
   const ours = new Set(claimed
     ? [".osd-hana", ".abapgit.xml", ".gitignore", "src", "extract-report.json", "extract-report.md"]
-    // unclaimed: the work area, and the .gitignore this command writes on
-    // every run (static text -- round 5: a --dry-run or a declined run also
-    // leaves it, and must not make the next real run refuse the directory)
+    // unclaimed: the work area, and a .gitignore -- the user's own file is
+    // never overwritten, only the `.osd-hana/` line appended by a writing
+    // run (fix round 6, SHOULD-1), so it does not make the directory foreign
     : [".osd-hana", ".gitignore"]);
   return entries.filter((e) => !ours.has(e));
 }
@@ -165,4 +167,25 @@ export async function writeMarker(markerPath, doc) {
   const tmp = `${markerPath}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
   await fs.writeFile(tmp, `${JSON.stringify(doc, null, 1)}\n`);
   await fs.rename(tmp, markerPath);
+}
+
+// `<out>/.gitignore` must carry `.osd-hana/` (the raw dump never belongs in
+// the repository) -- but the file may be the user's (fix round 6, SHOULD-1):
+// created when absent, the line appended when missing (after a newline if
+// the file does not end in one), nothing done when present. Called by a
+// WRITING run only, at the commit point. Returns what it did:
+// "created" | "appended" | "unchanged".
+export async function ensureGitignoreLine(file) {
+  let text;
+  try {
+    text = await fs.readFile(file, "utf8");
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
+    await fs.writeFile(file, ".osd-hana/\n", {flag: "wx"});
+    return "created";
+  }
+  const has = text.split(/\r?\n/).some((l) => /^\/?\.osd-hana(?:\/(?:\*{1,2})?)?$/.test(l.trim()));
+  if (has) return "unchanged";
+  await fs.appendFile(file, `${text === "" || text.endsWith("\n") ? "" : "\n"}.osd-hana/\n`);
+  return "appended";
 }
