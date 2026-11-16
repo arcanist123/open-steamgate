@@ -524,21 +524,22 @@ describe("hana-closure: the dependency closure, by iteration", () => {
     expect(dead.stubs[0].missing).to.deep.equal(["ZOSD_H5C_HEAD"]);
     expect(dead.deferred).to.deep.equal([]);
     expect(dead.source).to.contain(`missing = 'ZOSD_H5C_HEAD'.`);
-    // a code-kind miss stays deferred
+    // an answered code-kind miss stubs (milestone 4: it was asked first, so
+    // nothing is deferred any more -- the answer makes it a gap)
     const code = planStubPass({...base, missingOf: () => true,
       findings: parseFindings(`check_syntax, Class zcl_h5c_far not found, zcl_h5c_stub.clas.abap:12`)});
     expect(code.stubs).to.have.lengthOf(1);
-    expect(code.deferred.map((d) => d.name)).to.deep.equal(["ZCL_H5C_FAR"]);
-    expect(code.deferred[0].kind).to.equal("clas");
-    // and a mixed stub: the code name deferred, the table asked eagerly
+    expect(code.deferred).to.deep.equal([]);
+    // and a mixed miss, both pending: the body stays one round, the code
+    // name asked eagerly, the table through the classification
     const mixed = planStubPass({...base, missingOf: () => false, asked: () => false,
       findings: parseFindings([
         `check_syntax, Class zcl_h5c_far not found, zcl_h5c_stub.clas.abap:12`,
         `check_syntax, Database table or view "zosd_h5c_head" not found, zcl_h5c_stub.clas.abap:12`,
       ].join("\n"))});
-    expect(mixed.stubs).to.have.lengthOf(1);
-    expect(mixed.deferred.map((d) => d.name)).to.deep.equal(["ZCL_H5C_FAR"]);
-    expect(mixed.eager.map((e) => e.name)).to.deep.equal(["ZOSD_H5C_HEAD"]);
+    expect(mixed.stubs).to.deep.equal([]);
+    expect(mixed.deferred).to.deep.equal([]);
+    expect(mixed.eager.map((e) => [e.name, e.kind])).to.deep.equal([["ZCL_H5C_FAR", "clas"]]);
   });
 
   // ------------------------------------------------ B6: load path ----
@@ -584,11 +585,12 @@ describe("hana-closure: the dependency closure, by iteration", () => {
     expect(pending.stubs, "the dumper may still bring it").to.deep.equal([]);
     expect(pending.eager.map((e) => [e.name, e.kind])).to.deep.equal([["ZCL_H5C_FAR", "clas"]]);
     expect(pending.deferred).to.deep.equal([]);
-    // off the constructor's path the same code name stays lazy, as before
+    // off the constructor's path the same code name is asked first too
+    // since milestone 4 (it was lazy: stubbed and deferred)
     const off = planStubPass({...base, findings: ctorFinding(16), asked: () => false, missingOf: () => false});
-    expect(off.stubs.map((st) => st.method)).to.deep.equal(["OTHER"]);
-    expect(off.deferred.map((d) => d.name)).to.deep.equal(["ZCL_H5C_FAR"]);
-    expect(off.eager).to.deep.equal([]);
+    expect(off.stubs).to.deep.equal([]);
+    expect(off.deferred).to.deep.equal([]);
+    expect(off.eager.map((e) => [e.name, e.kind])).to.deep.equal([["ZCL_H5C_FAR", "clas"]]);
   });
 
   it("planStubPass: once the name is answered missing, the callee raises and the class constructor only signals", async () => {
@@ -2557,7 +2559,7 @@ process.exit(0);
     }
   });
 
-  it("--stub-unresolved: a code-kind miss stays deferred and the method is stubbed", async function () {
+  it("--stub-unresolved: a code-kind miss is asked first, and the method stubbed once the answer leaves it absent (milestone 4; it was deferred)", async function () {
     this.timeout(300000);
     const root = scratch(CLAS_CODE_SOURCE, "zcl_h5c_code", {island2Name: "zcl_h5c_def.clas.abap", island2Source: CLAS_DEF_SOURCE});
     fixtureDump(join(root, "dump-001"));
@@ -2567,10 +2569,10 @@ process.exit(0);
       expect(result.stopped).to.equal("fixed-point");
       const request = JSON.parse(readFileSync(outFile(root, "closure-request.json"), "utf8"));
       expect(request.requested.TABL, "the definition-level name is requested").to.deep.equal(["ZOSD_H5C_DEF"]);
-      expect(request.deferred.CLAS, "the code name is deferred, lazy, grows on the miss").to.deep.equal(["ZCL_H5C_FAR"]);
-      expect(JSON.stringify(request.requested), "the deferred name is not requested").to.not.include("ZCL_H5C_FAR");
+      expect(request.deferred.CLAS, "nothing is deferred").to.deep.equal([]);
+      expect(request.requested.CLAS, "the code name is asked with the definition-level table").to.deep.equal(["ZCL_H5C_FAR"]);
       const gaps = JSON.parse(readFileSync(outFile(root, "closure-gaps.json"), "utf8")).gaps;
-      expect(gaps.map((g) => g.name), "a deferred name is not a gap").to.deep.equal([]);
+      expect(gaps.map((g) => g.name), "resolved by the dumper, not brought: no gap, a stub").to.deep.equal([]);
       const islandFile = readFileSync(join(root, "gen", "hana-src", "000-h5c-main", "src", "zcl_h5c_code.clas.abap"), "utf8");
       expect(islandFile).to.include(`RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = 'ZCL_H5C_FAR'.`);
     } finally {
@@ -2736,7 +2738,9 @@ process.exit(0);
     const env = writeFakes(root, envFor(root, {island: "zcl_h5c_code.clas.abap"}));
     const said = [];
     try {
-      const result = await run(["--dump", join(root, "dump-001"), "--system", "h5c", "--stub-unresolved", "--max-stub-rounds", "1"], {root, env, say: (m) => said.push(m)});
+      // --defer-ddic: the round-3 mode stubs at once (milestone 4 asks a
+      // code name first), and the cap is what this scenario is about
+      const result = await run(["--dump", join(root, "dump-001"), "--system", "h5c", "--stub-unresolved", "--defer-ddic", "--max-stub-rounds", "1"], {root, env, say: (m) => said.push(m)});
       expect(result.stopped).to.equal("fixed-point");
       expect(said.filter((l) => l.startsWith("stub cap:")).length, "the cap said itself in both passes").to.be.at.least(2);
       const request = JSON.parse(readFileSync(outFile(root, "closure-request.json"), "utf8"));
@@ -3707,7 +3711,9 @@ process.exit(0);
     const env = writeFakes(root, envFor(root, {island: "zcl_h5c_svc_dpc_ext.clas.abap", island2Name: "zcl_h5c_svc_dpc.clas.abap"}));
     const said = [];
     try {
-      const result = await run(["--dump", join(root, "dump-001"), "--system", "h5c", "--stub-unresolved",
+      // --defer-ddic: the round-3 mode stubs the code-kind miss in every
+      // iteration (milestone 4 asks it first), which is what is recorded once
+      const result = await run(["--dump", join(root, "dump-001"), "--system", "h5c", "--stub-unresolved", "--defer-ddic",
         "--require-unstubbed", "*_GET_ENTITYSET"], {root, env, say: (m) => said.push(m)});
       expect(result.stopped).to.equal("fixed-point");
       expect(result.iteration, "the island was re-laid once").to.equal(2);
@@ -3747,7 +3753,10 @@ process.exit(0);
     try {
       // fresh: one process, both iterations
       const said = [];
-      const result = await run(["--dump", join(fresh.root, "dump-001"), "--system", "h5c", "--stub-unresolved"],
+      // --defer-ddic: the round-3 mode stubs the code-kind miss at once
+      // (milestone 4 asks it first and never stubs what arrives), so the
+      // lift is still exercised
+      const result = await run(["--dump", join(fresh.root, "dump-001"), "--system", "h5c", "--stub-unresolved", "--defer-ddic"],
         {root: fresh.root, env: fresh.env, say: (m) => said.push(m)});
       expect(result.stopped).to.equal("fixed-point");
       expect(result.iteration).to.equal(2);
@@ -3764,18 +3773,18 @@ process.exit(0);
 
       // resumed: the cap stops after iteration 1 with the stub on disk, the
       // next process picks the pending round up and lifts it the same way
-      const first = await run(["--dump", join(capped.root, "dump-001"), "--system", "h5c", "--stub-unresolved",
+      const first = await run(["--dump", join(capped.root, "dump-001"), "--system", "h5c", "--stub-unresolved", "--defer-ddic",
         "--max-iterations", "0"], {root: capped.root, env: capped.env, say: () => {}});
       expect(first.stopped).to.equal("cap");
       expect(stubSet(capped.root), "iteration 1 recorded the stub").to.deep.equal(["ZCL_H5C_LIFT|ZCL_H5C_LIFT|CALL_FAR"]);
-      const resumed = await run(["--system", "h5c", "--stub-unresolved"], {root: capped.root, env: capped.env, say: () => {}});
+      const resumed = await run(["--system", "h5c", "--stub-unresolved", "--defer-ddic"], {root: capped.root, env: capped.env, say: () => {}});
       expect(resumed.stopped).to.equal("fixed-point");
       expect(stubSet(capped.root), "fresh and resumed agree").to.deep.equal(stubSet(fresh.root));
       const resumedSummary = JSON.parse(readFileSync(outFile(capped.root, "closure-summary.json"), "utf8"));
       expect(resumedSummary).to.include({stubs_unique: 0, lifted: 1});
 
       // and a run resumed over the finished walk changes nothing
-      await run(["--system", "h5c", "--stub-unresolved"], {root: fresh.root, env: fresh.env, say: () => {}});
+      await run(["--system", "h5c", "--stub-unresolved", "--defer-ddic"], {root: fresh.root, env: fresh.env, say: () => {}});
       expect(stubSet(fresh.root)).to.deep.equal(stubSet(capped.root));
     } finally {
       rmSync(fresh.root, {recursive: true, force: true});
@@ -4459,7 +4468,12 @@ process.exit(0);
         "only the own-definition test code is named on the log").to.equal(true);
       expect(said.some((l) => l.includes("registered service's own class")),
         "the seed guard never fires for the service's own DPC").to.equal(false);
-      expect(existsSync(join(root, "dumper-log.jsonl")), "the surface asks nothing").to.equal(false);
+      // milestone 4: the ordinary classes' absent code names are asked first
+      // (the kept class's and the DPC's static calls); the test surface's
+      // never are
+      const asked = Object.keys(JSON.parse(readFileSync(outFile(root, "state.json"), "utf8")).asked);
+      expect(asked, "the ordinary classes' names are asked").to.include.members(["ZCL_H5C_FAR", "ZCL_H5C_NOWHERE"]);
+      expect(asked.filter((n) => /AUNIT|DECORATOR/.test(n)), "the surface asks nothing").to.deep.equal([]);
       const record = JSON.parse(readFileSync(outFile(root, "closure-stubs.json"), "utf8"));
       expect(record.roots.filter((r) => r.testCode === true).map((r) => r.object).sort()).to.deep.equal(
         ["IF_AUNIT_H5C_TEST", "ZCL_H5C_AUNIT_DECORATOR"]);

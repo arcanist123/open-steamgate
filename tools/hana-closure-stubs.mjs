@@ -40,6 +40,7 @@ import * as abaplint from "@abaplint/core";
 import {classifyFindings, nameFromAbapFile} from "./hana-closure-exclude.mjs";
 import {requestKindOf, stripFriends, cutSignatureParams} from "./hana-closure-graph.mjs";
 import {recordStub} from "./hana-closure-report.mjs";
+import {objectNameInFinding} from "./hana-closure-framework.mjs";
 
 // the island class and interface files a stub pass may rewrite or exclude:
 // gen/hana-src/**/*.clas.abap, the locals includes beside them, and the
@@ -801,6 +802,21 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
     if (inside.length === 0) continue;
     const methodRefs = refs.filter((r) => r.level === "method" && r.method === block.method);
     const {missing, missingKinds} = blockNames(methodRefs, inside);
+    // the nameless wordings that name an object (`Class or type "X" not
+    // found`, `Could not resolve top X`): the object is a name like any
+    // other (milestone 4) -- asked, or a framework gap in a framework
+    // namespace -- never a nameless framework gap
+    const objectNamed = new Set();
+    for (const f of inside) {
+      if (refMatched(methodRefs, f) === true) continue;
+      const named = objectNameInFinding(f.message);
+      if (named === undefined) continue;
+      objectNamed.add(f);
+      if (missing.includes(named.name) === false) {
+        missing.push(named.name);
+        missingKinds.push({...named, finding: f.raw, message: f.message});
+      }
+    }
     for (const nk of missingKinds) {
       if (frameworkOf(nk.name) === true) framework.push({name: nk.name, kind: nk.kind, line: inside[0].line, method: block.method});
     }
@@ -814,7 +830,7 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
     const fallbackNames = classifyFindings(inside.filter((f) => refMatched(methodRefs, f) === false)).names;
     const collectNameless = () => {
       for (const f of inside) {
-        if (refMatched(methodRefs, f) === true || fallbackNames.some((n) => n.finding === f.raw) === true) continue;
+        if (refMatched(methodRefs, f) === true || fallbackNames.some((n) => n.finding === f.raw) === true || objectNamed.has(f) === true) continue;
         // a parse the build cannot structure is not a member the
         // framework lacks: it is stubbed, never a framework gap
         if (f.structure === true) continue;
@@ -822,8 +838,6 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
         nameless.push({finding: f.message, ...(member !== undefined ? {member} : {}), line: f.line, method: stub.method});
       }
     };
-    const code = missingKinds.filter((nk) => isCodeKind(nk.kind) === true);
-    const ddic = missingKinds.filter((nk) => isCodeKind(nk.kind) === false);
     if (onConstructorPath(block) === true && missingKinds.some((nk) => pending(nk.name, nk.kind) === true)) {
       // on a class constructor's path every pending name is asked now, code
       // kinds included, and the body stays one more round: the dumper may
@@ -844,22 +858,22 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
       }
       continue;
     }
-    if (code.length > 0) {
-      // a code-kind name remains: the method is stubbed, the code names
-      // stay deferred (lazy, grows on the miss), and its DDIC names are
-      // asked from the dumper in this iteration -- eager, not deferred
-      stubs.push(stub);
-      for (const nk of code) {
-        if (present(nk.name, nk.kind) === false) deferred.push(forName(nk));
+    if (missingKinds.some((nk) => pending(nk.name, nk.kind) === true)) {
+      // a name this iteration's request can still bring -- a dictionary
+      // name, and since milestone 4 a class or interface simply absent from
+      // the island and never asked: it is ASKED now (eager), and the body
+      // stays one more round. The method is stubbed only once the dumper
+      // answered missing, or the answer still fails. (Round 3 kept code
+      // names lazy -- `deferred`, never asked -- and a helper class named
+      // only by a static call in a constructor, which the structural pass
+      // does not carry, was stubbed and never asked.)
+      // the dictionary names rejoin the classification with their finding
+      // (the body stays, so does the finding); the code names are eager --
+      // a static call's text the classifier does read, an object-naming
+      // wording it does not
+      for (const nk of missingKinds) {
+        if (isCodeKind(nk.kind) === true && pending(nk.name, nk.kind) === true) eager.push(forName(nk));
       }
-      for (const nk of ddic) {
-        if (pending(nk.name, nk.kind) === true) eager.push(forName(nk));
-      }
-      continue;
-    }
-    if (ddic.some((nk) => pending(nk.name, nk.kind) === true)) {
-      // a dictionary name this iteration's request can still bring: the
-      // body stays one more round, the finding rejoins the classification
       dropped += 1;
       continue;
     }

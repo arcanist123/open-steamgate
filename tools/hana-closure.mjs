@@ -57,10 +57,10 @@
 //                         positions, the stubbed source written back into
 //                         gen/hana-src, every stub recorded in
 //                         closure-stubs.json (--max-stub-rounds, default
-//                         5). A DDIC-kind name a would-be-stubbed method
-//                         names is asked from the dumper in the SAME
-//                         iteration; only code kinds stay `deferred`
-//                         (--defer-ddic keeps round 3). The nameless
+//                         5). Any pending name a would-be-stubbed method
+//                         names -- DDIC, and since milestone 4 code too --
+//                         is asked in the SAME iteration, the body kept a
+//                         round (--defer-ddic keeps round 3). The nameless
 //                         stubs' findings are the framework work list:
 //                         framework-gaps.json beside the stubs, "framework
 //                         gaps: N" on the line. Before anything is

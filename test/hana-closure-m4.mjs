@@ -8,6 +8,7 @@ import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync}
 import {join} from "node:path";
 import {run} from "../tools/hana-closure.mjs";
 import {cycleName} from "../tools/hana-src-gen.mjs";
+import {objectNameInFinding} from "../tools/hana-closure-framework.mjs";
 import {seedServices} from "../tools/hana-closure-seed.mjs";
 import {dumperRequests, outFile, readJson, scratchClosure} from "./helpers/hana-closure-fakes.mjs";
 
@@ -86,6 +87,35 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(readdirSync(join(root, "gen", "hana-src", layer, "src")), "refused at the merge").to.deep.equal(["zcl_osd_h5x_seed.clas.abap"]);
     const stubbed = readJson(outFile(root, "closure-stubs.json")).stubs.map((s) => s.method).sort();
     expect(stubbed).to.deep.equal(["A", "B", "C"]);
+  });
+
+  it("3: the object-naming wordings a classifier leaves nameless carry their name", () => {
+    expect(objectNameInFinding(`Class or type "cl_osd_h5x_helper" not found`)).to.deep.equal({name: "CL_OSD_H5X_HELPER", kind: "clas"});
+    expect(objectNameInFinding("Loop, not a table type, Could not resolve top /ZOSDH5X/IF_X")).to.deep.equal({name: "/ZOSDH5X/IF_X", kind: "intf"});
+    expect(objectNameInFinding(`Method "get_x" not found`)).to.equal(undefined);
+  });
+
+  it("3: a class named only by a static call in a method body is asked first, and the body stays", async () => {
+    const seed = cls("zcl_osd_h5x_seed", ["METHODS constructor."], {constructor: ["zcl_osd_h5x_helper=>check( )."]});
+    const helper = cls("zcl_osd_h5x_helper", ["CLASS-METHODS check."], {check: ["RETURN."]});
+    const {root, env, seedDump} = make({seed: {"zcl_osd_h5x_seed.clas.abap": seed}, tenant: {"zcl_osd_h5x_helper.clas.abap": helper}});
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    expect(requestedOf(root)[0].CLAS, "asked in the first request").to.include("ZCL_OSD_H5X_HELPER");
+    expect(readJson(outFile(root, "closure-stubs.json")).stubs, "the dumper brought it: nothing stubbed").to.deep.equal([]);
+    const request = readJson(outFile(root, "closure-request.json"));
+    expect(request.deferred.CLAS).to.deep.equal([]);
+  });
+
+  it("3: answered missing, the method is stubbed with the name in its raise", async () => {
+    const seed = cls("zcl_osd_h5x_seed", ["METHODS constructor."], {constructor: ["zcl_osd_h5x_helper=>check( )."]});
+    const {root, env, seedDump} = make({seed: {"zcl_osd_h5x_seed.clas.abap": seed}});
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    expect(requestedOf(root)[0].CLAS).to.include("ZCL_OSD_H5X_HELPER");
+    const stubs = readJson(outFile(root, "closure-stubs.json")).stubs;
+    expect(stubs.map((s) => [s.method, s.missing])).to.deep.equal([["CONSTRUCTOR", ["ZCL_OSD_H5X_HELPER"]]]);
+    expect(readJson(outFile(root, "closure-gaps.json")).gaps.map((g) => g.name)).to.include("ZCL_OSD_H5X_HELPER");
   });
 
   // a family seed: two services (one SEGW pair, one hand-written DPC) of the

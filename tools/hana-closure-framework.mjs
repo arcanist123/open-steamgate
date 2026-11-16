@@ -16,6 +16,13 @@
 // of a namespace (open-abap-core's JSON helper is a launchpad-namespace
 // class) does not make a seed of that namespace a framework of ours -- the
 // seed's own namespace is the tenant's.
+//
+// The same module reads the nameless shapes that DO name an object -- the
+// classifier (tools/hana-closure-exclude.mjs) leaves them nameless, and a
+// nameless stub is filed as a framework gap: `Class or type "X" not found`
+// and `... Could not resolve top X`. Such a name is a framework gap only in
+// a framework namespace; anywhere else it is an ordinary class to ask (an
+// annotation helper of another delivered package was mis-filed as a gap).
 import {readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {libraryFiles} from "./osd-inputs.mjs";
@@ -53,6 +60,24 @@ export function frameworkPredicate(namespaces) {
     const ns = namespaceOf(name);
     return ns !== undefined && set.has(ns) === true;
   };
+}
+
+// the nameless wordings that name an OBJECT (not a member): the name is
+// what is missing
+const OBJECT_SHAPES = [
+  /^Class or type "([^"]+)" not found$/,
+  /Could not resolve top ([A-Za-z0-9_/#$~]+)$/,
+];
+
+/** the object a nameless finding names, or undefined: {name, kind}. Pure. */
+export function objectNameInFinding(message) {
+  for (const re of OBJECT_SHAPES) {
+    const m = re.exec(String(message ?? "").trim());
+    if (m === null) continue;
+    const name = m[1].split("~")[0].replace(/^#([^#]+)#/, "/$1/").toUpperCase();
+    return {name, kind: /(?:^|\/)IF_/.test(name) ? "intf" : "clas"};
+  }
+  return undefined;
 }
 
 /** the accumulator of one iteration's name-bearing framework gaps:
