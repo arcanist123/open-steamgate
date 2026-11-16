@@ -1,0 +1,482 @@
+// `osd hana extract --out <dir>`: your own code out of a HANA database into an
+// abapGit-layout repository, read-only, through the sidecar -- this code never
+// sends a statement to the database, opens no socket, and never sees the
+// password on argv or in a log (the password reaches the sidecar's
+// environment only).
+//
+//   1. scope     -- the SIDECAR's customer/sap classification (never a second
+//                   rule here); local packages included by default (`--no-local`
+//                   turns them off), narrowed by --package/--name/--author;
+//                   SAP-delivered objects only with --include-sap AND an
+//                   explicit --package/--name (then the output directory must
+//                   not be inside a git working tree, and the report and the
+//                   console carry the notice that this content is the
+//                   vendor's). Table CONTENTS are not extracted; the `tables`
+//                   request field stays reserved.
+//   2. plan      -- `list`, then a per-type / per-package table with counts
+//                   and byte estimates and what will be skipped as
+//                   unsupported. --dry-run stops here. --json prints the plan
+//                   as JSON.
+//   3. dump      -- the schema-1 request, restartable: an existing dump whose
+//                   manifest echoes the same request and whose sidecar exit
+//                   was 0 is reused; anything else is refused, never mixed.
+//   4. convert   -- the abapGit-layout repository in <out> (see ./convert/).
+//   5. report    -- <out>/extract-report.json and .md, always written.
+//
+// Exit codes: 0 everything in scope written; 3 partial (something skipped or
+// unsupported -- the report says what); 1 usage; 2 connection; 4 refused
+// output directory; 5 no ABAP schema.
+import fs from "node:fs/promises";
+import path from "node:path";
+import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
+import {Sidecar, HandshakeError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
+import {convert, SUPPORTED_TYPES} from "./convert/convert.mjs";
+import {renderMdReport, planDocuments} from "./report.mjs";
+
+export const EXTRACT_EXIT = Object.freeze({
+  ok: 0,
+  usage: 1,
+  connection: 2,
+  partial: 3,
+  refusedOut: 4,
+  noAbapSchema: 5,
+});
+
+const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin"];
+const REPEATABLE = ["package", "name"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "help"];
+// the capabilities extract needs from the sidecar (contract W0)
+const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "inactive", "catalog", "ddic"];
+
+const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
+                        [--package <pattern>]... [--name <pattern>]...
+                        [--author <user>] [--no-local] [--inactive]
+                        [--include-sap] [--dry-run] [--json]
+                        connection flags as the doctor's (--host --port
+                        --database --user --schema --env-file
+                        --password-stdin --allow-unpinned-sidecar)
+
+Extracts your own ABAP code out of a HANA database into an abapGit-layout
+repository (an .abapgit.xml and src/), reading ONLY through the sidecar
+binary osd-hana-dump (read-only by construction). The scope is the sidecar's
+customer classification, local packages included; --package/--name/--author
+narrow it, --no-local leaves local packages out. SAP-delivered objects are
+extracted only with --include-sap together with an explicit --package or
+--name; that content is the vendor's and must not be published. Table
+contents are not extracted.
+
+The plan (a per-type and per-package table) is printed first; --dry-run
+stops after it. The dump lands in <out>/.osd-hana/dump (or --dump-dir) and
+is reused when its manifest echoes the same request. The report is written
+to <out>/extract-report.json and extract-report.md.
+
+Exit codes: 0 everything in scope written; 3 partial (something skipped or
+unsupported -- the report says what); 1 usage; 2 cannot connect; 4 refused
+output directory; 5 no ABAP schema.`;
+
+export async function extractMain(argv, {
+  io = {out: (line) => process.stdout.write(`${line}\n`), err: (line) => process.stderr.write(`${line}\n`)},
+  env = process.env,
+  stdin = process.stdin,
+  isTTY = Boolean(stdin?.isTTY),
+  callerPath,
+  sidecarTimeoutMs = 600_000,
+  now = () => new Date(),
+} = {}) {
+  resetVerifiedSidecars();
+  const started = now().getTime();
+  let flags;
+  try {
+    flags = parseFlags(argv, {valueFlags: VALUE_FLAGS, booleanFlags: BOOLEAN_FLAGS, repeatable: REPEATABLE}).flags;
+  } catch (error) {
+    if (error instanceof UsageError) {
+      io.err(`${error.message}\n\n${USAGE}`);
+      return EXTRACT_EXIT.usage;
+    }
+    throw error;
+  }
+  const fail = (message) => {
+    io.err(message);
+    return EXTRACT_EXIT.usage;
+  };
+  if (flags.help === true) {
+    io.out(USAGE);
+    return EXTRACT_EXIT.ok;
+  }
+  for (const required of ["out"]) {
+    if (typeof flags[required] !== "string" || flags[required] === "") {
+      return fail(`osd hana extract: --out is required (the repository and the report are written there)\n\n${USAGE}`);
+    }
+  }
+  const out = path.resolve(flags.out);
+  const dumpDir = flags["dump-dir"] !== undefined ? path.resolve(flags["dump-dir"]) : path.join(out, ".osd-hana", "dump");
+
+  // --include-sap only together with an explicit --package/--name
+  const hasExplicitSelection = (flags.package?.length ?? 0) > 0 || (flags.name?.length ?? 0) > 0;
+  if (flags["include-sap"] === true && !hasExplicitSelection) {
+    return fail("osd hana extract: --include-sap needs an explicit --package or --name (vendor content is never extracted wholesale)");
+  }
+
+  // ---- sidecar: locate, verify, handshake --------------------------------
+  let sidecarPath;
+  try {
+    sidecarPath = locateSidecar({env, callerPath});
+  } catch (error) {
+    return fail(error.message);
+  }
+  let pin;
+  try {
+    pin = loadPin(flags["sidecar-pin"]);
+  } catch (error) {
+    return fail(error.message);
+  }
+  let verified;
+  try {
+    verified = await verifySidecar(sidecarPath, {
+      pin,
+      allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+      loud: (line) => io.err(line.trimEnd()),
+    });
+  } catch (error) {
+    return fail(error.message);
+  }
+  let handshakeInfo;
+  try {
+    handshakeInfo = await handshake(sidecarPath, {requiredCapabilities: NEEDED_CAPABILITIES, pin: verified.pinned ? pin : undefined, env});
+  } catch (error) {
+    if (error instanceof HandshakeError) return fail(error.message);
+    return fail(`osd hana: the sidecar handshake could not run: ${error.message}`);
+  }
+
+  // ---- connection ---------------------------------------------------------
+  let connection;
+  try {
+    connection = await collectConnection({flags, env, stdin, isTTY});
+  } catch (error) {
+    if (error instanceof UsageError) return fail(`osd hana: ${error.message.replace(/^osd hana: /, "")}`);
+    return fail(`osd hana: taking the password failed: ${error.message}`);
+  }
+
+  // ---- the request (schema 1) --------------------------------------------
+  const request = {
+    schema: 1,
+    ...(flags.package?.length ? {packages: [...flags.package]} : {}),
+    ...(flags.name?.length ? {names: [...flags.name]} : {}),
+    ...(flags["no-local"] === true
+      ? {}
+      : {local: flags.author !== undefined ? {authors: [flags.author]} : {all: true}}),
+    inactive: flags.inactive === true,
+    catalog: true,
+    ddic: true,
+    provenance: "osd hana extract", // stable: the reuse fingerprint is the whole request, so nothing per-run may enter it
+  };
+
+  const sidecar = new Sidecar(sidecarPath, {
+    credentials: {user: connection.user, password: connection.password, host: connection.host, schema: connection.schema},
+    timeoutMs: sidecarTimeoutMs,
+    onStderr: (text) => io.err(text.trimEnd()),
+    env,
+  });
+
+  // --include-sap: the vendor's code must not land inside a git working tree
+  if (flags["include-sap"] === true) {
+    const verdict = await inGitTree(out);
+    if (verdict) {
+      io.err(`osd hana extract: refusing ${out}: it is inside the git working tree ${verdict} -- vendor content must not be published.`);
+      return EXTRACT_EXIT.refusedOut;
+    }
+  }
+
+  // the output directory must be fresh (only our own work area may exist)
+  const existing = await freshOutEntries(out);
+  if (existing.length > 0) {
+    io.err(`osd hana extract: refusing a non-empty output directory: ${out} holds ${existing.join(", ")}`);
+    return EXTRACT_EXIT.refusedOut;
+  }
+  const listDir = path.join(out, ".osd-hana", "list");
+  await fs.mkdir(path.join(out, ".osd-hana"), {recursive: true});
+
+  // ---- 1+2: list + plan ----------------------------------------------------
+  const requestPath = path.join(out, ".osd-hana", "request.json");
+  await fs.writeFile(requestPath, `${JSON.stringify(request, null, 1)}\n`);
+  const listRun = await runVerb(sidecar, "list", {requestPath, out: listDir, fail, connection});
+  if (typeof listRun === "number") return listRun;
+  const listed = await readJsonl(path.join(listDir, "objects.jsonl"));
+  if (listed.length === 0) {
+    io.err("osd hana extract: nothing in scope -- the database (or this selection) holds no objects of yours. There is no ABAP code to extract here.");
+    return EXTRACT_EXIT.noAbapSchema;
+  }
+
+  const author = flags.author;
+  const inScopeRows = listed.filter((r) => r.class !== "sap" || flags["include-sap"] === true)
+    .filter((r) => author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase());
+  const scopeIds = new Set(inScopeRows.map((r) => `${r.type}:${r.name}`));
+  if (scopeIds.size === 0) {
+    return fail("osd hana extract: nothing is in scope after the narrowing flags -- nothing to extract.");
+  }
+
+  const plan = buildPlan(inScopeRows, listed);
+  if (flags.json === true) {
+    io.out(JSON.stringify(planDocuments({plan, request, sidecar: describeSidecar(verified, handshakeInfo), out, dumpDir}), null, 1));
+  } else {
+    printPlan(io, plan);
+  }
+  if (flags["dry-run"] === true) return EXTRACT_EXIT.ok;
+
+  // ---- 3: dump -------------------------------------------------------------
+  const reused = await reusableDump(dumpDir, request);
+  let dumpRun;
+  if (reused.ok) {
+    io.err(`osd hana extract: reusing the existing dump in ${dumpDir} (same request, sidecar exit 0)`);
+  } else if (reused.exists) {
+    return fail(`osd hana extract: refusing the dump directory ${dumpDir}: ${reused.why}\n` +
+      "  A dump is never mixed. Remove the directory or pass --dump-dir.");
+  } else {
+    dumpRun = await runVerb(sidecar, "dump", {requestPath, out: dumpDir, fail, connection});
+    if (typeof dumpRun === "number") return dumpRun;
+  }
+
+  // ---- 4: convert ----------------------------------------------------------
+  const dumpManifest = JSON.parse(await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8"));
+  const dumpedCount = dumpManifest.sidecar?.counts ? dumpManifest.sidecar.counts.written + dumpManifest.sidecar.counts.skipped : dumpManifest.counts?.package_objects;
+  const outcomes = [];
+  let conversion;
+  try {
+    conversion = await convert({
+      dump: dumpDir,
+      out,
+      inScope: (o) => scopeIds.has(o.id),
+      report: (o, status, reason) => outcomes.push({type: o.type, name: o.name, package: o.pkg, status, reason, files: [...o.files], state: stateOf(o), generated: String(o.row?.GENFLAG ?? "").trim() === "X"}),
+    });
+  } catch (error) {
+    io.err(`osd hana extract: converting the dump failed: ${error.message}`);
+    return EXTRACT_EXIT.usage;
+  }
+
+  // ---- 5: report -----------------------------------------------------------
+  const durationMs = now().getTime() - started;
+  const reportDoc = {
+    schema: 1,
+    out,
+    dump_dir: dumpDir,
+    dump_reused: reused.ok === true,
+    request,
+    sidecar: describeSidecar(verified, handshakeInfo),
+    folder_logic: {logic: conversion.folderLogic, folders: conversion.folders},
+    plan,
+    totals: totals(plan, outcomes, dumpedCount),
+    objects: outcomes,
+    errors: conversion.errors,
+    tpool_errors: conversion.tpoolErrors,
+    empty_sources: conversion.emptySources,
+    duration_ms: durationMs,
+    notice: flags["include-sap"] === true
+      ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."
+      : undefined,
+  };
+  reportDoc.sentence = sentence(reportDoc.totals);
+  await fs.writeFile(path.join(out, "extract-report.json"), `${JSON.stringify(reportDoc, null, 1)}\n`);
+  await fs.writeFile(path.join(out, "extract-report.md"), renderMdReport(reportDoc));
+
+  if (flags["include-sap"] === true) io.out("NOTICE: this extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it.");
+  io.out(`extract-report: ${path.join(out, "extract-report.md")}`);
+  io.out(reportDoc.sentence);
+  return reportDoc.totals.written === reportDoc.totals.inScope ? EXTRACT_EXIT.ok : EXTRACT_EXIT.partial;
+}
+
+// ---- helpers ---------------------------------------------------------------
+
+async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
+  // host/port/database and an explicit ABAP schema are the connection flags;
+  // user and password travel in the child's environment only (the Sidecar)
+  const args = ["--request", requestPath, "--out", out, "--host", connection.host, "--port", String(connection.port)];
+  if (connection.database !== undefined) args.push("--database", connection.database);
+  if (connection.schema !== undefined) args.push("--abap-schema", connection.schema);
+  let run;
+  try {
+    run = await sidecar.run(verb, {args});
+  } catch (error) {
+    // A timeout or a child that could not start: cannot-connect, not usage --
+    // the binary itself was verified and hand-shaken.
+    fail(error.message);
+    return EXTRACT_EXIT.connection;
+  }
+  switch (run.outcome) {
+    case "done":
+    case "partial": // the manifest carries the per-object reasons; the report accounts for them
+      return run;
+    case "connection":
+      fail(`osd hana: cannot connect or log on: ${run.summary.error ?? "the sidecar said so"}`);
+      return EXTRACT_EXIT.connection;
+    case "unsupported":
+      fail(`osd hana: no ABAP schema found on this database${run.summary.error ? ` (${run.summary.error})` : ""} -- there is no ABAP code to extract here.`);
+      return EXTRACT_EXIT.noAbapSchema;
+    case "refused":
+      fail(`osd hana: the sidecar refused: ${run.summary.error ?? "unknown"}`);
+      return EXTRACT_EXIT.refusedOut;
+    case "usage":
+      return fail(`osd hana: the sidecar refused the ${verb} as a usage error: ${run.summary.error ?? "unknown"}`);
+    default:
+      return fail(`osd hana: unmapped sidecar outcome: ${run.outcome}`);
+  }
+}
+
+/** Restart rule: an existing dump whose manifest echoes the same request and
+ *  whose sidecar exit was 0 (no errors in the manifest block) is reused;
+ *  anything else is refused, never mixed. */
+export async function reusableDump(dumpDir, request) {
+  let raw;
+  try {
+    raw = await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return {exists: false, ok: false};
+    return {exists: true, ok: false, why: `the manifest is unreadable (${e.message})`};
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(raw);
+  } catch (e) {
+    return {exists: true, ok: false, why: `the manifest is not JSON (${e.message})`};
+  }
+  const block = manifest.sidecar;
+  if (block === undefined) return {exists: true, ok: false, why: "the manifest has no sidecar block (an old or partial dump)"};
+  if (JSON.stringify(block.request ?? null) !== JSON.stringify(request)) {
+    return {exists: true, ok: false, why: "its manifest echoes a different request"};
+  }
+  if ((block.errors?.length ?? 0) > 0) return {exists: true, ok: false, why: `its manifest carries ${block.errors.length} errors`};
+  if (block.counts === undefined) return {exists: true, ok: false, why: "the manifest carries no counts (the dump did not finish)"};
+  return {exists: true, ok: true};
+}
+
+async function readJsonl(file) {
+  const out = [];
+  let text;
+  try {
+    text = await fs.readFile(file, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return out;
+    throw e;
+  }
+  for (const line of text.split("\n")) if (line.trim()) out.push(JSON.parse(line));
+  return out;
+}
+
+async function freshOutEntries(out) {
+  let entries;
+  try {
+    entries = await fs.readdir(out);
+  } catch (e) {
+    if (e.code === "ENOENT") return [];
+    throw e;
+  }
+  // entries this command itself may have written (a restart over a previous
+  // extraction of the same scope); anything else means the directory is in use
+  const ours = new Set([".osd-hana", ".abapgit.xml", "src", "extract-report.json", "extract-report.md"]);
+  return entries.filter((e) => !ours.has(e));
+}
+
+// The enclosing git working tree (directory or gitfile), or undefined.
+export async function inGitTree(dir) {
+  let p = path.resolve(dir);
+  for (;;) {
+    try {
+      const st = await fs.lstat(path.join(p, ".git"));
+      if (st.isFile() || st.isDirectory()) return p;
+    } catch (e) {
+      if (e.code !== "ENOENT") throw e;
+    }
+    const q = path.dirname(p);
+    if (q === p) return undefined;
+    p = q;
+  }
+}
+
+function buildPlan(rows, allRows) {
+  const perType = new Map();
+  const perPackage = new Map();
+  const byType = new Map();
+  for (const r of rows) {
+    const t = perType.get(r.type) ?? {type: r.type, inScope: 0, bytes: 0, unsupported: 0};
+    t.inScope++;
+    t.bytes += Number(r.source_bytes_compressed ?? 0);
+    if (!SUPPORTED_TYPES.has(r.type)) t.unsupported++;
+    perType.set(r.type, t);
+    byType.set(r.type, (byType.get(r.type) ?? 0) + 1);
+    const p = perPackage.get(r.package) ?? {package: r.package, objects: 0, bytes: 0};
+    p.objects++;
+    p.bytes += Number(r.source_bytes_compressed ?? 0);
+    perPackage.set(r.package, p);
+  }
+  return {
+    onSystem: allRows.length,
+    customer: allRows.filter((r) => r.class !== "sap").length,
+    sap: allRows.filter((r) => r.class === "sap").length,
+    inScope: rows.length,
+    generated: rows.filter((r) => r.generated === true).length,
+    perType: [...perType.values()].sort((a, b) => a.type.localeCompare(b.type)),
+    perPackage: [...perPackage.values()].sort((a, b) => a.package.localeCompare(b.package)),
+    unsupportedTypes: [...perType.values()].filter((t) => t.unsupported > 0).map((t) => t.type),
+  };
+}
+
+function totals(plan, outcomes, dumpedCount) {
+  const perType = {};
+  const sentenceTypes = {};
+  for (const o of outcomes) {
+    const t = perType[o.type] ?? {inScope: plan.perType.find((x) => x.type === o.type)?.inScope ?? 0, written: 0, skipped: 0, unsupported: 0};
+    if (o.status === "written") t.written++;
+    else if (o.status === "unsupported") t.unsupported++;
+    else t.skipped++;
+    perType[o.type] = t;
+    if (o.status !== "written") sentenceTypes[o.type] = (sentenceTypes[o.type] ?? 0) + 1;
+  }
+  const written = outcomes.filter((o) => o.status === "written").length;
+  const skipped = outcomes.filter((o) => o.status === "skipped").length;
+  const unsupported = outcomes.filter((o) => o.status === "unsupported").length;
+  return {
+    onSystem: plan.onSystem,
+    dumped: dumpedCount ?? plan.inScope,
+    inScope: plan.inScope,
+    written,
+    skipped,
+    unsupported,
+    perType,
+    notExtracted: Object.entries(sentenceTypes).map(([type, count]) => ({type, count})),
+  };
+}
+
+function sentence(totals) {
+  if (totals.notExtracted.length === 0) return `all ${totals.inScope} objects in scope were written`;
+  const byType = totals.notExtracted.map((x) => `${x.type} ${x.count}`).join(", ");
+  return `${totals.skipped + totals.unsupported} objects of ${totals.inScope} could not be extracted (${byType})`;
+}
+
+function stateOf(o) {
+  const fileStates = new Set((o.sc?.files ?? []).map((f) => f.state).filter(Boolean));
+  if (fileStates.has("I")) return fileStates.has("A") ? "both" : "I";
+  return o.sc?.state ?? "A";
+}
+
+function describeSidecar(verified, handshakeInfo) {
+  return {
+    path: verified.path,
+    pinned: verified.pinned,
+    target: verified.target,
+    sha256: verified.sha256,
+    version: handshakeInfo?.version,
+    commit: handshakeInfo?.commit,
+    capabilities: handshakeInfo?.capabilities,
+  };
+}
+
+function printPlan(io, plan) {
+  const mb = (b) => `${(b / 1_000_000).toFixed(1)} MB`;
+  io.out(`plan: ${plan.inScope} objects in scope (system holds ${plan.onSystem}: ${plan.customer} customer, ${plan.sap} sap)`);
+  io.out("  per type:");
+  for (const t of plan.perType) {
+    const mark = SUPPORTED_TYPES.has(t.type) ? "" : "  (unsupported -- will be listed, not written)";
+    io.out(`    ${t.type.padEnd(8)} ${String(t.inScope).padStart(6)}  ${mb(t.bytes).padStart(10)}${mark}`);
+  }
+  io.out("  per package:");
+  for (const p of plan.perPackage) io.out(`    ${p.package.padEnd(32)} ${String(p.objects).padStart(6)}  ${mb(p.bytes).padStart(10)}`);
+}

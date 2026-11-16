@@ -1,11 +1,10 @@
-# tools/osd-hana — `osd hana doctor`
+# tools/osd-hana — `osd hana doctor`, `osd hana extract`
 
 First piece of the "rescue your own ABAP code out of a HANA database whose
 ABAP server is gone or expiring" product line. This module locates, verifies,
 runs and explains the Go sidecar **`osd-hana-dump`** (owned by the sibling
 `vsp` project; the contract between the two is frozen: see `W0-contract.md`
-in the task tree — the tracked facts are restated here). `osd hana extract`
-is the next job and does not exist yet.
+in the task tree — the tracked facts are restated here).
 
 Nothing in this module opens a listening socket, and no statement that is not
 a SELECT is sent — with exactly one exception: `--create-reader` /
@@ -18,6 +17,9 @@ because the sidecar is read-only by construction and cannot create a user.
 |---|---|
 | `osd-hana.mjs` | the `osd hana <verb>` entry; `bin/osd.mjs` dispatches mode `hana` here |
 | `doctor.mjs` | the `doctor` verb: sidecar lifecycle + probe + verdict, exit codes |
+| `extract.mjs` | the `extract` verb: scope → plan → dump → convert → report (see below) |
+| `report.mjs` | the extract report: `extract-report.md` and the JSON document, from one source |
+| `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
 | `sidecar.mjs` | locate / verify (SHA-256 pin) / handshake / run the sidecar |
 | `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64) |
 | `connect.mjs` | connection input: `--host --port --database --user`, `--env-file`, `--password-stdin`, hidden TTY prompt. **No `--password` flag, ever** (argv is visible to every user of the machine). The password channels, in order: `--password-stdin` > `HANA_PASSWORD` in the env file > `$OSD_HANA_PASSWORD` > the hidden prompt (TTY only); a run with none of them is a refusal that names all four |
@@ -78,6 +80,50 @@ with an unpinned binary (`--allow-unpinned-sidecar`) it is qualified instead:
 the plain text and in `--json`. If the password equals a public default of a
 trial image, the doctor warns loudly (hashes in `defaults.mjs`, a courtesy
 check, one place) and changes nothing.
+
+## The extract
+
+`osd hana extract --out <dir>` writes your own code out of the database into
+an abapGit-layout repository (an `.abapgit.xml` and `src/`) that abapGit can
+clone, diff and deploy:
+
+1. **Scope** — the objects the SIDECAR classifies as customer, local packages
+   included (`--no-local` leaves them out; on a trial system that is where
+   people's work lives). `--package`, `--name` (repeatable) and `--author`
+   narrow it; the request they build is schema-1 JSON the sidecar validates
+   field by field. SAP-delivered objects are extracted only with
+   `--include-sap` together with an explicit `--package` or `--name` — then
+   the output directory must not sit inside a git working tree (extract
+   refuses), and the report and the console carry the notice that the
+   content is the vendor's and must not be published. Table CONTENTS are not
+   extracted; the sidecar's `tables` request field stays reserved.
+2. **Plan** — the sidecar's `list` (no sources read) becomes a per-type and
+   per-package table with counts and byte estimates, and names the types the
+   converter cannot write. `--dry-run` stops here; `--json` prints the plan
+   as one document.
+3. **Dump** — the sidecar's `dump` into `<out>/.osd-hana/dump` (or
+   `--dump-dir`), with `ddic` so tables, data elements, domains, search helps
+   and views come along. Restartable: an existing dump whose manifest echoes
+   the same request and finished without errors is reused; anything else is
+   refused, never mixed.
+4. **Convert** — the dump becomes the repository: folder logic PREFIX when
+   the package names allow it (one hierarchy, every child
+   `<parent>_<suffix>`), otherwise FULL — the report says which. File names
+   as abapGit writes them (lower case, a namespace `/` becomes `#`). ABAP is
+   byte-identical to the dump; the XML is abapGit's own layout (BOM, one
+   element per line, its field order), decided from abapGit's serializers,
+   not from single files. A type the converter cannot write is never dropped
+   silently: it is listed, and the exit code is 3.
+5. **Report** — always written: `<out>/extract-report.json` and
+   `extract-report.md`: per type on the system / dumped / written / skipped /
+   unsupported, per object its files with SHA-256, package, state
+   (active/inactive, `generated` flagged), the sidecar version + pin, the
+   request, the folder logic, the duration, and the plain sentence "N objects
+   of M could not be extracted".
+
+Exit codes: **0** everything in scope written, **3** partial (something
+skipped or unsupported — the report says what), **1** usage, **2** cannot
+connect, **4** refused output directory, **5** no ABAP schema.
 
 ## The dedicated reader
 
