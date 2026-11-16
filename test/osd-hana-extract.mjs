@@ -1299,12 +1299,19 @@ describe("osd hana extract -- fix round 3 (the default scope must not surprise)"
   });
 
   it("B: the consent question carries the REAL numbers of this plan (mutation: the numbers hard-coded or dropped)", async function () {
+    // a plan whose real numbers no constant could guess: 14 objects, 2.0 MB
+    const fx = variant((list) => {
+      writeObjectsL(list, objectsRowsL(list).map((o) =>
+        o.name === "ZCL_OSD_X1" ? {...o, source_bytes_compressed: 1_500_000}
+          : o.name === "ZOSD_X3" ? {...o, source_bytes_compressed: 500_000}
+            : o));
+    });
     const out = await fresh("r3-numbers");
-    const r = await runExtract(["--out", out], {yes: false, tty: true, answers: "n"});
+    const r = await runExtract(["--out", out], {yes: false, tty: true, answers: "n", list: fx.list});
     expect(r.code).to.equal(0); // declined
     const question = r.lines.out.find((l) => l.includes("into"));
     expect(question, "the question stands between the plan and the dump").to.exist;
-    expect(question).to.match(/extract 14 objects \(0\.0 MB\) into /);
+    expect(question).to.match(/extract 14 objects \(2\.0 MB\) into /);
     expect(question).to.match(new RegExp(out.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     expect(question.endsWith("[y/N]")).to.equal(true);
   });
