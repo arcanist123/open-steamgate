@@ -240,9 +240,12 @@ export class SidecarRunError extends Error {
 
 /** A verified, hand-shaken sidecar that one CLI run talks to. The context
  *  carries the credentials of the run; every child gets them only through its
- *  environment, and every byte of its stderr is passed on through the redactor
- *  (password, user, host, schema masked). stdout must be the one JSON line the
- *  contract promises; anything else is an error, not a guess. */
+ *  environment, and every byte the child writes passes through the redactor
+ *  (password, user, host, schema masked): stderr because a progress or error
+ *  line may repeat a connection value, stdout because a buggy or unpinned
+ *  binary that repeats a credential in its JSON answer must not get it echoed
+ *  by us (critic S-1). stdout must be the one JSON line the contract
+ *  promises; anything else is an error, not a guess. */
 export class Sidecar {
   constructor(path, {credentials, timeoutMs = 120_000, onStderr, env = process.env} = {}) {
     this.path = path;
@@ -263,11 +266,22 @@ export class Sidecar {
       timeoutMs: timeoutMs ?? this.timeoutMs,
       onStderr: this.onStderr,
     });
+    // The whole stdout passes the redactor BEFORE the JSON line is picked and
+    // parsed: the summary is data we print and embed (error text, the probe
+    // document in --json), so it must arrive already masked. The values are
+    // the credential and the DSN parts the contract says are never printed
+    // (password, user, host) -- not the schema: the probe document
+    // legitimately carries ABAP schema names and the verdict displays them,
+    // they are object names, not secrets.
+    const redact = makeRedactor([
+      this.credentials?.password, this.credentials?.user, this.credentials?.host,
+    ]);
+    const safeStdout = redact(stdout);
     const outcome = EXIT_OUTCOMES[code];
     if (outcome === undefined) {
       throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} exited ${code}, which the contract does not define`, {exit: code, stderr});
     }
-    const line = stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "").pop();
+    const line = safeStdout.split("\n").map((l) => l.trim()).filter((l) => l !== "").pop();
     let summary;
     if (line !== undefined) {
       try {

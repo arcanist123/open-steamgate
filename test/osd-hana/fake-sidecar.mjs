@@ -109,6 +109,17 @@ const PROBES = {
   },
   "no-schema": {ok: true, exit: 0, probe: {db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no", schemas: []}},
   "connect-error": {ok: false, exit: 2, error: "logon failed: the fake never lets anyone in"},
+  // Redactor fodder on STDOUT (critic S-1): a buggy or hostile binary repeats
+  // a credential inside its one-line JSON answer; the doctor must still
+  // print nothing.
+  "stdout-leak": {ok: false, exit: 2, error: `logon failed for password ${process.env.OSD_HANA_PASSWORD ?? "?"}`},
+  "stdout-leak-doc": {
+    ok: true, exit: 0,
+    probe: {
+      db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no",
+      schemas: [{name: `SCHEMA_${process.env.OSD_HANA_PASSWORD ?? "?"}`, basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
+    },
+  },
   unsupported: {ok: false, exit: 5, error: "no ABAP schema: this database holds no REPOSRC"},
   "usage-error": {ok: false, exit: 1, error: "usage: the fake refuses this request"},
   partial: {ok: false, exit: 3, error: "partial: a probe cannot be partial, but the fake can"},

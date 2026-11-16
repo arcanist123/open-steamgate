@@ -10,11 +10,17 @@
 // a form wrapped in single quotes, which is how a driver error repeats a
 // value back. A redactor that must also survive URL-encoding belongs to the
 // sidecar's own side of the seam, not here.
+//
+// Secrets shorter than 3 characters are ignored on purpose: with user "U"
+// every capital U in the child's output would otherwise become "***" (critic
+// note) -- a one-character value is not a findable secret, it is alphabet
+// poison.
 
 const SENTINEL = "***";
+const MIN_SECRET_LENGTH = 3;
 
 export function makeRedactor(values) {
-  const secrets = [...new Set(values.filter((v) => typeof v === "string" && v.length > 0))]
+  const secrets = [...new Set(values.filter((v) => typeof v === "string" && v.length >= MIN_SECRET_LENGTH))]
     .sort((a, b) => b.length - a.length);
   const forms = [];
   for (const secret of secrets) {

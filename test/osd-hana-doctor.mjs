@@ -422,6 +422,21 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       expect(allText()).to.not.include(PASSWORD);
     });
 
+    it("redacts everything read from the sidecar's stdout before it is printed or embedded (critic S-1; mutation: redact stderr only -> red)", async function () {
+      // the fake repeats the password inside its stdout JSON -- once in the
+      // error text, once inside the probe document -- with stderr clean, so
+      // stderr-only redaction protects nothing
+      const code = await runDoctor([], {scenario: "stdout-leak"});
+      expect(code).to.equal(2);
+      expect(allText()).to.include("cannot connect");
+      expect(allText()).to.not.include(PASSWORD);
+      // and the probe document embedded by --json is redacted at the source
+      const code2 = await runDoctor(["--json"], {scenario: "stdout-leak-doc"});
+      expect(code2).to.equal(0);
+      expect(out.join("\n")).to.not.include(PASSWORD);
+      expect(err.join("\n")).to.not.include(PASSWORD);
+    });
+
     it("warns loudly when the password is a public trial-image default, and changes nothing", async function () {
       expect(isPublicDefaultPassword("HXEHana1")).to.equal(true);
       expect(isPublicDefaultPassword(PASSWORD)).to.equal(false);
@@ -845,6 +860,13 @@ describe("tools/osd-hana: the osd hana doctor", function () {
 
   // ---------------------------------------- redactor and defaults, directly
   describe("the redactor and the courtesy check", function () {
+    it("ignores secrets shorter than 3 characters (critic note; mutation: keep 1-char secrets -> red)", function () {
+      // user "U" must not turn every capital U in the output into ***
+      const redact = makeRedactor(["U", "P", "AB", "secret-password-1"]);
+      expect(redact("user U connected to P with AB")).to.equal("user U connected to P with AB");
+      expect(redact("logon secret-password-1 accepted")).to.not.include("secret-password-1");
+    });
+
     it("masks all four values in every shape they travel", function () {
       const redact = makeRedactor(["secret-password-1", "TESTLOGIN", HOST, SCHEMA]);
       expect(redact("logon secret-password-1 accepted")).to.not.include("secret-password-1");
