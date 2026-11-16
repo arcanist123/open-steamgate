@@ -300,11 +300,12 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const verified = await verifySidecar(path, {pin: loadPin(pin)});
       expect(verified.pinned).to.equal(true);
       writeFileSync(path, swapped, {mode: 0o755});
-      // exactly what doctorMain wires: the re-check runs fresh, per spawn
+      // a pin in play means every spawn re-verifies the bytes first -- the
+      // same wiring doctorMain relies on
       const sidecar = new Sidecar(path, {
         credentials: {user: USER, password: PASSWORD},
         env: process.env,
-        beforeSpawn: () => verifySidecar(path, {pin: loadPin(pin), fresh: true}),
+        pin: loadPin(pin),
       });
       await sidecar.run("probe").then(
         () => expect.fail("the swapped binary ran -- nothing pins the verified bytes to the executed bytes"),

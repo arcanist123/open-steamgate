@@ -332,23 +332,40 @@ export class SidecarRunError extends Error {
  *  by us (critic S-1). stdout must be the one JSON line the contract
  *  promises; anything else is an error, not a guess. */
 export class Sidecar {
-  constructor(path, {credentials, timeoutMs = 120_000, onStderr, env = process.env, extraEnv, beforeSpawn} = {}) {
+  constructor(path, {
+    credentials,
+    timeoutMs = 120_000,
+    onStderr,
+    env = process.env,
+    extraEnv,
+    beforeSpawn,
+    // When a pin is in play and no explicit beforeSpawn is given, every spawn
+    // re-verifies the bytes first (fresh, uncached) -- no gap between the
+    // verified bytes and the executed bytes (critic S-3) is the module's
+    // default, not the caller's discipline.
+    pin,
+    allowUnpinned = false,
+    loud = (line) => process.stderr.write(line),
+  } = {}) {
     this.path = path;
     this.credentials = credentials;
     this.timeoutMs = timeoutMs;
     this.onStderr = onStderr;
     this.env = env;
     this.extraEnv = extraEnv;
-    this.beforeSpawn = beforeSpawn;
+    this.beforeSpawn = beforeSpawn
+      ?? (pin !== undefined
+        ? () => verifySidecar(path, {pin, allowUnpinned, fresh: true, loud})
+        : undefined);
   }
 
   /** Returns {exit, outcome, summary} where outcome is the contract's named
    *  outcome ("done", "usage", "connection", "partial", "refused",
    *  "unsupported"). The caller decides what an outcome means for its verb;
    *  this layer only refuses to invent one for an unknown exit code.
-   *  `beforeSpawn`, when given, runs first and its rejection stops the spawn:
-   *  the doctor wires it to a fresh (uncached) re-hash so the bytes about to
-   *  run are the bytes that were verified (critic S-3). */
+   *  `beforeSpawn`, when given (or implied by a pin), runs first and its
+   *  rejection stops the spawn: the bytes about to run are the bytes that
+   *  were verified (critic S-3). */
   async run(verb, {args = [], timeoutMs} = {}) {
     if (this.beforeSpawn !== undefined) await this.beforeSpawn(verb);
     const {code, stdout, stderr} = await runSidecarRaw(this.path, [verb, ...args], {

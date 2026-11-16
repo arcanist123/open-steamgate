@@ -147,23 +147,20 @@ export async function doctorMain(argv, {
   }
 
   // ---- probe --------------------------------------------------------------
-  const beforeSpawn = () => verifySidecar(path, {
-    pin,
-    allowUnpinned: flags["allow-unpinned-sidecar"] === true,
-    // Re-hash immediately before every spawn (critic S-3): after the initial
-    // verify the doctor may sit at a password prompt for minutes, and a swap
-    // in that window must not run unaudited bytes under the cached verdict.
-    // The binary is ~7 MB; a fresh sha256 read is milliseconds.
-    fresh: true,
-    loud: (line) => io.err(line.trimEnd()),
-  });
   const sidecar = new Sidecar(path, {
     credentials: {user: connection.user, password: connection.password, host: connection.host, schema: connection.schema},
     timeoutMs: sidecarTimeoutMs,
     onStderr: (text) => io.err(text.trimEnd()),
     env,
     extraEnv: sidecarExtraEnv,
-    beforeSpawn,
+    // A pin in play means every spawn re-verifies the bytes first (fresh,
+    // uncached -- Sidecar's default): after the initial verify the doctor may
+    // sit at a password prompt for minutes, and a swap in that window must
+    // not run unaudited bytes under the cached verdict (critic S-3). The
+    // binary is ~7 MB; a fresh sha256 read is milliseconds.
+    pin,
+    allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+    loud: (line) => io.err(line.trimEnd()),
   });
   // The user and the password are credentials and travel in the child's
   // environment only (contract W0). Host, port, tenant database and an
