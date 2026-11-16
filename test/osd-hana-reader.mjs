@@ -176,26 +176,32 @@ describe("tools/osd-hana: the dedicated reader", function () {
     });
     const statements = log.statements.map((s) => s.sql);
     // exact shapes, in order (E1: user unquoted, schema quoted as identifier)
-    expect(statements[0]).to.equal(`CREATE USER OSD_READER PASSWORD "${result.password}" NO FORCE_FIRST_PASSWORD_CHANGE`);
+    expect(statements[0]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
     expect(statements[1]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
     expect(statements[2]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
     expect(statements.some((s) => s.includes(`FROM "${SCHEMA}"."TADIR"`))).to.equal(true);
+    // the password is recoverable only from the one statement that carries it
+    // and from the store -- never from the return value (critic M-A)
+    const password = /PASSWORD "([^"]+)"/.exec(statements[0])[1];
+    expect(result.password).to.equal(undefined);
+    expect(result.user).to.equal(DEFAULT_READER_NAME);
+    expect(result.schema).to.equal(SCHEMA);
     // the proof ran as the reader, with the reader's own password
     const proofConnection = log.connections.find((c) => c.user === "OSD_READER");
-    expect(proofConnection.password).to.equal(result.password);
+    expect(proofConnection.password).to.equal(password);
     // the generated password: >= 24 chars, upper + lower + digit, nothing to escape
-    expect(result.password.length).to.be.at.least(24);
-    expect(result.password).to.match(/^[A-Za-z0-9]+$/);
-    expect(result.password).to.match(/[A-Z]/).and.to.match(/[a-z]/).and.to.match(/[0-9]/);
+    expect(password.length).to.be.at.least(24);
+    expect(password).to.match(/^[A-Za-z0-9]+$/);
+    expect(password).to.match(/[A-Z]/).and.to.match(/[a-z]/).and.to.match(/[0-9]/);
     expect(generateReaderPassword()).to.not.equal(generateReaderPassword());
     // and it is in none of the messages, in no thrown error -- only the mask
     const everything = said.join("\n");
-    expect(everything).to.not.include(result.password);
+    expect(everything).to.not.include(password);
     expect(everything).to.include("***");
     // the secret is stored where the doctor says, keyed by this connection
     expect(said.join("\n")).to.include(secretStore.location(DEFAULT_READER_NAME));
     const adminConnection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-    expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).password).to.equal(result.password);
+    expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).password).to.equal(password);
     expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).host).to.equal(HOST);
   });
 
@@ -379,6 +385,33 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(result.dropped).to.equal(false);
     expect(result.absent).to.equal(true);
     expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
+  });
+
+  it("M-A: --create-reader --yes --json reports {user, schema, stored_at} and the generated password is in no output (mutation: return the password -> red)", async function () {
+    // the documented machine-readable path is the one a CI log captures: the
+    // generated password must be in NONE of it -- the store is its only sink
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const secretStore = h.store();
+    const code = await h.runDoctor(["--create-reader", "--yes", "--json"], {
+      scenario: "owner-tenant",
+      deps: {clientFactory: factory, store: secretStore},
+    });
+    expect(code, h.allText()).to.equal(0);
+    const create = log.statements.find((s) => s.sql.startsWith("CREATE USER"));
+    const password = /PASSWORD "([^"]+)"/.exec(create.sql)[1];
+    expect(password).to.be.a("string").with.length.at.least(24);
+    // the password that went on the wire: not in stdout, not in stderr, not
+    // in the JSON document
+    expect(h.allText()).to.not.include(password);
+    const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
+    expect(JSON.stringify(document.reader)).to.not.include(password);
+    expect(document.reader.user).to.equal(DEFAULT_READER_NAME);
+    expect(document.reader.schema).to.equal(SCHEMA);
+    expect(document.reader.stored_at).to.be.a("string");
+    // and the value --json reported is exactly what the store holds
+    const stored = secretStore.get(readerStoreKey({host: HOST, port: 39015}, DEFAULT_READER_NAME));
+    expect(stored.password).to.equal(password);
+    expect(document.reader.stored_at).to.equal(stored.stored_at);
   });
 
   it("through the doctor: --create-reader runs the whole path and exits 0", async function () {

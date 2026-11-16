@@ -203,7 +203,15 @@ export async function doctorMain(argv, {
             clientFactory: clientFactory ?? hdbClientFactory(), prompt,
             say: (text) => io.out(text)});
       if (flags.json === true) {
-        io.out(JSON.stringify({...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), reader: result}, null, 1));
+        // the create result deliberately carries no password -- the secret
+        // store is its only holder (critic M-A); --json reports the facts a
+        // caller can act on and nothing that unlocks anything
+        io.out(JSON.stringify({
+          ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
+          reader: verb === "create-reader"
+            ? {user: result.user, schema: result.schema, stored_at: result.storedAt}
+            : {dropped: result.dropped, absent: result.absent},
+        }, null, 1));
       }
       return DOCTOR_EXIT.ok;
     } catch (error) {

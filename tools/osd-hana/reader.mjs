@@ -251,10 +251,11 @@ export function describe258OnGrant(schema, owner) {
 }
 
 /** Create the reader, end to end. `clientFactory(options)` opens an hdb
- *  connection (the seam the tests inject a fake into). Returns the stored
- *  secret for the caller to mention. Throws ReaderError with a person-shaped
- *  message on every refusal; on any failure after CREATE the user is dropped
- *  again first. */
+ *  connection (the seam the tests inject a fake into). Returns
+ *  {user, schema, storedAt} -- the generated password is NOT part of it: the
+ *  secret store is its only holder (critic M-A). Throws ReaderError with a
+ *  person-shaped message on every refusal; on any failure after CREATE the
+ *  user is dropped again first. */
 export async function createReader({
   connection,        // {host, port, user, password, database?} of the ADMINISTRATOR login
   schema,
@@ -313,11 +314,16 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
 
       // 5. Store the reader's credentials, keyed by this exact connection and
       // name -- --drop-reader demands the same key back before it will drop.
+      // The entry is the password's only resting place: the return value of
+      // this function deliberately carries none of it (critic M-A -- the
+      // --json document must never hold it).
+      const storedAt = new Date().toISOString();
       store.set(
-        {user: readerName, password, schema, host: connection.host, port: connection.port, database: connection.database},
+        {user: readerName, password, schema, host: connection.host, port: connection.port,
+          database: connection.database, stored_at: storedAt},
         readerStoreKey(connection, readerName));
       say(`osd hana: the reader's credentials are stored in ${store.location(readerName)}.`);
-      return {user: readerName, password, schema};
+      return {user: readerName, schema, storedAt};
     } catch (error) {
       // The catch-all cleanup: the user exists, the setup did not finish.
       // (A ReaderError has already done its own cleanup and carries its own
