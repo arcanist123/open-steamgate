@@ -2,25 +2,28 @@
 // an abapGit-layout repository -- one repo in <out>, `.abapgit.xml` + `src/`,
 // one object = the files abapGit would write for it.
 //
+// The report is built from a LEDGER (./ledger.mjs), driven by THE LISTING:
+// every in-scope object ends in exactly one state and every part the
+// converter knows it cannot write is a line under that object. The walk is
+// still objects.jsonl x TADIR x reposrc x DD* for CONTENT, but scope and
+// accounting come from the listing rows the extract passed in -- an object
+// the listing has and the dump lacks is `skipped: not-in-dump`, never a
+// vanishing (critic M1).
+//
 // This is the converter E2 measured (dump-to-layers.mjs), moved into the repo
-// and changed for the extract job:
-//   - the output is ONE abapGit repository (folder logic PREFIX or FULL),
-//     not a stack of layers; the cross-reference walk (WBCROSSGT/CROSS,
-//     layer order, cycles) belonged to the layers and is gone;
-//   - the XML is written in abapGit's own layout: one element per line,
-//     its indentation and field order (see ./xml.mjs, ./ddic.mjs);
-//   - the source of truth for WHAT was dumped is the sidecar's objects.jsonl
-//     (per-object status, class, state, skip reason), joined with TADIR for
-//     the row fields (MASTERLANG, GENFLAG).
-// Nothing here talks to a database; the dump is read, the repository written.
+// and changed for the extract job; the XML is abapGit's own layout (see
+// ./xml.mjs, ./ddic.mjs). Nothing here talks to a database; the dump is read,
+// the repository written.
 import {createReadStream} from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {createHash} from "node:crypto";
 import {createInterface} from "node:readline";
-import {filename, key, lf, node, leaf, abapgitXmlDoc, decodeTextpool, tpoolNode, repoDotXml} from "./xml.mjs";
+import {key, filename, repoDotXml, decodeTextpool, tpoolNode} from "./xml.mjs";
 import {tablXml, dtelXml, domaXml, ttypXml, shlpXml, viewXml} from "./ddic.mjs";
-import {assembleClass, clasXml, intfXml, progXml, includeXml, fugrXml, groupFromMain, includePrefix, mainProgram, groupSuffix} from "./program.mjs";
+import {groupFromMain, mainProgram, groupSuffix} from "./program.mjs";
+import {Ledger, unsafeComponent} from "./ledger.mjs";
+import {planObjectFiles} from "./write.mjs";
 
 // Objects this converter can write. A type outside this set that is IN SCOPE
 // is never dropped silently: it comes back as `unsupported` and the process
@@ -48,11 +51,13 @@ async function rows(dump, name, optional = false) {
 }
 
 // ---- folder logic ----------------------------------------------------------
-
-// abapGit's folder logic (zcl_abapgit_folder_logic):
+// abapGit's folder logic (zcl_abapgit_folder_logic=>package_to_path), the
+// rule implemented here:
 //   FULL   -- every package is a folder of its own name (leading `$` stripped
-//             by abapGit, `/` -> `#`, lower case), nested under its parent's
-//             folder.
+//             by abapGit, `/` -> `#`, lower case), NESTED under its parent's
+//             folder -- the source recurses into the parent and concatenates
+//             for FULL too (critic S1: the converter used to write flat
+//             folders, so a pull saw every file of a subpackage as moved).
 //   PREFIX -- a package's folder is the suffix behind its parent's name; it
 //             exists only where the names allow it: the packages must form a
 //             single hierarchy whose every child is `<parent>_<suffix>`.
@@ -72,19 +77,29 @@ export function decideFolderLogic(packages, parents) {
   return "PREFIX";
 }
 
-const fullFolderName = (pkg) => pkg.replace(/^\$/, "").toLowerCase().replaceAll("/", "#");
-
 export function folderPaths(packages, parents, logic) {
   const paths = new Map();
-  for (const p of [...packages].sort()) {
-    const parent = parents.get(p) ?? "";
-    if (logic === "PREFIX" && packages.has(parent) && parent !== p) {
+  const busy = new Set(); // a TDEVC parent cycle must not recurse forever
+  const pathOf = (p) => {
+    if (paths.has(p)) return paths.get(p);
+    const parent = busy.has(p) ? "" : (parents.get(p) ?? "");
+    let base;
+    if (logic === "PREFIX" && parent !== "" && packages.has(parent) && parent !== p) {
       const suffix = p.slice(parent.length).replace(/^_/, "");
-      paths.set(p, `${paths.get(parent)}${suffix.toLowerCase().replaceAll("/", "#")}/`);
+      base = `${pathOf(parent)}${suffix.toLowerCase().replaceAll("/", "#")}/`;
+    } else if (logic === "FULL" && parent !== "" && packages.has(parent) && parent !== p) {
+      // FULL nests under the parent's folder (S1); the recursion stops at the
+      // scope's top packages, as abapGit's does at the repo's top
+      base = `${pathOf(parent)}${fullFolderName(p)}/`;
     } else {
-      paths.set(p, `${fullFolderName(p)}/`);
+      base = `${fullFolderName(p)}/`;
     }
-  }
+    busy.add(p);
+    paths.set(p, base);
+    busy.delete(p);
+    return base;
+  };
+  for (const p of packages) pathOf(p);
   if (new Set(paths.values()).size !== paths.size) {
     throw new Error(`Folder name collision under ${logic} logic: ${[...paths.entries()].map(([k, v]) => `${k} -> ${v}`).join(", ")}`);
   }
@@ -96,8 +111,8 @@ export function folderPaths(packages, parents, logic) {
 export async function convert({
   dump,
   out,
-  inScope = () => true, // (object row) => boolean: the extract's scope, not a second classification
-  report = () => {},   // per-object outcome hook
+  listed,            // the in-scope listing rows: the ledger's spine (M1)
+  onLedger = () => {}, // the failure-path seam: extract keeps the ledger even when this throws (S3)
 } = {}) {
   const manifest = JSON.parse(await fs.readFile(path.join(dump, "manifest.json")));
   const table = (n) => rows(dump, n, n !== "TADIR");
@@ -110,7 +125,7 @@ export async function convert({
     sidecarObjects.set(`${key(r.type)}:${key(r.name)}`, r);
   }
   const tadir = await table("TADIR");
-  const objects = new Map(); // TYPE:NAME -> object
+  const objects = new Map(); // TYPE:NAME (uppercased) -> object
   for (const r of tadir) {
     const type = key(r.OBJECT);
     const name = key(r.OBJ_NAME);
@@ -122,16 +137,53 @@ export async function convert({
     objects.set(id, {id, type, name, pkg, row: r, sc, parts: new Map(), files: []});
   }
 
-  // ---- folder logic + output root ---------------------------------------
+  // ---- the ledger, from the listing ----------------------------------------
+  const ledger = new Ledger(listed);
+  onLedger(ledger);
+  const claims = ledger.markCaseCollisions(); // uppercased id -> surviving entry
+  for (const [upperId, e] of claims) {
+    if (!objects.has(upperId)) {
+      // the listing has it, the dump does not (restart drift, a TADIR gap):
+      // skipped, loud -- never a vanishing (critic M1)
+      e.status = "skipped";
+      e.reason = "not-in-dump: in the listing but not in the dump (no TADIR row)";
+    }
+  }
+  // name safety (attack 2): a package or object name that cannot be a path
+  // component is refused per object -- no traversal, no Windows device file,
+  // no write crash from a hostile or corrupt dump
+  const claimed = new Map(); // uppercased id -> object
+  for (const [upperId, e] of claims) {
+    const o = objects.get(upperId);
+    if (!o || e.status !== undefined) continue;
+    const bad = unsafeComponent(fullFolderName(o.pkg)) ?? unsafeComponent(filename(o.name));
+    if (bad !== undefined) {
+      e.status = "skipped";
+      e.reason = `unsafe name: ${bad}`;
+      continue;
+    }
+    claimed.set(upperId, o);
+  }
+
+  // ---- folder logic + output root ------------------------------------------
   const parents = new Map();
   for (const r of await table("TDEVC")) parents.set(key(r.DEVCLASS), key(r.PARENTCL));
-  const packages = new Set([...objects.values()].filter(inScope).map((o) => o.pkg));
+  const packages = new Set([...claimed.values()].map((o) => o.pkg));
   const logic = decideFolderLogic(packages, parents);
   const folders = folderPaths(packages, parents, logic);
   const folderOf = (pkg) => folders.get(pkg) ?? `${fullFolderName(pkg)}/`;
-  await fs.writeFile(path.join(out, ".abapgit.xml"), repoDotXml({folderLogic: logic}));
+  // the repository's master language follows the dump (N4: a hard-coded E is
+  // silently wrong on a non-English system): the dominant TADIR MASTERLANG
+  // among the written objects, falling back to E
+  const langs = new Map();
+  for (const o of claimed.values()) {
+    const l = key(o.row.MASTERLANG) || "E";
+    langs.set(l, (langs.get(l) ?? 0) + 1);
+  }
+  const masterLanguage = [...langs.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "E";
+  await fs.writeFile(path.join(out, ".abapgit.xml"), repoDotXml({folderLogic: logic, masterLanguage}));
 
-  // ---- repositories of sources -------------------------------------------
+  // ---- repositories of sources ----------------------------------------------
   const trdir = new Map();
   for (const r of await rows(dump, "TRDIR", true)) trdir.set(key(r.NAME), r);
   const tfdir = await table("TFDIR");
@@ -146,7 +198,7 @@ export async function convert({
   }
   const repotext = new Map();
   const poolLangs = new Map();
-  const tpoolErrors = [];
+  const errors = [];
   const poolOwner = (n) => objects.has(`PROG:${n}`) || (/^(.{1,30}?)=*CP$/.test(n) && n.length === 32 && objects.has(`CLAS:${n.slice(0, 30).replace(/=+$/, "")}`)) || /^(\/[^/]+\/)?(SAPL|L)/.test(n);
   for (const r of await rows(dump, "REPOTEXT", true)) {
     if (key(r.R3STATE || "A") !== "A") continue;
@@ -156,21 +208,27 @@ export async function convert({
     if (!poolLangs.has(n)) poolLangs.set(n, []);
     poolLangs.get(n).push(key(r.LANGUAGE));
   }
+  // A text pool is written in ONE language (the object's master language);
+  // what is left out is a part line, never silence (N5, critic M4's list).
   const tpoolOf = (program, language, {dropEmptyTitle = false} = {}) => {
     const l = language || "E";
-    const r = repotext.get(`${program}:${l}`);
+    const notes = [];
+    const other = (poolLangs.get(key(program)) ?? []).filter((x) => x !== l);
+    for (const lang of [...new Set(other)].sort()) {
+      notes.push({part: "text pool", disposition: "not written", reason: `language ${lang} pool not extracted (only the ${l} pool is written)`});
+    }
+    const r = repotext.get(`${key(program)}:${l}`);
     if (!r) {
-      const other = poolLangs.get(program);
-      if (other) tpoolErrors.push({program, language: l, reason: `pool only in ${other.sort().join(",")}`});
-      return undefined;
+      if (other.length > 0) notes.push({part: "text pool", disposition: "not written", reason: `master pool in ${l} missing from the dump; only ${[...new Set(other)].sort().join(",")}`});
+      return {node: undefined, notes};
     }
     let e = decodeTextpool(r.DATA);
     if (e === null) {
-      tpoolErrors.push({program, language: l, reason: "not fixed records"});
-      return undefined;
+      notes.push({part: "text pool", disposition: "not written", reason: "not fixed records"});
+      return {node: undefined, notes};
     }
     if (dropEmptyTitle) e = e.filter((x) => !(x.ID === "R" && x.KEY === "" && x.LENGTH === 0));
-    return tpoolNode(e);
+    return {node: tpoolNode(e), notes};
   };
   const signatures = new Map();
   const fmTexts = new Map();
@@ -191,6 +249,7 @@ export async function convert({
   const fmByInclude = new Map();
   const fmByName = new Map();
   const fmRow = new Map();
+  const fmsOfGroup = new Map(); // group -> TFDIR rows (M2's completeness check)
   const groupByProgram = new Map();
   const groupByName = new Map();
   for (const r of tfdir) {
@@ -205,6 +264,8 @@ export async function convert({
     groupByProgram.set(prog, owner);
     fmByName.set(fm, owner);
     fmRow.set(fm, r);
+    if (!fmsOfGroup.has(group)) fmsOfGroup.set(group, []);
+    fmsOfGroup.get(group).push(r);
     if (inc) fmByInclude.set(`${group}:U${inc}`, fm);
   }
   for (const r of await rows(dump, "TLIBG", true)) {
@@ -245,7 +306,6 @@ export async function convert({
     return o;
   }
 
-  const errors = [];
   const emptySources = {count: 0};
   // One pass over the dump's sources: every program resolves to at most one
   // owner, and the owner takes its ACTIVE version (abapGit serializes the
@@ -254,7 +314,7 @@ export async function convert({
   for await (const list of repoLists(dump)) {
     const p = list[0].program;
     const o = resolve(p);
-    if (!o || !inScope(o)) continue;
+    if (!o || !claimed.has(o.id)) continue;
     const active = list.find((r) => key(r.state || "A") === "A") ?? list[0];
     if (active.error) {
       errors.push({program: p, error: String(active.error)});
@@ -272,7 +332,7 @@ export async function convert({
     o.parts.set(partKey, path.join(dump, active.file));
   }
 
-  // ---- dictionary objects --------------------------------------------------
+  // ---- dictionary objects ----------------------------------------------------
   {
     const active = (r) => key(r.AS4LOCAL || "A") === "A";
     const text = async (t, col) => {
@@ -320,7 +380,7 @@ export async function convert({
     const dd28s = await by("DD28S", "CONDNAME");
     const lang = (r) => (r ? {DDLANGUAGE: "E", ...r, DDLANGUAGE: key(r.DDLANGUAGE) || "E"} : {DDLANGUAGE: "E"});
     for (const o of objects.values()) {
-      if (!inScope(o)) continue;
+      if (!claimed.has(o.id)) continue;
       if (o.type === "TABL" && dd02l.has(o.name)) {
         o.ddic = tablXml({...dd02l.get(o.name)[0], ...lang(dd02t.get(o.name)), TABNAME: o.name}, dd09l.get(o.name)?.[0], dd03l.get(o.name) || []);
       } else if (o.type === "DTEL" && dd04l.has(o.name)) {
@@ -358,175 +418,128 @@ export async function convert({
     for (const r of tableRows) {
       if (key(r[version]) !== "A") continue;
       const owner = objects.get(`${type}:${key(r[column])}`);
-      if (!owner || !inScope(owner)) continue;
+      if (!owner || !claimed.has(owner.id)) continue;
       owner.text = r.SOURCE ?? "";
       owner.sourceRow = r;
       owner.parts.set("SRC", "");
     }
   }
 
-  // ---- write ---------------------------------------------------------------
-  const outcomes = new Map(); // id -> {object, status}
-  const outcome = (o, status, reason) => {
-    outcomes.set(o.id, {type: o.type, name: o.name, package: o.pkg, status, reason, state: stateOf(o), generated: key(o.row.GENFLAG) === "X", files: o.files, sc: o.sc});
-    report(o, status, reason);
-  };
+  // ---- read the source contents, then plan every file before writing any ---
   const stateOf = (o) => {
     const s = o.sc?.state ?? undefined;
     const fileStates = new Set((o.sc?.files ?? []).map((f) => f.state).filter(Boolean));
     if (fileStates.has("I")) return fileStates.has("A") ? "both" : "I";
     return s ?? "A";
   };
-
-  async function writeObject(o) {
-    const folder = path.join(out, "src", folderOf(o.pkg));
-    await fs.mkdir(folder, {recursive: true});
-    const stem = filename(o.name);
-    const put = async (suffix, content) => {
-      const p = path.join(folder, `${stem}.${suffix}`);
-      await fs.writeFile(p, content);
-      o.files.push({path: path.relative(out, p).split(path.sep).join("/"), sha256: sha256(content), bytes: Buffer.byteLength(content)});
-    };
-    const parts = new Map();
+  for (const o of claimed.values()) {
+    o.partNotes = [];
     for (const [k, file] of o.parts) {
       if (file === "") continue; // a marker (SRC of DDLS/DDLX/SRVD), not a file
-      const content = await fs.readFile(file, "utf8").catch((e) => {
+      let content;
+      try {
+        content = await fs.readFile(file, "utf8");
+      } catch (e) {
         errors.push({program: k, object: o.name, error: e.message});
-        return null;
-      });
-      if (content !== null) parts.set(k, content);
+        o.partNotes.push({part: `source ${k}`, disposition: "not written", reason: `unreadable in the dump: ${e.message}`});
+        continue;
+      }
+      o.parts.set(k, content);
     }
-    let wrote = false;
-    if (o.type === "CLAS") {
-      if (!parts.has("CS") && !parts.has("CU")) {
-        outcome(o, "skipped", "class without CU or CS include");
-        return;
-      }
-      await put("clas.abap", assembleClass(o.name, parts));
-      const code = (s) => parts.has(s) && !comment(parts.get(s));
-      if (code("CL") && code("CCIMP")) {
-        errors.push({object: o.name, error: "local classes in both CL and CCIMP includes"});
-        parts.delete("CCIMP");
-      } else if (code("CL")) parts.set("CCIMP", parts.get("CL"));
-      for (const [s, ext] of [["CCDEF", "locals_def"], ["CCIMP", "locals_imp"], ["CCMAC", "macros"], ["CCAU", "testclasses"]]) {
-        const content = parts.get(s);
-        if (content && !comment(content)) await put(`clas.${ext}.abap`, content);
-      }
-      await put("clas.xml", clasXml(o, seoDf.get(o.name), seoTx.get(o.name), tpoolOf(o.name.padEnd(30, "=") + "CP", o.row.MASTERLANG)));
-      wrote = true;
-    } else if (o.type === "INTF") {
-      if (!parts.has("IU")) {
-        outcome(o, "skipped", "interface without IU include");
-        return;
-      }
-      await put("intf.abap", parts.get("IU"));
-      await put("intf.xml", intfXml(o, seoDf.get(o.name), seoTx.get(o.name)));
-      wrote = true;
-    } else if (o.type === "BDEF") {
-      if (!parts.has("BD")) {
-        outcome(o, "skipped", "behaviour definition without BD include");
-        return;
-      }
-      await put("bdef.asbdef", lf(parts.get("BD")));
-      await put("bdef.xml", abapgitXmlDoc("LCL_OBJECT_BDEF", [node("BDEF", [leaf("NAME", o.name), leaf("LANGU", o.row.MASTERLANG || "E")])]));
-      wrote = true;
-    } else if (o.ddic !== undefined) {
-      await put(`${o.type.toLowerCase()}.xml`, o.ddic);
-      wrote = true;
-    } else if (o.text !== undefined) {
-      const ext = {DDLS: "ddls.asddls", DDLX: "ddlx.asddlxs", SRVD: "srvd.srvdsrv"}[o.type];
-      await put(ext, lf(o.text));
-      const tag = {DDLS: "DDLS", DDLX: "DDLX", SRVD: "SRVD"}[o.type];
-      const children = [leaf(SOURCE_TABLES[o.type][1], o.name), leaf("LANGU", o.row.MASTERLANG || "E")];
-      if (o.type === "DDLS" && key(o.sourceRow.SOURCE_TYPE ?? "") !== "") children.push(leaf("SOURCE_TYPE", key(o.sourceRow.SOURCE_TYPE)));
-      await put(`${o.type.toLowerCase()}.xml`, abapgitXmlDoc(`LCL_OBJECT_${o.type}`, [node(tag, children)]));
-      wrote = true;
-    } else if (o.type === "PROG") {
-      const source = parts.get(o.name);
-      if (source === undefined) {
-        outcome(o, "skipped", "program without source");
-        return;
-      }
-      await put("prog.abap", source);
-      await put("prog.xml", progXml(o.name, trdir.get(o.name), tpoolOf(o.name, o.row.MASTERLANG, {dropEmptyTitle: true})));
-      wrote = true;
-    } else if (o.type === "FUGR") {
-      const {includes, functions, wrote: groupWrote} = await writeFunctionGroup(o, parts, folder, stem);
-      if (groupWrote) {
-        await put("fugr.xml", fugrXml({areat: areatOf(o), includes, functions}));
-        wrote = true;
-      }
-    }
-    if (wrote) outcome(o, "written");
-    else outcome(o, "skipped", "nothing could be written for this object");
   }
-
   // The group's short text (TLIBT) is not in the dump; abapGit suppresses the
   // empty AREAT, and so do we (fugrXml).
   const areatOf = (o) => o.sc?.areat ?? o.row.AREAT ?? "";
-  const comment = (content) => !content.split("\n").some((line2) => line2.trim() && !/^\s*\*"\*/.test(line2));
-
-  async function writeFunctionGroup(o, parts, folder, stem) {
-    const includes = [];
-    const functions = [];
-    const prefix = includePrefix(o.name);
-    let wrote = false;
-    for (const [prog, source] of [...parts].sort(([a], [b]) => a.localeCompare(b))) {
-      const suffix = prog.startsWith(prefix) ? prog.slice(prefix.length) : "";
-      // abapGit does not store what the function library generates: UXX
-      // (the module list), $NN (a module's interface comment), Vnn (a remote
-      // module's RFC stub) -- each marked as generated in its source
-      if (suffix === "UXX" || /^\$[0-9]{2,3}$/.test(suffix) || (!fmByInclude.get(`${o.name}:${suffix}`) && /GENERATED BY THE FUNCTION LIBRARY/i.test(String(source).slice(0, 400)))) continue;
-      const fm = fmByInclude.get(`${o.name}:${suffix}`);
-      const file = path.join(folder, `${stem}.fugr.${filename(fm || prog)}.abap`);
-      await fs.writeFile(file, source);
-      o.files.push({path: path.relative(out, file).split(path.sep).join("/"), sha256: sha256(source), bytes: Buffer.byteLength(source)});
-      wrote = true;
-      // abapGit stores each include's and the main program's attributes
-      // beside it (PROGDIR, plain <abapGit version="v1.0.0">); a module's
-      // file has none
-      if (!fm) {
-        const x = includeXml(prog, trdir.get(prog), prog === mainProgram(o.name) ? tpoolOf(prog, o.row?.MASTERLANG, {dropEmptyTitle: true}) : undefined);
-        const xp = path.join(folder, `${stem}.fugr.${filename(prog)}.xml`);
-        await fs.writeFile(xp, x);
-        o.files.push({path: path.relative(out, xp).split(path.sep).join("/"), sha256: sha256(x), bytes: Buffer.byteLength(x)});
-        includes.push(prog);
-      } else {
-        const r = fmRow.get(fm);
-        functions.push({name: fm, remote: key(r.FMODE) === "R" ? "R" : "", update: key(r.UTASK), text: fmTexts.get(fm), params: signatures.get(fm)});
-      }
-    }
-    return {includes, functions, wrote};
-  }
-
-  const todo = [...objects.values()].filter((o) => inScope(o)).sort((a, b) => a.id.localeCompare(b.id));
-  for (const o of todo) {
+  const ctx = {
+    folderOf, trdir, tpoolOf, seoDf, seoTx, fmByInclude, fmRow, fmTexts, signatures, fmsOfGroup, areatOf, errors,
+    sourceNameColumn: {DDLS: "DDLNAME", DDLX: "DDLXNAME", SRVD: "SRVDNAME"},
+  };
+  const plans = new Map(); // uppercased id -> {files, parts} | {skip, parts}
+  const ddicTypes = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW"];
+  for (const [upperId, o] of [...claimed.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const e = o.entry = claims.get(upperId);
     // A type this converter cannot write is NEVER dropped silently.
     if (!SUPPORTED_TYPES.has(o.type)) {
-      outcome(o, "unsupported");
+      e.status = "unsupported";
       continue;
     }
     // what the sidecar already refused has its own reason
     if (o.sc?.status === "skipped") {
-      outcome(o, "skipped", o.sc.reason ?? "skipped by the sidecar");
+      e.status = "skipped";
+      e.reason = o.sc.reason ?? "skipped by the sidecar";
       continue;
     }
     if (o.parts.size + (o.ddic !== undefined ? 1 : 0) + (o.text !== undefined ? 1 : 0) === 0) {
-      const ddicTypes = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW"];
-      outcome(o, "skipped", ddicTypes.includes(o.type) ? "no dictionary rows in the dump" : "no source in the dump");
+      e.status = "skipped";
+      e.reason = ddicTypes.includes(o.type) ? "no dictionary rows in the dump" : "no source in the dump";
       continue;
     }
-    await writeObject(o);
+    const plan = planObjectFiles(o, ctx);
+    if (plan.skip) {
+      e.status = "skipped";
+      e.reason = plan.skip;
+      e.parts = plan.parts;
+      continue;
+    }
+    plans.set(upperId, plan);
+  }
+
+  // Cross-object collisions (attack 2): two objects planning the SAME repo
+  // path refuse each other -- both listed, never last-writer-wins. And the
+  // containment backstop: every planned path stays inside <out>/src.
+  const srcRoot = path.resolve(out, "src");
+  const ownerOf = new Map(); // rel path -> uppercased id
+  const colliding = new Set();
+  for (const [upperId, plan] of plans) {
+    for (const f of plan.files) {
+      const abs = path.resolve(out, f.rel);
+      if (abs !== srcRoot && !abs.startsWith(`${srcRoot}${path.sep}`)) {
+        throw new Error(`internal: planned path escapes the repository: ${f.rel}`);
+      }
+      if (ownerOf.has(f.rel)) {
+        colliding.add(upperId);
+        colliding.add(ownerOf.get(f.rel));
+      } else {
+        ownerOf.set(f.rel, upperId);
+      }
+    }
+  }
+  for (const upperId of colliding) {
+    const plan = plans.get(upperId);
+    plans.delete(upperId);
+    const other = plan.files.map((f) => ownerOf.get(f.rel)).find((x) => x !== undefined && x !== upperId);
+    const e = claimed.get(upperId).entry;
+    e.status = "skipped";
+    e.reason = `output path collision with ${other !== undefined ? claimed.get(other).id : "another object"} -- refused, not overwritten`;
+    e.parts = plan.parts;
+  }
+
+  // ---- write -----------------------------------------------------------------
+  for (const [upperId, plan] of plans) {
+    const o = claimed.get(upperId);
+    for (const f of plan.files) {
+      const p = path.join(out, f.rel);
+      await fs.mkdir(path.dirname(p), {recursive: true});
+      await fs.writeFile(p, f.content);
+      o.files.push({path: f.rel, sha256: sha256(f.content), bytes: Buffer.byteLength(f.content)});
+    }
+    const e = o.entry;
+    e.files = o.files;
+    e.state = stateOf(o);
+    e.generated = key(o.row.GENFLAG) === "X";
+    e.parts = plan.parts;
+    e.status = plan.parts.length > 0 ? "written-partial" : "written";
   }
 
   return {
     folderLogic: logic,
     folders: [...folders.entries()].map(([p, f]) => ({package: p, folder: `src/${f}`})),
-    outcomes: [...outcomes.values()].map(({sc, ...rest}) => rest),
+    entries: ledger.entries,
+    unaccounted: ledger.unaccounted(),
     errors,
-    tpoolErrors,
     emptySources: emptySources.count,
     manifestProvenance: manifest.provenance,
+    masterLanguage,
   };
 }
 
@@ -541,3 +554,7 @@ async function* repoLists(dump) {
   }
   for (const list of groups.values()) yield list;
 }
+
+// abapGit's FULL folder name (zcl_abapgit_folder_logic): lower case, a
+// namespace "/" becomes "#", a leading "$" (local packages) is stripped.
+export const fullFolderName = (pkg) => pkg.replace(/^\$/, "").toLowerCase().replaceAll("/", "#");

@@ -1,5 +1,7 @@
 // The extract report: <out>/extract-report.md (the plain form a person reads)
-// and the JSON document extract.mjs writes beside it. One source for both.
+// and the JSON document extract.mjs writes beside it. One source for both --
+// the LEDGER: per object exactly one state, per unwritten/unchecked part a
+// line under its object (critic M1/M2/M4, structural).
 import {SUPPORTED_TYPES} from "./convert/convert.mjs";
 
 /** The `--json` plan document (also the skeleton of the full report). */
@@ -35,37 +37,65 @@ export function renderMdReport(doc) {
   }
   lines.push("## per object type");
   lines.push("");
-  lines.push("| type | in scope | written | skipped | unsupported |");
-  lines.push("|---|---|---|---|---|");
+  lines.push("| type | in scope | written | written-partial | skipped | unsupported |");
+  lines.push("|---|---|---|---|---|---|");
   const types = new Map();
-  for (const [type, v] of Object.entries(t.perType)) types.set(type, v);
-  for (const p of doc.plan.perType) if (!types.has(p.type)) types.set(p.type, {inScope: p.inScope, written: 0, skipped: 0, unsupported: p.unsupported});
+  for (const p of doc.plan.perType) types.set(p.type, {inScope: p.inScope, written: 0, writtenPartial: 0, skipped: 0, unsupported: 0});
+  for (const [type, v] of Object.entries(t.perType ?? {})) {
+    const slot = types.get(type) ?? {inScope: 0, written: 0, writtenPartial: 0, skipped: 0, unsupported: 0};
+    slot.written = v.written;
+    slot.writtenPartial = v.writtenPartial;
+    slot.skipped = v.skipped;
+    slot.unsupported = v.unsupported;
+    types.set(type, slot);
+  }
   for (const [type, v] of [...types.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const inScope = v.written + v.skipped + v.unsupported || v.inScope;
-    lines.push(`| ${type}${SUPPORTED_TYPES.has(type) ? "" : " (unsupported)"} | ${inScope} | ${v.written ?? 0} | ${v.skipped ?? 0} | ${v.unsupported ?? 0} |`);
+    lines.push(`| ${type}${SUPPORTED_TYPES.has(type) ? "" : " (unsupported)"} | ${v.inScope} | ${v.written} | ${v.writtenPartial} | ${v.skipped} | ${v.unsupported} |`);
   }
-  lines.push(`| total | ${t.inScope} | ${t.written} | ${t.skipped} | ${t.unsupported} |`);
+  lines.push(`| total | ${t.inScope} | ${t.written} | ${t.writtenPartial} | ${t.skipped} | ${t.unsupported} |`);
   lines.push("");
-  lines.push(`Totals: on the system ${t.onSystem}, dumped ${t.dumped}, in scope ${t.inScope} = written ${t.written} + skipped ${t.skipped} + unsupported ${t.unsupported}.`);
+  lines.push(`Totals: on the system ${t.onSystem}, dumped ${t.dumped}${t.dumped_in_scope !== undefined ? ` (${t.dumped_in_scope} of them in scope)` : ""}, in scope ${t.inScope} = written ${t.written} + written-partial ${t.writtenPartial} + skipped ${t.skipped} + unsupported ${t.unsupported}.`);
   lines.push("");
-  lines.push(doc.sentence[0].toUpperCase() + doc.sentence.slice(1) + ".");
-  if (t.notExtracted.length > 0) {
+  if (doc.sentence) lines.push(doc.sentence[0].toUpperCase() + doc.sentence.slice(1) + ".");
+  if (t.writtenPartial > 0) {
     lines.push("");
-    lines.push("Not extracted, by type: " + t.notExtracted.map((x) => `${x.type} (${x.count})`).join(", ") + ".");
+    lines.push("Note: program screens, GUI statuses and variants are not checked: the dump carries no screen/CUA/variant tables, so on every PROG/FUGR these parts read `not checked` rather than claiming completeness. Table CONTENTS are not extracted in this job; translated text pools and function documentation are part lines under their objects.");
   }
-  if (doc.objects.some((o) => o.status !== "written")) {
+  if (t.notExtracted?.length > 0) {
+    lines.push("");
+    lines.push("Not fully extracted, by type: " + t.notExtracted.map((x) => `${x.type} (${x.count})`).join(", ") + ".");
+  }
+  const partial = doc.objects.filter((o) => o.status === "written-partial");
+  if (partial.length > 0) {
+    lines.push("");
+    lines.push("## partially written objects");
+    lines.push("");
+    lines.push("The files are on disk; the parts below are what the dump could not give.");
+    lines.push("");
+    for (const o of partial) {
+      lines.push(`- ${o.type} ${o.name} (${o.package}):`);
+      for (const p of o.parts) lines.push(`  - ${p.part} -- ${p.disposition}: ${p.reason}`);
+    }
+  }
+  const notWritten = doc.objects.filter((o) => o.status === "skipped" || o.status === "unsupported");
+  if (notWritten.length > 0) {
     lines.push("");
     lines.push("## objects not written");
     lines.push("");
     lines.push("| type | name | package | status | reason | state | generated |");
     lines.push("|---|---|---|---|---|---|---|");
-    for (const o of doc.objects.filter((o) => o.status !== "written")) {
+    for (const o of notWritten) {
       lines.push(`| ${o.type} | ${o.name} | ${o.package} | ${o.status} | ${o.reason ?? ""} | ${o.state} | ${o.generated ? "yes" : ""} |`);
     }
   }
-  if (doc.objects.some((o) => o.state !== "A")) {
+  if (doc.drift && (doc.drift.appeared.length > 0 || doc.drift.disappeared.length > 0)) {
     lines.push("");
-    lines.push("Inactive content: " + doc.objects.filter((o) => o.state !== "A").map((o) => `${o.type} ${o.name} (${o.state})`).join(", ") + ".");
+    lines.push("## drift since the dump");
+    lines.push("");
+    lines.push("The dump was reused; the live listing differs from the dump's own object list:");
+    lines.push("");
+    if (doc.drift.appeared.length > 0) lines.push(`- appeared since the dump (listed, not in the dump -- skipped as not-in-dump): ${doc.drift.appeared.join(", ")}`);
+    if (doc.drift.disappeared.length > 0) lines.push(`- disappeared since the dump (in the dump, no longer listed -- not written): ${doc.drift.disappeared.join(", ")}`);
   }
   if (doc.errors.length > 0) {
     lines.push("");
@@ -73,11 +103,20 @@ export function renderMdReport(doc) {
     lines.push("");
     for (const e of doc.errors) lines.push(`- ${JSON.stringify(e)}`);
   }
-  if (doc.tpool_errors.length > 0) {
+  if (doc.internal_error !== undefined) {
     lines.push("");
-    lines.push("## text-pool problems");
+    lines.push("## internal error");
     lines.push("");
-    for (const e of doc.tpool_errors) lines.push(`- ${JSON.stringify(e)}`);
+    lines.push(doc.internal_error);
+  }
+  if (doc.ledger_error !== undefined) {
+    lines.push("");
+    lines.push(`> LEDGER INVARIANT BROKEN: ${doc.ledger_error}`);
+    lines.push("");
+  }
+  if (doc.objects.some((o) => o.state !== "A")) {
+    lines.push("");
+    lines.push("Inactive content: " + doc.objects.filter((o) => o.state !== "A").map((o) => `${o.type} ${o.name} (${o.state})`).join(", ") + ".");
   }
   lines.push("");
   return lines.join("\n");

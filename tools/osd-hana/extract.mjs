@@ -23,9 +23,11 @@
 //   4. convert   -- the abapGit-layout repository in <out> (see ./convert/).
 //   5. report    -- <out>/extract-report.json and .md, always written.
 //
-// Exit codes: 0 everything in scope written; 3 partial (something skipped or
-// unsupported -- the report says what); 1 usage; 2 connection; 4 refused
-// output directory; 5 no ABAP schema.
+// Exit codes: 0 everything in scope written; 3 partial (something written
+// partially, skipped or unsupported -- the report says what); 1 usage; 2
+// connection; 4 refused output directory; 5 no ABAP schema; 6 internal error
+// (a conversion/write failure or the ledger invariant -- a best-effort report
+// is still written and names the failure; never an uncaught crash).
 import fs from "node:fs/promises";
 import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
@@ -40,6 +42,7 @@ export const EXTRACT_EXIT = Object.freeze({
   partial: 3,
   refusedOut: 4,
   noAbapSchema: 5,
+  internal: 6,
 });
 
 const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin"];
@@ -70,9 +73,10 @@ stops after it. The dump lands in <out>/.osd-hana/dump (or --dump-dir) and
 is reused when its manifest echoes the same request. The report is written
 to <out>/extract-report.json and extract-report.md.
 
-Exit codes: 0 everything in scope written; 3 partial (something skipped or
-unsupported -- the report says what); 1 usage; 2 cannot connect; 4 refused
-output directory; 5 no ABAP schema.`;
+Exit codes: 0 everything in scope written; 3 partial (something written
+partially, skipped or unsupported -- the report says what); 1 usage; 2 cannot
+connect; 4 refused output directory; 5 no ABAP schema; 6 internal error (the
+report, best effort, is written anyway and names the failure).`;
 
 export async function extractMain(argv, {
   io = {out: (line) => process.stdout.write(`${line}\n`), err: (line) => process.stderr.write(`${line}\n`)},
@@ -255,26 +259,52 @@ export async function extractMain(argv, {
   }
 
   // ---- 4: convert ----------------------------------------------------------
+  // the derived repository is refreshed from what THIS run writes: a restart
+  // over a drifted dump must not leave stale files behind (they would claim
+  // content the run did not produce)
+  await fs.rm(path.join(out, "src"), {recursive: true, force: true});
+  await fs.rm(path.join(out, ".abapgit.xml"), {force: true});
   const dumpManifest = JSON.parse(await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8"));
   // the dump holds every object of the request; the sidecar counts DDIC
   // objects as "rows", so the object total is its own package_objects
   const dumpedCount = dumpManifest.counts?.package_objects ?? dumpManifest.sidecar?.counts?.package_objects;
-  const outcomes = [];
+  // of the dump's own object list, how many this run's scope covers (N2: the
+  // dump total also counts SAP-class objects a narrow scope excluded)
+  const dumpObjects = await readJsonl(path.join(dumpDir, "objects.jsonl"));
+  const dumpedInScope = dumpObjects.filter((r) => r.class !== "sap" || flags["include-sap"] === true)
+    .filter((r) => author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase()).length;
   let conversion;
+  let ledgerAtFailure; // the S3 promise: even a mid-run failure keeps its ledger for the report
   try {
-    conversion = await convert({
-      dump: dumpDir,
-      out,
-      inScope: (o) => scopeIds.has(o.id),
-      report: (o, status, reason) => outcomes.push({type: o.type, name: o.name, package: o.pkg, status, reason, files: [...o.files], state: stateOf(o), generated: String(o.row?.GENFLAG ?? "").trim() === "X"}),
-    });
+    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, onLedger: (l) => { ledgerAtFailure = l; }});
   } catch (error) {
-    io.err(`osd hana extract: converting the dump failed: ${error.message}`);
-    return EXTRACT_EXIT.usage;
+    const entries = ledgerAtFailure?.entries ?? [];
+    const reportDoc = {
+      schema: 1,
+      out,
+      dump_dir: dumpDir,
+      dump_reused: reused.ok === true,
+      request,
+      sidecar: describeSidecar(verified, handshakeInfo),
+      folder_logic: {logic: "unknown", folders: []},
+      plan,
+      totals: totals(plan, entries, dumpedCount, dumpedInScope),
+      objects: entries,
+      errors: [{error: error.message}],
+      internal_error: `converting the dump failed: ${error.message}`,
+      duration_ms: now().getTime() - started,
+      notice: flags["include-sap"] === true
+        ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."
+        : undefined,
+    };
+    await writeReport(out, reportDoc);
+    io.err(`osd hana extract: converting the dump failed: ${error.message} -- exit ${EXTRACT_EXIT.internal} (internal error; a best-effort report is at ${path.join(out, "extract-report.md")})`);
+    return EXTRACT_EXIT.internal;
   }
 
   // ---- 5: report -----------------------------------------------------------
   const durationMs = now().getTime() - started;
+  const totalsDoc = totals(plan, conversion.entries, dumpedCount, dumpedInScope);
   const reportDoc = {
     schema: 1,
     out,
@@ -284,23 +314,29 @@ export async function extractMain(argv, {
     sidecar: describeSidecar(verified, handshakeInfo),
     folder_logic: {logic: conversion.folderLogic, folders: conversion.folders},
     plan,
-    totals: totals(plan, outcomes, dumpedCount),
-    objects: outcomes,
+    totals: totalsDoc,
+    objects: conversion.entries,
     errors: conversion.errors,
-    tpool_errors: conversion.tpoolErrors,
     empty_sources: conversion.emptySources,
     duration_ms: durationMs,
     notice: flags["include-sap"] === true
       ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."
       : undefined,
   };
-  reportDoc.sentence = sentence(reportDoc.totals);
-  await fs.writeFile(path.join(out, "extract-report.json"), `${JSON.stringify(reportDoc, null, 1)}\n`);
-  await fs.writeFile(path.join(out, "extract-report.md"), renderMdReport(reportDoc));
+  // the M1 backstop, structural: exit 0 is refused unless the ledger accounts
+  // for exactly the listing's in-scope count -- totals that do not add up are
+  // an internal error, never a silently wrong report
+  if (conversion.unaccounted.length > 0 || totalsDoc.accounts !== true) {
+    reportDoc.ledger_error = `the ledger accounts for ${conversion.entries.length - conversion.unaccounted.length} of ${plan.inScope} in-scope objects`;
+  } else {
+    reportDoc.sentence = sentence(totalsDoc);
+  }
+  await writeReport(out, reportDoc);
 
   if (flags["include-sap"] === true) io.out("NOTICE: this extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it.");
   io.out(`extract-report: ${path.join(out, "extract-report.md")}`);
-  io.out(reportDoc.sentence);
+  io.out(reportDoc.sentence ?? reportDoc.ledger_error);
+  if (reportDoc.ledger_error !== undefined) return EXTRACT_EXIT.internal;
   return reportDoc.totals.written === reportDoc.totals.inScope ? EXTRACT_EXIT.ok : EXTRACT_EXIT.partial;
 }
 
@@ -445,42 +481,63 @@ function buildPlan(rows, allRows) {
   };
 }
 
-function totals(plan, outcomes, dumpedCount) {
+// The totals are computed FROM THE LEDGER (critic M1: never recomputed in a
+// way that could mask a gap); the plan carries the in-scope counts and the
+// two are asserted equal -- `accounts` is the exit-0 gate.
+function totals(plan, entries, dumpedCount, dumpedInScope) {
   const perType = {};
-  const sentenceTypes = {};
-  for (const o of outcomes) {
-    const t = perType[o.type] ?? {inScope: plan.perType.find((x) => x.type === o.type)?.inScope ?? 0, written: 0, skipped: 0, unsupported: 0};
-    if (o.status === "written") t.written++;
-    else if (o.status === "unsupported") t.unsupported++;
-    else t.skipped++;
-    perType[o.type] = t;
-    if (o.status !== "written") sentenceTypes[o.type] = (sentenceTypes[o.type] ?? 0) + 1;
-  }
-  const written = outcomes.filter((o) => o.status === "written").length;
-  const skipped = outcomes.filter((o) => o.status === "skipped").length;
-  const unsupported = outcomes.filter((o) => o.status === "unsupported").length;
-  return {
+  for (const p of plan.perType) perType[p.type] = {inScope: p.inScope, written: 0, writtenPartial: 0, skipped: 0, unsupported: 0};
+  const t = {
     onSystem: plan.onSystem,
     dumped: dumpedCount ?? plan.inScope,
+    dumped_in_scope: dumpedInScope,
     inScope: plan.inScope,
-    written,
-    skipped,
-    unsupported,
+    written: 0,
+    writtenPartial: 0,
+    skipped: 0,
+    unsupported: 0,
     perType,
-    notExtracted: Object.entries(sentenceTypes).map(([type, count]) => ({type, count})),
+    notExtracted: [],
   };
+  const byType = {};
+  for (const e of entries) {
+    if (e.status === undefined) continue; // the failure path: unresolved yet
+    const slot = perType[e.type] ?? {inScope: 0, written: 0, writtenPartial: 0, skipped: 0, unsupported: 0};
+    // inScope comes from the plan (the listing); the sum check below is the
+    // cross-validation of the ledger against it -- no double counting
+    perType[e.type] = slot;
+    if (e.status === "written") {
+      t.written++;
+      slot.written++;
+    } else if (e.status === "written-partial") {
+      t.writtenPartial++;
+      slot.writtenPartial++;
+    } else if (e.status === "unsupported") {
+      t.unsupported++;
+      slot.unsupported++;
+    } else {
+      t.skipped++;
+      slot.skipped++;
+    }
+    if (e.status !== "written") {
+      byType[e.type] = (byType[e.type] ?? 0) + 1;
+      t.notExtracted.push({type: e.type, status: e.status});
+    }
+  }
+  t.accounts = entries.length === plan.inScope && Object.values(perType).every((v) => v.written + v.writtenPartial + v.skipped + v.unsupported === v.inScope);
+  t.notExtracted = Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([type, count]) => ({type, count}));
+  return t;
 }
 
-function sentence(totals) {
-  if (totals.notExtracted.length === 0) return `all ${totals.inScope} objects in scope were written`;
-  const byType = totals.notExtracted.map((x) => `${x.type} ${x.count}`).join(", ");
-  return `${totals.skipped + totals.unsupported} objects of ${totals.inScope} could not be extracted (${byType})`;
+function sentence(t) {
+  if (t.writtenPartial + t.skipped + t.unsupported === 0) return `all ${t.inScope} objects in scope were written`;
+  const byType = t.notExtracted.map((x) => `${x.type} ${x.count}`).join(", ");
+  return `${t.writtenPartial + t.skipped + t.unsupported} objects of ${t.inScope} could not be fully extracted (${byType})`;
 }
 
-function stateOf(o) {
-  const fileStates = new Set((o.sc?.files ?? []).map((f) => f.state).filter(Boolean));
-  if (fileStates.has("I")) return fileStates.has("A") ? "both" : "I";
-  return o.sc?.state ?? "A";
+async function writeReport(out, reportDoc) {
+  await fs.writeFile(path.join(out, "extract-report.json"), `${JSON.stringify(reportDoc, null, 1)}\n`);
+  await fs.writeFile(path.join(out, "extract-report.md"), renderMdReport(reportDoc));
 }
 
 function describeSidecar(verified, handshakeInfo) {
