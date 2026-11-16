@@ -298,8 +298,26 @@ export async function extractMain(argv, {
   // of the dump's own object list, how many this run's scope covers (N2: the
   // dump total also counts SAP-class objects a narrow scope excluded)
   const dumpObjects = await readJsonl(path.join(dumpDir, "objects.jsonl"));
-  const dumpedInScope = dumpObjects.filter((r) => r.class !== "sap" || flags["include-sap"] === true)
-    .filter((r) => author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase()).length;
+  const inScopeDumpRow = (r) => (r.class !== "sap" || flags["include-sap"] === true)
+    && (author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase());
+  const dumpedInScope = dumpObjects.filter(inScopeDumpRow).length;
+  // ---- S4: the reused dump's object list vs the live listing ---------------
+  // Chosen design (the alternative -- refusing the restart -- is rejected in
+  // REPORT.md): the LIVE LISTING stays authoritative for scope -- the plan
+  // promised exactly those objects and the ledger must account for them --
+  // while the reused dump is the truth for their CONTENT. Objects the live
+  // listing has and the dump lacks become ledger-skipped not-in-dump lines
+  // (nothing vanishes silently); objects the dump has but the listing no
+  // longer does are NOT written -- a restart must not resurrect deleted code
+  // -- and every difference is reported here as drift.
+  let drift;
+  if (reused.ok) {
+    const dumpIds = new Set(dumpObjects.filter(inScopeDumpRow).map((r) => `${r.type}:${r.name}`));
+    const listedIds = new Set(inScopeRows.map((r) => `${r.type}:${r.name}`));
+    const appeared = [...listedIds].filter((id) => !dumpIds.has(id)).sort();
+    const disappeared = [...dumpIds].filter((id) => !listedIds.has(id)).sort();
+    if (appeared.length > 0 || disappeared.length > 0) drift = {appeared, disappeared};
+  }
   let conversion;
   let ledgerAtFailure; // the S3 promise: even a mid-run failure keeps its ledger for the report
   try {
@@ -345,6 +363,7 @@ export async function extractMain(argv, {
     objects: conversion.entries,
     errors: conversion.errors,
     empty_sources: conversion.emptySources,
+    drift,
     duration_ms: durationMs,
     notice: flags["include-sap"] === true
       ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."

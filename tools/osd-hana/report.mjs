@@ -90,7 +90,7 @@ export function renderMdReport(doc) {
   }
   if (doc.drift && (doc.drift.appeared.length > 0 || doc.drift.disappeared.length > 0)) {
     lines.push("");
-    lines.push("## drift since the dump");
+    lines.push("## Drift since the dump");
     lines.push("");
     lines.push("The dump was reused; the live listing differs from the dump's own object list:");
     lines.push("");
