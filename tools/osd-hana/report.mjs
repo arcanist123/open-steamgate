@@ -65,6 +65,11 @@ export function renderMdReport(doc) {
     lines.push("");
     lines.push("Note: program screens, GUI statuses and variants are not checked: the dump carries no screen/CUA/variant tables, so on every PROG/FUGR these parts read `not checked` rather than claiming completeness. Table CONTENTS are not extracted in this job; translated text pools and function documentation are part lines under their objects.");
   }
+  if (doc.ddic_tables) {
+    lines.push("");
+    lines.push(`DD tables read: ${doc.ddic_tables.looked.join(", ")}.`);
+    if (doc.ddic_tables.notCarried?.length > 0) lines.push(`not carried by this dump (their aspects read "not checked"): ${doc.ddic_tables.notCarried.join(", ")}.`);
+  }
   if (t.notExtracted?.length > 0) {
     lines.push("");
     lines.push("Not fully extracted, by type: " + t.notExtracted.map((x) => `${x.type} (${x.count})`).join(", ") + ".");

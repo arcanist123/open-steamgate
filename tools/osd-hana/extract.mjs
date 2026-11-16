@@ -568,6 +568,7 @@ export async function extractMain(argv, {
     dump_errors: runLevelDumpErrors,
     dump_partial: dumpPartial || dumpErrors.length > 0,
     kept,
+    ddic_tables: conversion.ddicTables,
     duration_ms: durationMs,
     notice: flags["include-sap"] === true
       ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."

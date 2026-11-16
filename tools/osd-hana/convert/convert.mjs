@@ -29,6 +29,10 @@ import {planObjectFiles} from "./write.mjs";
 // is never dropped silently: it comes back as `unsupported` and the process
 // exit code is 3.
 export const SUPPORTED_TYPES = new Set(["CLAS", "INTF", "PROG", "FUGR", "BDEF", "DDLS", "DDLX", "SRVD", "TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW"]);
+// The DD/table views the converter actually reads -- the report says which
+// it looked at (SHOULD-1), and which tables the dump does not carry at all.
+export const TABLES_READ = Object.freeze(["TADIR", "TDEVC", "TRDIR", "TFDIR", "TLIBG", "FUPARAREF", "TFTIT", "SEOCLASSDF", "SEOCLASSTX", "REPOTEXT", "DD02L", "DD02T", "DD09L", "DD03L", "DD04L", "DD04T", "DD01L", "DD01T", "DD07L", "DD07T", "DD40L", "DD40T", "DD30L", "DD30T", "DD31S", "DD32S", "DD33S", "DD25L", "DD25T", "DD26S", "DD27S", "DD28S", "DDDDLSRC", "DDLXSRC_SRC", "SRVDSRC_SRC"]);
+
 // Sources kept outside REPOSRC, one active row per object: type -> [table, name column, version column]
 const SOURCE_TABLES = {DDLS: ["DDDDLSRC", "DDLNAME", "AS4LOCAL"], DDLX: ["DDLXSRC_SRC", "DDLXNAME", "VERSION"], SRVD: ["SRVDSRC_SRC", "SRVDNAME", "VERSION"]};
 
@@ -210,11 +214,14 @@ export async function convert({
   const tfdir = await table("TFDIR");
   const seoDf = new Map();
   const seoTx = new Map();
+  const seoTxLangs = new Map(); // class -> every language SEOCLASSTX carries (SHOULD-1)
   for (const r of await rows(allRoots, "SEOCLASSDF", true)) {
     if (key(r.VERSION || "1") === "1") seoDf.set(key(r.CLSNAME), r);
   }
   for (const r of await rows(allRoots, "SEOCLASSTX", true)) {
     const n = key(r.CLSNAME);
+    if (!seoTxLangs.has(n)) seoTxLangs.set(n, new Set());
+    seoTxLangs.get(n).add(key(r.LANGU));
     if (!seoTx.has(n) || key(r.LANGU) === "E") seoTx.set(n, r);
   }
   const repotext = new Map();
@@ -262,8 +269,11 @@ export async function convert({
       reference: key(r.REFERENCE) === "X" ? "X" : "", type: key(r.TYPE) === "X", refClass: key(r.REF_CLASS) === "X" ? "X" : "",
     });
   }
+  const tftitLangs = new Map(); // function -> every language TFTIT carries (SHOULD-1)
   for (const r of await rows(allRoots, "TFTIT", true)) {
     const fm = key(r.FUNCNAME);
+    if (!tftitLangs.has(fm)) tftitLangs.set(fm, new Set());
+    tftitLangs.get(fm).add(key(r.SPRAS));
     if (!fmTexts.has(fm) || key(r.SPRAS) === "E") fmTexts.set(fm, String(r.STEXT ?? "").trim());
   }
 
@@ -360,6 +370,7 @@ export async function convert({
   }
 
   // ---- dictionary objects ----------------------------------------------------
+  const dd02tLangs = new Map(); // table -> every language DD02T carries (SHOULD-1)
   {
     const active = (r) => key(r.AS4LOCAL || "A") === "A";
     const text = async (t, col) => {
@@ -381,6 +392,11 @@ export async function convert({
     };
     const dd02l = await by("DD02L", "TABNAME");
     const dd02t = await text("DD02T", "TABNAME");
+    for (const r of await table("DD02T")) {
+      const n = key(r.TABNAME);
+      if (!dd02tLangs.has(n)) dd02tLangs.set(n, new Set());
+      dd02tLangs.get(n).add(key(r.DDLANGUAGE));
+    }
     const dd09l = await by("DD09L", "TABNAME");
     const dd03l = await by("DD03L", "TABNAME");
     const dd04l = await by("DD04L", "ROLLNAME");
@@ -430,6 +446,55 @@ export async function convert({
         });
         o.ddic = viewXml({...dd25l.get(o.name)[0], ...lang(dd25t.get(o.name)), VIEWNAME: o.name}, dd09l.get(o.name)?.[0], dd26s.get(o.name) || [], fields, dd28s.get(o.name) || []);
       }
+    }
+  }
+
+  // ---- SHOULD-1 (critic round 2): what `written` covers, said per object ----
+  // The dump has no DD05S/DD08L (foreign keys), DD12L/DD17S (secondary
+  // indexes), DD35L/DD36S (search-help assignments), no DD03T/SEOCOMPOTX
+  // (component texts) -- for those aspects the object is written-partial
+  // with a line naming what cannot be told. Where the table IS in the dump
+  // and this converter does not write it, the line says "not extracted".
+  // Translations the converter leaves out (one language is written) are
+  // "not extracted" and name the language.
+  const dumpHasTable = async (t) => {
+    for (const root of allRoots) {
+      try {
+        await fs.access(path.join(root, "tables", `${t}.jsonl`));
+        return true;
+      } catch { /* not carried by this root */ }
+    }
+    return false;
+  };
+  const coverageAspects = [
+    ["foreign keys", ["DD05S", "DD08L"]],
+    ["secondary indexes", ["DD12L", "DD17S"]],
+    ["search-help assignments", ["DD35L", "DD36S"]],
+    ["component texts", ["DD03T"]],
+  ];
+  const notCarriedTables = [];
+  for (const [, tables] of coverageAspects) {
+    for (const t of tables) if (!(await dumpHasTable(t)) && !notCarriedTables.includes(t)) notCarriedTables.push(t);
+  }
+  if (!(await dumpHasTable("SEOCOMPOTX")) && !notCarriedTables.includes("SEOCOMPOTX")) notCarriedTables.push("SEOCOMPOTX");
+  for (const o of claimed.values()) {
+    if (o.type === "TABL") {
+      for (const [aspect, tables] of coverageAspects) {
+        const carried = await dumpHasTable(tables[0]) || (tables[1] !== undefined && await dumpHasTable(tables[1]));
+        o.partNotes.push(carried
+          ? {part: `${aspect} (${tables.join("/")})`, disposition: "not extracted", reason: `${aspect}: the dump carries ${tables.join("/")} but this converter does not write them`}
+          : {part: `${aspect} (${tables.join("/")})`, disposition: "not checked", reason: `the dump carries none of ${tables.join("/")}, so it cannot be told whether this table has ${aspect}`});
+      }
+      const langs = [...(dd02tLangs.get(o.name) ?? [])].filter((l) => l !== "E").sort();
+      if (langs.length > 0) o.partNotes.push({part: "table texts", disposition: "not extracted", reason: `table texts in language${langs.length === 1 ? "" : "s"} ${langs.join(", ")} are not extracted (only the E text is written)`});
+    } else if (o.type === "CLAS" || o.type === "INTF") {
+      o.partNotes.push({part: "component texts (SEOCOMPOTX)", disposition: "not checked", reason: "the dump carries no SEOCOMPOTX, so it cannot be told whether this object's components (methods, attributes) carry component texts"});
+      const langs = [...(seoTxLangs.get(o.name) ?? [])].filter((l) => l !== "E").sort();
+      if (langs.length > 0) o.partNotes.push({part: "class texts", disposition: "not extracted", reason: `class texts in language${langs.length === 1 ? "" : "s"} ${langs.join(", ")} are not extracted (only the E text is written)`});
+    } else if (o.type === "FUGR") {
+      const langs = new Set();
+      for (const fm of fmsOfGroup.get(o.name) ?? []) for (const l of tftitLangs.get(key(fm.FUNCNAME)) ?? []) if (l !== "E") langs.add(l);
+      if (langs.size > 0) o.partNotes.push({part: "function texts", disposition: "not extracted", reason: `function short texts in language${langs.size === 1 ? "" : "s"} ${[...langs].sort().join(", ")} are not extracted (only the E text is written)`});
     }
   }
 
@@ -572,6 +637,7 @@ export async function convert({
     folderLogic: logic,
     folders: [...folders.entries()].map(([p, f]) => ({package: p, folder: `src/${f}`})),
     keptDotAbapgit,
+    ddicTables: {looked: TABLES_READ, notCarried: notCarriedTables},
     entries: ledger.entries,
     unaccounted: ledger.unaccounted(),
     errors,
