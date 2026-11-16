@@ -93,37 +93,63 @@ clone, diff and deploy:
    narrow it; the request they build is schema-1 JSON the sidecar validates
    field by field. SAP-delivered objects are extracted only with
    `--include-sap` together with an explicit `--package` or `--name` — then
-   the output directory must not sit inside a git working tree (extract
-   refuses), and the report and the console carry the notice that the
-   content is the vendor's and must not be published. Table CONTENTS are not
-   extracted; the sidecar's `tables` request field stays reserved.
+   the output directory AND the dump directory must not sit inside a git
+   working tree (extract refuses), and the report and the console carry the
+   notice that the content is the vendor's and must not be published. Table
+   CONTENTS are not extracted; the sidecar's `tables` request field stays
+   reserved.
 2. **Plan** — the sidecar's `list` (no sources read) becomes a per-type and
    per-package table with counts and byte estimates, and names the types the
    converter cannot write. `--dry-run` stops here; `--json` prints the plan
    as one document.
 3. **Dump** — the sidecar's `dump` into `<out>/.osd-hana/dump` (or
-   `--dump-dir`), with `ddic` so tables, data elements, domains, search helps
-   and views come along. Restartable: an existing dump whose manifest echoes
-   the same request and finished without errors is reused; anything else is
-   refused, never mixed.
+   `--dump-dir`, which may not be the output directory or inside it — the raw
+   dump would mix into the repository), with `ddic` so tables, data elements,
+   domains, search helps and views come along. Restartable: an existing dump
+   whose manifest echoes the same request and finished without errors is
+   reused; anything else is refused, never mixed. On a restart the live
+   listing is compared with the reused dump's own object list and any drift
+   (objects appeared or disappeared since the dump) is reported in the
+   report; `src/` and `.abapgit.xml` are refreshed, never left stale.
 4. **Convert** — the dump becomes the repository: folder logic PREFIX when
    the package names allow it (one hierarchy, every child
-   `<parent>_<suffix>`), otherwise FULL — the report says which. File names
-   as abapGit writes them (lower case, a namespace `/` becomes `#`). ABAP is
-   byte-identical to the dump; the XML is abapGit's own layout (BOM, one
-   element per line, its field order), decided from abapGit's serializers,
-   not from single files. A type the converter cannot write is never dropped
-   silently: it is listed, and the exit code is 3.
+   `<parent>_<suffix>`), otherwise FULL — and under FULL every package's
+   folder is nested under its parent's, as abapGit's
+   `package_to_path` does. File names as abapGit writes them (lower case, a
+   namespace `/` becomes `#`). ABAP is byte-identical to the dump; the XML is
+   abapGit's own layout (BOM, one element per line, its field order), decided
+   from abapGit's serializers, not from single files. The report is built
+   from a ledger: every in-scope object ends in exactly one state, and every
+   part the converter knows it cannot write (a function include missing from
+   the dump, dynpros, a GUI status, variants, function documentation, a text
+   pool it left out) is a `not written`/`not checked` line under its object —
+   such an object is `written-partial`. The dump carries no screen/CUA/
+   variant tables at all, so screens, GUI statuses and variants are `not
+   checked` on every PROG/FUGR rather than claimed complete. A type the
+   converter cannot write is never dropped silently: it is listed, and the
+   exit code is 3. Object and package names from the dump are validated as
+   path components (traversal, backslashes, control characters,
+   Windows-reserved names are refused per object); a name collision refuses
+   both objects, never last-writer-wins.
 5. **Report** — always written: `<out>/extract-report.json` and
-   `extract-report.md`: per type on the system / dumped / written / skipped /
-   unsupported, per object its files with SHA-256, package, state
-   (active/inactive, `generated` flagged), the sidecar version + pin, the
-   request, the folder logic, the duration, and the plain sentence "N objects
-   of M could not be extracted".
+   `extract-report.md`: per type on the system / dumped / written /
+   written-partial / skipped / unsupported (the totals always add up to the
+   in-scope count — a mismatch is an internal error, never a silent one), per
+   object its files with SHA-256, package, state (active/inactive, `generated`
+   flagged) and its part lines, the sidecar version + pin, the request, the
+   folder logic, the duration, and the plain sentence "N objects of M could
+   not be fully extracted".
 
-Exit codes: **0** everything in scope written, **3** partial (something
-skipped or unsupported — the report says what), **1** usage, **2** cannot
-connect, **4** refused output directory, **5** no ABAP schema.
+Exit codes: **0** everything in scope fully written, **3** partial (something
+written partially, skipped or unsupported — the report says what), **1**
+usage, **2** cannot connect, **4** refused output directory, **5** no ABAP
+schema, **6** internal error (a conversion/write failure or the ledger
+invariant — a best-effort report is written anyway and names the failure).
+
+Before publishing an extracted repository: remove `extract-report.json`,
+`extract-report.md` and `.osd-hana/` — they carry absolute local paths (and
+the dump). `.abapgit.xml`'s `MASTER_LANGUAGE` follows the dump's dominant
+TADIR master language, not a hard-coded guess.
 
 ## The dedicated reader
 

@@ -252,8 +252,10 @@ export async function extractMain(argv, {
   if (typeof listRun === "number") return listRun;
   const listed = await readJsonl(path.join(listDir, "objects.jsonl"));
   if (listed.length === 0) {
-    io.err("osd hana extract: nothing in scope -- the database (or this selection) holds no objects of yours. There is no ABAP code to extract here.");
-    return EXTRACT_EXIT.noAbapSchema;
+    // an EMPTY SELECTION is not "no ABAP schema" (N3): the schema is there,
+    // the narrowing simply matched nothing -- a usage answer, not a verdict
+    // about the database
+    return fail("osd hana extract: the selection matched no objects -- widen --package/--name or drop --no-local (there IS an ABAP schema; it just holds nothing in this scope).");
   }
 
   const author = flags.author;
@@ -537,7 +539,6 @@ function buildPlan(rows, allRows) {
     customer: allRows.filter((r) => r.class !== "sap").length,
     sap: allRows.filter((r) => r.class === "sap").length,
     inScope: rows.length,
-    generated: rows.filter((r) => r.generated === true).length,
     perType: [...perType.values()].sort((a, b) => a.type.localeCompare(b.type)),
     perPackage: [...perPackage.values()].sort((a, b) => a.package.localeCompare(b.package)),
     unsupportedTypes: [...perType.values()].filter((t) => t.unsupported > 0).map((t) => t.type),

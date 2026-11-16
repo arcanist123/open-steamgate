@@ -106,7 +106,7 @@ jsonl(T, "DDDDLSRC.jsonl", [{DDLNAME: "ZDDL_XB", AS4LOCAL: "A", SOURCE_TYPE: "V"
 
 // ---- TADIR / TDEVC -----------------------------------------------------------
 const tadir = (type, name, pkg, genfl = "", mlang = "E") =>
-  ({PGMID: "R3TR", OBJECT: type, OBJ_NAME: name, DEVCLASS: pkg, AUTHOR: "DEVUSER", MASTERLANG: mlang, GENFLAG: genfl, SRCSYSTEM: "A4H"});
+  ({PGMID: "R3TR", OBJECT: type, OBJ_NAME: name, DEVCLASS: pkg, AUTHOR: "DEVUSER", MASTERLANG: mlang, GENFLAG: genfl, SRCSYSTEM: "SYN"});
 jsonl(T, "TADIR.jsonl", [
   tadir("CLAS", "ZCL_OSD_X1", P),
   tadir("INTF", "ZIF_OSD_X2", P),
