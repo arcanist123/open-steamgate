@@ -24,13 +24,14 @@ export async function main(argv, deps = {}) {
     (deps.io?.out ?? ((line) => process.stdout.write(`${line}\n`)))(HELP);
     return 0;
   }
-  const verbMain = VERBS[verb];
+  const verbMain = verb === "extract" ? undefined : VERBS[verb];
   if (verbMain === undefined) {
+    if (verb === "extract") {
+      // named in the help, refused here: the next job of the product line
+      process.stderr.write("osd hana: extract is not in this build yet -- it is the next job of the product line.\n");
+      return 1;
+    }
     process.stderr.write(`osd hana: unknown verb "${verb}" -- one of doctor, extract\n${HELP}`);
-    return 1;
-  }
-  if (verb === "extract") {
-    process.stderr.write("osd hana: extract is not in this build yet -- it is the next job of the product line.\n");
     return 1;
   }
   return verbMain(rest, deps);

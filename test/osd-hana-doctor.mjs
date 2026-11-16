@@ -428,6 +428,22 @@ describe("tools/osd-hana: the osd hana doctor", function () {
         expect(() => validateReaderName(bad), bad).to.throw(ReaderError);
       }
       expect(validateReaderName("OSD_READER_1")).to.equal("OSD_READER_1");
+      // and createReader itself refuses a bad name before anything is built
+      // or sent -- the entry point is the guard, not the helper alone
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      return createReader({
+        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+        schema: SCHEMA, readerName: "X; DROP USER Y", yes: true,
+        store: store(), clientFactory: factory,
+      }).then(
+        () => expect.fail("should refuse"),
+        (error) => {
+          expect(error).to.be.an.instanceof(ReaderError);
+          expect(error.message).to.include("UNQUOTED");
+        }).then(() => {
+          expect(log.statements).to.have.length(0);
+          expect(log.connections).to.have.length(0);
+        });
     });
 
     it("quotes identifiers as measured: \" doubled, ' passing through", async function () {
