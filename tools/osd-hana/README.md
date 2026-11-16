@@ -79,9 +79,10 @@ sidecar could not examine the database (the message says which).
 
 ### TLS
 
-The sidecar advertises the `tls` capability in its handshake (W0-contract
-"Additions"; the current pin `0d5767b` does not have it — the code is written
-against the capability and tested both ways with the fake). TLS is **one
+The sidecar advertises the `tls` capability in its handshake (since
+v2.62.1, the current pin; the code is written against the capability and
+tested both ways with the fake, so an older binary without it is still
+refused for TLS rather than used in clear text). TLS is **one
 consistent set of flags for both transports** — the sidecar's connection and
 the reader path's hdb connection:
 

@@ -634,8 +634,12 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
         expect(document.probe.tls).to.equal(scenario === "tls-verified" ? "verified" : scenario === "tls-unverified" ? "unverified" : "off");
       }
-      // without the field (the current pinned binary has no tls), no sentence
-      const code3 = await h.runDoctor([], {scenario: "owner-tenant"});
+      // the recorded probe of the pinned binary carries tls "off"
+      const code4 = await h.runDoctor([], {scenario: "owner-tenant"});
+      expect(code4).to.equal(0);
+      expect(h.allText()).to.include("TLS: off -- the connection is NOT encrypted");
+      // without the field (a binary older than v2.62.1), no sentence
+      const code3 = await h.runDoctor([], {scenario: "no-tls-field"});
       expect(code3).to.equal(0);
       expect(h.allText()).to.not.include("TLS:");
     });

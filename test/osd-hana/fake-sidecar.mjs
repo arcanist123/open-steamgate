@@ -273,11 +273,16 @@ const PROBES = {
   // the plain verdict must escape it (show()), never print the raw bytes
   "hostile-schema": okDoc({}, {...SMALL, schema: `X\u001b[2K\rHARMLESS`, abap_attached: "no"}),
   "connect-error": errorDoc(2, "logon failed: the fake never lets anyone in"),
-  // TLS (announced for the next sidecar version, in no pinned binary yet):
-  // the probe reports tls verified | unverified | off
+  // TLS (recorded from v2.62.1): the probe reports tls verified | unverified | off
   "tls-verified": okDoc({login_class: "schema_owner", tls: "verified"}, OWNED),
   "tls-unverified": okDoc({login_class: "schema_owner", tls: "unverified"}, OWNED),
   "tls-off": okDoc({login_class: "schema_owner", tls: "off"}, OWNED),
+  // an older binary (before v2.62.1) whose probe has no tls key at all
+  "no-tls-field": (() => {
+    const d = okDoc({login_class: "schema_owner"}, OWNED);
+    delete d.document.tls;
+    return d;
+  })(),
   // the measured trial-image failure: verified TLS to an IP address refused
   "ip-sans": errorDoc(2, "connection failed: TLS handshake: certificate doesn't contain any IP SANs"),
   // Redactor fodder on STDOUT (critic S-1): a buggy or hostile binary repeats
