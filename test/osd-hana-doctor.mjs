@@ -1,168 +1,27 @@
-// The osd-hana module, against fakes only (no network, no database, no SAP
-// system): a FAKE sidecar (test/osd-hana/fake-sidecar.mjs, spawned for real,
-// verified against a generated test pin) and a FAKE hdb client injected
-// through the reader's clientFactory seam, scripted with the E1 answers
-// (258 on create, 258 on grant, 332, success).
+// The osd-hana doctor module against fakes only (no network, no database, no
+// SAP system): sidecar handling (locate / verify / handshake / run / minimal
+// child env / per-spawn re-verification) and the doctor's verdicts, exit
+// codes and connection input. The dedicated-reader tests live in
+// test/osd-hana-reader.mjs; the shared fixtures in test/osd-hana/harness.mjs.
 //
 // Every guard here has a named mutation behind it: the test goes red when the
 // guard is removed. The mutations are listed in REPORT.md next to each test.
 import {expect} from "chai";
-import {createHash} from "node:crypto";
-import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from "node:fs";
-import {tmpdir} from "node:os";
+import {chmodSync, copyFileSync, writeFileSync, readFileSync, rmSync} from "node:fs";
 import {join} from "node:path";
-import {fileURLToPath} from "node:url";
 
 import {doctorMain} from "../tools/osd-hana/doctor.mjs";
 import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, resetVerifiedSidecars, runSidecarRaw, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
 import {makeRedactor} from "../tools/osd-hana/redact.mjs";
-import {
-  DEFAULT_READER_NAME, ConsentRefused, ReaderError,
-  createReader, dropReader, generateReaderPassword, quoteIdentifier, readerStoreKey, validateReaderName,
-} from "../tools/osd-hana/reader.mjs";
-import {fileSecretStore} from "../tools/osd-hana/secret-store.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
+import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
 
-const FAKE_SIDECAR = fileURLToPath(new URL("./osd-hana/fake-sidecar.mjs", import.meta.url));
-const PASSWORD = "correct-horse-battery-staple-42";
-const USER = "TESTLOGIN";
-const HOST = "hana.example.test";
-const SCHEMA = "TE" + "STSCHEMA"; // a fixture name, deliberately not any real one
+const h = makeHarness();
 
-// ---------------------------------------------------------------- fixtures
-
-let root;
-let fakePath;
-let pinPath;
-let recordPath;
-let out;
-let err;
-
-function captureIo() {
-  const lines = {out: [], err: []};
-  return {lines, io: {
-    out: (line) => lines.out.push(line),
-    err: (line) => lines.err.push(line),
-  }};
-}
-
-function allText() {
-  return `${out.join("\n")}\n${err.join("\n")}`;
-}
-
-function sha256(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-function makePin({targets = {[targetKey()]: sha256(fakePath)}, ...rest} = {}) {
-  const path = join(root, `pin-${Math.random().toString(16).slice(2)}.json`);
-  writeFileSync(path, JSON.stringify({
-    name: "osd-hana-dump", version: "v9.9.9-test", commit: "a".repeat(40),
-    schema: 1, read_only: true, targets, ...rest,
-  }));
-  return path;
-}
-
-// The full doctor run against the fake sidecar: real spawn, real sha256, real
-// pin file -- only the database behind the fake is not real.
-async function runDoctor(argv, {
-  scenario = "owner-tenant",
-  handshakePatch,
-  env = {},
-  isTTY = false,
-  deps = {},
-  pin = pinPath,
-} = {}) {
-  const capturedIo = captureIo();
-  out = capturedIo.lines.out;
-  err = capturedIo.lines.err;
-  const runEnv = {
-    // the child is a shebang script: it needs the real PATH to find node
-    ...process.env,
-    OSD_HANA_DUMP: fakePath,
-    OSD_HANA_PASSWORD: PASSWORD,
-    FAKE_SIDECAR_PROBE: scenario,
-    ...(handshakePatch !== undefined ? {FAKE_SIDECAR_HANDSHAKE: JSON.stringify(handshakePatch)} : {}),
-    ...env,
-  };
-  // The fake sidecar's knobs are TEST-ONLY env vars; with the child
-  // environment now an allowlist (critic S-2) they reach the child only
-  // through the doctor's explicit extraEnv seam -- the production doctor
-  // passes none.
-  const sidecarExtraEnv = {
-    FAKE_SIDECAR_PROBE: scenario,
-    ...(handshakePatch !== undefined ? {FAKE_SIDECAR_HANDSHAKE: JSON.stringify(handshakePatch)} : {}),
-    ...(env.FAKE_SIDECAR_RECORD !== undefined ? {FAKE_SIDECAR_RECORD: env.FAKE_SIDECAR_RECORD} : {}),
-    ...(env.FAKE_SIDECAR_ECHO_SCHEMA !== undefined ? {FAKE_SIDECAR_ECHO_SCHEMA: env.FAKE_SIDECAR_ECHO_SCHEMA} : {}),
-  };
-  return doctorMain([
-    "--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA,
-    "--sidecar-pin", pin,
-  ].concat(argv), {
-    io: capturedIo.io,
-    env: runEnv,
-    stdin: {isTTY},
-    isTTY,
-    sidecarTimeoutMs: 500,
-    sidecarExtraEnv,
-    ...deps,
-  });
-}
-
-before(function () {
-  root = mkdtempSync(join(tmpdir(), "osd-hana-test-"));
-  fakePath = join(root, "fake-sidecar");
-  // The fake must be spawnable directly, like the real Go binary.
-  copyFileSync(FAKE_SIDECAR, fakePath);
-  chmodSync(fakePath, 0o755);
-  pinPath = makePin();
-  recordPath = join(root, "record.ndjson");
-});
-
-after(function () {
-  rmSync(root, {recursive: true, force: true});
-});
-
-// ------------------------------------------------------------ fake client
-
-/** A FAKE hdb client factory, scripted with E1's answers. Rules are matched
- *  against the SQL; the log records every connection and every statement with
- *  its bound parameters -- that log is what the assertions read. */
-function fakeClientFactory(rules = []) {
-  const log = {connections: [], statements: []};
-  const factory = async (options) => {
-    log.connections.push(options);
-    return {
-      exec: async (sql, params = []) => {
-        log.statements.push({sql, params});
-        for (const rule of rules) {
-          if (typeof rule.match === "string" ? sql.includes(rule.match) : rule.match.test(sql)) {
-            if (rule.error !== undefined) {
-              throw Object.assign(new Error(rule.message ?? `db error ${rule.error}`), {code: rule.error});
-            }
-            return {rows: rule.rows ?? []};
-          }
-        }
-        return {rows: []};
-      },
-      disconnect: async () => {},
-    };
-  };
-  return {log, factory};
-}
-
-// Rules for the success path, E1's SQL shapes.
-const SUCCESS_RULES = [
-  {match: /CREATE USER/, rows: []},
-  {match: /ALTER USER/, rows: []},
-  {match: /GRANT SELECT/, rows: []},
-  {match: /FROM SYS\.SCHEMAS/, rows: [{OWNER_NAME: "SCHEMA_OWNER_LOGIN"}]},
-  {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
-  {match: /"TADIR"/, rows: [{N: 42}]},
-  {match: /DROP USER/, rows: []},
-];
+before(h.before);
+after(h.after);
 
 describe("tools/osd-hana: the osd hana doctor", function () {
   this.timeout(20_000);
@@ -171,7 +30,7 @@ describe("tools/osd-hana: the osd hana doctor", function () {
   describe("sidecar handling", function () {
     it("locates the sidecar: OSD_HANA_DUMP wins over the caller's path; neither is a clear refusal", function () {
       // explicit environment wins (mutation: prefer callerPath -> red)
-      expect(locateSidecar({env: {OSD_HANA_DUMP: fakePath}, callerPath: "/caller/owned/binary"})).to.equal(fakePath);
+      expect(locateSidecar({env: {OSD_HANA_DUMP: h.fakePath}, callerPath: "/caller/owned/binary"})).to.equal(h.fakePath);
       expect(locateSidecar({env: {}, callerPath: "/caller/owned/binary"})).to.equal("/caller/owned/binary");
       // the refusal says how to get the binary -- there is no download here
       let message = "";
@@ -186,9 +45,9 @@ describe("tools/osd-hana: the osd hana doctor", function () {
     });
 
     it("refuses a checksum mismatch and names both hashes (mutation: drop the sha comparison -> red)", async function () {
-      const other = join(root, "tampered-sidecar");
+      const other = join(h.root, "tampered-sidecar");
       writeFileSync(other, "not the pinned bytes");
-      const pin = makePin({targets: {[targetKey()]: "f".repeat(64)}});
+      const pin = h.makePin({targets: {[targetKey()]: "f".repeat(64)}});
       let message = "";
       try {
         await verifySidecar(other, {pin: loadPin(pin)});
@@ -197,17 +56,17 @@ describe("tools/osd-hana: the osd hana doctor", function () {
         message = error.message;
       }
       expect(message).to.include("f".repeat(64));
-      expect(message).to.include(sha256(other));
+      expect(message).to.include(h.sha256(other));
       expect(message).to.include("refusing");
     });
 
     it("runs an unpinned sidecar only with --allow-unpinned-sidecar, and says so loudly", async function () {
-      const emptyPin = makePin({targets: {}});
-      await verifySidecar(fakePath, {pin: loadPin(emptyPin)}).then(
+      const emptyPin = h.makePin({targets: {}});
+      await verifySidecar(h.fakePath, {pin: loadPin(emptyPin)}).then(
         () => expect.fail("should refuse"),
         (error) => expect(error.message).to.include("--allow-unpinned-sidecar"));
       const loud = [];
-      const result = await verifySidecar(fakePath, {
+      const result = await verifySidecar(h.fakePath, {
         pin: loadPin(emptyPin), allowUnpinned: true, loud: (line) => loud.push(line),
         // the module caches per process; a fresh path keeps the cache honest
       });
@@ -216,7 +75,7 @@ describe("tools/osd-hana: the osd hana doctor", function () {
     });
 
     it("refuses a handshake that says read_only: false (mutation: drop the check -> red)", async function () {
-      await handshake(fakePath, {runFn: async () => JSON.stringify({schema: 1, read_only: false, capabilities: ["probe"]})}).then(
+      await handshake(h.fakePath, {runFn: async () => JSON.stringify({schema: 1, read_only: false, capabilities: ["probe"]})}).then(
         () => expect.fail("should refuse"),
         (error) => {
           expect(error).to.be.an.instanceof(HandshakeError);
@@ -225,7 +84,7 @@ describe("tools/osd-hana: the osd hana doctor", function () {
     });
 
     it("refuses a handshake that lacks a capability the verb needs, and names it (mutation: drop the check -> red)", async function () {
-      await handshake(fakePath, {requiredCapabilities: ["probe"], runFn: async () => JSON.stringify({schema: 1, read_only: true, capabilities: ["list", "dump"]})}).then(
+      await handshake(h.fakePath, {requiredCapabilities: ["probe"], runFn: async () => JSON.stringify({schema: 1, read_only: true, capabilities: ["list", "dump"]})}).then(
         () => expect.fail("should refuse"),
         (error) => {
           expect(error).to.be.an.instanceof(HandshakeError);
@@ -234,11 +93,11 @@ describe("tools/osd-hana: the osd hana doctor", function () {
     });
 
     it("refuses a handshake with the wrong schema, and a pinned binary that says another version", async function () {
-      await handshake(fakePath, {runFn: async () => JSON.stringify({schema: 2, read_only: true, capabilities: ["probe"]})}).then(
+      await handshake(h.fakePath, {runFn: async () => JSON.stringify({schema: 2, read_only: true, capabilities: ["probe"]})}).then(
         () => expect.fail("should refuse"),
         (error) => expect(error.message).to.include("schema"));
-      const pin = loadPin(makePin({version: "v1.2.3", commit: "b".repeat(40)}));
-      await handshake(fakePath, {pin, runFn: async () => JSON.stringify({schema: 1, read_only: true, capabilities: ["probe"], version: "v9.9.9-test", commit: "a".repeat(40)})}).then(
+      const pin = loadPin(h.makePin({version: "v1.2.3", commit: "b".repeat(40)}));
+      await handshake(h.fakePath, {pin, runFn: async () => JSON.stringify({schema: 1, read_only: true, capabilities: ["probe"], version: "v9.9.9-test", commit: "a".repeat(40)})}).then(
         () => expect.fail("should refuse"),
         (error) => {
           expect(error.message).to.include("v1.2.3");
@@ -255,7 +114,7 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       expect(EXIT_OUTCOMES[5]).to.equal("unsupported");
       const cases = [["owner-tenant", 0, "done"], ["usage-error", 1, "usage"], ["connect-error", 2, "connection"], ["partial", 3, "partial"], ["refused", 4, "refused"], ["unsupported", 5, "unsupported"]];
       for (const [scenario, exit, outcome] of cases) {
-        const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: scenario}});
+        const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: scenario}});
         const run = await sidecar.run("probe");
         expect(run.exit, scenario).to.equal(exit);
         expect(run.outcome, scenario).to.equal(outcome);
@@ -266,8 +125,8 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       // a child that dumps its whole environment; the marker stands in for
       // every unrelated secret exported in the parent's shell (cloud keys,
       // tokens, another system's HANA_PASSWORD)
-      const dumpPath = join(root, "env-dump.mjs");
-      const dumpOut = join(root, "env-dump.json");
+      const dumpPath = join(h.root, "env-dump.mjs");
+      const dumpOut = join(h.root, "env-dump.json");
       writeFileSync(dumpPath, `#!/usr/bin/env node
 import {writeFileSync} from "node:fs";
 writeFileSync(${JSON.stringify(dumpOut)}, JSON.stringify(process.env));
@@ -291,11 +150,11 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       // verify, then overwrite the file in the window before the spawn (the
       // doctor sits at a password prompt for minutes in that window) -- the
       // swapped bytes must not run under the cached 'pinned: true' verdict
-      const path = join(root, "toctou-sidecar");
+      const path = join(h.root, "toctou-sidecar");
       const original = "#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ok:true,exit:0})+\"\\n\");\n";
       const swapped = "#!/usr/bin/env node\nprocess.stderr.write(\"RAN THE SWAPPED BINARY\\n\");\n";
       writeFileSync(path, original, {mode: 0o755});
-      const pin = makePin({targets: {[targetKey()]: sha256(path)}});
+      const pin = h.makePin({targets: {[targetKey()]: h.sha256(path)}});
       resetVerifiedSidecars();
       const verified = await verifySidecar(path, {pin: loadPin(pin)});
       expect(verified.pinned).to.equal(true);
@@ -313,7 +172,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("stdout must be exactly one JSON line or a refusal, never a guess (critic note; mutation: take the last line -> red)", async function () {
-      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "two-lines"}});
+      const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "two-lines"}});
       await sidecar.run("probe").then(
         () => expect.fail("two JSON lines must be refused, not guessed at"),
         (error) => {
@@ -323,14 +182,14 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("caps the child's accumulated output (8 MB) with a clear error (critic note; mutation: no cap -> red)", async function () {
-      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "chatty"}, timeoutMs: 15_000});
+      const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "chatty"}, timeoutMs: 15_000});
       await sidecar.run("probe").then(
         () => expect.fail("a chatty child must be stopped by the cap"),
         (error) => expect(error.message).to.include("8 MB"));
     }).timeout(30_000);
 
     it("on win32 appends .exe when the given path has no extension and that file exists (critic note; mutation: return the path as given -> red)", function () {
-      const base = join(root, "win32-sidecar");
+      const base = join(h.root, "win32-sidecar");
       writeFileSync(`${base}.exe`, "fake bytes\n", {mode: 0o755});
       expect(locateSidecar({env: {OSD_HANA_DUMP: base}, platform: "win32"})).to.equal(`${base}.exe`);
       // a path that already has an extension is left alone
@@ -346,10 +205,10 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(targetKey("linux", "ppc64")).to.equal(undefined);
       // a target with no pin is a clear refusal that NAMES it (a fresh path:
       // the verify cache is per path and other tests already hold fakePath)
-      const armPath = join(root, "sidecar-for-arm-refusal");
+      const armPath = join(h.root, "sidecar-for-arm-refusal");
       copyFileSync(FAKE_SIDECAR, armPath);
       chmodSync(armPath, 0o755);
-      const message = await verifySidecar(armPath, {pin: loadPin(pinPath), platform: "win32", arch: "arm64"}).then(
+      const message = await verifySidecar(armPath, {pin: loadPin(h.pinPath), platform: "win32", arch: "arm64"}).then(
         () => expect.fail("win32-arm64 has no pin and must be refused"),
         (error) => error.message);
       expect(message).to.include("win32-arm64");
@@ -357,7 +216,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("refuses an exit code the contract does not define", async function () {
-      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "weird-exit"}});
+      const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "weird-exit"}});
       await sidecar.run("probe").then(
         () => expect.fail("should refuse"),
         (error) => {
@@ -367,7 +226,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("kills a sidecar that never answers (timeout)", async function () {
-      const sidecar = new Sidecar(fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "hang"}, timeoutMs: 300});
+      const sidecar = new Sidecar(h.fakePath, {credentials: {user: USER, password: PASSWORD}, env: process.env, extraEnv: {FAKE_SIDECAR_PROBE: "hang"}, timeoutMs: 300});
       await sidecar.run("probe").then(
         () => expect.fail("should time out"),
         (error) => expect(error.message).to.include("did not finish within 300 ms"));
@@ -377,9 +236,9 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
   // --------------------------------- the doctor: verdicts and exit codes
   describe("the doctor against the fake sidecar", function () {
     it("says the plain verdict for a ready tenant database (exit 0)", async function () {
-      const code = await runDoctor([], {scenario: "owner-tenant"});
+      const code = await h.runDoctor([], {scenario: "owner-tenant"});
       expect(code).to.equal(0);
-      const text = allText();
+      const text = h.allText();
       expect(text).to.include("tenant database");
       expect(text).to.include("TESTSCHEMA");
       expect(text).to.include("release 7.57");
@@ -391,20 +250,20 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("says the read-only safety sentence exactly once when the login can write (mutation: sentence per finding -> red)", async function () {
-      const code = await runDoctor([], {scenario: "writer"});
+      const code = await h.runDoctor([], {scenario: "writer"});
       expect(code).to.equal(0);
-      const text = allText();
+      const text = h.allText();
       expect(text.split(SAFETY_NOTE).length - 1).to.equal(1);
       // and for an administrator the class alone is enough to say it
-      const code2 = await runDoctor([], {scenario: "admin-system", env: {FAKE_SIDECAR_PROBE: "admin-system"}});
+      const code2 = await h.runDoctor([], {scenario: "admin-system", env: {FAKE_SIDECAR_PROBE: "admin-system"}});
       expect(code2).to.equal(0);
-      expect(allText().split(SAFETY_NOTE).length - 1).to.equal(1);
+      expect(h.allText().split(SAFETY_NOTE).length - 1).to.equal(1);
     });
 
     it("prints the same findings as one JSON document with --json, and the password is nowhere in it", async function () {
-      const code = await runDoctor(["--json"], {scenario: "writer"});
+      const code = await h.runDoctor(["--json"], {scenario: "writer"});
       expect(code).to.equal(0);
-      const document = JSON.parse(out.join("\n"));
+      const document = JSON.parse(h.out.join("\n"));
       expect(document.command).to.equal("osd hana doctor");
       expect(document.verdict.readyToExtract).to.equal(true);
       expect(document.verdict.canWrite).to.equal(true);
@@ -414,22 +273,22 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("exits 2 when the database cannot be reached or logged on", async function () {
-      const code = await runDoctor([], {scenario: "connect-error"});
+      const code = await h.runDoctor([], {scenario: "connect-error"});
       expect(code).to.equal(2);
-      expect(allText()).to.include("cannot connect");
+      expect(h.allText()).to.include("cannot connect");
     });
 
     it("exits 5 when there is no ABAP schema (the sidecar says unsupported)", async function () {
-      const code = await runDoctor([], {scenario: "unsupported"});
+      const code = await h.runDoctor([], {scenario: "unsupported"});
       expect(code).to.equal(5);
-      const code2 = await runDoctor([], {scenario: "no-schema"});
+      const code2 = await h.runDoctor([], {scenario: "no-schema"});
       expect(code2).to.equal(5);
     });
 
     it("takes the password from the env file when no other channel gives one (critic M-1; mutation: ignore file.HANA_PASSWORD -> red)", async function () {
       // HANA_PASSWORD in --env-file is a documented password channel; a run
       // whose only channel is the env file must work, not refuse
-      const envPath = join(root, "m1-bed.env");
+      const envPath = join(h.root, "m1-bed.env");
       const filePassword = "env-file-password-99";
       writeFileSync(envPath, [
         "# M-1: the env file alone must feed the whole connection",
@@ -439,61 +298,61 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         `HANA_USER=${USER}`,
         `HANA_PASSWORD=${filePassword}`,
       ].join("\n"));
-      const code = await runDoctor(["--env-file", envPath], {env: {OSD_HANA_PASSWORD: ""}});
-      expect(code, allText()).to.equal(0);
-      expect(allText()).to.not.include(filePassword);
+      const code = await h.runDoctor(["--env-file", envPath], {env: {OSD_HANA_PASSWORD: ""}});
+      expect(code, h.allText()).to.equal(0);
+      expect(h.allText()).to.not.include(filePassword);
     });
 
     it("the env file's HANA_PASSWORD ranks above OSD_HANA_PASSWORD (order: --password-stdin > env file > environment > prompt)", async function () {
       // the courtesy check names the password it saw: an env-file password
       // that IS a public default warns even when OSD_HANA_PASSWORD is set
-      const envPath = join(root, "m1-order.env");
+      const envPath = join(h.root, "m1-order.env");
       writeFileSync(envPath, [
         `HANA_HOST=${HOST}`,
         "HANA_PORT=39015",
         `HANA_USER=${USER}`,
         "HANA_PASSWORD=HXEHana1",
       ].join("\n"));
-      const code = await runDoctor(["--env-file", envPath]);
-      expect(code, allText()).to.equal(0);
-      expect(allText()).to.include("public default");
+      const code = await h.runDoctor(["--env-file", envPath]);
+      expect(code).to.equal(0);
+      expect(h.allText()).to.include("public default");
     });
 
     it("exits 1 on usage errors: no password channel, a stray positional, an unknown flag", async function () {
       // no OSD_HANA_PASSWORD and stdin not a TTY: the doctor refuses instead
       // of hanging, and names the ways a password may arrive
-      const code = await runDoctor([], {
+      const code = await h.runDoctor([], {
         env: {OSD_HANA_PASSWORD: ""},
       });
       expect(code).to.equal(1);
-      expect(allText()).to.include("password");
-      expect(allText()).to.include("--password-stdin");
+      expect(h.allText()).to.include("password");
+      expect(h.allText()).to.include("--password-stdin");
       // a stray positional word: the doctor takes --double-dash flags only
-      const code2 = await runDoctor(["stray-argument"]);
+      const code2 = await h.runDoctor(["stray-argument"]);
       expect(code2).to.equal(1);
-      expect(allText()).to.include("--double-dash");
+      expect(h.allText()).to.include("--double-dash");
       expect(() => parseFlags(["--nosuchflag"], {valueFlags: [], booleanFlags: []})).to.throw(UsageError);
     });
 
     it("takes the password from --password-stdin, never from argv", async function () {
       const stdinPassword = "stdin-fed-password-13";
-      const {lines, io} = captureIo();
+      const {lines, io} = h.captureIo();
       const {PassThrough} = await import("node:stream");
       const stdin = new PassThrough();
       stdin.write(`${stdinPassword}\n`);
       stdin.end();
       const code = await doctorMain(
-        ["--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA, "--password-stdin", "--sidecar-pin", pinPath],
-        {io, env: {...process.env, OSD_HANA_DUMP: fakePath, FAKE_SIDECAR_PROBE: "owner-tenant"}, stdin, isTTY: false, sidecarTimeoutMs: 500});
+        ["--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA, "--password-stdin", "--sidecar-pin", h.pinPath],
+        {io, env: {...process.env, OSD_HANA_DUMP: h.fakePath, FAKE_SIDECAR_PROBE: "owner-tenant"}, stdin, isTTY: false, sidecarTimeoutMs: 500});
       expect(code).to.equal(0);
       expect(JSON.stringify({out: lines.out, err: lines.err})).to.not.include(stdinPassword);
     });
 
     it("delivers the credentials to the child through the environment only (mutation: put them on argv -> red)", async function () {
-      rmSync(recordPath, {force: true});
-      const code = await runDoctor([], {env: {FAKE_SIDECAR_RECORD: recordPath}});
+      rmSync(h.recordPath, {force: true});
+      const code = await h.runDoctor([], {env: {FAKE_SIDECAR_RECORD: h.recordPath}});
       expect(code).to.equal(0);
-      const records = readFileSync(recordPath, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+      const records = readFileSync(h.recordPath, "utf8").trim().split("\n").map((l) => JSON.parse(l));
       const probeRecords = records.filter((r) => r.argv[0] === "probe");
       expect(probeRecords.length).to.be.at.least(1);
       for (const record of probeRecords) {
@@ -509,14 +368,14 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
     });
 
     it("masks password, user, host and schema in the child's stderr (mutation: identity redactor -> red)", async function () {
-      const code = await runDoctor([], {
+      const code = await h.runDoctor([], {
         scenario: "echo-stderr",
         env: {FAKE_SIDECAR_ECHO_SCHEMA: SCHEMA},
       });
       expect(code).to.equal(0);
       // the child's stderr (the err channel) repeats every value of this run;
       // every one of them arrives masked
-      const childSide = err.join("\n");
+      const childSide = h.err.join("\n");
       expect(childSide).to.include("***");
       expect(childSide).to.not.include(PASSWORD);
       expect(childSide).to.not.include(USER);
@@ -524,458 +383,64 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(childSide).to.not.include(SCHEMA);
       // the password is nowhere in the doctor's own output either (user and
       // host may be, in the verdict -- they are the caller's own input)
-      expect(allText()).to.not.include(PASSWORD);
+      expect(h.allText()).to.not.include(PASSWORD);
     });
 
     it("redacts everything read from the sidecar's stdout before it is printed or embedded (critic S-1; mutation: redact stderr only -> red)", async function () {
       // the fake repeats the password inside its stdout JSON -- once in the
       // error text, once inside the probe document -- with stderr clean, so
       // stderr-only redaction protects nothing
-      const code = await runDoctor([], {scenario: "stdout-leak"});
+      const code = await h.runDoctor([], {scenario: "stdout-leak"});
       expect(code).to.equal(2);
-      expect(allText()).to.include("cannot connect");
-      expect(allText()).to.not.include(PASSWORD);
+      expect(h.allText()).to.include("cannot connect");
+      expect(h.allText()).to.not.include(PASSWORD);
       // and the probe document embedded by --json is redacted at the source
-      const code2 = await runDoctor(["--json"], {scenario: "stdout-leak-doc"});
+      const code2 = await h.runDoctor(["--json"], {scenario: "stdout-leak-doc"});
       expect(code2).to.equal(0);
-      expect(out.join("\n")).to.not.include(PASSWORD);
-      expect(err.join("\n")).to.not.include(PASSWORD);
+      expect(h.out.join("\n")).to.not.include(PASSWORD);
+      expect(h.err.join("\n")).to.not.include(PASSWORD);
     });
 
     it("warns loudly when the password is a public trial-image default, and changes nothing", async function () {
       expect(isPublicDefaultPassword("HXEHana1")).to.equal(true);
       expect(isPublicDefaultPassword(PASSWORD)).to.equal(false);
-      const code = await runDoctor([], {env: {OSD_HANA_PASSWORD: "HXEHana1"}});
+      const code = await h.runDoctor([], {env: {OSD_HANA_PASSWORD: "HXEHana1"}});
       expect(code).to.equal(0);
-      expect(allText()).to.include("public default");
-      expect(allText()).to.include("changed nothing");
+      expect(h.allText()).to.include("public default");
+      expect(h.allText()).to.include("changed nothing");
       expect(publicDefaultWarning()).to.include("ALTER USER");
     });
 
     it("refuses an unpinned sidecar without the flag, runs it loudly with it", async function () {
-      const emptyPin = makePin({targets: {}});
-      const code = await runDoctor([], {pin: emptyPin});
+      const emptyPin = h.makePin({targets: {}});
+      const code = await h.runDoctor([], {pin: emptyPin});
       expect(code).to.equal(1);
-      expect(allText()).to.include("--allow-unpinned-sidecar");
-      const code2 = await runDoctor(["--allow-unpinned-sidecar"], {pin: emptyPin});
+      expect(h.allText()).to.include("--allow-unpinned-sidecar");
+      const code2 = await h.runDoctor(["--allow-unpinned-sidecar"], {pin: emptyPin});
       expect(code2).to.equal(0);
-      expect(allText()).to.include("UNPINNED");
+      expect(h.allText()).to.include("UNPINNED");
     });
 
     it("with an unpinned sidecar the read-only claim is qualified, in text and in --json (critic S-4; mutation: state the pinned sentence unconditionally -> red)", async function () {
       // the writer scenario makes the probe say the login can write; the
       // binary saying so was NEVER checksum-verified, so the doctor must not
       // state the database-level read-only guarantee as fact
-      const emptyPin = makePin({targets: {}});
-      const code = await runDoctor(["--allow-unpinned-sidecar"], {scenario: "writer", pin: emptyPin});
+      const emptyPin = h.makePin({targets: {}});
+      const code = await h.runDoctor(["--allow-unpinned-sidecar"], {scenario: "writer", pin: emptyPin});
       expect(code).to.equal(0);
-      expect(allText()).to.include("not checksum-verified");
-      expect(allText()).to.not.include(SAFETY_NOTE);
-      const code2 = await runDoctor(["--allow-unpinned-sidecar", "--json"], {scenario: "writer", pin: emptyPin});
+      expect(h.allText()).to.include("not checksum-verified");
+      expect(h.allText()).to.not.include(SAFETY_NOTE);
+      const code2 = await h.runDoctor(["--allow-unpinned-sidecar", "--json"], {scenario: "writer", pin: emptyPin});
       expect(code2).to.equal(0);
-      const document = JSON.parse(out.join("\n"));
+      const document = JSON.parse(h.out.join("\n"));
       expect(document.verdict.safetyNote).to.include("not checksum-verified");
     });
 
     it("exits 2 with the timeout message when the sidecar hangs", async function () {
-      const code = await runDoctor([], {scenario: "hang"});
+      const code = await h.runDoctor([], {scenario: "hang"});
       expect(code).to.equal(2);
-      expect(allText()).to.include("did not finish within");
+      expect(h.allText()).to.include("did not finish within");
     }).timeout(5000);
-  });
-
-  // -------------------------------------------- the dedicated reader
-  describe("the dedicated reader", function () {
-    function store() {
-      return fileSecretStore(join(root, `secrets-${Math.random().toString(16).slice(2)}`));
-    }
-
-    // A store seeded with the entry drop-reader demands: an exact match of
-    // host + port + database + name, the record this tool would have written.
-    function seedStore(secretStore, connection, name = DEFAULT_READER_NAME, password = "gone-soon-42") {
-      secretStore.set(
-        {user: name, password, schema: SCHEMA, host: connection.host, port: connection.port, database: connection.database},
-        readerStoreKey(connection, name));
-    }
-
-    it("validates the reader name: only a name that is ours, ^OSD_[A-Z0-9_]{1,26}$ (critic M-2; mutation: admit any uppercase name -> red)", function () {
-      expect(validateReaderName(DEFAULT_READER_NAME)).to.equal("OSD_READER");
-      expect(validateReaderName("OSD_R")).to.equal("OSD_R");
-      // the database's own accounts are names, not readers: none of them may
-      // pass -- the old pattern admitted SYSTEM and SYS straight into
-      // DROP USER ... CASCADE
-      for (const bad of ["SYSTEM", "SYS", "_SYS_REPO", "OSDX", "X; DROP USER Y", 'AB"C', "1ABC", "osd_reader", "TOO_LONG_NAME_OVER_THIRTY_ONE_XY", "", "A-B", `OSD_${"A".repeat(27)}`]) {
-        expect(() => validateReaderName(bad), bad).to.throw(ReaderError);
-      }
-      // and createReader itself refuses a bad name before anything is built
-      // or sent -- the entry point is the guard, not the helper alone
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      return createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, readerName: "SYSTEM", yes: true,
-        store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error).to.be.an.instanceof(ReaderError);
-          expect(error.message).to.include("UNQUOTED");
-        }).then(() => {
-          expect(log.statements).to.have.length(0);
-          expect(log.connections).to.have.length(0);
-        });
-    });
-
-    it("drop-reader without a matching stored secret refuses and names the one SQL line, sending nothing (critic M-2b; mutation: drop the ownership check -> red)", async function () {
-      // the store holds no entry for this host + port + database + name: this
-      // tool did not create a reader here, so it must not drop one -- the
-      // refusal hands the administrator the single statement to run by hand
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      await dropReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        readerName: DEFAULT_READER_NAME, yes: true, store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error).to.be.an.instanceof(ReaderError);
-          expect(error.message).to.include("DROP USER OSD_READER CASCADE");
-        });
-      expect(log.connections).to.have.length(0);
-      expect(log.statements).to.have.length(0);
-    });
-
-    it("drop-reader refuses a stored secret that belongs to another host or database (the entry must match exactly)", async function () {
-      const secretStore = store();
-      secretStore.set(
-        {user: DEFAULT_READER_NAME, password: "gone-soon-42", schema: SCHEMA, host: "other.example.test", port: 39015, database: "TEN"},
-        readerStoreKey({host: "other.example.test", port: 39015, database: "TEN"}, DEFAULT_READER_NAME));
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      await dropReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        readerName: DEFAULT_READER_NAME, yes: true, store: secretStore, clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => expect(error).to.be.an.instanceof(ReaderError));
-      expect(log.connections).to.have.length(0);
-      expect(log.statements).to.have.length(0);
-    });
-
-    it("drop-reader refuses to drop the login it is connected as (critic M-2c; mutation: remove the identity check -> red)", async function () {
-      // the current login is necessarily in SYS.USERS; a reader name that IS
-      // the login means DROP USER <the administrator itself> CASCADE
-      const secretStore = store();
-      secretStore.set(
-        {user: DEFAULT_READER_NAME, password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015},
-        readerStoreKey({host: HOST, port: 39015}, DEFAULT_READER_NAME));
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      await dropReader({
-        connection: {host: HOST, port: 39015, user: "osd_reader", password: PASSWORD},
-        readerName: DEFAULT_READER_NAME, yes: true, store: secretStore, clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error).to.be.an.instanceof(ReaderError);
-          expect(error.message.toLowerCase()).to.include("login");
-        });
-      expect(log.connections).to.have.length(0);
-      expect(log.statements).to.have.length(0);
-    });
-
-    it("quotes identifiers as measured: \" doubled, ' passing through", async function () {
-      expect(quoteIdentifier('AB"S')).to.equal('"AB""S"');
-      expect(quoteIdentifier("O'A")).to.equal("\"O'A\"");
-      // and the GRANT statement the plan shows carries the doubled form
-      const {factory} = fakeClientFactory(SUCCESS_RULES);
-      const seen = [];
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: 'AB"S', readerName: DEFAULT_READER_NAME, yes: true, store: store(),
-        clientFactory: async (options) => {
-          const client = await factory(options);
-          const exec = client.exec.bind(client);
-          client.exec = async (sql, params) => {
-            seen.push({sql, params});
-            return exec(sql, params);
-          };
-          return client;
-        },
-      }).then(() => {
-        const grant = seen.find((s) => s.sql.includes("GRANT SELECT"));
-        expect(grant.sql).to.include('ON SCHEMA "AB""S"');
-      });
-    });
-
-    it("requires consent: no --yes and no TTY means nothing is sent (mutation: consent always given -> red)", async function () {
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: false, isTTY: false,
-        store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => expect(error).to.be.an.instanceof(ConsentRefused));
-      expect(log.statements).to.have.length(0);
-      expect(log.connections).to.have.length(0);
-    });
-
-    it("asks on a TTY and proceeds on 'yes'", async function () {
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      const result = await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: false, isTTY: true,
-        prompt: async () => "yes",
-        store: store(), clientFactory: factory,
-      });
-      expect(log.statements.some((s) => s.sql.startsWith("CREATE USER"))).to.equal(true);
-      expect(result.user).to.equal(DEFAULT_READER_NAME);
-      // a declined prompt sends nothing
-      const log2 = fakeClientFactory(SUCCESS_RULES);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, yes: false, isTTY: true, prompt: async () => "no",
-        store: store(), clientFactory: log2.factory,
-      }).then(() => expect.fail("should refuse"), (error) => expect(error).to.be.an.instanceof(ConsentRefused));
-      expect(log2.log.statements).to.have.length(0);
-    });
-
-    it("runs the E1 statement sequence and proves a SELECT as the reader; the generated password never shows in any message (mutation: print it -> red)", async function () {
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      const said = [];
-      const secretStore = store();
-      const result = await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
-        store: secretStore, clientFactory: factory, say: (text) => said.push(text),
-      });
-      const statements = log.statements.map((s) => s.sql);
-      // exact shapes, in order (E1: user unquoted, schema quoted as identifier)
-      expect(statements[0]).to.equal(`CREATE USER OSD_READER PASSWORD "${result.password}" NO FORCE_FIRST_PASSWORD_CHANGE`);
-      expect(statements[1]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
-      expect(statements[2]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
-      expect(statements.some((s) => s.includes(`FROM "${SCHEMA}"."TADIR"`))).to.equal(true);
-      // the proof ran as the reader, with the reader's own password
-      const proofConnection = log.connections.find((c) => c.user === "OSD_READER");
-      expect(proofConnection.password).to.equal(result.password);
-      // the generated password: >= 24 chars, upper + lower + digit, nothing to escape
-      expect(result.password.length).to.be.at.least(24);
-      expect(result.password).to.match(/^[A-Za-z0-9]+$/);
-      expect(result.password).to.match(/[A-Z]/).and.to.match(/[a-z]/).and.to.match(/[0-9]/);
-      expect(generateReaderPassword()).to.not.equal(generateReaderPassword());
-      // and it is in none of the messages, in no thrown error -- only the mask
-      const everything = said.join("\n");
-      expect(everything).to.not.include(result.password);
-      expect(everything).to.include("***");
-      // the secret is stored where the doctor says, keyed by this connection
-      expect(said.join("\n")).to.include(secretStore.location(DEFAULT_READER_NAME));
-      const adminConnection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-      expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).password).to.equal(result.password);
-      expect(secretStore.get(readerStoreKey(adminConnection, DEFAULT_READER_NAME)).host).to.equal(HOST);
-    });
-
-    it("the tenant database reaches EVERY connection of the reader path (critic M-3; mutation: drop databaseName from the proof/drop connect -> red)", async function () {
-      // administrator connect, reader proof connect, drop-reader connect:
-      // one place builds the options, so all of them must carry the tenant
-      // database -- otherwise the proof logs on to the wrong database and
-      // drop-reader's 'absence proved' is checked where the user survives
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD, database: "TENANT1"};
-      const secretStore = store();
-      await createReader({connection, schema: SCHEMA, yes: true, store: secretStore, clientFactory: factory});
-      // and the stored secret names the tenant, so the ownership key can only
-      // ever match the same database again
-      expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME)).database).to.equal("TENANT1");
-      await dropReader({connection, yes: true, store: secretStore, clientFactory: factory});
-      expect(log.connections.length).to.be.at.least(3);
-      for (const options of log.connections) {
-        expect(options.databaseName, `connect as ${options.user}`).to.equal("TENANT1");
-      }
-    });
-
-    it("binds catalogue comparisons, never concatenates them (mutation: concatenate -> red)", async function () {
-      // the SYS.USERS absence proof of drop-reader takes the reader name as a
-      // bound parameter (and the drop below is allowed: the store holds an
-      // entry for exactly this connection and name)
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      const dropStore = store();
-      const dropConnection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-      seedStore(dropStore, dropConnection);
-      await dropReader({
-        connection: dropConnection,
-        yes: true, store: dropStore, clientFactory: factory,
-      });
-      const sysUsers = log.statements.find((s) => s.sql.includes("FROM SYS.USERS"));
-      expect(sysUsers.sql).to.include("USER_NAME = ?");
-      expect(sysUsers.params).to.deep.equal([DEFAULT_READER_NAME]);
-      // the schema owner lookup (run when the GRANT is refused) takes the
-      // schema as a bound parameter too
-      const log2 = fakeClientFactory([
-        {match: /CREATE USER/, rows: []},
-        {match: /ALTER USER/, rows: []},
-        {match: /GRANT SELECT/, error: 258, message: "insufficient privilege"},
-        {match: /FROM SYS\.SCHEMAS/, rows: [{OWNER_NAME: "SCHEMA_OWNER_LOGIN"}]},
-        {match: /DROP USER/, rows: []},
-      ]);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, yes: true, store: store(), clientFactory: log2.factory,
-      }).catch(() => {}); // the 258 message is asserted elsewhere
-      const schemas = log2.log.statements.find((s) => s.sql.includes("FROM SYS.SCHEMAS"));
-      expect(schemas.sql).to.include("UPPER(SCHEMA_NAME) = UPPER(?)");
-      expect(schemas.params).to.deep.equal([SCHEMA]);
-      expect(schemas.sql).to.not.include(SCHEMA);
-    });
-
-    it("explains 258 on CREATE USER and sends no DROP (nothing was created)", async function () {
-      const {log, factory} = fakeClientFactory([
-        {match: /CREATE USER/, error: 258, message: "insufficient privilege"},
-      ]);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, yes: true, store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error).to.be.an.instanceof(ReaderError);
-          expect(error.message).to.include("may not create users");
-          expect(error.message).to.include("USER ADMIN");
-          expect(error.message).to.include("READ ONLY");
-        });
-      expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
-    });
-
-    it("explains 258 on GRANT, names the schema owner, and drops the reader it had created (mutation: no cleanup -> red)", async function () {
-      const {log, factory} = fakeClientFactory([
-        {match: /CREATE USER/, rows: []},
-        {match: /ALTER USER/, rows: []},
-        {match: /GRANT SELECT/, error: 258, message: "insufficient privilege"},
-        {match: /FROM SYS\.SCHEMAS/, rows: [{OWNER_NAME: "SCHEMA_OWNER_LOGIN"}]},
-        {match: /DROP USER/, rows: []},
-      ]);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, yes: true, store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error).to.be.an.instanceof(ReaderError);
-          expect(error.message).to.include("may not grant the schema");
-          expect(error.message).to.include("SCHEMA_OWNER_LOGIN");
-        });
-      expect(log.statements.some((s) => s.sql.startsWith("DROP USER OSD_READER CASCADE"))).to.equal(true);
-    });
-
-    it("drops the reader on a later failure and reports the real cause (mutation: keep the half reader -> red)", async function () {
-      const {log, factory} = fakeClientFactory([
-        {match: /CREATE USER/, rows: []},
-        {match: /ALTER USER/, error: 421, message: "phase failed"},
-        {match: /DROP USER/, rows: []},
-      ]);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, yes: true, store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error).to.be.an.instanceof(ReaderError);
-          expect(error.message).to.include("421");
-          expect(error.message).to.include("dropped again");
-        });
-      expect(log.statements.some((s) => s.sql.startsWith("DROP USER OSD_READER CASCADE"))).to.equal(true);
-    });
-
-    it("treats a 332 after a failed create as 'user absent', never as the cause", async function () {
-      const {log, factory} = fakeClientFactory([
-        {match: /CREATE USER/, error: 421, message: "the create failed"},
-        {match: /DROP USER/, error: 332, message: "invalid user name"},
-      ]);
-      await createReader({
-        connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
-        schema: SCHEMA, yes: true, store: store(), clientFactory: factory,
-      }).then(
-        () => expect.fail("should refuse"),
-        (error) => {
-          expect(error.message).to.include("the create failed");
-          expect(error.message).to.include("user absent");
-        });
-      expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(true);
-    });
-
-    it("enforces the secret file modes: dir 0700, file 0600, fchmod even when they existed (mutation: drop fchmod -> red)", function () {
-      const dir = join(root, `modes-${Math.random().toString(16).slice(2)}`);
-      const secretPath = join(dir, "reader-secret.json");
-      // a loose pre-existing store: the store must tighten it, not keep it
-      mkdirSync(dir, {recursive: true, mode: 0o755});
-      writeFileSync(secretPath, `{"OTHER": {"x": 1}}\n`, {mode: 0o644});
-      chmodSync(secretPath, 0o644);
-      const s = fileSecretStore(dir);
-      s.set({user: "OSD_READER", password: "not-a-real-password-42"}, "OSD_READER");
-      expect(statSync(dir).mode & 0o777).to.equal(0o700);
-      expect(statSync(secretPath).mode & 0o777).to.equal(0o600);
-      expect(s.get("OSD_READER").password).to.equal("not-a-real-password-42");
-      expect(s.get("OTHER")).to.deep.equal({x: 1});
-      s.delete("OSD_READER");
-      expect(s.get("OSD_READER")).to.equal(undefined);
-      expect(s.get("OTHER")).to.deep.equal({x: 1}); // another reader's secret stays
-    });
-
-    it("drop-reader: DROP ... CASCADE, absence proved, secret removed (mutation: skip store.delete -> red)", async function () {
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      const secretStore = store();
-      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-      seedStore(secretStore, connection);
-      const said = [];
-      const result = await dropReader({
-        connection,
-        readerName: DEFAULT_READER_NAME, yes: true, store: secretStore,
-        clientFactory: factory, say: (text) => said.push(text),
-      });
-      expect(result.dropped).to.equal(true);
-      expect(result.absent).to.equal(true);
-      expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
-      expect(log.statements.some((s) => s.sql.includes("FROM SYS.USERS"))).to.equal(true);
-      expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
-      expect(said.join("\n")).to.include("absence proved");
-    });
-
-    it("drop-reader on an absent user: 332 is fine, the secret still goes", async function () {
-      const {log, factory} = fakeClientFactory([
-        {match: /DROP USER/, error: 332, message: "invalid user name"},
-        {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
-      ]);
-      const secretStore = store();
-      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-      seedStore(secretStore, connection);
-      const result = await dropReader({
-        connection,
-        yes: true, store: secretStore, clientFactory: factory,
-      });
-      expect(result.dropped).to.equal(false);
-      expect(result.absent).to.equal(true);
-      expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
-    });
-
-    it("through the doctor: --create-reader runs the whole path and exits 0", async function () {
-      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
-      const secretStore = store();
-      const code = await runDoctor(["--create-reader", "--yes"], {
-        scenario: "owner-tenant",
-        deps: {clientFactory: factory, store: secretStore},
-      });
-      expect(code).to.equal(0);
-      expect(log.statements.some((s) => s.sql.startsWith("CREATE USER"))).to.equal(true);
-      // the stored secret is keyed by this connection (host, port, database, name)
-      expect(secretStore.get(readerStoreKey({host: HOST, port: 39015}, DEFAULT_READER_NAME))).to.not.equal(undefined);
-    });
-
-    it("the env file feeds the connection, unknown keys are refused", function () {
-      const envPath = join(root, "bed.env");
-      writeFileSync(envPath, ["# a test bed", "HANA_HOST=bed.example.test", "HANA_PORT=39015", "HANA_DATABASE=TEN", "HANA_USER=BEDUSER", "HANA_PASSWORD=bed-password-1", "HANA_SCHEMA=BEDSCHEMA"].join("\n"));
-      const {flags} = parseFlags(["--env-file", envPath], {valueFlags: ["env-file"], booleanFlags: []});
-      expect(flags["env-file"]).to.equal(envPath);
-      const badPath = join(root, "bad.env");
-      writeFileSync(badPath, "HANA_HOSTNAME=x\n");
-      expect(() => readEnvFile(badPath)).to.throw(UsageError);
-      expect(() => readEnvFile(join(root, "no-such.env"))).to.throw(UsageError);
-    });
   });
 
   // ---------------------------------------- redactor and defaults, directly
