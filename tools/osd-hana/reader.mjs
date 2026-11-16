@@ -476,10 +476,17 @@ export function describeNeitherRole(schema) {
   ].join("\n");
 }
 
-export function describe258OnGrant(schema, owner) {
+/** The one-login 258-on-GRANT message. `cleanupFailedNote` is "" when the
+ *  cleanup DROP succeeded (the "nothing was left behind" sentence is then
+ *  true); when the drop FAILED, the caller passes a note that says so --
+ *  with a line break and the hand-run SQL line -- and the false claim is
+ *  never printed (critic NOTE-1 / probe P3). */
+export function describe258OnGrant(schema, owner, cleanupFailedNote = "") {
   return [
     `osd hana: this login may not grant the schema (HANA error 258, insufficient privilege).`,
-    `  The reader was created and is now dropped again; nothing was left behind.`,
+    cleanupFailedNote === ""
+      ? `  The reader was created and is now dropped again; nothing was left behind.`
+      : cleanupFailedNote,
     `  The login that CAN grant SELECT on schema ${show(schema)} is its owner${owner ? `: ${owner}` : " (the owner lookup did not answer -- it is the user named like the schema on a classic ABAP stack)"}.`,
     `  Run 'osd hana doctor --create-reader' with that login, or go on read-only with the present login.`,
   ].join("\n");
@@ -592,16 +599,10 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
   let ownerClient;
   // Best-effort cleanup by the administrator connection: a 332 means the
   // user is absent (the consequence of a failed create) -- that is success
-  // for a cleanup, not an error.
-  const dropAgain = async () => {
-    try {
-      await adminClient.exec(`DROP USER ${readerName} CASCADE`);
-      return {dropped: true};
-    } catch (error) {
-      if (errorCode(error) === 332) return {dropped: false, absent: true};
-      return {dropped: false, absent: false, error};
-    }
-  };
+  // for a cleanup, not an error. (critic NOTE-7: the same rules as
+  // dropUserQuietly, so there is ONE implementation -- this closure binds
+  // the administrator client, the one connection that can drop.)
+  const dropAgain = () => dropUserQuietly(adminClient, readerName);
   // The one cleanup message: which login failed at which statement, and what
   // happened to the half-set-up reader (task: "a failed GRANT by the owner --
   // 258, wrong password, logon failure -- = reader dropped, clear message
@@ -714,7 +715,16 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
           if (errorCode(error) === 258) {
             const owner = await lookupSchemaOwner(adminClient, schema);
             const cleanup = await dropAgain();
-            throw new ReaderError(describe258OnGrant(schema, owner) + (cleanup.dropped || cleanup.absent ? "" : redact(cleanupDropFailedText(cleanup))));
+            // The "nothing was left behind" sentence is printed only when it
+            // is true (critic NOTE-1 / probe P3: a failed cleanup DROP used
+            // to be glued on after the false claim, with no line break and
+            // no hand-run SQL line).
+            const cleanupFailedNote = cleanup.dropped
+              ? ""
+              : cleanup.absent
+                ? "\n  The reader was created and the cleanup drop found nothing to remove (HANA said 332) -- the reader is gone."
+                : `\n  ${redact(cleanupDropFailedText(cleanup))}\n  Remove it by hand: DROP USER ${readerName} CASCADE.`;
+            throw new ReaderError(describe258OnGrant(schema, owner, cleanupFailedNote));
           }
           await refused({label: "administrator", user: adminLogin.user, item: grantSelect, error});
         }

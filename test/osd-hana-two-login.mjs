@@ -70,6 +70,48 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
     expect(executed).to.deep.equal(resolved);
   });
 
+  it("the cleanup DROP failing after a 258 on the one-login GRANT: the message must NOT claim 'nothing was left behind' -- it says the drop failed too, with a line break and the hand-run SQL line (critic NOTE-1 / probe P3; mutation: the failed-drop note dropped -> red)", async function () {
+    const {factory} = fakeClientFactory([
+      {match: /GRANT SELECT/, error: 258, message: "insufficient privilege"},
+      {match: /DROP USER/, error: 1033, message: "connection lost"},
+      ...SUCCESS_RULES.filter((r) => !/GRANT SELECT|DROP USER/.test(r.match.source)),
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      role: "both",
+      store: h.store(), clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.not.include("nothing was left behind"); // that claim would be FALSE here
+        expect(error.message).to.include("The drop of the reader failed too");
+        expect(error.message).to.include("\n"); // a line break before the note, not one glued sentence
+        expect(error.message).to.include(`Remove it by hand: DROP USER ${DEFAULT_READER_NAME} CASCADE`);
+      });
+  });
+
+  it("the cleanup DROP finding the reader absent (332) after a 258 on the one-login GRANT: no 'undefined' anywhere in the message (critic NOTE-1; mutation: the absent note dropped -> red)", async function () {
+    const {factory} = fakeClientFactory([
+      {match: /GRANT SELECT/, error: 258, message: "insufficient privilege"},
+      {match: /DROP USER/, error: 332, message: "invalid user name"},
+      ...SUCCESS_RULES.filter((r) => !/GRANT SELECT|DROP USER/.test(r.match.source)),
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      role: "both",
+      store: h.store(), clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.not.include("undefined");
+        expect(error.message).to.not.include("The drop of the reader failed too"); // it did not fail: 332 is absent
+      });
+  });
+
   // ------------------------------------------------------- who runs what
 
   it("role admin (the doctor's probe said so): CREATE/ALTER/CATALOG READ run on the present login's connection, GRANT SELECT on the schema owner's -- per-login scripted answers (mutation: the GRANT SELECT sent as the administrator -> red)", async function () {
