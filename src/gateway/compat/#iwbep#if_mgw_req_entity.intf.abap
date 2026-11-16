@@ -33,4 +33,14 @@ INTERFACE /iwbep/if_mgw_req_entity PUBLIC.
   METHODS get_navigation_path
     RETURNING
       VALUE(rt_navigation_path) TYPE /iwbep/t_mgw_tech_navi.
+
+* Overlay (milestone 4): the same two members as on the entity-set facet
+* (a second generated service reads both on a single read)
+  METHODS get_source_entity_type_name
+    RETURNING
+      VALUE(rv_source_entity_type) TYPE /iwbep/mgw_tech_name.
+
+  METHODS get_select_with_mandtry_fields
+    RETURNING
+      VALUE(rt_selected_fields) TYPE /iwbep/t_mgw_tech_field_names.
 ENDINTERFACE.

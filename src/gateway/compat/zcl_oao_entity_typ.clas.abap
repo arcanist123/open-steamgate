@@ -1,6 +1,10 @@
 CLASS zcl_oao_entity_typ DEFINITION PUBLIC.
 * Overlay of open-abap-odata's entity type (src/gateway/compat/README.md):
 * bind_structure reads the dictionary.
+* Milestone 4: the type is a thing type (sap:is-thing-type), has a label
+* from the text pool (sap:label), can be disabled with its sets, and hands
+* out a navigation property by name; disabled sets, navigation properties
+* and properties are left out of the lists the readers get.
   PUBLIC SECTION.
     INTERFACES /iwbep/if_mgw_odata_entity_typ.
 
@@ -8,6 +12,10 @@ CLASS zcl_oao_entity_typ DEFINITION PUBLIC.
     DATA mo_annotation TYPE REF TO zcl_oao_annotation.
 * a media entity: its content is a stream, read and written at <entity>/$value
     DATA mv_is_media   TYPE abap_bool.
+    DATA mv_is_thing_type  TYPE abap_bool.
+    DATA mv_text_symbol    TYPE textpoolky.
+    DATA mv_text_container TYPE string.
+    DATA mv_disabled       TYPE abap_bool.
 
     TYPES: BEGIN OF ty_entity_set,
              name       TYPE /iwbep/if_mgw_med_odata_types=>ty_e_med_entity_name,
@@ -17,7 +25,13 @@ CLASS zcl_oao_entity_typ DEFINITION PUBLIC.
 
     TYPES ty_nav_props TYPE STANDARD TABLE OF REF TO zcl_oao_nav_prop WITH DEFAULT KEY.
 
+* the sets that are part of the service (none of a disabled type)
     METHODS get_entity_sets
+      RETURNING
+        VALUE(rt_entity_sets) TYPE ty_entity_sets.
+
+* every set of the type, disabled or not
+    METHODS get_all_entity_sets
       RETURNING
         VALUE(rt_entity_sets) TYPE ty_entity_sets.
 
@@ -37,7 +51,28 @@ ENDCLASS.
 CLASS zcl_oao_entity_typ IMPLEMENTATION.
 
   METHOD /iwbep/if_mgw_odata_item~set_label_from_text_element.
-    ASSERT 1 = 'todo'.
+    mv_text_symbol    = iv_text_element_symbol.
+    mv_text_container = iv_text_element_container.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_item~set_disabled.
+    mv_disabled = iv_disabled.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~set_is_thing_type.
+    mv_is_thing_type = iv_is_thing_type.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~get_navigation_property.
+    DATA lo_nav TYPE REF TO zcl_oao_nav_prop.
+
+    LOOP AT mt_nav_props INTO lo_nav.
+      IF lo_nav->mv_name = iv_name.
+        ro_navigation_property = lo_nav.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+    RAISE EXCEPTION TYPE /iwbep/cx_mgw_med_exception.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_odata_annotatabl~create_annotation.
@@ -59,7 +94,13 @@ CLASS zcl_oao_entity_typ IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_navigation_properties.
-    rt_nav_props = mt_nav_props.
+    DATA lo_nav TYPE REF TO zcl_oao_nav_prop.
+
+    LOOP AT mt_nav_props INTO lo_nav.
+      IF lo_nav->mv_disabled = abap_false.
+        APPEND lo_nav TO rt_nav_props.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_odata_entity_typ~create_entity_set.
@@ -73,6 +114,19 @@ CLASS zcl_oao_entity_typ IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_entity_sets.
+    DATA ls_set LIKE LINE OF mt_entity_sets.
+
+    IF mv_disabled = abap_true.
+      RETURN.
+    ENDIF.
+    LOOP AT mt_entity_sets INTO ls_set.
+      IF ls_set-entity_set->mv_disabled = abap_false.
+        APPEND ls_set TO rt_entity_sets.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_all_entity_sets.
     rt_entity_sets = mt_entity_sets.
   ENDMETHOD.
 
@@ -156,7 +210,17 @@ CLASS zcl_oao_entity_typ IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_odata_entity_typ~get_properties.
-    rt_properties = mt_properties.
+* the properties that are part of the type (get_property still hands out
+* a disabled one by name)
+    DATA ls_row      LIKE LINE OF mt_properties.
+    DATA lo_property TYPE REF TO zcl_oao_property.
+
+    LOOP AT mt_properties INTO ls_row.
+      lo_property ?= ls_row-property.
+      IF lo_property->mv_disabled = abap_false.
+        INSERT ls_row INTO TABLE rt_properties.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
 ENDCLASS.

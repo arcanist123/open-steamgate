@@ -65,4 +65,21 @@ CLASS zcl_oao_request_context IMPLEMENTATION.
     RETURN.
   ENDMETHOD.
 
+  METHOD /iwbep/if_mgw_req_entityset~get_source_entity_type_name.
+* milestone 4: the facet's new getters; no URL behind this context either
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_search_string.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_skiptoken.
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entityset~get_select_with_mandtry_fields.
+    RETURN.
+  ENDMETHOD.
+
 ENDCLASS.

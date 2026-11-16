@@ -53,4 +53,28 @@ INTERFACE /iwbep/if_mgw_req_entityset PUBLIC.
   METHODS get_navigation_path
     RETURNING
       VALUE(rt_navigation_path) TYPE /iwbep/t_mgw_tech_navi.
+
+* Overlay (milestone 4), the members a second generated service calls on
+* this facet:
+* the entity type of the set a navigation started from ('' for a direct
+* read, as get_source_entity_set_name)
+  METHODS get_source_entity_type_name
+    RETURNING
+      VALUE(rv_source_entity_type) TYPE /iwbep/mgw_tech_name.
+
+* the "search" option of the URL, as written
+  METHODS get_search_string
+    RETURNING
+      VALUE(rv_search_string) TYPE string.
+
+* the $skiptoken of the URL, as written ('' when none)
+  METHODS get_skiptoken
+    RETURNING
+      VALUE(rv_skiptoken) TYPE string.
+
+* the $select of the URL in ABAP field names, with the key fields of the
+* set added; empty when the URL selected nothing (everything)
+  METHODS get_select_with_mandtry_fields
+    RETURNING
+      VALUE(rt_selected_fields) TYPE /iwbep/t_mgw_tech_field_names.
 ENDINTERFACE.
