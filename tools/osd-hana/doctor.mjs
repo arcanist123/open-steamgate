@@ -258,7 +258,7 @@ export async function doctorMain(argv, {
   if (flags.json === true) {
     io.out(JSON.stringify(jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}), null, 1));
   } else {
-    for (const line of plainVerdict(probe, {connection})) io.out(line);
+    for (const line of plainVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo)})) io.out(line);
     for (const warning of warnings) io.out(`  WARNING: ${warning}`);
   }
   return DOCTOR_EXIT.ok;

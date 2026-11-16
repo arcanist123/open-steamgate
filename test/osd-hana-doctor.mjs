@@ -517,6 +517,21 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(allText()).to.include("UNPINNED");
     });
 
+    it("with an unpinned sidecar the read-only claim is qualified, in text and in --json (critic S-4; mutation: state the pinned sentence unconditionally -> red)", async function () {
+      // the writer scenario makes the probe say the login can write; the
+      // binary saying so was NEVER checksum-verified, so the doctor must not
+      // state the database-level read-only guarantee as fact
+      const emptyPin = makePin({targets: {}});
+      const code = await runDoctor(["--allow-unpinned-sidecar"], {scenario: "writer", pin: emptyPin});
+      expect(code).to.equal(0);
+      expect(allText()).to.include("not checksum-verified");
+      expect(allText()).to.not.include(SAFETY_NOTE);
+      const code2 = await runDoctor(["--allow-unpinned-sidecar", "--json"], {scenario: "writer", pin: emptyPin});
+      expect(code2).to.equal(0);
+      const document = JSON.parse(out.join("\n"));
+      expect(document.verdict.safetyNote).to.include("not checksum-verified");
+    });
+
     it("exits 2 with the timeout message when the sidecar hangs", async function () {
       const code = await runDoctor([], {scenario: "hang"});
       expect(code).to.equal(2);

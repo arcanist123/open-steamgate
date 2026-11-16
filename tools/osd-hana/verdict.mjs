@@ -41,6 +41,19 @@ export function dbText(probe = {}) {
 // sessions are read-only at the database level.
 export const SAFETY_NOTE = "Extraction is safe with this login even though it can write: every session the sidecar opens is read-only at the database level -- the database itself refuses any write, whoever logs on.";
 
+// The same moment, but the binary reporting read_only was never
+// checksum-verified (--allow-unpinned-sidecar): its read-only claim is
+// self-reported, so the guarantee cannot be stated as fact -- it is quoted
+// as the unverified binary's own claim, exactly as the doctor can vouch for
+// it (critic S-4).
+export const UNPINNED_SAFETY_NOTE = "Extraction with this login even though it can write: this binary's read-only claim is its own; it was not checksum-verified (--allow-unpinned-sidecar), so whether the database refuses any write rests entirely on the unverified binary's say-so.";
+
+/** Which sentence the moment earns: pinned (or unknown) states the guarantee,
+ *  an explicitly unpinned binary gets the qualified one. */
+export function safetyNote({pinned} = {}) {
+  return pinned === false ? UNPINNED_SAFETY_NOTE : SAFETY_NOTE;
+}
+
 export function schemaLines(probe = {}) {
   const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
   if (schemas.length === 0) return ["ABAP schema: none found."];
@@ -56,8 +69,9 @@ export function schemaLines(probe = {}) {
   });
 }
 
-/** The plain verdict, one line per finding, ready to print. */
-export function plainVerdict(probe = {}, {connection} = {}) {
+/** The plain verdict, one line per finding, ready to print. `sidecar.pinned`
+ *  decides which safety sentence the moment earns (see safetyNote). */
+export function plainVerdict(probe = {}, {connection, sidecar} = {}) {
   const lines = [];
   lines.push("Verdict for the ABAP rescue:");
   lines.push(`  Reachable: yes -- logged on as ${connection?.user ?? "?"} to ${connection?.host ?? "?"}, ${dbText(probe)}.`);
@@ -71,7 +85,7 @@ export function plainVerdict(probe = {}, {connection} = {}) {
     lines.push("  ABAP server still attached: unknown (informational -- this login may not see the sessions).");
   }
   lines.push(`  This login is ${loginClassText(probe)}${canWrite(probe) ? " and can do more than read on the schema" : " and can only read"}.`);
-  if (canWrite(probe)) lines.push(`  ${SAFETY_NOTE}`);
+  if (canWrite(probe)) lines.push(`  ${safetyNote(sidecar)}`);
   const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
   if (schemas.length > 0) {
     lines.push("  Ready to extract: yes -- the next step is `osd hana extract`.");
@@ -100,7 +114,7 @@ export function jsonVerdict(probe, {connection, sidecar, warnings = []}) {
       canWrite: canWrite(probe),
       abapAttached: probe.abap_attached ?? "unknown",
       readyToExtract: schemas.length > 0,
-      safetyNote: canWrite(probe) ? SAFETY_NOTE : undefined,
+      safetyNote: canWrite(probe) ? safetyNote(sidecar) : undefined,
     },
     warnings,
   };
