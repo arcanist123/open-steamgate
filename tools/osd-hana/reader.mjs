@@ -501,12 +501,14 @@ export function describe258OnGrant(schema, owner) {
  *  Returns {user, schema, storedAt} -- the generated password is NOT part of
  *  it: the secret store is its only holder (critic M-A). `onCreated({user,
  *  password, schema, catalogRead})` runs once, after the proofs succeeded and
- *  the secret is stored (the doctor runs the sidecar's probe AS THE READER
- *  through it); it must never throw -- a probe hiccup must not drop a proven
- *  reader. Throws ReaderError with a person-shaped message on every refusal;
- *  on any failure after CREATE the user is dropped again by the ADMINISTRATOR
- *  connection -- the only one that can -- and the message names which login
- *  failed at which statement. */
+ *  the secret is stored -- OUTSIDE the cleanup scope, so a throwing hook can
+ *  never drop the proven reader nor orphan its stored secret (critic S-5):
+ *  the hook's error propagates to the caller unchanged (the doctor catches
+ *  its own hook's errors; any other caller owns its hook). Throws
+ *  ReaderError with a person-shaped message on every refusal; on any failure
+ *  after CREATE the user is dropped again by the ADMINISTRATOR connection --
+ *  the only one that can -- and the message names which login failed at
+ *  which statement. */
 export async function createReader({
   connection,        // {host, port, user, password, database?} of the PRESENT login
   schema,
@@ -561,6 +563,7 @@ export async function createReader({
 }
 
 async function runCreatePlan({connection, role, secondLogin, readerName, schema, password, plan, catalogRead, store, clientFactory, say, encrypt = false, trustServerCertificate = false, ca = undefined, tlsServerName = undefined, redact = (text) => text, onCreated = undefined, logins}) {
+  let storedAt; // set at store time (inside the guarded region), read after the hook -- see step 6/7
   // The ADMINISTRATOR login runs CREATE / ALTER / CATALOG READ; the SCHEMA
   // OWNER login runs the GRANT SELECT. The administrator connection is also
   // the ONLY one that can drop the reader again -- every cleanup below goes
@@ -799,20 +802,13 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
       // --json document must never hold it). The EXTRA passwords (the second
       // login's) are not stored anywhere: they were used for their statements
       // above and dropped with their connections.
-      const storedAt = new Date().toISOString();
+      storedAt = new Date().toISOString();
       store.set(
         {user: readerName, password, schema, host: connection.host, port: connection.port,
           database: connection.database, stored_at: storedAt, system_identity: systemIdentity,
           catalog_read: catalogRead},
         readerStoreKey(connection, readerName));
       say(`osd hana: the reader's credentials are stored in ${store.location(readerName)}.`);
-
-      // 7. The doctor's hook (the sidecar's probe run AS THE READER): called
-      // after the proofs and the store, never allowed to drop what is proven.
-      if (onCreated !== undefined) {
-        await onCreated({user: readerName, password, schema, catalogRead});
-      }
-      return {user: readerName, schema, storedAt};
     } catch (error) {
       // The catch-all cleanup: the user exists, the setup did not finish.
       // (A ReaderError has already done its own cleanup and carries its own
@@ -828,6 +824,22 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
       throw new ReaderError(`osd hana: setting up the reader failed -- ${causedBy}\n` +
         `  (the administrator login ${adminLogin.user} ran the statements up to here)\n  ${note}`);
     }
+
+    // 7. The doctor's hook (the sidecar's probe run AS THE READER) runs
+    // OUTSIDE the cleanup scope, AFTER the proofs and the store (critic
+    // S-5): at this point the reader is proven and its secret is stored --
+    // a consistent pair -- and a throwing hook can never turn that pair
+    // into "a stored secret for a dropped reader" (the old bug: the hook
+    // sat inside the cleanup try, so its throw triggered the catch-all,
+    // which dropped the reader and left the secret behind). The hook's
+    // failure propagates to the caller unchanged; the doctor catches its
+    // own hook's errors, and any OTHER caller of createReader owns its
+    // hook -- this module guarantees only that the hook is called at a
+    // consistent point, never that a proven reader is dropped for it.
+    if (onCreated !== undefined) {
+      await onCreated({user: readerName, password, schema, catalogRead});
+    }
+    return {user: readerName, schema, storedAt};
   } finally {
     if (adminClient !== undefined) await adminClient.disconnect();
     if (ownerClient !== undefined) await ownerClient.disconnect();

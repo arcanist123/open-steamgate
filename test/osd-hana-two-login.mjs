@@ -391,6 +391,45 @@ describe("tools/osd-hana: the guided two-login create flow", function () {
     expect(log.connections.filter((c) => c.user === DEFAULT_READER_NAME)).to.have.length(1);
   });
 
+  it("a THROWING onCreated never leaves a stored secret for a dropped reader: the hook runs OUTSIDE the cleanup scope, so the proven reader stays alive with its stored secret (critic S-5 / probe P10; mutation: the hook back inside the cleanup -> red)", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    await createReader({
+      connection, schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: secretStore, clientFactory: factory,
+      onCreated: async () => { throw new Error("probe hiccup"); },
+    }).then(
+      () => expect.fail("the hook's error must propagate"),
+      (error) => {
+        expect(error.message).to.include("probe hiccup");
+        // the pair stays consistent: the reader is alive AND its secret stored
+        expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`),
+          "a hook failure must not drop a proven, stored reader").to.equal(false);
+        expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME)), "the secret is stored for the live reader").to.not.equal(undefined);
+      });
+  });
+
+  it("a failing STORE (any failure after the proofs) never leaves a live reader without a stored secret: the reader is dropped (critic S-5, the other direction; mutation: the store left unguarded -> red)", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const secretStore = h.store();
+    secretStore.set = () => { throw new Error("disk full"); };
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    await createReader({
+      connection, schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: secretStore, clientFactory: factory,
+    }).then(
+      () => expect.fail("the store's failure must fail the run"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("disk full");
+        // no live reader without a stored secret: the reader is dropped
+        expect(log.statements.some((s) => s.sql === `DROP USER ${DEFAULT_READER_NAME} CASCADE`),
+          "a reader whose secret could not be stored must be dropped").to.equal(true);
+        expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
+      });
+  });
+
   // --------------------------------------------- the doctor's guided flow
 
   it("the doctor works the role out from the probe: an administrator login drives the two-login flow with --owner-user + $OSD_HANA_OWNER_PASSWORD; the consent screen shows BOTH groups; the extra password is never stored (mutation: the second login ignored -> red)", async function () {
