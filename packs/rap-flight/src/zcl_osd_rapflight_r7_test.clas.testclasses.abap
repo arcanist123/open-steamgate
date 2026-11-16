@@ -81,7 +81,13 @@ CLASS ltcl_saver IMPLEMENTATION.
     ls_btgt-customer_id = '000078'.
     ls_btgt-carrier_id = 'SQ'.
     ls_btgt-connection_id = '0001'.
-    ls_btgt-flight_date = '20270623'.
+    " the generator windows its flights around the day the seed is made, so
+    " the date is read from the seed, not written down: a fixed date fell out
+    " of the window on 2026-11-16 and every test here went red with no change
+    SELECT SINGLE flight_date FROM /dmo/flight
+      WHERE carrier_id = @ls_btgt-carrier_id AND connection_id = @ls_btgt-connection_id
+      INTO @ls_btgt-flight_date.
+    cl_abap_unit_assert=>assert_subrc( act = sy-subrc msg = 'the seed holds an SQ 0001 flight' ).
     ls_btgt-flight_price = 100.
     ls_btgt-currency_code = 'EUR'.
     ls_btgt-booking_status = 'N'.
