@@ -255,3 +255,54 @@ export function addNamespacedFunctionGroup({list, dump}) {
   ]);
   appendJsonl(T, "TFTIT.jsonl", [{FUNCNAME: "Z_OSD_Y2_FM", SPRAS: "E", STEXT: "Namespaced synthetic function"}]);
 }
+
+/** Appends TWO function groups whose names are prefixes of each other --
+ *  `<ns>ZA` and `<ns>ZAU` (fix round 6, CRITIC round 4 MUST-2) -- to built
+ *  fixtures. Their includes overlap by shape: ZA's are LZA + 3 characters
+ *  (LZATOP, LZAU01, LZAUXX), ZAU's are LZAU + 3 (LZAUTOP, LZAUU01,
+ *  LZAUUXX), so a 4-character split of ZAU's would hand them to ZA. Both
+ *  groups are in the dump; the LISTING decides which one is in scope:
+ *  `inScope` is "ZA" or "ZAU", the other is listed as the vendor's (class
+ *  sap -- excluded without --include-sap) and its sources carry a marker
+ *  line ("SIBLING_SECRET") that must never reach the repository. */
+export function addSiblingFunctionGroups({list, dump}, {ns = "", inScope = "ZA"} = {}) {
+  const T = join(dump, "tables");
+  const readJsonl = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const appendJsonl = (dir, name, rows) => writeFileSync(join(dir, name), readJsonl(dir, name).concat(rows).map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const P = "$OSD_X";
+  const objFile = (path, bytes) => ({path, state: "A", sha256: "0".repeat(64), bytes});
+  if (ns) mkdirSync(join(dump, "src", ns), {recursive: true});
+  const abap = (name, body) => {
+    writeFileSync(join(dump, "src", name), body);
+    return `src/${name}`;
+  };
+  const trdirRow = (name, subc) => ({NAME: name, SUBC: subc, DBAPL: "S", DBNA: "D$", APPL: "S", FIXPT: "X", LDBNAME: "D$S", UCCHECK: "X"});
+  const srcRow = (program, file) => ({program, state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 2, sha256: "1".repeat(64), file});
+  const listedRows = [];
+  const dumpRows = [];
+  for (const g of ["ZA", "ZAU"]) {
+    const own = g === inScope;
+    const group = `${ns}${g}`;
+    const tag = own ? `own ${g}` : "SIBLING_SECRET";
+    const main = `${ns}SAPL${g}`;
+    const inc = `${ns}L${g}`;
+    const fm = `Z_${g}_FM`;
+    const files = [
+      [main, abap(`${main}.abap`, `FUNCTION-POOL ${g.toLowerCase()}. "${tag}\n`)],
+      [`${inc}TOP`, abap(`${inc}TOP.abap`, `DATA g_${g.toLowerCase()} TYPE i. "${tag}\n`)],
+      [`${inc}U01`, abap(`${inc}U01.abap`, `FUNCTION ${fm.toLowerCase()}. "${tag}\nENDFUNCTION.\n`)],
+    ];
+    const row = {type: "FUGR", name: group, package: own ? P : "SAP_PK", author: own ? "DEVUSER" : "SAP", class: own ? "customer" : "sap", state: "A", status: "W",
+      files: files.map(([, f]) => objFile(f, 40))};
+    listedRows.push(row);
+    dumpRows.push(row);
+    appendJsonl(dump, "reposrc.jsonl", files.map(([p, f]) => srcRow(p, f)));
+    appendJsonl(T, "TADIR.jsonl", [{PGMID: "R3TR", OBJECT: "FUGR", OBJ_NAME: group, DEVCLASS: own ? P : "SAP_PK", AUTHOR: own ? "DEVUSER" : "SAP", MASTERLANG: "E", GENFLAG: "", SRCSYSTEM: "SYN"}]);
+    appendJsonl(T, "TRDIR.jsonl", [trdirRow(main, "F"), trdirRow(`${inc}TOP`, "I")]);
+    appendJsonl(T, "TFDIR.jsonl", [{FUNCNAME: fm, PNAME: main, PNAME_MAIN: "", INCLUDE: "01", FMODE: "", UTASK: ""}]);
+    appendJsonl(T, "TLIBG.jsonl", [{AREA: group, UNAME: own ? "DEVUSER" : "SAP"}]);
+    appendJsonl(T, "TFTIT.jsonl", [{FUNCNAME: fm, SPRAS: "E", STEXT: `Synthetic ${g}`}]);
+  }
+  appendJsonl(dump, "objects.jsonl", dumpRows);
+  appendJsonl(list, "objects.jsonl", listedRows);
+}
