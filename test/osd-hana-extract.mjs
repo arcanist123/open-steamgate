@@ -406,10 +406,10 @@ describe("osd hana extract", function () {
     const zpk = folderPaths(new Set(["$ZPK", "ZPK"]), new Map([["ZPK", ""], ["$ZPK", ""]]), "FULL");
     expect(zpk.paths.get("$ZPK")).to.equal("zpk/");
     expect(zpk.paths.get("ZPK")).to.equal("zpk/");
-    expect([...zpk.collisions].sort()).to.deep.equal(["$ZPK", "ZPK"]);
+    expect([...zpk.collisions].sort()).to.deep.equal(["$ZPK", "ZPK"]); // plain sort: '$' sorts before letters
     const coll = folderPaths(new Set(["TMP", "$TMP"]), new Map(), "FULL");
     expect(coll.paths.get("$TMP")).to.equal("tmp/");
-    expect([...coll.collisions].sort()).to.deep.equal(["TMP", "$TMP"]);
+    expect([...coll.collisions].sort()).to.deep.equal(["$TMP", "TMP"]);
   });
 
   it("reusableDump: no dump dir, unreadable manifest, missing sidecar block, mismatched request, errors, missing counts", async function () {
