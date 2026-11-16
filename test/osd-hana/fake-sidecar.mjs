@@ -108,6 +108,15 @@ const PROBES = {
     },
   },
   "no-schema": {ok: true, exit: 0, probe: {db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no", schemas: []}},
+  // SHOULD-2: a schema name from the database carrying control characters --
+  // the plain verdict must escape it (show()), never print the raw bytes
+  "hostile-schema": {
+    ok: true, exit: 0,
+    probe: {
+      db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no",
+      schemas: [{name: `X\u001b[2K\rHARMLESS`, basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
+    },
+  },
   "connect-error": {ok: false, exit: 2, error: "logon failed: the fake never lets anyone in"},
   // Redactor fodder on STDOUT (critic S-1): a buggy or hostile binary repeats
   // a credential inside its one-line JSON answer; the doctor must still

@@ -334,6 +334,42 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(() => parseFlags(["--nosuchflag"], {valueFlags: [], booleanFlags: []})).to.throw(UsageError);
     });
 
+    it("NOTE-3 (round 2): an EMPTY host or user (env file or environment) is refused as a usage error, not deferred to an obscure driver error (mutation: accept empty strings -> red)", async function () {
+      // `HANA_HOST=` in an env file used to yield host: "" and pass the
+      // completeness check -- the failure then surfaced as an obscure driver
+      // error. collectConnection refuses it the way the password channel
+      // already refuses "".
+      const {collectConnection} = await import("../tools/osd-hana/connect.mjs");
+      const emptyHostEnv = join(h.root, "empty-host.env");
+      writeFileSync(emptyHostEnv, ["HANA_HOST=", "HANA_PORT=39015", `HANA_USER=${USER}`].join("\n"));
+      await collectConnection({flags: {"env-file": emptyHostEnv}, env: {}, stdin: {isTTY: false}, isTTY: false}).then(
+        () => expect.fail("should refuse an empty host"),
+        (error) => {
+          expect(error).to.be.an.instanceof(UsageError);
+          expect(error.message).to.include("empty");
+          expect(error.message).to.include("HANA_HOST");
+        });
+      const emptyUserEnv = join(h.root, "empty-user.env");
+      writeFileSync(emptyUserEnv, [`HANA_HOST=${HOST}`, "HANA_PORT=39015", "HANA_USER=", "HANA_PASSWORD=whatever-1"].join("\n"));
+      await collectConnection({flags: {"env-file": emptyUserEnv}, env: {}, stdin: {isTTY: false}, isTTY: false}).then(
+        () => expect.fail("should refuse an empty user"),
+        (error) => {
+          expect(error).to.be.an.instanceof(UsageError);
+          expect(error.message).to.include("empty");
+          expect(error.message).to.include("HANA_USER");
+        });
+      // an empty user from the process environment is the same refusal
+      await collectConnection({flags: {host: HOST, port: "39015"}, env: {HANA_USER: "", OSD_HANA_PASSWORD: "whatever-1"}, stdin: {isTTY: false}, isTTY: false}).then(
+        () => expect.fail("should refuse an empty user from the environment"),
+        (error) => expect(error).to.be.an.instanceof(UsageError));
+      // a well-populated env file still works end to end
+      const goodEnv = join(h.root, "good.env");
+      writeFileSync(goodEnv, [`HANA_HOST=${HOST}`, "HANA_PORT=39015", `HANA_USER=${USER}`, "HANA_PASSWORD=whatever-1"].join("\n"));
+      const connection = await collectConnection({flags: {"env-file": goodEnv}, env: {}, stdin: {isTTY: false}, isTTY: false});
+      expect(connection.host).to.equal(HOST);
+      expect(connection.user).to.equal(USER);
+    });
+
     it("takes the password from --password-stdin, never from argv", async function () {
       const stdinPassword = "stdin-fed-password-13";
       const {lines, io} = h.captureIo();
@@ -468,6 +504,29 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code).to.equal(2);
       expect(h.allText()).to.include("did not finish within");
     }).timeout(5000);
+
+    it("SHOULD-2 (round 2): a database-supplied schema name with control characters is escaped in the plain verdict -- the raw bytes never reach the terminal (mutation: print s.name raw -> red)", async function () {
+      // the probe document carries a schema name with ESC/CR in it (the fake
+      // sidecar's hostile-schema scenario); the plain verdict is the doctor's
+      // main output path -- the name must arrive escaped, not as bytes that
+      // rewrite the screen. --json is safe on its own (JSON.stringify escapes).
+      const code = await h.runDoctor([], {scenario: "hostile-schema"});
+      expect(code).to.equal(0);
+      const text = h.allText();
+      expect(text).to.include("ABAP schema X\\x1b[2K\\x0dHARMLESS");
+      expect(text).to.not.include("\u001b");
+      expect(text).to.not.include("\r");
+    });
+
+    it("NOTE-4 (round 2): the unpinned-sidecar WARNING prints ONCE per run, not again on every per-spawn re-verify (mutation: warn on every verify -> red)", async function () {
+      // the pin is in play, so every spawn re-verifies and used to repeat the
+      // WARNING: initial verify + one probe spawn = the same first line twice
+      const emptyPin = h.makePin({targets: {}});
+      const code = await h.runDoctor(["--allow-unpinned-sidecar"], {scenario: "owner-tenant", pin: emptyPin});
+      expect(code).to.equal(0);
+      const firstLines = h.err.map((l) => l.split("\n")[0]).filter((l) => l.includes("WARNING") && l.includes("UNPINNED"));
+      expect(firstLines).to.have.length(1);
+    });
   });
 
   // ---------------------------------------- redactor and defaults, directly

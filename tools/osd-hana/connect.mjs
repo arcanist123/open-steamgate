@@ -148,6 +148,16 @@ export async function collectConnection({
   if (missing.length > 0) {
     throw new UsageError(`osd hana: the connection is incomplete -- give ${missing.join(", ")} (flags, --env-file, or HANA_* in the environment)`);
   }
+  // An empty string is present-but-empty: `HANA_HOST=` in an env file used to
+  // pass the completeness check and fail later as an obscure driver error
+  // (critic round-2 NOTE-3). Refused the way the password channel already
+  // refuses "".
+  const empty = [];
+  if (host === "") empty.push("the host (--host / HANA_HOST)");
+  if (user === "") empty.push("the user (--user / HANA_USER)");
+  if (empty.length > 0) {
+    throw new UsageError(`osd hana: ${empty.join(" and ")} is/are set to the empty string -- an empty value is refused here, exactly like an empty password. Give a real value or remove the setting.`);
+  }
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new UsageError(`osd hana: --port: not a port number: ${portRaw}`);
 

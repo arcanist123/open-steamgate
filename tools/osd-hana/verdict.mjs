@@ -4,10 +4,19 @@
 //
 // The probe's shape is the sidecar README's: db (tenant|system),
 // login_class (schema_owner|admin|other), non_select_on_schema
-// (bool or {yes, kinds}), abap_attached (yes|no|unknown), and one entry per
-// ABAP schema with basis_release, clients, reposrc_rows, tadir_rows,
+// (bool or {yes, kinds}), abap_attached (yes|no|unknown), tls
+// (verified|unverified|off when the sidecar has the capability), and one
+// entry per ABAP schema with basis_release, clients, reposrc_rows, tadir_rows,
 // owned_by_login. Every field read here tolerates its absence -- the sidecar
 // is a moving binary, and the doctor degrades to "unknown", never to a crash.
+//
+// Every name the PLAIN verdict prints goes through show() (critic round-2
+// SHOULD-2, the S-B class one door over): the schema names come from the
+// database being examined, on a connection --encrypt does not protect (the
+// probe rides the sidecar's own session), so a name carrying ESC/CR must not
+// reach the terminal raw. --json is safe on its own (JSON.stringify escapes).
+
+import {show} from "./reader.mjs";
 
 // True when the login can do more than read on the ABAP schema.
 export function canWrite(probe = {}) {
@@ -65,7 +74,7 @@ export function schemaLines(probe = {}) {
     if (s.tadir_rows !== undefined) size.push(`${s.tadir_rows} repository objects (TADIR)`);
     const sizeText = size.length > 0 ? `, repository: ${size.join(", ")}` : "";
     const owned = s.owned_by_login === true ? " (owned by this login)" : "";
-    return `ABAP schema ${s.name ?? "?"}${owned}: found${release}${clients}${sizeText}.`;
+    return `ABAP schema ${s.name === undefined ? "?" : show(String(s.name))}${owned}: found${release}${clients}${sizeText}.`;
   });
 }
 
@@ -74,7 +83,7 @@ export function schemaLines(probe = {}) {
 export function plainVerdict(probe = {}, {connection, sidecar} = {}) {
   const lines = [];
   lines.push("Verdict for the ABAP rescue:");
-  lines.push(`  Reachable: yes -- logged on as ${connection?.user ?? "?"} to ${connection?.host ?? "?"}, ${dbText(probe)}.`);
+  lines.push(`  Reachable: yes -- logged on as ${connection?.user === undefined ? "?" : show(String(connection.user))} to ${connection?.host ?? "?"}, ${dbText(probe)}.`);
   lines.push(...schemaLines(probe).map((l) => `  ${l}`));
   const attached = probe.abap_attached;
   if (attached === "yes") {

@@ -7,18 +7,20 @@
 // 0700, the secret file 0600, both enforced with fchmod even when they
 // already existed -- a store that was once created loose must not stay loose
 // just because nothing re-created it. Writes are ATOMIC (write a temp file
-// with 'wx' in the same directory, then rename over): a crash mid-write can
-// lose the new entry, never every stored reader; a symlinked store directory
-// or secret file is refused, never chmodded or written through (the target
-// would be changed, not the link). (Windows has no executable bit; the mode
-// call is skipped there, and the file inherits the profile's ACLs -- noted in
-// the README.)
+// with 'wx' in the same directory, then rename OVER the destination -- the
+// rename replaces it, the destination is never deleted first, so a crash
+// mid-write leaves the previous store intact: a crash can lose the new
+// entry, never every stored reader; critic round-2 SHOULD-1); a symlinked
+// store directory or secret file is refused, never chmodded or written
+// through (the target would be changed, not the link). (Windows has no
+// executable bit; the mode call is skipped there, and the file inherits the
+// profile's ACLs -- noted in the README.)
 import {chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {homedir} from "node:os";
 import {isAbsolute, join} from "node:path";
 import {randomBytes} from "node:crypto";
 
-export function fileSecretStore(dir, {platform = process.platform} = {}) {
+export function fileSecretStore(dir, {platform = process.platform, rename = renameSync} = {}) {
   const refuseSymlink = (path, what) => {
     if (!existsSync(path)) return;
     if (lstatSync(path).isSymbolicLink()) {
@@ -39,19 +41,33 @@ export function fileSecretStore(dir, {platform = process.platform} = {}) {
   // before this rule, or by hand) is replaced atomically, so the fresh write
   // gets 0600 from its mode argument and the fchmod below re-asserts it.
   // 'wx' refuses to clobber anything that appeared at the temp name; rename
-  // over the old file is atomic on the same filesystem -- a reader of the
-  // store never sees a half-written document.
+  // over the old file is atomic on the same filesystem (it REPLACES the
+  // destination, POSIX and Windows alike) -- a reader of the store never
+  // sees a half-written document, and the destination is never deleted
+  // first: a crash between the write and the rename leaves the previous
+  // store standing (critic round-2 SHOULD-1 -- the rmSync that used to sit
+  // here defeated exactly that, and was removed).
   const writeAtomic = (text) => {
     refuseSymlink(path, "file");
-    rmSync(path, {force: true});
     const tmp = join(dir, `.reader-secret-${process.pid}-${randomBytes(6).toString("hex")}.tmp`);
     try {
       writeFileSync(tmp, text, {mode: 0o600, flag: "wx"});
-      renameSync(tmp, path);
+      rename(tmp, path);
     } finally {
       rmSync(tmp, {force: true});
     }
     if (platform !== "win32") chmodSync(path, 0o600);
+  };
+  // One parse with the friendly refusal everywhere (critic round-2 NOTE-2):
+  // a corrupt store made set/delete die with a raw SyntaxError from the
+  // generic catch while get() named the file and the remedy. The message is
+  // the same for all three.
+  const parseStore = () => {
+    try {
+      return JSON.parse(readFileSync(path, "utf8"));
+    } catch {
+      throw new Error(`osd-hana: the reader secret file ${path} is not valid JSON -- remove it and run --create-reader again`);
+    }
   };
   return {
     kind: "file",
@@ -63,23 +79,17 @@ export function fileSecretStore(dir, {platform = process.platform} = {}) {
     },
     get(name = "OSD_READER") {
       if (!existsSync(path)) return undefined;
-      let raw;
-      try {
-        raw = JSON.parse(readFileSync(path, "utf8"));
-      } catch {
-        throw new Error(`osd-hana: the reader secret file ${path} is not valid JSON -- remove it and run --create-reader again`);
-      }
-      return raw[name];
+      return parseStore()[name];
     },
     set(value, name = "OSD_READER") {
       enforceModes();
-      const secrets = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+      const secrets = existsSync(path) ? parseStore() : {};
       secrets[name] = value;
       writeAtomic(`${JSON.stringify(secrets, null, 1)}\n`);
     },
     delete(name = "OSD_READER") {
       if (!existsSync(path)) return;
-      const secrets = JSON.parse(readFileSync(path, "utf8"));
+      const secrets = parseStore();
       delete secrets[name];
       if (Object.keys(secrets).length === 0) {
         rmSync(path, {force: true});

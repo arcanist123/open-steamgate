@@ -95,6 +95,18 @@ export async function doctorMain(argv, {
     io.err(message);
     return DOCTOR_EXIT.usage;
   };
+  // critic round-2 NOTE-4: the unpinned/foreign-pin WARNING used to fire on
+  // the initial verify AND again on every per-spawn re-verification -- the
+  // same first line twice or more per run. Warn ONCE per run: a set of first
+  // lines, local to this doctor run (not per process -- a long-lived host
+  // runs many runs and each must warn its own once).
+  const warned = new Set();
+  const loudOnce = (line) => {
+    const key = line.trimEnd().split("\n")[0];
+    if (warned.has(key)) return;
+    warned.add(key);
+    io.err(line.trimEnd());
+  };
   if (flags.help === true) {
     io.out(USAGE);
     return DOCTOR_EXIT.ok;
@@ -140,7 +152,7 @@ export async function doctorMain(argv, {
       pin,
       allowUnpinned: flags["allow-unpinned-sidecar"] === true,
       foreignPin,
-      loud: (line) => io.err(line.trimEnd()),
+      loud: loudOnce,
     });
   } catch (error) {
     return fail(error.message);
@@ -184,7 +196,7 @@ export async function doctorMain(argv, {
     pin,
     allowUnpinned: flags["allow-unpinned-sidecar"] === true,
     foreignPin,
-    loud: (line) => io.err(line.trimEnd()),
+    loud: loudOnce,
   });
   // The user and the password are credentials and travel in the child's
   // environment only (contract W0). Host, port, tenant database and an

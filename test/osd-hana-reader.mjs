@@ -532,6 +532,45 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(statSync(realDir).mode & 0o777).to.equal(0o755); // not tightened through the link
   });
 
+  it("SHOULD-1 (round 2): the atomic write never deletes the destination first -- a failure at the rename leaves the PREVIOUS store intact (mutation: rm the destination before the rename -> red)", async function () {
+    // the crash property, by fault injection instead of a crash: the rename
+    // fails after the temp write (power loss in the real world); the store
+    // that was there before must still be there, entry and all -- the old
+    // writeAtomic rmSync'd the destination BEFORE the rename, so this exact
+    // fault lost every stored reader
+    const dir = join(h.root, `no-rm-first-${Math.random().toString(16).slice(2)}`);
+    const s = fileSecretStore(dir);
+    s.set({user: "OSD_READER", password: "the-first-password-1"}, "OSD_READER");
+    const before = s.get("OSD_READER");
+    const brokenRename = () => {
+      throw Object.assign(new Error("rename failed: the fault this test injects"), {code: "EFAULT"});
+    };
+    const failing = fileSecretStore(dir, {rename: brokenRename});
+    expect(() => failing.set({user: "OSD_READER", password: "the-new-password-2"}, "OSD_READER")).to.throw("rename failed");
+    // the previous entry survived, with its old value
+    expect(s.get("OSD_READER")).to.deep.equal(before);
+    expect(s.get("OSD_READER").password).to.equal("the-first-password-1");
+    // and the successful path still replaces the destination outright
+    s.set({user: "OSD_READER", password: "the-new-password-2"}, "OSD_READER");
+    expect(s.get("OSD_READER").password).to.equal("the-new-password-2");
+  });
+
+  it("NOTE-2 (round 2): a corrupt store is refused with the file named and the remedy said, in set and delete alike -- never a raw SyntaxError (mutation: bare JSON.parse -> red)", async function () {
+    const dir = join(h.root, `corrupt-${Math.random().toString(16).slice(2)}`);
+    const {mkdirSync: mk} = await import("node:fs");
+    mk(dir, {recursive: true});
+    const {writeFileSync: wr} = await import("node:fs");
+    wr(join(dir, "reader-secret.json"), "{not json at all", {mode: 0o600});
+    const s = fileSecretStore(dir);
+    for (const call of [
+      () => s.set({user: "OSD_READER", password: "pw-1"}, "OSD_READER"),
+      () => s.delete("OSD_READER"),
+      () => s.get("OSD_READER"),
+    ]) {
+      expect(call, call.toString()).to.throw(/not valid JSON -- remove it and run --create-reader again/);
+    }
+  });
+
   it("NOTE: a relative XDG_CONFIG_HOME is ignored -- the store stays under the home directory, never the current working directory (mutation: honor it -> red)", function () {
     const dir = defaultSecretStoreDir({env: {XDG_CONFIG_HOME: "relative/path"}, home: "/home/someone", platform: "linux"});
     expect(dir).to.equal(join("/home/someone", ".config", "open-steamgate", "osd-hana"));
@@ -716,16 +755,24 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.not.equal(undefined);
   });
 
-  it("S-A: an entry written before identities were recorded still drops -- the reader logon is the proof (mutation: require an identity -> red)", async function () {
-    // old entries carry no system_identity: the reader-logon proof decides
+  it("NOTE-1 (round 2): a legacy entry that carries no system identity is REFUSED, with the hand-run line -- the logon proof alone says the password works, not that the system is the same (mutation: drop on the logon proof alone -> red)", async function () {
+    // entries written before identities were recorded: the reader logon
+    // proves the stored password works on whatever now answers this address,
+    // not that it is the system the entry was written for -- so the drop is
+    // refused and the one hand-run statement is named, secret kept
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const secretStore = h.store();
     const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-    h.seedStore(secretStore, connection);
-    const result = await dropReader({connection, yes: true, store: secretStore, clientFactory: factory});
-    expect(result.dropped).to.equal(true);
-    expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
-    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
+    h.seedStore(secretStore, connection, DEFAULT_READER_NAME, "gone-soon-42", {system_identity: undefined}); // legacy shape: no identity recorded
+    await dropReader({connection, yes: true, store: secretStore, clientFactory: factory}).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("no system identity");
+        expect(error.message).to.include("DROP USER OSD_READER CASCADE");
+      });
+    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.not.equal(undefined);
   });
 
   it("drop-reader: DROP ... CASCADE, absence proved, secret removed (mutation: skip store.delete -> red)", async function () {
@@ -749,6 +796,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
 
   it("drop-reader on an absent user: 332 is fine, the secret still goes", async function () {
     const {log, factory} = fakeClientFactory([
+      {match: /FROM SYS\.M_DATABASE/, rows: [{SYSTEM_ID: "SYSID-FIXTURE-1", DATABASE_NAME: "TEN"}]},
       {match: /DROP USER/, error: 332, message: "invalid user name"},
       {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
     ]);

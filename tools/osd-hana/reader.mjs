@@ -567,11 +567,14 @@ function refuseDropText(readerName, why, connection) {
  *     refuses and prints the one SQL line an administrator can run by hand.
  *     There is deliberately no force flag;
  *  4. the stored password must log on AS THE READER to this host/port/
- *     database (proof the user is the one this store created) and, when the
- *     entry carries one, the system identity recorded at create time must
- *     match SYS.M_DATABASE now -- host + port + database is an address, not
- *     an identity. A failed proof refuses, prints the hand-run line and
- *     KEEPS the secret;
+ *     database (proof the user is the one this store created) and the system
+ *     identity recorded at create time must match SYS.M_DATABASE now --
+ *     host + port + database is an address, not an identity. An entry that
+ *     carries NO identity (written before identities were recorded) is
+ *     refused with the hand-run line: the logon proof alone says the
+ *     password works on whatever now answers this address, not that it is
+ *     the same system the entry was written on (critic round-2 NOTE-1).
+ *     A failed proof refuses, prints the hand-run line and KEEPS the secret;
  *  5. then consent, the DROP with the administrator login, the absence proof,
  *     and the store entry goes.
  *
@@ -652,21 +655,30 @@ export async function dropReader({
     // at create time must match what the catalogue says now -- a matching
     // host + port + database triple is NOT an identity (every HXE container
     // is localhost:39017/HXE; a tunnel puts any system behind localhost:<port>).
-    if (stored.system_identity !== undefined) {
-      let now;
-      try {
-        now = await readSystemIdentity(client);
-      } catch (error) {
-        throw new ReaderError(refuseDropText(readerName,
-          `the system's identity could not be read from SYS.M_DATABASE (${redact(sqlErrorText(error))}), ` +
-          `so it cannot be compared with the one recorded at create time`, connection));
-      }
-      if (!sameSystemIdentity(now, stored.system_identity)) {
-        throw new ReaderError(refuseDropText(readerName,
-          `the system now answering identifies as ${now.system_id}/${now.database_name}, but the entry was ` +
-          `written on ${stored.system_identity.system_id}/${stored.system_identity.database_name} -- the same ` +
-          `address now leads to a different system`, connection));
-      }
+    // An entry without an identity (legacy, written before identities were
+    // recorded) is refused here, not dropped on the logon proof alone: the
+    // logon proves the PASSWORD works on whatever answers, not that the
+    // system is the one the entry was written for (critic round-2 NOTE-1).
+    if (stored.system_identity === undefined) {
+      throw new ReaderError(refuseDropText(readerName,
+        `the stored entry carries no system identity -- it was written before this tool recorded one, so it ` +
+        `cannot be proved to belong to the system now answering ${connection.host}:${connection.port}` +
+        `${connection.database ? `/${connection.database}` : ""} (the reader logon alone proves the password, ` +
+        `not the system)`, connection));
+    }
+    let now;
+    try {
+      now = await readSystemIdentity(client);
+    } catch (error) {
+      throw new ReaderError(refuseDropText(readerName,
+        `the system's identity could not be read from SYS.M_DATABASE (${redact(sqlErrorText(error))}), ` +
+        `so it cannot be compared with the one recorded at create time`, connection));
+    }
+    if (!sameSystemIdentity(now, stored.system_identity)) {
+      throw new ReaderError(refuseDropText(readerName,
+        `the system now answering identifies as ${now.system_id}/${now.database_name}, but the entry was ` +
+        `written on ${stored.system_identity.system_id}/${stored.system_identity.database_name} -- the same ` +
+        `address now leads to a different system`, connection));
     }
     let alreadyAbsent = false;
     try {
