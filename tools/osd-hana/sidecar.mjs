@@ -20,14 +20,14 @@
 //   run       credentials reach the child only through its environment
 //             (OSD_HANA_USER / OSD_HANA_PASSWORD) -- never argv, never a file.
 //             Child stderr passes through a redactor; stdout's one JSON line is
-//             parsed; exit codes 0-5 map to the contract's named outcomes; a
+//             parsed RAW and masked only for printing (`display`); exit codes 0-5 map to the contract's named outcomes; a
 //             timeout kills the child. spawn() with an argument array, no shell.
 import {createHash} from "node:crypto";
 import {spawn} from "node:child_process";
 import {existsSync, readFileSync} from "node:fs";
 import {extname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {makeRedactor} from "./redact.mjs";
+import {makeRedactor, redactValues} from "./redact.mjs";
 
 export const SIDECAR_NAME = "osd-hana-dump";
 
@@ -299,7 +299,7 @@ export function runSidecarRaw(path, args, {
     const timer = timeoutMs > 0
       ? setTimeout(() => {
         child.kill("SIGKILL");
-        settle(new Error(`osd-hana: ${SIDECAR_NAME} did not finish within ${timeoutMs} ms and was stopped (args: ${args.join(" ")})`));
+        settle(new Error(`osd-hana: ${SIDECAR_NAME} did not finish within ${timeoutMs} ms and was stopped (args: ${redact(args.join(" "))})`));
       }, timeoutMs)
       : undefined;
     const take = (chunk) => {
@@ -343,12 +343,17 @@ export class SidecarRunError extends Error {
 
 /** A verified, hand-shaken sidecar that one CLI run talks to. The context
  *  carries the credentials of the run; every child gets them only through its
- *  environment, and every byte the child writes passes through the redactor
- *  (password, user, host, schema masked): stderr because a progress or error
- *  line may repeat a connection value, stdout because a buggy or unpinned
- *  binary that repeats a credential in its JSON answer must not get it echoed
- *  by us (critic S-1). stdout must be the one JSON line the contract
- *  promises; anything else is an error, not a guess. */
+ *  environment. stderr passes through the redactor (password, user, host,
+ *  schema masked) because a progress or error line may repeat a connection
+ *  value. stdout is PARSED RAW -- the redactor is for what is printed, not
+ *  for what is parsed: a short or numeric password ("123") masked inside the
+ *  JSON text turned the count 1234 into ***4 and broke the document -- and
+ *  everything a person or a log may see of it is masked: `display` (the
+ *  document with every string value redacted, numbers and keys untouched)
+ *  and the texts of the errors below, because a buggy or unpinned binary
+ *  that repeats a credential in its JSON answer must not get it echoed by us
+ *  (critic S-1). stdout must be the one JSON line the contract promises;
+ *  anything else is an error, not a guess. */
 export class Sidecar {
   constructor(path, {
     credentials,
@@ -378,7 +383,11 @@ export class Sidecar {
         : undefined);
   }
 
-  /** Returns {exit, outcome, summary} where outcome is the contract's named
+  /** Returns {exit, outcome, summary, display, redact, stderr}: `summary` is
+   *  the parsed document as DATA (raw -- decide on it, never print it),
+   *  `display` the same document with every string value masked (print or
+   *  embed this), `redact` the masking function for any other text built
+   *  from the summary. `outcome` is the contract's named
    *  outcome ("done", "usage", "connection", "partial", "refused",
    *  "unsupported"). The caller decides what an outcome means for its verb;
    *  this layer only refuses to invent one for an unknown exit code.
@@ -394,9 +403,8 @@ export class Sidecar {
       onStderr: this.onStderr,
       extraEnv: this.extraEnv,
     });
-    // The whole stdout passes the redactor BEFORE the JSON line is picked and
-    // parsed: the summary is data we print and embed (error text, the probe
-    // document in --json), so it must arrive already masked. The values are
+    // stdout is parsed RAW; the redactor applies only where a value is
+    // printed or embedded (`display`, the error texts below). The values are
     // the credential and the DSN parts the contract says are never printed
     // (password, user, host) -- not the schema: the probe document
     // legitimately carries ABAP schema names and the verdict displays them,
@@ -404,12 +412,11 @@ export class Sidecar {
     const redact = makeRedactor([
       this.credentials?.password, this.credentials?.user, this.credentials?.host,
     ]);
-    const safeStdout = redact(stdout);
     const outcome = EXIT_OUTCOMES[code];
     if (outcome === undefined) {
       throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} exited ${code}, which the contract does not define`, {exit: code, stderr});
     }
-    const lines = safeStdout.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    const lines = stdout.split("\n").map((l) => l.trim()).filter((l) => l !== "");
     let summary;
     if (lines.length > 1) {
       // one JSON line or an error, not a guess: two lines are a refusal
@@ -420,11 +427,11 @@ export class Sidecar {
       try {
         summary = JSON.parse(line);
       } catch {
-        throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed no one-line JSON summary on stdout (contract W0); last line: ${line.slice(0, 200)}`, {exit: code, outcome, stderr});
+        throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed no one-line JSON summary on stdout (contract W0); last line: ${redact(line.slice(0, 200))}`, {exit: code, outcome, stderr});
       }
     } else {
       throw new SidecarRunError(`osd-hana: ${SIDECAR_NAME} ${verb} printed nothing on stdout (the contract promises one JSON line)`, {exit: code, outcome, stderr});
     }
-    return {exit: code, outcome, summary, stderr};
+    return {exit: code, outcome, summary, display: redactValues(summary, redact), redact, stderr};
   }
 }

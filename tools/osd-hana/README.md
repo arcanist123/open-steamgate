@@ -26,7 +26,7 @@ because the sidecar is read-only by construction and cannot create a user.
 | `verdict.mjs` | the plain-language verdict and the `--json` document, from one source so they cannot disagree |
 | `reader.mjs` | the dedicated read-only user: `--create-reader` / `--drop-reader` (the only non-SELECT statements in the module, sent over `hdb`, never the sidecar) |
 | `secret-store.mjs` | where the reader's credentials live: a `get/set/delete` interface; the CLI default is a file under the user's config directory, `0600` in a `0700` directory, enforced with fchmod even when it already existed. The extension will inject VS Code SecretStorage behind the same interface |
-| `redact.mjs` | the redactor: every byte of child stderr AND stdout passes through it before it is printed or embedded (password, user, host masked; secrets shorter than 3 characters are ignored) |
+| `redact.mjs` | the redactor: child stderr passes through it; stdout is parsed raw and only what is printed or embedded is masked (`redactValues`: string values only, never keys or numbers; password, user, host masked; secrets shorter than 3 characters are ignored) |
 | `defaults.mjs` | the courtesy check: SHA-256 hashes of the public default passwords of HANA trial images; warn loudly, change nothing |
 
 ## How the doctor runs the sidecar
@@ -59,8 +59,10 @@ because the sidecar is read-only by construction and cannot create a user.
    Whenever a pin is in play, **every spawn re-verifies the bytes first**
    (a fresh, uncached hash — the binary is ~7 MB, so milliseconds): no gap
    between the verified bytes and the executed bytes. stderr passes through
-   the redactor; stdout is redacted before its one JSON line is parsed —
-   exactly one line, or a refusal, never a guess. Exit codes 0–5 map to the
+   the redactor; stdout's one JSON line is parsed raw — exactly one line,
+   or a refusal, never a guess — and redacted only where it is printed or
+   embedded (string values; a numeric password such as `123` never touches
+   a row count). Exit codes 0–5 map to the
    contract's named outcomes: `0 done, 1 usage, 2 connection, 3 partial,
    4 refused, 5 unsupported`.
 

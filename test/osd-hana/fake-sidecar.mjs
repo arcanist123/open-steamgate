@@ -175,6 +175,10 @@ const PROBES = {
   // print nothing.
   "stdout-leak": errorDoc(2, `logon failed for password ${process.env.OSD_HANA_PASSWORD ?? "?"}`),
   "stdout-leak-doc": okDoc({}, {...SMALL, schema: `SCHEMA_${process.env.OSD_HANA_PASSWORD ?? "?"}`, abap_attached: "no"}),
+  // Parse before redact: counts whose digits contain a short numeric
+  // password ("123"), so a redactor run over the raw JSON text would turn
+  // 1234 into ***4 and break the document; the counts must arrive as numbers.
+  "numeric-counts": okDoc({login_class: "schema_owner"}, {...OWNED, reposrc_rows: 1234, tadir_rows: 1123}),
   // exit 5 WITHOUT the probe document: the sidecar could not examine the
   // database at all (its error line) -- not a positive "no ABAP schema"
   unsupported: errorDoc(5, "looking for ABAP schemas: insufficient privilege"),
