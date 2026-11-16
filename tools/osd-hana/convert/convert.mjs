@@ -179,6 +179,13 @@ export async function convert({
   const claims = ledger.markCaseCollisions(); // uppercased id -> surviving entry
   for (const [upperId, e] of claims) {
     if (!objects.has(upperId)) {
+      // a type this converter cannot write is `unsupported` whether or not
+      // the dump carries its TADIR row: the sidecar (v2.62.1) selects TADIR
+      // per requested kind and leaves the kinds it does not dump out of it
+      if (!SUPPORTED_TYPES.has(key(e.type))) {
+        e.status = "unsupported";
+        continue;
+      }
       // the listing has it, the dump does not (restart drift, a TADIR gap):
       // skipped, loud -- never a vanishing (critic M1)
       e.status = "skipped";

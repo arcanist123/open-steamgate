@@ -2142,6 +2142,24 @@ describe("osd hana extract -- sidecar v2.62.1 (MSAG, TLIBT)", function () {
     expect(x2).to.not.match(/<T100>|I18N_LANGS/);
   });
 
+  it("an unsupported type stays `unsupported` when the dump has no TADIR row for it (v2.62.1 skips the kinds it does not dump) -- not `skipped: not-in-dump` (mutation: the TADIR gap wins)", async function () {
+    const fx = withMsagAndTlibt();
+    const T = join(fx.dump, "tables");
+    wl(T, "TADIR.jsonl", jl(T, "TADIR.jsonl").filter((r) => r.OBJECT !== "SICF"));
+    wl(fx.dump, "objects.jsonl", jl(fx.dump, "objects.jsonl").map((o) => o.type === "SICF" ? {...o, status: "skipped", reason: "unsupported", files: []} : o));
+    const out = await fresh("v2621-unsupported");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code, r.lines.err.join("\n")).to.equal(3);
+    const rep = reportOf(out);
+    expect(rep.objects.find((o) => o.name === "ZSICF_XC").status).to.equal("unsupported");
+    expect(rep.totals.unsupported).to.equal(1);
+    // a SUPPORTED type without its TADIR row is still the loud not-in-dump skip
+    wl(T, "TADIR.jsonl", jl(T, "TADIR.jsonl").filter((r) => r.OBJ_NAME !== "ZOSD_X3"));
+    const out2 = await fresh("v2621-not-in-dump");
+    await runExtract(["--out", out2], {list: fx.list, dump: fx.dump});
+    expect(reportOf(out2).objects.find((o) => o.name === "ZOSD_X3").reason).to.match(/not-in-dump/);
+  });
+
   it("TLIBT: the function group's AREAT is its master-language short text (mutation: AREAT empty / another language)", async function () {
     const fx = withMsagAndTlibt();
     const out = await fresh("v2621-tlibt");
