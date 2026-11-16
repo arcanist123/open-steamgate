@@ -14,7 +14,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {extractMain} from "../tools/osd-hana/extract.mjs";
+import {extractMain, accountsFor} from "../tools/osd-hana/extract.mjs";
 import {reusableDump, inGitTree} from "../tools/osd-hana/extract.mjs";
 import {decideFolderLogic, folderPaths} from "../tools/osd-hana/convert/convert.mjs";
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
@@ -1049,6 +1049,17 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const r2 = await runExtract(["--out", out2, "--sidecar-pin", pinPath, "--allow-unpinned-sidecar"], {pinFile: null});
     expect(r2.code).to.equal(3);
     expect(reportOf(out2).sidecar.pinned).to.equal(false);
+  });
+
+  it("SHOULD-4: the accounts gate compares the listing's in-scope ids with the ledger keys as sets (mutation: accounts always true)", async function () {
+    expect(accountsFor(new Set(["CLAS:A", "PROG:B"]), [{id: "CLAS:A"}, {id: "PROG:B"}]).accounts).to.equal(true);
+    expect(accountsFor(new Set(["CLAS:A"]), [{id: "CLAS:A"}, {id: "CLAS:A"}]).accounts, "duplicate ledger key").to.equal(false);
+    expect(accountsFor(new Set(["CLAS:A", "PROG:B"]), [{id: "CLAS:A"}]).accounts, "missing key").to.equal(false);
+    expect(accountsFor(new Set(["CLAS:A"]), [{id: "CLAS:A"}, {id: "PROG:B"}]).accounts, "extra key").to.equal(false);
+    expect(accountsFor(new Set(["CLAS:A"]), [{id: "CLAS:a"}]).accounts, "ids are exact").to.equal(false);
+    const out = await fresh("s4g");
+    await runExtract(["--out", out]);
+    expect(reportOf(out).totals.accounts).to.equal(true);
   });
 
   it("SHOULD-4: two objects planning the same repo path refuse each other, never last-writer-wins (mutation: the path-collision check removed)", async function () {

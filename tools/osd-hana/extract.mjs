@@ -486,7 +486,7 @@ export async function extractMain(argv, {
         schema: 1, out, dump_dir: dumpDir, request: dumpRequest,
         sidecar: describeSidecar(verified, handshakeInfo),
         folder_logic: {logic: "unknown", folders: []},
-        plan, totals: totals(plan, [], dumpedCount, undefined),
+        plan, totals: totals(plan, [], dumpedCount, undefined, scopeSet),
         objects: [], errors: [{error: `the dump carries ${outOfScope.length} objects outside the scope: ${list}`}],
         duration_ms: now().getTime() - started,
         notice: flags["include-sap"] === true ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it." : undefined,
@@ -531,7 +531,7 @@ export async function extractMain(argv, {
       sidecar: describeSidecar(verified, handshakeInfo),
       folder_logic: {logic: "unknown", folders: []},
       plan,
-      totals: totals(plan, entries, dumpedCount, dumpedInScope),
+      totals: totals(plan, entries, dumpedCount, dumpedInScope, scopeIds),
       objects: entries,
       errors: [{error: error.message}],
       internal_error: `converting the dump failed: ${error.message}`,
@@ -562,7 +562,7 @@ export async function extractMain(argv, {
     }
   }
   const durationMs = now().getTime() - started;
-  const totalsDoc = totals(plan, conversion.entries, dumpedCount, dumpedInScope);
+  const totalsDoc = totals(plan, conversion.entries, dumpedCount, dumpedInScope, scopeIds);
   const reportDoc = {
     schema: 1,
     out,
@@ -870,10 +870,33 @@ function buildPlan(rows, allRows, unknownClassRows = []) {
   };
 }
 
+// SHOULD-4 (critic round 2): the exit-0 gate as a real check. The set of
+// in-scope ids from the listing and the set of ledger keys are compared AS
+// SETS -- no duplicate ledger key, nothing missing, nothing extra, ids
+// exact -- computed independently of the per-type counters (which held by
+// construction and could not fire). This is what refuses exit 0 when the
+// ledger and the listing disagree.
+export function accountsFor(scopeIds, entries) {
+  const seen = new Set();
+  const duplicates = [];
+  for (const e of entries) {
+    if (seen.has(e.id)) duplicates.push(e.id);
+    seen.add(e.id);
+  }
+  const missing = [...scopeIds].filter((id) => !seen.has(id));
+  const extra = [...new Set(entries.map((e) => e.id).filter((id) => !scopeIds.has(id)))];
+  return {
+    accounts: duplicates.length === 0 && missing.length === 0 && extra.length === 0,
+    duplicates: [...new Set(duplicates)],
+    missing,
+    extra,
+  };
+}
+
 // The totals are computed FROM THE LEDGER (critic M1: never recomputed in a
-// way that could mask a gap); the plan carries the in-scope counts and the
-// two are asserted equal -- `accounts` is the exit-0 gate.
-function totals(plan, entries, dumpedCount, dumpedInScope) {
+// way that could mask a gap); the plan carries the in-scope counts and
+// accountsFor (the set comparison above) is the exit-0 gate.
+function totals(plan, entries, dumpedCount, dumpedInScope, scopeIds) {
   const perType = {};
   for (const p of plan.perType) perType[p.type] = {inScope: p.inScope, written: 0, writtenPartial: 0, skipped: 0, unsupported: 0};
   const t = {
@@ -913,7 +936,8 @@ function totals(plan, entries, dumpedCount, dumpedInScope) {
       t.notExtracted.push({type: e.type, status: e.status});
     }
   }
-  t.accounts = entries.length === plan.inScope && Object.values(perType).every((v) => v.written + v.writtenPartial + v.skipped + v.unsupported === v.inScope);
+  t.accounts = accountsFor(scopeIds ?? new Set(), entries).accounts
+    && Object.values(perType).every((v) => v.written + v.writtenPartial + v.skipped + v.unsupported === v.inScope);
   t.notExtracted = Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([type, count]) => ({type, count}));
   return t;
 }
