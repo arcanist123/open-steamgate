@@ -57,10 +57,10 @@
 //                         positions, the stubbed source written back into
 //                         gen/hana-src, every stub recorded in
 //                         closure-stubs.json (--max-stub-rounds, default
-//                         5). A DDIC-kind name a would-be-stubbed method
-//                         names is asked from the dumper in the SAME
-//                         iteration; only code kinds stay `deferred`
-//                         (--defer-ddic keeps round 3). The nameless
+//                         5). Any pending name a would-be-stubbed method
+//                         names -- DDIC, and since milestone 4 code too --
+//                         is asked in the SAME iteration, the body kept a
+//                         round (--defer-ddic keeps round 3). The nameless
 //                         stubs' findings are the framework work list:
 //                         framework-gaps.json beside the stubs, "framework
 //                         gaps: N" on the line. Before anything is
@@ -278,9 +278,12 @@ import {buildCheck, ddicWritten, ensureLayers, generationOf, islandBasenames, is
 import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana-closure-dumper.mjs";
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
-import {TADIR, requestFor, tadirKinds} from "./hana-closure-request.mjs";
+import {TADIR, readDumpAnswer, requestFor, tadirKinds} from "./hana-closure-request.mjs";
+import {registerSeed, seedNamespaces} from "./hana-closure-seed.mjs";
+import {frameworkNamespaces, frameworkNames, frameworkPredicate, splitFrameworkNames, writeFrameworkNames} from "./hana-closure-framework.mjs";
+import {moduleFindings, scanFunctionModules} from "./hana-closure-fm.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
-import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
+import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, serviceClasses, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
 // ------------------------------------------------------------ findings ----
 
@@ -358,6 +361,13 @@ export async function run(args = process.argv.slice(2), options = {}) {
     delete state.pending;
   }
   let dump = resolve(root, state.dump);
+  // the seed (milestone 4): the walk's first dump decides the services and
+  // the framework namespaces (tools/hana-closure-seed.mjs, -framework.mjs)
+  state.seed ??= state.layers?.[0]?.dump ?? state.dump;
+  const framework = frameworkNamespaces(root, seedNamespaces(resolve(root, state.seed)));
+  const fwNamespaces = framework.namespaces;
+  const isFramework = frameworkPredicate(fwNamespaces);
+  say(`framework namespaces (the libraries', minus the seed's): ${fwNamespaces.join(", ") || "none"}${framework.asked.length > 0 ? `; asked, too thin in the libraries: ${framework.asked.map((a) => a.namespace).join(", ")}` : ""}${framework.unavailable !== undefined ? `; UNAVAILABLE (${framework.unavailable}) -- every name is asked` : ""}`);
   saveState(out, state);
   const requestPath = join(out, "closure-request.json");
 
@@ -406,52 +416,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
   const stubRecords = () => stubList(stubMap);
   const reportedDynamic = new Set();
   for (;;) {
-    // what the dump's own manifest says the dictionary answered, read on
-    // every continuation: every name in closure.missing (the requested
-    // names the dictionary does not have) joins the gaps with the kind it
-    // is missing under; a name a later round reports resolved leaves them.
-    // The answer is PER KIND -- a kind-less name is asked under TABL, DTEL
-    // and TTYP, and a name that resolved under one of them is one the
-    // dictionary HAS: `missing` under the other two is not "does not
-    // exist", so it must not re-enter the gaps over a resolution. A
-    // hand-written dump without a manifest answers nothing here.
-    try {
-      const manifest = JSON.parse(readFileSync(join(dump, "manifest.json"), "utf8"));
-      const resolved = new Set();
-      // and they accumulate per kind (round 7): the per-name DDIC fill and
-      // the resolved-vs-written counts of the iteration line read them
-      // across all the dumps of the walk
-      state.resolved ??= {};
-      for (const [kind, list] of Object.entries(manifest.closure?.resolved ?? {})) {
-        state.resolved[kind] = [...new Set([...(state.resolved[kind] ?? []),
-          ...list.map((n) => String(n).trim().toUpperCase())])];
-        for (const name of state.resolved[kind]) resolved.add(name);
-      }
-      for (const name of resolved) delete state.missing[name];
-      for (const [kind, list] of Object.entries(manifest.closure?.missing ?? {})) {
-        for (const name of list) {
-          const upper = String(name).trim().toUpperCase();
-          if (state.asked[upper] !== undefined && resolved.has(upper) === false) {
-            state.missing[upper] = {kind, iteration: state.asked[upper].iteration};
-          }
-        }
-      }
-      // and the kinds the dumper's closure does not follow (FIX-1's dumper
-      // update): the name was asked, the dictionary existence is UNANSWERED
-      // -- a gap with the reason, unless a kind's missing already said
-      // does-not-exist (that is the stronger word) or a round resolved it
-      for (const [kind, list] of Object.entries(manifest.closure?.unhandled ?? {})) {
-        for (const name of list) {
-          const upper = String(name).trim().toUpperCase();
-          if (state.asked[upper] !== undefined && resolved.has(upper) === false && state.missing[upper] === undefined) {
-            state.missing[upper] = {kind, iteration: state.asked[upper].iteration, reason: "unhandled by the dumper's closure"};
-          }
-        }
-      }
-      saveState(out, state);
-    } catch {
-      // no manifest, no closure: the findings are the only word
-    }
+    // what the dump's own manifest answered, per kind, accumulated
+    // (tools/hana-closure-request.mjs readDumpAnswer, milestone 4's carve)
+    readDumpAnswer(state, dump);
+    saveState(out, state);
 
     // the layers dirs of the walk so far, this iteration's dump converted
     // first when new (round 4's accumulation; the loop saves state.layers)
@@ -463,7 +431,15 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const fill = Object.keys(state.resolved ?? {}).length > 0
       ? {resolved: state.resolved, dumps: [...state.layers].reverse().map((l) => l.dump)}
       : undefined;
-    const {refused} = mergeInputs(root, dump, layersDirs, env, say, fill);
+    const {refused, intake} = mergeInputs(root, dump, layersDirs, env, say, fill, fwNamespaces);
+    // what the merge refused to deliver (milestone 4): a kernel splice is a
+    // refusal gap of its object; a framework-namespace object a framework gap
+    for (const r of intake.filter((x) => x.reason.startsWith("framework namespace") === false)) {
+      const reason = r.reason.split(/[:(]/)[0].trim();
+      state.refused[r.object] = {kind: r.file.split(".")[1].toUpperCase(), reason, intake: true, first_finding: `${reason}, ${r.file}${r.line !== undefined ? `:${r.line}` : ""}`};
+    }
+    const fwRefused = intake.filter((x) => x.reason.startsWith("framework namespace") === true);
+    await registerSeed({root, dump: resolve(root, state.seed), say, quiet: state.iteration > 1});
     // the merge refusals join the state's (the gap stands while the object
     // is in no build) and leave when a dump the merge handled carries the
     // name again without a refusal -- the generator wrote it at last; a
@@ -513,7 +489,13 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // graph decision's input, in both modes
     const reg = await structuralRegistry(root, say);
     const analysis = analyseIsland({reg, root, classPaths: islandClassPaths(root)});
-    let all = parseFindings(await validationMessage(root, join(out, "closure-stubs.json")));
+    // function modules (milestone 4, tools/hana-closure-fm.mjs): findings of
+    // the walk, the absent ones stub candidates in the stub rounds
+    const modules = scanFunctionModules(reg, island);
+    const fmCache = new Map();
+    const withModules = (list) => (stubUnresolved === true ? [...list, ...moduleFindings(islandClassPaths(root), modules.absent, fmCache)] : list);
+    const fwNames = frameworkNames();
+    let all = withModules(parseFindings(await validationMessage(root, join(out, "closure-stubs.json"))));
     let findings = all.filter((f) => island.has(f.file));
     // FIX-1: this iteration's analysis errors, keyed by file ("red, unknown
     // cause" -- kept, never excluded); without --stub-unresolved this is the
@@ -555,11 +537,11 @@ export async function run(args = process.argv.slice(2), options = {}) {
       const pendingAtFixedPoint = (name, kind) =>
         objectFilePresent(name, kind, islandFiles) === false &&
         state.missing[name] === undefined && state.refused[name] === undefined &&
-        excludedObjects.has(name) === false &&
+        excludedObjects.has(name) === false && isFramework(name) === false &&
         (state.asked[name] === undefined || resolvedSet.has(name) === false);
       // a name gone from the build -- excluded, or answered
       // missing/refused: the FRIENDS strip's predicate
-      const goneOf = (name) => excludedObjects.has(name) === true ||
+      const goneOf = (name) => excludedObjects.has(name) === true || isFramework(name) === true ||
         state.missing[name] !== undefined || state.refused[name] !== undefined;
       // this run's framework gaps: one entry per distinct nameless finding text
       const gapFindings = new Map();
@@ -651,7 +633,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
                 missingOf: (name) => state.missing[name] !== undefined,
                 asked: (name) => state.asked[name] !== undefined,
                 refusedOf: (name) => state.refused[name] !== undefined,
-                islandFiles, excludedObjects, deferDdic, goneOf});
+                islandFiles, excludedObjects, deferDdic, goneOf, frameworkOf: isFramework});
             } catch (error) {
               // FIX-1: one file's planning must not stop the walk -- recorded,
               // the object leaves the decision material (kept, never excluded)
@@ -662,6 +644,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
               planErrored.add(object);
               continue;
             }
+            for (const fw of plan.framework ?? []) fwNames.add(fw.name, fw.kind, {file: basename, line: fw.line, method: fw.method});
             for (const n of plan.nameless) {
               const entry = gapFindings.get(n.finding) ??
                 {finding: n.finding, ...(n.member !== undefined ? {member: n.member} : {}), used_by: []};
@@ -806,7 +789,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
           writeRecord();
           writeFileSync(join(out, "framework-gaps.json"), JSON.stringify(frameworkGapList(gapFindings), null, 2) + "\n");
         }
-        all = parseFindings(await validationMessage(root, join(out, "closure-stubs.json")));
+        all = withModules(parseFindings(await validationMessage(root, join(out, "closure-stubs.json"))));
         findings = all.filter((f) => island.has(f.file));
       }
       writeRecord();
@@ -825,7 +808,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
       ? {...analysis, objects: analysis.objects.filter((o) => testExcluded.has(o.object) === false)}
       : analysis;
     const {names: structuralNames, structuralCount, rest} = mergeNames(
-      {analysis: analysisForNames, findings, classPaths: islandClassPaths(root)});
+      {analysis: analysisForNames, findings: findings.filter((f) => f.fm === undefined), classPaths: islandClassPaths(root)});
     const classified = classifyFindings(rest);
     // the search helps the island hands to the /IWBEP/ API by name, and what
     // the helps and views that arrived still name (tools/hana-closure-shlp.mjs)
@@ -838,7 +821,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // is a CASCADE of that object's own findings, counted below as
     // "cascade (present)". An object excluded this run is out of the
     // build; its name rides the request's excluded key instead.
-    const {names, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...conversionExitAsks(reg, analysisForNames.objects, root), ...classified.names], island, excludedObjects);
+    const {names: unsplit, present} = dropPresentNames([...structuralNames, ...shlpFound.names, ...followed, ...conversionExitAsks(reg, analysisForNames.objects, root), ...classified.names], island, excludedObjects);
+    // a name in a framework namespace is a framework gap, never an ask
+    const names = splitFrameworkNames(unsplit, isFramework, fwNames, analysisForNames.objects);
+    const frameworkByName = writeFrameworkNames(out, fwNames, fwRefused);
     const cascades = classified.cascades;
     const unclassified = classified.unclassified;
     // and the stubs' eager DDIC names (H5x-1): asked like any classified name
@@ -863,11 +849,13 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const gaps = [];
     const gapOf = (name, kind, a) => {
       gapNames.add(name);
-      const reason = state.missing[name]?.reason;
+      // a kernel splice refused at the merge (milestone 4) says so on its gap
+      const splice = state.refused[name]?.intake === true ? state.refused[name] : undefined;
+      const reason = splice?.reason ?? state.missing[name]?.reason;
       return {
         name,
         kind,
-        first_finding: a.finding,
+        first_finding: splice?.first_finding ?? a.finding,
         iterations_requested: state.iteration - a.iteration + 2,
         ...(reason !== undefined ? {reason} : {}),
       };
@@ -892,7 +880,9 @@ export async function run(args = process.argv.slice(2), options = {}) {
       .map((name) => ({name, kind: state.refused[name].kind, first_finding: state.refused[name].first_finding, reason: state.refused[name].reason}));
     // recomputed every pass: a gap that a later round resolves leaves the
     // file on its own
-    writeFileSync(join(out, "closure-gaps.json"), JSON.stringify({gaps: [...gaps, ...refusedGaps]}, null, 2) + "\n");
+    // and the function modules nobody provides (milestone 4): FUNC gaps,
+    // never asked -- the request's own gaps list does not carry them
+    writeFileSync(join(out, "closure-gaps.json"), JSON.stringify({gaps: [...gaps, ...refusedGaps, ...modules.gaps]}, null, 2) + "\n");
     // per-kind gap counts and resolved-vs-written DDIC counts on the line
     // (round 7): a writer-of-record hole is written < resolved, visible
     // before anything asks
@@ -901,7 +891,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const writtenDdic = ddicWritten(root);
     const ddicCounts = TADIR.filter((k) => (state.resolved?.[k] ?? []).length > 0)
       .map((k) => `${k} ${state.resolved[k].length}/${writtenDdic[k]?.size ?? 0}`).join(", ");
-    say(`iteration ${state.iteration}: ${fresh.length} new name(s), ${gaps.length} gap(s), ${unscoped} outside the island (not asked), ${refusedGaps.length} merge-refusal gap(s), ${cascades} cascade finding(s) skipped, ${structuralCount} structural, ${unclassified.length} unclassified${stubUnresolved === true ? `, ${deferredOnly.length} deferred by stubs, ${stubMap.size} stubbed method(s), ${liftedNow} lifted, framework gaps: ${frameworkGaps}${cycles > 0 ? `, ${cycles} cycle member(s) kept` : ""}` : ""}, ${objects.total} island object(s)${gapKinds !== "" ? `, gaps by kind: ${gapKinds}` : ""}${ddicCounts !== "" ? `, DDIC resolved/written: ${ddicCounts}` : ""}, ${present} cascade (present)${excludedRecords.length > 0 ? `, ${excludedRecords.filter((r) => r.level !== "cycle").length} excluded` : ""}${stubUnresolved === true && guardBySuffix === true ? ", service guard: by suffix, no registration" : ""}`);
+    say(`iteration ${state.iteration}: ${fresh.length} new name(s), ${gaps.length} gap(s), ${unscoped} outside the island (not asked), ${refusedGaps.length} merge-refusal gap(s), ${cascades} cascade finding(s) skipped, ${structuralCount} structural, ${unclassified.length} unclassified${stubUnresolved === true ? `, ${deferredOnly.length} deferred by stubs, ${stubMap.size} stubbed method(s), ${liftedNow} lifted, framework gaps: ${frameworkGaps}${cycles > 0 ? `, ${cycles} cycle member(s) kept` : ""}` : ""}, ${objects.total} island object(s)${gapKinds !== "" ? `, gaps by kind: ${gapKinds}` : ""}${ddicCounts !== "" ? `, DDIC resolved/written: ${ddicCounts}` : ""}, ${present} cascade (present)${excludedRecords.length > 0 ? `, ${excludedRecords.filter((r) => r.level !== "cycle").length} excluded` : ""}${stubUnresolved === true && guardBySuffix === true ? ", service guard: by suffix, no registration" : ""}${frameworkByName > 0 ? `, framework names: ${frameworkByName}` : ""}, function modules: ${modules.summary.called} called/${modules.summary.absent} absent`);
     for (const line of unclassified) say(`unclassified: ${line}`);
 
     if (fresh.length === 0) {
@@ -914,10 +904,14 @@ export async function run(args = process.argv.slice(2), options = {}) {
       if (build.findings > 0) say(`build: exited ${build.status} with ${build.findings} finding(s) -- exit 1 with findings only, the fixed point stands`);
       say(`fixed point: every unresolved name has been asked and nothing new is named; ${gaps.length + refusedGaps.length} gap(s) -> ${join(out, "closure-gaps.json")}`);
       const seeds = seedClasses(root);
-      writeClosureSummary(out, closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
-        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load,
-        searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}));
-      return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps], cascades, unclassified, unscoped,
+      writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
+        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps, ...modules.gaps], requireUnstubbed, load, services: serviceClasses(root), // #960: every service's classes, not only the seeds
+        searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
+      function_modules: modules.summary, framework_names: frameworkByName, framework_namespaces: fwNamespaces,
+      ...(framework.asked.length > 0 ? {namespaces_asked: framework.asked} : {}),
+      ...(framework.unavailable !== undefined ? {framework_namespaces_unavailable: framework.unavailable} : {}), ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {}),
+      refused: Object.entries(state.refused).filter(([, r]) => r.intake === true).map(([name, r]) => ({name, ...r}))});
+      return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps, ...modules.gaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }
 

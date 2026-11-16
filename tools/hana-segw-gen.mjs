@@ -17,6 +17,10 @@
 //                       table carries it, with an optional version, also as
 //                       the tables carry it ("0001"). Default: every service
 //                       row of the dump
+//   --seed              the selection is the closure's seed (milestone 4,
+//                       tools/hana-closure-seed.mjs): from-dump.json says
+//                       `selection: "seed"`, and the seed guard protects
+//                       the skipped services' classes too
 //   --check             compare the facts folder (gen/hana-segw) and the
 //                       registry class with what would be written; exit 1
 //                       on drift (the manifest carries no clock:
@@ -186,23 +190,23 @@ export function joinServices({srh, srg, ohd, srt}, classes, selections = []) {
     const version = str(row.VERSION);
     const k = key(service, version);
     const group = srgOf.get(k);
+    const dpc = str(row.CLASS_NAME).toUpperCase();
     if (group === undefined) {
-      skipped.push({service, version, reason: `no model registration for ${k}`});
+      skipped.push({service, version, dpc, reason: `no model registration for ${k}`});
       continue;
     }
     const model = ohdOf.get(key(group.MODEL_TECH_NAME, group.MODEL_VERSION));
     if (model === undefined) {
-      skipped.push({service, version, reason: `no MPC registration for model ${str(group.MODEL_TECH_NAME)}/${str(group.MODEL_VERSION)}`});
+      skipped.push({service, version, dpc, reason: `no MPC registration for model ${str(group.MODEL_TECH_NAME)}/${str(group.MODEL_VERSION)}`});
       continue;
     }
-    const dpc = str(row.CLASS_NAME).toUpperCase();
     const mpc = str(model.CLASS_NAME).toUpperCase();
     if (classes.has(dpc) === false) {
-      skipped.push({service, version, reason: `class ${dpc} is not in the dump or gen/hana-src`});
+      skipped.push({service, version, dpc, mpc, reason: `class ${dpc} is not in the dump or gen/hana-src`});
       continue;
     }
     if (mpc === "" || classes.has(mpc) === false) {
-      skipped.push({service, version, reason: `class ${mpc === "" ? str(group.MODEL_TECH_NAME) : mpc} is not in the dump or gen/hana-src`});
+      skipped.push({service, version, dpc, mpc, reason: `class ${mpc === "" ? str(group.MODEL_TECH_NAME) : mpc} is not in the dump or gen/hana-src`});
       continue;
     }
     entries.push({
@@ -304,6 +308,8 @@ export async function run(args = process.argv.slice(2), options = {}) {
   const selections = [];
   while (args.includes("--service")) selections.push(take(args, "--service"));
   const check = has(args, "--check");
+  const seed = has(args, "--seed");
+  const log = options.log ?? console.log;
   if (args.length > 0) throw new Error(`unknown option ${args.find((a) => a.startsWith("--")) ?? args[0]}`);
   if (dumpDir === undefined) {
     throw new Error("hana-segw-gen: --from-dump <dir> names the dump directory");
@@ -316,18 +322,18 @@ export async function run(args = process.argv.slice(2), options = {}) {
   const merged = mergeRegistrations(xmlEntries, entries);
   const manifest = manifestFor(dumpDir, entries, skipped, provenance);
   const files = {
-    "from-dump.json": JSON.stringify({services: entries, skipped, overridden: merged.overrides}, undefined, 2) + "\n",
+    "from-dump.json": JSON.stringify({...(seed === true ? {selection: "seed"} : {}), services: entries, skipped, overridden: merged.overrides}, undefined, 2) + "\n",
     "manifest.json": JSON.stringify(manifest, undefined, 2) + "\n",
   };
   const abap = registryClass(merged.entries);
   if (check === true) {
     const drift = [...driftOf(facts, files), ...driftOf(out, {"zcl_stg_segw_registry.clas.abap": abap})];
     if (drift.length === 0) {
-      console.log(`hana-segw-gen: ${facts} matches ${resolve(dumpDir)} (${entries.length} service(s), ${skipped.length} skipped, ${merged.overrides.length} overridden)`);
+      log(`hana-segw-gen: ${facts} matches ${resolve(dumpDir)} (${entries.length} service(s), ${skipped.length} skipped, ${merged.overrides.length} overridden)`);
       return 0;
     }
-    for (const line of drift) console.log(`hana-segw-gen: ${line}`);
-    console.log(`hana-segw-gen: ${facts} has drifted from ${resolve(dumpDir)}: ${drift.length} difference(s)`);
+    for (const line of drift) log(`hana-segw-gen: ${line}`);
+    log(`hana-segw-gen: ${facts} has drifted from ${resolve(dumpDir)}: ${drift.length} difference(s)`);
     return 1;
   }
   mkdirSync(facts, {recursive: true});
@@ -337,12 +343,12 @@ export async function run(args = process.argv.slice(2), options = {}) {
   mkdirSync(out, {recursive: true});
   writeFileSync(join(out, "zcl_stg_segw_registry.clas.abap"), abap);
   for (const e of entries) {
-    console.log(`hana-segw-gen: ${e.external} -> MPC ${e.mpc}, DPC ${e.dpc}${e.description ? " (" + e.description + ")" : ""}`);
+    log(`hana-segw-gen: ${e.external} -> MPC ${e.mpc}, DPC ${e.dpc}${e.description ? " (" + e.description + ")" : ""}`);
   }
   for (const s of skipped) {
-    console.log(`hana-segw-gen: ${s.service}/${s.version}: skipped, ${s.reason}`);
+    log(`hana-segw-gen: ${s.service}/${s.version}: skipped, ${s.reason}`);
   }
-  console.log(`hana-segw-gen: ${entries.length} service(s), ${skipped.length} skipped, ${merged.overrides.length} overridden -> ${facts}`);
+  log(`hana-segw-gen: ${entries.length} service(s), ${skipped.length} skipped, ${merged.overrides.length} overridden -> ${facts}`);
   return 0;
 }
 
