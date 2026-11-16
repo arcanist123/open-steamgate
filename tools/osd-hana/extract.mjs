@@ -126,6 +126,33 @@ export async function extractMain(argv, {
     return fail("osd hana extract: --include-sap needs an explicit --package or --name (vendor content is never extracted wholesale)");
   }
 
+  // ---- one rule for every directory this run writes (critic M3 + S2) -------
+  // Judged on the REAL locations: symlinks are resolved first, so a symlinked
+  // <out> or --dump-dir pointing into a git working tree still counts.
+  const realOut = await realResolve(out);
+  const realDump = await realResolve(dumpDir);
+  const explicitDumpDir = flags["dump-dir"] !== undefined;
+  // the dump is raw output too: it may not BE the repository or sit inside it
+  // (the raw jsonl would mix into the tree a user later commits)
+  if (explicitDumpDir && (realDump === realOut || isInside(realDump, realOut))) {
+    io.err(`osd hana extract: refusing the dump directory ${dumpDir}: it is the output directory or inside the output -- the raw dump would mix into the repository.`);
+    return EXTRACT_EXIT.refusedOut;
+  }
+  // --include-sap: the vendor's bytes must not land inside a git working
+  // tree -- neither the repository nor the dump that carries them verbatim
+  if (flags["include-sap"] === true) {
+    const outTree = await inGitTree(realOut);
+    if (outTree) {
+      io.err(`osd hana extract: refusing ${out}: it is inside the git working tree ${outTree} -- vendor content must not be published.`);
+      return EXTRACT_EXIT.refusedOut;
+    }
+    const dumpTree = await inGitTree(realDump);
+    if (dumpTree) {
+      io.err(`osd hana extract: refusing the dump directory ${dumpDir}: it is inside the git working tree ${dumpTree} -- vendor content must not be published.`);
+      return EXTRACT_EXIT.refusedOut;
+    }
+  }
+
   // ---- sidecar: locate, verify, handshake --------------------------------
   let sidecarPath;
   try {
@@ -195,15 +222,6 @@ export async function extractMain(argv, {
     allowUnpinned: flags["allow-unpinned-sidecar"] === true,
     loud: (line) => io.err(line.trimEnd()),
   });
-
-  // --include-sap: the vendor's code must not land inside a git working tree
-  if (flags["include-sap"] === true) {
-    const verdict = await inGitTree(out);
-    if (verdict) {
-      io.err(`osd hana extract: refusing ${out}: it is inside the git working tree ${verdict} -- vendor content must not be published.`);
-      return EXTRACT_EXIT.refusedOut;
-    }
-  }
 
   // the output directory must be fresh (only our own work area may exist)
   const existing = await freshOutEntries(out);
@@ -451,6 +469,23 @@ export async function inGitTree(dir) {
     if (q === p) return undefined;
     p = q;
   }
+}
+
+// Resolve symlinks (critic M3/S2: the directory rules judge the REAL
+// location, not the spelling): a trailing component that does not exist yet
+// resolves through its nearest existing ancestor.
+export async function realResolve(p) {
+  try {
+    return await fs.realpath(p);
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
+  }
+  return path.join(await realResolve(path.dirname(p)), path.basename(p));
+}
+
+// Is `child` `parent` itself or one of its descendants?
+export function isInside(child, parent) {
+  return child !== parent && child.startsWith(`${parent}${path.sep}`);
 }
 
 function buildPlan(rows, allRows) {
