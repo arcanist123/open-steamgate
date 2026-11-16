@@ -321,6 +321,39 @@ describe("tools/osd-hana: the osd hana doctor", function () {
       expect(code2).to.equal(5);
     });
 
+    it("takes the password from the env file when no other channel gives one (critic M-1; mutation: ignore file.HANA_PASSWORD -> red)", async function () {
+      // HANA_PASSWORD in --env-file is a documented password channel; a run
+      // whose only channel is the env file must work, not refuse
+      const envPath = join(root, "m1-bed.env");
+      const filePassword = "env-file-password-99";
+      writeFileSync(envPath, [
+        "# M-1: the env file alone must feed the whole connection",
+        `HANA_HOST=${HOST}`,
+        "HANA_PORT=39015",
+        "HANA_DATABASE=TEN",
+        `HANA_USER=${USER}`,
+        `HANA_PASSWORD=${filePassword}`,
+      ].join("\n"));
+      const code = await runDoctor(["--env-file", envPath], {env: {OSD_HANA_PASSWORD: ""}});
+      expect(code, allText()).to.equal(0);
+      expect(allText()).to.not.include(filePassword);
+    });
+
+    it("the env file's HANA_PASSWORD ranks above OSD_HANA_PASSWORD (order: --password-stdin > env file > environment > prompt)", async function () {
+      // the courtesy check names the password it saw: an env-file password
+      // that IS a public default warns even when OSD_HANA_PASSWORD is set
+      const envPath = join(root, "m1-order.env");
+      writeFileSync(envPath, [
+        `HANA_HOST=${HOST}`,
+        "HANA_PORT=39015",
+        `HANA_USER=${USER}`,
+        "HANA_PASSWORD=HXEHana1",
+      ].join("\n"));
+      const code = await runDoctor(["--env-file", envPath]);
+      expect(code, allText()).to.equal(0);
+      expect(allText()).to.include("public default");
+    });
+
     it("exits 1 on usage errors: no password channel, a stray positional, an unknown flag", async function () {
       // no OSD_HANA_PASSWORD and stdin not a TTY: the doctor refuses instead
       // of hanging, and names the ways a password may arrive

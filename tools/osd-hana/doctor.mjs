@@ -43,9 +43,9 @@ what kind of login this is and whether it can do more than read.
 
 Connection: --host --port --database --user, or --env-file with keys
 HANA_HOST, HANA_PORT, HANA_DATABASE, HANA_USER, HANA_PASSWORD, HANA_SCHEMA.
-The password comes from OSD_HANA_PASSWORD, from --password-stdin, or from a
-hidden prompt on a terminal. There is no --password flag, by design: argv is
-visible to every user of the machine.
+The password comes from --password-stdin, then HANA_PASSWORD in the env file,
+then $OSD_HANA_PASSWORD, then a hidden prompt on a terminal. There is no
+--password flag, by design: argv is visible to every user of the machine.
 
 The sidecar binary osd-hana-dump is taken from OSD_HANA_DUMP (or the path the
 caller hands in), verified against tools/osd-hana/sidecar.lock.json, and

@@ -7,9 +7,10 @@
 //   --env-file <file>                   keys HANA_HOST, HANA_PORT, HANA_DATABASE,
 //                                       HANA_USER, HANA_PASSWORD, HANA_SCHEMA
 //   the password, in order:            --password-stdin (first line of stdin)
+//                                       > HANA_PASSWORD from --env-file
 //                                       > $OSD_HANA_PASSWORD
 //                                       > a hidden prompt, only on a TTY
-//                                       > refused, naming the three ways
+//                                       > refused, naming the four ways
 import {existsSync, readFileSync} from "node:fs";
 import {resolve} from "node:path";
 
@@ -84,7 +85,7 @@ export function readEnvFile(path) {
 // echoed. Not a TTY (a test, a pipe) is a refusal, never a read: hanging on
 // stdin that will never speak is worse than a clear error.
 async function promptHidden(question, {input = process.stdin, output = process.stderr, isTTY = input.isTTY} = {}) {
-  if (!isTTY) throw new UsageError("osd hana: a password is missing and stdin is not a terminal -- use --password-stdin or OSD_HANA_PASSWORD");
+  if (!isTTY) throw new UsageError("osd hana: a password is missing and stdin is not a terminal -- use --password-stdin, HANA_PASSWORD in --env-file, or OSD_HANA_PASSWORD");
   return new Promise((resolvePromise, reject) => {
     output.write(question);
     const chars = [];
@@ -123,6 +124,8 @@ async function promptHidden(question, {input = process.stdin, output = process.s
 
 /** Everything the doctor needs to open a connection. Precedence: the CLI flag
  *  wins over the env file, the env file over the process environment. The
+ *  password has one more rank between them: --password-stdin first, then the
+ *  env file's HANA_PASSWORD, then $OSD_HANA_PASSWORD, then a TTY prompt. The
  *  password never travels as a flag. */
 export async function collectConnection({
   flags,
@@ -152,6 +155,11 @@ export async function collectConnection({
   if (flags["password-stdin"] === true) {
     password = await readStdinLine(stdin);
     if (password === "") throw new UsageError("osd hana: --password-stdin got an empty first line");
+  } else if (typeof file.HANA_PASSWORD === "string" && file.HANA_PASSWORD !== "") {
+    // HANA_PASSWORD in the env file is a real password channel, not a parsed
+    // but dropped key: it ranks above the process environment and below
+    // --password-stdin.
+    password = file.HANA_PASSWORD;
   } else if (typeof env.OSD_HANA_PASSWORD === "string" && env.OSD_HANA_PASSWORD !== "") {
     password = env.OSD_HANA_PASSWORD;
   } else {
