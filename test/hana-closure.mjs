@@ -3823,8 +3823,10 @@ process.exit(0);
     const root = scratch(SVC_DPC_EXT_SOURCE, "zcl_h5c_svc_dpc_ext");
     mkdirSync(join(root, "gen", "hana-segw"), {recursive: true});
     writeFileSync(join(root, "gen", "hana-segw", "from-dump.json"), JSON.stringify({services: [
-      {service: "h5c", version: "0001", dpc: "ZCL_H5C_SVC_DPC_EXT", mpc: "ZCL_H5C_SVC_MPC_EXT"},
+      {service: "h5c", version: "0001", external: "h5c", dpc: "ZCL_H5C_SVC_DPC_EXT", mpc: "ZCL_H5C_SVC_MPC_EXT", model: "h5c", modelVersion: "0001", description: ""},
     ]}) + "\n");
+    // the pair hana-segw-gen writes, its rows in the writer's shape (the summary's service chains read it, #960)
+    writeFileSync(join(root, "gen", "hana-segw", "manifest.json"), JSON.stringify({tool: "hana-segw-gen", source: "dump"}) + "\n");
     fixtureDump(join(root, "dump-001"));
     const env = writeFakes(root, envFor(root, {island: "zcl_h5c_svc_dpc_ext.clas.abap"}));
     try {
@@ -4455,8 +4457,10 @@ process.exit(0);
     // the seeded guard's classes
     mkdirSync(join(root, "gen", "hana-segw"), {recursive: true});
     writeFileSync(join(root, "gen", "hana-segw", "from-dump.json"), JSON.stringify({services: [
-      {service: "h5c", version: "0001", dpc: "ZCL_H5C_SVC_DPC", mpc: "ZCL_H5C_SVC_MPC"},
+      {service: "h5c", version: "0001", external: "h5c", dpc: "ZCL_H5C_SVC_DPC", mpc: "ZCL_H5C_SVC_MPC", model: "h5c", modelVersion: "0001", description: ""},
     ]}) + "\n");
+    // the pair hana-segw-gen writes, its rows in the writer's shape (the summary's service chains read it, #960)
+    writeFileSync(join(root, "gen", "hana-segw", "manifest.json"), JSON.stringify({tool: "hana-segw-gen", source: "dump"}) + "\n");
     const env = writeFakes(root, envFor(root, {island: "if_aunit_h5c_test.intf.abap",
       island2Name: "zcl_h5c_aunit_decorator.clas.abap",
       convAFiles: extra.map(([name]) => name)}));

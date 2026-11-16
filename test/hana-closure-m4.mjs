@@ -174,6 +174,19 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(summary.seed_services.map((s) => s.service)).to.deep.equal(["ZOSD_H5X_A_SRV", "ZOSD_H5X_W"]);
   });
 
+  it("7: the widened guard (#960) sees every registered service's classes, with --require-unstubbed over them", async () => {
+    const {root, env, seedDump} = make(FAMILY);
+    let error;
+    try {
+      await run([...ARGS(seedDump), "--require-unstubbed", "ZCL_OSD_H5X_GW_DP=>*"], {root, env, say});
+    } catch (e) {
+      error = e;
+    }
+    const summary = readJson(outFile(root, "closure-summary.json"));
+    expect(summary.services.map((s) => [s.service, s.dpc])).to.deep.equal([["ZOSD_H5X_A_SRV", "ZCL_ZOSD_H5X_A_DPC_EXT"], ["ZOSD_H5X_W", "ZCL_OSD_H5X_GW_DP"]]);
+    expect(String(error?.message), "the hand-written DPC's stubbed interface method fails the fixed point").to.include("ZCL_OSD_H5X_GW_DP=>ZIF_OSD_H5X_RUNTIME~GET_ENTITYSET");
+  });
+
   it("5: function modules are findings: counted, FUNC gaps, the caller stubbed with the module named, never asked", async () => {
     const fugr = {
       "zosd_h5x_fg.fugr.xml": `<?xml version="1.0" encoding="utf-8"?>

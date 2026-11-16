@@ -283,7 +283,7 @@ import {registerSeed, seedNamespaces} from "./hana-closure-seed.mjs";
 import {frameworkNamespaces, frameworkNames, frameworkPredicate, splitFrameworkNames, writeFrameworkNames} from "./hana-closure-framework.mjs";
 import {moduleFindings, scanFunctionModules} from "./hana-closure-fm.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
-import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
+import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, serviceClasses, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
 // ------------------------------------------------------------ findings ----
 
@@ -904,7 +904,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
       say(`fixed point: every unresolved name has been asked and nothing new is named; ${gaps.length + refusedGaps.length} gap(s) -> ${join(out, "closure-gaps.json")}`);
       const seeds = seedClasses(root);
       writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
-        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps, ...modules.gaps], requireUnstubbed, load,
+        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps, ...modules.gaps], requireUnstubbed, load, services: serviceClasses(root), // #960: every service's classes, not only the seeds
         searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
       function_modules: modules.summary, framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {}),
       refused: Object.entries(state.refused).filter(([, r]) => r.reason?.startsWith("kernel ") === true).map(([name, r]) => ({name, ...r}))});

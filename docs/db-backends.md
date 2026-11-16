@@ -1208,7 +1208,10 @@ runs the real `hana-src-gen`):
   guard protects the classes of the seed's services that have not arrived
   yet too (`from-dump.json` `selection: "seed"`). A hand-written DPC is a
   service like any other row. The summary carries `seed_services` (service,
-  version, dpc, mpc, registered).
+  version, dpc, mpc, registered), and the loop hands the report the
+  registered services' class chains (`serviceClasses`, #960), so its
+  `services` block and `--require-unstubbed` cover every class of every
+  registered service, not only the seeds.
 - **Function modules as findings** (`tools/hana-closure-fm.mjs`): the
   island's `CALL FUNCTION` statements with a literal name, structurally;
   present when a function group of the build defines the module.
