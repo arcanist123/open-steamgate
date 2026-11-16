@@ -31,6 +31,7 @@
     "onCommand:osd.newSqlNotebook",
     "onCommand:osd.start",
     "onCommand:osd.prepareAbapgitZip",
+    "onCommand:osd.hanaExtract",
     "onCommand:osd.quickStart",
     "onCommand:osd.gettingStarted",
     "onCommand:osd.webProbe",
@@ -175,6 +176,22 @@
           "default": "",
           "description": "PostgreSQL database -- the isolation boundary (tools/postgres-client.mjs never drops or rewrites a pre-existing schema). Empty defaults to a dedicated osd_<hash> derived from osd.home, so this window never writes into somebody else's database by accident."
         },
+        "osd.hanaExtract.connections": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "properties": {
+              "host": {"type": "string"},
+              "port": {"type": "number"},
+              "database": {"type": "string"},
+              "user": {"type": "string"}
+            },
+            "required": ["host", "port", "user"],
+            "additionalProperties": false
+          },
+          "description": "Connections remembered by OSD: Extract my code from HANA (host, port, tenant database, user). Never a password: passwords live only in VS Code SecretStorage, or nowhere."
+        },
         "osd.database.hana.host": {
           "type": "string",
           "default": "",
@@ -229,6 +246,7 @@
       {"command": "osd.copyJobKey", "title": "Copy job key", "category": "OSD"},
 
       {"command": "osd.prepareAbapgitZip", "title": "osd: Prepare abapGit zip…"},
+      {"command": "osd.hanaExtract", "title": "Extract my code from HANA", "category": "OSD"},
       {"command": "osd.webProbe", "title": "osd: Web probe"},
       {"command": "osd.webReadProbe", "title": "osd: Web read probe"},
       {"command": "osd.webVerifyLastTravel", "title": "osd: Web verify last Travel"},
@@ -297,6 +315,7 @@
     "menus": {
       "commandPalette": [
         {"command": "osd.openJobsPanel", "when": "!isWeb && !osd.web"},
+        {"command": "osd.hanaExtract", "when": "!isWeb && !osd.web"},
         {"command": "osd.refreshJobs", "when": "!isWeb && !osd.web"},
         {"command": "osd.filterJobs", "when": "!isWeb && !osd.web"},
         {"command": "osd.openJobLog", "when": "!isWeb && !osd.web"},
