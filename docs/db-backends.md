@@ -1665,3 +1665,139 @@ and a GET under both prefixes, 405, the trace with its control (and a copy
 without it failing the check), the bind log; one write added to the boot
 turns it red. `test/gateway-metadata-diff.mjs` covers the diff with two
 synthetic documents.
+
+### The host's two safety nets (milestone 4): tools/hana-host-guard.mjs
+
+A service delivered by somebody else runs in this process, so the host
+promises two more things, both installed by `tools/hana-serve.mjs` before a
+class module of the generation loads (a class constructor runs at load).
+
+**The threat model, first.** The in-process guard is a defence against
+what delivered code *does* -- through the ABAP layer and the libraries
+under it: an HTTP client, a destination, a lookup, a job, a stub it runs
+into and swallows -- and against accidents. No list of patched entry points
+inside the process is ever known to be complete, so it claims no
+completeness. Against hostile delivered *source* the controls are two, and
+neither lives in this module: (i) refusing kernel splices when the island
+is merged, and (ii) running the host in an operating-system sandbox with no
+network except loopback to the database and its own port. The guard is
+**not a sandbox against hostile delivered *source***. A `WRITE '@KERNEL
+…'` line is spliced into the transpiled module as JavaScript (the
+transpiler's `WRITE` turns such a literal into code, by design: our own
+`src/` uses it, `ZCX_OSD_NOT_ACTIVATED` among them), and JavaScript in
+this process can do what the process can. The cheap doors are locked too
+(below), but what closes the rest is (1) refusing a delivered source that
+carries a kernel splice when the island is merged, and (2) running the host
+where the operating system gives it no route out -- a container or sandbox
+with no outbound network and a read-only file system outside its own
+directories, which the product's compose file is to provide. Until both are
+in place, a delivered source that was not read is trusted with the process.
+
+**Outbound calls are refused.** The seam is the lowest one the host controls:
+Node's own entry points, patched in this process (`installOutboundGuard`).
+`net.Socket.prototype.connect` is the socket every TCP, TLS, HTTP(S), http2,
+`fetch`, WebSocket and local (unix) socket client connects through; UDP
+`send`/`connect`; every `dns` lookup and resolve (a lookup is a packet, and
+a name can carry data), callback and promise forms and the `Resolver`s;
+`child_process` (all seven, the ESM named exports synced) and
+`worker_threads.Worker`, since a child or a worker has modules nothing here
+patched; `process.binding` for the socket and process bindings; `fetch` and
+`WebSocket` once more to name the URL. For the ways *in*, what is patched
+is `net.Server.prototype.listen` and `net.Server.prototype._listen2` (the
+step below it that does the bind; every `listen` variant measured -- a
+port, a path, `{fd}`, a handle, http/https/tls/http2 servers, a subclass's
+own `listen` -- reaches one of the two), each answering only for the one
+server the host marked (`allowListener`, by object, not by a port generated
+code could reuse) and for the window of the host's own start (osd-bind's
+`::1` twin, opened and closed inside one `listening` event); UDP `bind` is
+refused, and so are `process.dlopen` (an addon opens sockets below
+every seam here), `inspector.open`, `process._debugProcess` and
+`process.kill(…, 'SIGUSR1')` (a debugger that listens is somebody else
+taking the process). Each refuses by throwing `OSD_OUTBOUND_REFUSED` before
+a socket exists, default deny, no allow-list. The error's message names the
+kind only (`hana-serve refuses outbound network calls (dns)`): an error can
+travel into a response -- `GET_LAST_ERROR`, or a plain error crossing the
+ABAP, which `CATCH cx_root` does not catch and the host answers 500 with
+`OSD/REFUSED` and no more -- so the target lives in the record only, a URL
+by its origin (no user, path or query) and anything else cut at 120
+characters. In the host every patched entry point and the stub hook are
+**locked** (`lockProperty`: a non-configurable accessor whose setter ignores
+an assignment and records it as `tampered`), and before every request the
+host checks by identity that the hook and each entry point are still the
+ones it installed; one that is not answers 500 (`OSD/TAMPERED`), recorded.
+The one exception is the database's own: what the database client opens
+inside its `connect()` (the host wraps it, `asOwnDatabase`) and later
+reconnects to that same endpoint -- which also admits a second client to
+it, such as the AMDP destination's own connection. The class library's HTTP client
+(open-abap-core `CL_HTTP_CLIENT`) is wrapped on top
+(`installHttpClientGuard`) so the refusal reads the way a system without a
+route out says it: `CREATE_BY_URL` and `CREATE_BY_DESTINATION` hand out a
+client (creating one opens nothing; the library's `CREATE_BY_DESTINATION` is
+a todo-assert otherwise), `SEND` raises the classic
+`HTTP_COMMUNICATION_FAILURE` with `GET_LAST_ERROR` naming the refusal, and
+its connect is refused even toward the database's endpoint.
+
+**Every stub raise is seen.** `installStubHook` sets
+`globalThis.osdNotActivated`, which `ZCX_OSD_NOT_ACTIVATED`'s constructor
+calls before any `CATCH` can see the exception; the hook reads the class and
+method off the stack (the first frame in a `*.clas.mjs` that is not the
+exception class). Stubs and refusals land in one record per request
+(`AsyncLocalStorage`), so a provider that swallows either and answers 200
+still leaves its trace. `--stub-trace <file>` writes the record as JSON
+lines, the file `0600` -- also one an earlier run left with another mode --
+in a directory created `0700`, truncated per run: a `boot` line first
+(`probe`, the stubbed class constructors' signals from the load, the
+refusals of the boot), then one line per request under `/sap/opu/odata`,
+those refused before the ABAP included: `{method, path, status, stubs:
+[{class, method, reason}], refused: [{kind, target, …}], tampered:
+[{what}]}`, written when the response ends, before the client has it. The
+record never goes into a response header or body. Without the option nothing is kept and
+each event is one stderr line (`not activated: <class>=><method>: <reason>`,
+`hana-serve: refused outbound <kind> <target>`). The boot raises one
+synthetic stub through the loaded exception class and checks that the hook
+saw it -- the positive control; with `--stub-trace` a hook that did not see
+it refuses the start.
+
+What stays open at the process level, all of it reachable only from
+delivered *source* (a kernel splice) and all of it closed by the two
+measures above, not by this module:
+- an in-process patch list can always be incomplete: a Node entry point
+  not named above (an internal path a later Node release adds, a module
+  this list never looked at) is open until somebody finds it -- round 2 of
+  the review found `_listen2` that way. Not closed here, by class:
+  `node:fs` and every other file or pipe API, `node:vm`/`eval` (the same
+  patched modules, but no further restriction), timers and `process.on`
+  hooks that outlive a request, `process.exit`/`abort`, environment and
+  memory reads (`process.env` holds the database password);
+- `node:fs` directly: a file written, read or replaced anywhere the
+  process may (the ABAP's own `OPEN DATASET` is refused outside its roots,
+  `tools/osd-dataset.mjs`; a direct import is not);
+- raw sockets to the database's own endpoint (allowed: it is the
+  database's);
+- a native module the process already loaded, or one loaded by a path the
+  guard does not see (`process.dlopen` itself is refused; `require` of a
+  `.node` file goes through it);
+- the debugger by other means: `--inspect` given to the process, or a
+  SIGUSR1 sent from outside it (only the process's own `kill` is guarded);
+- anything that changes the guard before it is installed (none of the
+  generation's code runs before it) or a property a delivered splice
+  defines that the host does not check;
+- anything outside this process, such as a file the service writes for
+  somebody else to send.
+`CL_HTTP_CLIENT=>CREATE_INTERNAL` stays the library's todo-assert: a
+caller gets a 500, fail closed.
+
+`tools/hana-closure-report.mjs` widened in the same milestone:
+`serviceClasses(root)` reads the island's own registration (the dump facts
+in `gen/hana-segw`, the island's `*.iwsv.xml` / `*.iwmo.xml`, joined as the
+SEGW registry joins them, never by suffix) and follows each registered
+DPC's and MPC's superclass chain through the island (abaplint's class
+definition); given those `services`, `closureSummary` lists per service
+which of its classes carry stubs and applies `--require-unstubbed` to every
+one of them -- a DPC inheriting another service's `_EXT` class, a
+hand-written DPC without a SEGW project. The closure loop
+(`tools/hana-closure.mjs`) does not hand `services` to `closureSummary` yet;
+until it passes `services: serviceClasses(root)`, a run's summary checks the
+seeds as before. Tests: `test/hana-host-guard.mjs`
+(the twin `ZOSD_M4G_SRV`, `test/hana-m4`, with a local listener that must
+receive nothing).
