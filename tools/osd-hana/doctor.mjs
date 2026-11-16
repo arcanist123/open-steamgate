@@ -2,7 +2,8 @@
 // connection from flags / env file / stdin / a hidden prompt, run the
 // sidecar's `probe` (read-only, no names needed), and say the verdict plainly.
 // Exit codes: 0 ready to extract, 1 usage or setup, 2 cannot connect / log on,
-// 5 no ABAP schema found. `--json` prints the same findings as one JSON
+// 5 no ABAP schema readable by this login (or the sidecar could not examine
+// the database -- the message says which). `--json` prints the same findings as one JSON
 // document.
 //
 // The doctor never refuses a login because it is powerful (task B.3): the
@@ -82,7 +83,7 @@ clear text (the consent text says so): use a trusted network or --encrypt
 (TLS with certificate validation, hdb's useTLS). --trust-server-certificate
 encrypts without validating the server's certificate and says so loudly.
 Exit codes: 0 ready to extract; 1 usage; 2 cannot connect or log on;
-5 no ABAP schema.`;
+5 no ABAP schema readable by this login, or the database could not be examined.`;
 
 export async function doctorMain(argv, {
   io = {out: (line) => process.stdout.write(`${line}\n`), err: (line) => process.stderr.write(`${line}\n`)},
