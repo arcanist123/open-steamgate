@@ -328,6 +328,7 @@ export async function extractMain(argv, {
   const reused = await reusableDump(dumpDir, dumpRequest);
   let dumpErrors = [];
   let dumpParts;
+  let dumpPartial = false; // the sidecar said partial -- never "all written" (M-3)
   if (reused.ok) {
     io.err(`osd hana extract: reusing the existing dump in ${dumpDir} (same request, sidecar exit 0)`);
     if (Array.isArray(reused.errors)) dumpErrors = reused.errors;
@@ -345,6 +346,7 @@ export async function extractMain(argv, {
       await fs.writeFile(dumpRequestPath, `${JSON.stringify(dumpRequest, null, 1)}\n`);
       const dumpRun = await runVerb(sidecar, "dump", {requestPath: dumpRequestPath, out: dumpDir, fail, connection});
       if (typeof dumpRun === "number") return dumpRun;
+      dumpPartial = dumpPartial || dumpRun.outcome === "partial";
     } else {
       // one request per chunk, one directory per chunk: the sidecar refuses a
       // non-empty --out, and its name IN-lists must stay under the SQL
@@ -359,6 +361,7 @@ export async function extractMain(argv, {
         await fs.writeFile(partRequestPath, `${JSON.stringify(partRequest, null, 1)}\n`);
         const dumpRun = await runVerb(sidecar, "dump", {requestPath: partRequestPath, out: partDir, fail, connection});
         if (typeof dumpRun === "number") return dumpRun;
+        dumpPartial = dumpPartial || dumpRun.outcome === "partial";
         const partManifest = JSON.parse(await fs.readFile(path.join(partDir, "manifest.json"), "utf8"));
         dumpParts.push(part);
         dumpErrors.push(...(partManifest.sidecar?.errors ?? []));
@@ -392,6 +395,10 @@ export async function extractMain(argv, {
   await fs.rm(path.join(out, "src"), {recursive: true, force: true});
   await fs.rm(path.join(out, ".abapgit.xml"), {force: true});
   const dumpManifest = JSON.parse(await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8"));
+  // M-3: the sidecar's own errors -- per chunk (aggregate) or in the one
+  // manifest -- are never dropped; each becomes a ledger line or a run-level
+  // line below, and the exit code cannot be 0.
+  dumpErrors = dumpErrors.length > 0 ? dumpErrors : (dumpManifest.sidecar?.errors ?? []);
   // the dump holds every object of the request; the sidecar counts DDIC
   // objects as "rows", so the object total is its own package_objects
   const dumpedCount = dumpManifest.counts?.package_objects ?? dumpManifest.sidecar?.counts?.package_objects;
@@ -480,6 +487,21 @@ export async function extractMain(argv, {
   }
 
   // ---- 5: report -----------------------------------------------------------
+  // M-3: each sidecar error becomes a ledger line on the object it names
+  // (or a run-level line when it names none); the exit code is 3.
+  const runLevelDumpErrors = [];
+  for (const err of dumpErrors) {
+    const base = String(err?.name ?? "").split("=>")[0].trim().toUpperCase();
+    const matches = base === "" ? [] : conversion.entries.filter((e) => e.name.toUpperCase() === base || e.id.toUpperCase() === base);
+    if (matches.length > 0) {
+      for (const e of matches) {
+        e.parts.push({part: "dump error", disposition: "not written", reason: `${err.error ?? JSON.stringify(err)}`});
+        if (e.status === "written") e.status = "written-partial";
+      }
+    } else {
+      runLevelDumpErrors.push(err);
+    }
+  }
   const durationMs = now().getTime() - started;
   const totalsDoc = totals(plan, conversion.entries, dumpedCount, dumpedInScope);
   const reportDoc = {
@@ -497,6 +519,8 @@ export async function extractMain(argv, {
     empty_sources: conversion.emptySources,
     drift,
     unknown_class: unknownClassRows.length,
+    dump_errors: runLevelDumpErrors,
+    dump_partial: dumpPartial || dumpErrors.length > 0,
     duration_ms: durationMs,
     notice: flags["include-sap"] === true
       ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."
@@ -507,6 +531,10 @@ export async function extractMain(argv, {
   // an internal error, never a silently wrong report
   if (conversion.unaccounted.length > 0 || totalsDoc.accounts !== true) {
     reportDoc.ledger_error = `the ledger accounts for ${conversion.entries.length - conversion.unaccounted.length} of ${plan.inScope} in-scope objects`;
+  } else if (dumpErrors.length > 0 || dumpPartial) {
+    // M-3: "all written" would be a lie while the sidecar itself reported
+    // that it could not deliver everything
+    reportDoc.sentence = `the sidecar reported ${dumpErrors.length} error${dumpErrors.length === 1 ? "" : "s"} on this dump${dumpPartial ? " (exit partial)" : ""} -- the report lists them on their objects; nothing is claimed complete`;
   } else {
     reportDoc.sentence = sentence(totalsDoc);
   }
@@ -516,6 +544,7 @@ export async function extractMain(argv, {
   io.out(`extract-report: ${path.join(out, "extract-report.md")}`);
   io.out(reportDoc.sentence ?? reportDoc.ledger_error);
   if (reportDoc.ledger_error !== undefined) return EXTRACT_EXIT.internal;
+  if (dumpErrors.length > 0 || dumpPartial) return EXTRACT_EXIT.partial;
   return reportDoc.totals.written === reportDoc.totals.inScope ? EXTRACT_EXIT.ok : EXTRACT_EXIT.partial;
 }
 

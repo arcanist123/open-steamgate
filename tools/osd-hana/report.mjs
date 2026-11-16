@@ -101,6 +101,15 @@ export function renderMdReport(doc) {
     if (doc.drift.appeared.length > 0) lines.push(`- appeared since the dump (listed, not in the dump -- skipped as not-in-dump): ${doc.drift.appeared.join(", ")}`);
     if (doc.drift.disappeared.length > 0) lines.push(`- disappeared since the dump (in the dump, no longer listed -- not written): ${doc.drift.disappeared.join(", ")}`);
   }
+  if (doc.dump_errors?.length > 0 || doc.dump_partial === true) {
+    lines.push("");
+    lines.push("## dump errors");
+    lines.push("");
+    lines.push("The sidecar itself reported errors on this dump -- nothing is claimed complete; the named objects carry the error as a part line.");
+    lines.push("");
+    for (const e of doc.dump_errors ?? []) lines.push(`- ${typeof e === "string" ? e : JSON.stringify(e)}`);
+    if (doc.dump_partial === true && (doc.dump_errors?.length ?? 0) === 0) lines.push("- the sidecar ended with exit 3 (partial) without naming objects");
+  }
   if (doc.errors.length > 0) {
     lines.push("");
     lines.push("## errors");

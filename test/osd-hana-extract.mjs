@@ -302,9 +302,14 @@ describe("osd hana extract", function () {
     expect(r1.code).to.equal(1);
     expect(r1.lines.err.join("\n")).to.match(/not JSON/);
 
-    const unfinished = join(root, "unfinished-dump");
-    mkdirSync(join(unfinished, ".osd-hana", "dump"), {recursive: true});
-    writeFileSync(join(unfinished, ".osd-hana", "dump", "manifest.json"), JSON.stringify({sidecar: {request: requestOf(broken), errors: ["table TFDIR: boom"]}}));
+    // a dump whose sidecar ended with errors: the manifest says so, the run
+    // refuses the directory, never mixes (M-3 makes the FIRST run loud too)
+    const unfinished = await fresh("unfinished-dump");
+    await runExtract(["--out", unfinished]);
+    const manifestPath = join(unfinished, ".osd-hana", "dump", "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.sidecar.errors = ["table TFDIR: boom"];
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 1));
     const r2 = await runExtract(["--out", unfinished]);
     expect(r2.code).to.equal(1);
     expect(r2.lines.err.join("\n")).to.match(/carries 1 errors/);
