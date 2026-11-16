@@ -96,7 +96,7 @@ function makePin() {
   return path;
 }
 
-async function runExtract(argv, {env = {}, out} = {}) {
+async function runExtract(argv, {env = {}, out, list, dump} = {}) {
   const from = recordLines().length;
   const lines = {out: [], err: [], from};
   const io = {out: (l) => lines.out.push(l), err: (l) => lines.err.push(l)};
@@ -120,8 +120,8 @@ async function runExtract(argv, {env = {}, out} = {}) {
     // allowlist (critic S-2) -- the parent's environment never leaks in
     sidecarExtraEnv: {
       FAKE_SIDECAR_RECORD: recordPath,
-      FAKE_SIDECAR_LIST: LIST_FIXTURE,
-      FAKE_SIDECAR_DUMP: DUMP_FIXTURE,
+      FAKE_SIDECAR_LIST: list ?? LIST_FIXTURE,
+      FAKE_SIDECAR_DUMP: dump ?? DUMP_FIXTURE,
       ...env,
     },
   });
@@ -308,15 +308,16 @@ describe("osd hana extract", function () {
     expect(r.code).to.equal(3);
     const rep = reportOf(out);
     expect(rep.totals.inScope).to.equal(14);
-    expect(rep.totals.written).to.equal(13);
+    expect(rep.totals.written).to.equal(10);
+    expect(rep.totals.writtenPartial).to.equal(3); // the PROGs and the FUGR: screens/GUI status/variants not checked
     expect(rep.totals.unsupported).to.equal(1);
     expect(rep.totals.skipped).to.equal(0);
-    expect(rep.totals.written + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
+    expect(rep.totals.written + rep.totals.writtenPartial + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
     expect(rep.totals.dumped).to.equal(15);
-    expect(rep.sentence).to.equal("1 objects of 14 could not be extracted (SICF 1)");
+    expect(rep.sentence).to.equal("3 objects of 14 could not be fully extracted (FUGR 1, PROG 2)");
     const md = readFileSync(join(out, "extract-report.md"), "utf8");
-    expect(md).to.match(/could not be extracted/);
-    expect(md).to.match(/\| SICF \(unsupported\) \| 1 \| 0 \| 0 \| 1 \|/);
+    expect(md).to.match(/could not be fully extracted/);
+    expect(md).to.match(/\| SICF \(unsupported\) \| 1 \| 0 \| 0 \| 0 \| 1 \|/);
   });
 
   it("--inactive: inactive versions are dumped and flagged in the report (mutation: state not reported)", async function () {
@@ -414,5 +415,314 @@ describe("osd hana extract", function () {
     writeFileSync(join(file, ".git"), "gitdir: elsewhere");
     expect(await inGitTree(file)).to.equal(file);
     expect(await inGitTree(root)).to.equal(undefined);
+  });
+});
+
+// ---------------------------------------------------------------- the fix round
+// The critic's probes turned into tests (CRITIC.md M/S + attack 2 + the NOTEs).
+// Each guard names its mutation; the suite goes RED when the guard is removed.
+describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function () {
+
+  const readOut = (out, rel) => readFileSync(join(out, rel), "utf8");
+  const readJsonl = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const writeJsonl = (dir, name, rows) => writeFileSync(join(dir, name), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const objectsRows = (dir) => readJsonl(dir, "objects.jsonl");
+  const writeObjects = (dir, rows) => writeJsonl(dir, "objects.jsonl", rows);
+  const tadirRows = (dump) => readJsonl(join(dump, "tables"), "TADIR.jsonl");
+  const writeTadir = (dump, rows) => writeJsonl(join(dump, "tables"), "TADIR.jsonl", rows);
+  const tableRows = (dump, t) => readJsonl(join(dump, "tables"), `${t}.jsonl`);
+  const writeTable = (dump, t, rows) => writeJsonl(join(dump, "tables"), `${t}.jsonl`, rows);
+  // a listing row in the fixture's shape
+  const row = (o) => ({type: o.type, name: o.name, package: o.package, author: "DEVUSER", class: "customer", state: "A", status: "W", files: []});
+  const tadirRow = (type, name, pkg) => ({PGMID: "R3TR", OBJECT: type, OBJ_NAME: name, DEVCLASS: pkg, AUTHOR: "DEVUSER", MASTERLANG: "E", GENFLAG: "", SRCSYSTEM: "SYN"});
+
+  // a fresh fixture pair, optionally mutated (the probe shape)
+  function variant(mutate) {
+    const built = buildExtractFixtures(join(root, `fx-${Math.random().toString(16).slice(2)}`));
+    if (mutate) mutate(built.list, built.dump);
+    return built;
+  }
+
+  // one synthetic PROG with source, through every channel the dump has
+  function addProg(list, dump, name, pkg) {
+    writeFileSync(join(dump, "src", `${name}.abap`), `REPORT ${String(name).toLowerCase().replace(/[^a-z0-9_]/g, "")}.\n`);
+    writeJsonl(dump, "reposrc.jsonl", readJsonl(dump, "reposrc.jsonl").concat([{program: name, state: "A", changed_by: "DEVUSER", changed_on: "20261101", max_line: 0, lines: 1, sha256: "1".repeat(64), file: `src/${name}.abap`}]));
+    writeTadir(dump, tadirRows(dump).concat([tadirRow("PROG", name, pkg)]));
+    writeObjects(dump, objectsRows(dump).concat([{...row({type: "PROG", name, package: pkg}), files: []}]));
+    writeObjects(list, objectsRows(list).concat([row({type: "PROG", name, package: pkg})]));
+  }
+
+  const tpoolHex = (id, k, entry, len) => {
+    const s = id + k.padEnd(8, " ") + entry.padEnd(len, " ");
+    const b = Buffer.alloc(2 + 2 * s.length);
+    b.writeUInt16BE(len, 0);
+    for (let i = 0; i < s.length; i++) b.writeUInt16BE(s.charCodeAt(i), 2 + 2 * i);
+    return "0x" + b.toString("hex");
+  };
+
+  it("M1: an in-scope object missing from the dump is a ledger line, never a vanishing (mutation: the not-in-dump line removed)", async function () {
+    const fx = variant((list, dump) => writeTadir(dump, tadirRows(dump).filter((r) => r.OBJ_NAME !== "ZIF_OSD_X2")));
+    const out = await fresh("m1");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const missing = rep.objects.find((o) => o.name === "ZIF_OSD_X2");
+    expect(missing.status).to.equal("skipped");
+    expect(missing.reason).to.match(/not-in-dump/);
+    const t = rep.totals;
+    expect(t.inScope).to.equal(14);
+    expect(t.written + t.writtenPartial + t.skipped + t.unsupported).to.equal(t.inScope);
+    const totalsLine = readOut(out, "extract-report.md").split("\n").find((l) => l.startsWith("Totals:"));
+    expect(totalsLine).to.match(/in scope 14 = written 9 \+ written-partial 3 \+ skipped 1 \+ unsupported 1/);
+  });
+
+  it("M2: a function module whose include is missing from the dump is a part line and the group is written-partial (mutation: the missing-include check removed)", async function () {
+    const fx = variant((list, dump) => {
+      writeTable(dump, "TFDIR", tableRows(dump, "TFDIR").concat([{FUNCNAME: "Z_OSD_X4_FM2", PNAME: "SAPLZOSG_X4", PNAME_MAIN: "", INCLUDE: "02", FMODE: "", UTASK: ""}]));
+      writeTable(dump, "TFTIT", tableRows(dump, "TFTIT").concat([{FUNCNAME: "Z_OSD_X4_FM2", SPRAS: "E", STEXT: "Second synthetic function"}]));
+    });
+    const out = await fresh("m2");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const fugr = rep.objects.find((o) => o.name === "ZOSG_X4");
+    expect(fugr.status).to.equal("written-partial");
+    const part = fugr.parts.find((p) => /Z_OSD_X4_FM2/.test(p.part));
+    expect(part, "a part line names the lost function").to.exist;
+    expect(part.disposition).to.equal("not written");
+    expect(part.reason).to.match(/include 02/);
+    expect(readOut(out, "src/osd_x/zosg_x4.fugr.xml")).to.not.match(/Z_OSD_X4_FM2/);
+    expect(rep.errors).to.deep.equal([]);
+  });
+
+  it("M4: PROG and FUGR are written-partial with 'not checked' part lines for screens, GUI status and variants (mutation: the not-checked lines removed)", async function () {
+    const out = await fresh("m4");
+    await runExtract(["--out", out]);
+    const rep = reportOf(out);
+    for (const name of ["ZOSD_X3", "ZOSD_XD"]) {
+      const o = rep.objects.find((x) => x.name === name);
+      expect(o.status).to.equal("written-partial");
+      for (const part of ["dynpros", "GUI status", "variants"]) {
+        const p = o.parts.find((x) => x.part === part);
+        expect(p, `${name}: ${part}`).to.exist;
+        expect(p.disposition).to.equal("not checked");
+      }
+    }
+    const fugr = rep.objects.find((x) => x.name === "ZOSG_X4");
+    expect(fugr.parts.filter((p) => p.disposition === "not checked").map((p) => p.part)).to.deep.equal(["dynpros", "GUI status", "variants"]);
+    const md = readOut(out, "extract-report.md");
+    expect(md).to.match(/program screens, GUI statuses and variants are not checked/);
+  });
+
+  it("M3: --include-sap refuses a --dump-dir inside a git working tree (mutation: the dump-dir git-tree check removed)", async function () {
+    const gitDir = await fresh("m3-git");
+    mkdirSync(join(gitDir, ".git"), {recursive: true});
+    const dumpInGit = join(gitDir, "dump");
+    const out = await fresh("m3-out");
+    const r = await runExtract(["--out", out, "--include-sap", "--package", "Z_%", "--dump-dir", dumpInGit]);
+    expect(r.code).to.equal(4);
+    expect(r.lines.err.join("\n")).to.match(/vendor content must not be published/);
+    expect(existsSync(dumpInGit)).to.equal(false);
+  });
+
+  it("S2: --dump-dir may not be the output directory or sit inside it (mutation: the containment check removed)", async function () {
+    const out = await fresh("s2");
+    const same = await runExtract(["--out", out, "--dump-dir", out]);
+    expect(same.code).to.equal(4);
+    expect(same.lines.err.join("\n")).to.match(/dump directory.*inside the output/i);
+    const out2 = await fresh("s2b");
+    const inSrc = await runExtract(["--out", out2, "--dump-dir", join(out2, "src", "dump")]);
+    expect(inSrc.code).to.equal(4);
+    const out3 = await fresh("s2c");
+    const nested = await runExtract(["--out", out3, "--dump-dir", join(out3, "elsewhere")]);
+    expect(nested.code).to.equal(4);
+  });
+
+  it("S1: FULL folder logic nests subpackages under their parents, abapGit-style, three levels (mutation: FULL nests flat)", async function () {
+    // the abapGit rule (zcl_abapgit_folder_logic=>package_to_path): FULL names
+    // every package by its own folder, NESTED under its parent's folder -- the
+    // recursion does not stop at scope boundaries inside the hierarchy.
+    const parents = new Map([["ZGRAND", ""], ["ZTOP", "ZGRAND"], ["ZTOPSUB", "ZTOP"], ["ZOTHER", ""]]);
+    const pkgs = new Set(["ZGRAND", "ZTOP", "ZTOPSUB", "ZOTHER"]);
+    expect(decideFolderLogic(pkgs, parents)).to.equal("FULL");
+    const paths = folderPaths(pkgs, parents, "FULL");
+    expect(paths.get("ZGRAND")).to.equal("zgrand/");
+    expect(paths.get("ZTOP")).to.equal("zgrand/ztop/");
+    expect(paths.get("ZTOPSUB")).to.equal("zgrand/ztop/ztopsub/");
+    expect(paths.get("ZOTHER")).to.equal("zother/");
+
+    // end to end through the whole command, as the golden test for it
+    const fx = variant((list, dump) => {
+      for (const [name, pkg] of [["ZNEST_G1", "ZGRAND"], ["ZNEST_T1", "ZTOP"], ["ZNEST_S1", "ZTOPSUB"]]) addProg(list, dump, name, pkg);
+      writeTable(dump, "TDEVC", tableRows(dump, "TDEVC").concat([
+        {DEVCLASS: "ZGRAND", PARENTCL: "", DLVUNIT: "LOCAL"},
+        {DEVCLASS: "ZTOP", PARENTCL: "ZGRAND", DLVUNIT: "LOCAL"},
+        {DEVCLASS: "ZTOPSUB", PARENTCL: "ZTOP", DLVUNIT: "LOCAL"},
+      ]));
+    });
+    const out = await fresh("s1");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    expect(existsSync(join(out, "src/zgrand/znest_g1.prog.abap"))).to.equal(true);
+    expect(existsSync(join(out, "src/zgrand/ztop/znest_t1.prog.abap"))).to.equal(true);
+    expect(existsSync(join(out, "src/zgrand/ztop/ztopsub/znest_s1.prog.abap"))).to.equal(true);
+    expect(readOut(out, ".abapgit.xml")).to.match(/<FOLDER_LOGIC>FULL<\/FOLDER_LOGIC>/);
+    const rep = reportOf(out);
+    const folders = Object.fromEntries(rep.folder_logic.folders.map((f) => [f.package, f.folder]));
+    expect(folders.ZTOPSUB).to.equal("src/zgrand/ztop/ztopsub/");
+    expect(folders["$OSD_X"]).to.equal("src/osd_x/");
+  });
+
+  it("S3: a conversion failure is an internal error with a best-effort report, never a usage exit (mutation: the failure maps to exit 1)", async function () {
+    const fx = variant((list, dump) => {
+      // two packages folding to ONE folder ("$" stripped): the folder collision
+      for (const [name, pkg] of [["ZCOLL_A1", "TMP"], ["ZCOLL_B1", "$TMP"]]) addProg(list, dump, name, pkg);
+      writeTable(dump, "TDEVC", tableRows(dump, "TDEVC").concat([{DEVCLASS: "TMP", PARENTCL: "", DLVUNIT: "LOCAL"}, {DEVCLASS: "$TMP", PARENTCL: "", DLVUNIT: "LOCAL"}]));
+    });
+    const out = await fresh("s3");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(6);
+    const rep = reportOf(out);
+    expect(JSON.stringify(rep)).to.match(/collision/i);
+  });
+
+  it("S3: --out naming an existing file is a usage error, not an uncaught crash (mutation: the lstat check removed)", async function () {
+    const f = join(root, "out-is-a-file");
+    writeFileSync(f, "x");
+    const r = await runExtract(["--out", f]);
+    expect(r.code).to.equal(1);
+    expect(r.lines.err.join("\n")).to.match(/existing file/);
+  });
+
+  it("S4: a restart reports drift between the live listing and the reused dump (mutation: the drift report removed)", async function () {
+    const out = await fresh("s4");
+    const first = await runExtract(["--out", out]);
+    expect(first.code).to.equal(3);
+    const fx = variant((list) => {
+      writeObjects(list, objectsRows(list).filter((o) => o.name !== "ZOSD_X3")
+        .concat([{...row({type: "CLAS", name: "ZCL_NEW_1", package: "$OSD_X"}), files: []}]));
+    });
+    const second = await runExtract(["--out", out], {list: fx.list});
+    expect(second.code).to.equal(3);
+    expect(second.runs()).to.deep.equal(["--version", "list"]); // reused: no second dump
+    const rep = reportOf(out);
+    expect(rep.dump_reused).to.equal(true);
+    expect(rep.drift.appeared).to.deep.equal(["CLAS:ZCL_NEW_1"]);
+    expect(rep.drift.disappeared).to.deep.equal(["PROG:ZOSD_X3"]);
+    const neu = rep.objects.find((o) => o.name === "ZCL_NEW_1");
+    expect(neu.status).to.equal("skipped");
+    expect(neu.reason).to.match(/not-in-dump/);
+    // the derived repository is refreshed: no stale file for the vanished object
+    expect(existsSync(join(out, "src/osd_x/zosd_x3.prog.abap"))).to.equal(false);
+    expect(readOut(out, "extract-report.md")).to.match(/Drift since the dump/);
+  });
+
+  it("attack 2: a package name that traverses is refused per object and writes nothing (mutation: the unsafe-name check removed)", async function () {
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).map((o) => o.name === "ZIF_OSD_X2" ? {...o, package: ".."} : o));
+      writeTadir(dump, tadirRows(dump).map((r) => r.OBJ_NAME === "ZIF_OSD_X2" ? {...r, DEVCLASS: ".."} : r));
+    });
+    const out = await fresh("a2-dotdot");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const o = rep.objects.find((x) => x.name === "ZIF_OSD_X2");
+    expect(o.status).to.equal("skipped");
+    expect(o.reason).to.match(/unsafe name/);
+    // the naive walk would have landed this at <out> itself (src/..)
+    expect(existsSync(join(out, "zif_osd_x2.intf.abap"))).to.equal(false);
+  });
+
+  it("attack 2: a backslash object name is refused (a separator on Windows) (mutation: the unsafe-name check removed)", async function () {
+    const fx = variant((list, dump) => addProg(list, dump, "ZEVI\\LX1", "$OSD_X"));
+    const out = await fresh("a2-backslash");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const o = reportOf(out).objects.find((x) => x.name === "ZEVI\\LX1");
+    expect(o.status).to.equal("skipped");
+    expect(o.reason).to.match(/unsafe name/);
+    expect(existsSync(join(out, "src", "osd_x", "zevi"))).to.equal(false);
+  });
+
+  it("attack 2: a Windows-reserved name is refused per object (mutation: the unsafe-name check removed)", async function () {
+    const fx = variant((list, dump) => addProg(list, dump, "CON", "$OSD_X"));
+    const out = await fresh("a2-con");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const o = reportOf(out).objects.find((x) => x.name === "CON");
+    expect(o.status).to.equal("skipped");
+    expect(o.reason).to.match(/unsafe name/);
+    expect(existsSync(join(out, "src", "osd_x", "con.prog.abap"))).to.equal(false);
+  });
+
+  it("attack 2: a case-insensitive name collision is refused with both objects listed, never last-writer-wins (mutation: the collision check removed)", async function () {
+    const fx = variant((list, dump) => {
+      writeObjects(list, objectsRows(list).concat([row({type: "INTF", name: "Zif_Osd_X2", package: "$OSD_X"})]));
+      writeObjects(dump, objectsRows(dump).concat([row({type: "INTF", name: "Zif_Osd_X2", package: "$OSD_X"})]));
+    });
+    const out = await fresh("a2-case");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const rep = reportOf(out);
+    const original = rep.objects.find((x) => x.name === "ZIF_OSD_X2");
+    const variant2 = rep.objects.find((x) => x.name === "Zif_Osd_X2");
+    expect(original.status).to.equal("written");
+    expect(variant2.status).to.equal("skipped");
+    expect(variant2.reason).to.match(/collision/i);
+    expect(existsSync(join(out, "src/osd_x/zif_osd_x2.intf.abap"))).to.equal(true);
+  });
+
+  it("attack 2: a NUL in a name is refused per object, not a crash (mutation: the unsafe-name check removed)", async function () {
+    const fx = variant((list, dump) => {
+      // no source on purpose: the name check must fire before the source check
+      writeTadir(dump, tadirRows(dump).concat([tadirRow("PROG", "ZNU\u0000LX1", "$OSD_X")]));
+      writeObjects(dump, objectsRows(dump).concat([row({type: "PROG", name: "ZNU\u0000LX1", package: "$OSD_X"})]));
+      writeObjects(list, objectsRows(list).concat([row({type: "PROG", name: "ZNU\u0000LX1", package: "$OSD_X"})]));
+    });
+    const out = await fresh("a2-nul");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code).to.equal(3);
+    const o = reportOf(out).objects.find((x) => x.name === "ZNU\u0000LX1");
+    expect(o.status).to.equal("skipped");
+    expect(o.reason).to.match(/unsafe name/);
+  });
+
+  it("N3: an empty selection is a usage error, not a false 'no ABAP schema' verdict (mutation: the empty-selection branch maps to exit 5)", async function () {
+    const fx = variant((list) => {
+      writeObjects(list, []);
+      writeFileSync(join(list, "summary.json"), JSON.stringify({ok: true, objects: 0, customer: 0, sap: 0, generated: 0, source_bytes_compressed: 0}));
+    });
+    const out = await fresh("n3");
+    const r = await runExtract(["--out", out], {list: fx.list});
+    expect(r.code).to.equal(1);
+    expect(r.lines.err.join("\n")).to.match(/matched no objects/);
+  });
+
+  it("N4: the repository master language follows the dump, not a hard-coded E (mutation: master language forced to E)", async function () {
+    const fx = variant((list, dump) => writeTadir(dump, tadirRows(dump).map((r) => ({...r, MASTERLANG: "D"}))));
+    const out = await fresh("n4");
+    await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(readOut(out, ".abapgit.xml")).to.match(/<MASTER_LANGUAGE>D<\/MASTER_LANGUAGE>/);
+  });
+
+  it("N5: a translated text pool the converter leaves out is a part line, not a silent drop (mutation: the extra-language part line removed)", async function () {
+    const fx = variant((list, dump) => {
+      writeTable(dump, "REPOTEXT", tableRows(dump, "REPOTEXT").concat([{PROGNAME: "ZOSD_X3", LANGUAGE: "D", R3STATE: "A", DATA: tpoolHex("I", "001", "Ueberschrift", 12)}]));
+    });
+    const out = await fresh("n5");
+    await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    const o = reportOf(out).objects.find((x) => x.name === "ZOSD_X3");
+    const p = o.parts.find((x) => /language D/.test(x.reason));
+    expect(p, "a part line names the dropped translation").to.exist;
+    expect(p.disposition).to.equal("not written");
+  });
+
+  it("the ledger accounts for every in-scope object exactly once, in exactly one state", async function () {
+    const out = await fresh("ledger");
+    await runExtract(["--out", out]);
+    const rep = reportOf(out);
+    expect(rep.objects.length).to.equal(rep.totals.inScope);
+    expect(rep.ledger_error).to.equal(undefined);
+    for (const o of rep.objects) expect(["written", "written-partial", "skipped", "unsupported"]).to.include(o.status);
   });
 });
