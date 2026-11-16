@@ -29,7 +29,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
-import {Sidecar, HandshakeError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
+import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
 import {convert, SUPPORTED_TYPES} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
 
@@ -81,6 +81,11 @@ export async function extractMain(argv, {
   isTTY = Boolean(stdin?.isTTY),
   callerPath,
   sidecarTimeoutMs = 600_000,
+  // the test seam: extra child-env for the sidecar (the FAKE sidecar's
+  // scenario knobs reach the child only through it -- the child env is the
+  // core's minimal allowlist, the parent's environment never leaks). The CLI
+  // never sets it.
+  sidecarExtraEnv,
   now = () => new Date(),
 } = {}) {
   resetVerifiedSidecars();
@@ -142,7 +147,7 @@ export async function extractMain(argv, {
   }
   let handshakeInfo;
   try {
-    handshakeInfo = await handshake(sidecarPath, {requiredCapabilities: NEEDED_CAPABILITIES, pin: verified.pinned ? pin : undefined, env});
+    handshakeInfo = await handshake(sidecarPath, {requiredCapabilities: NEEDED_CAPABILITIES, pin: verified.pinned ? pin : undefined, env, extraEnv: sidecarExtraEnv});
   } catch (error) {
     if (error instanceof HandshakeError) return fail(error.message);
     return fail(`osd hana: the sidecar handshake could not run: ${error.message}`);
@@ -176,6 +181,15 @@ export async function extractMain(argv, {
     timeoutMs: sidecarTimeoutMs,
     onStderr: (text) => io.err(text.trimEnd()),
     env,
+    extraEnv: sidecarExtraEnv,
+    // A pin in play means every spawn re-verifies the bytes first (fresh,
+    // uncached -- Sidecar's default, the doctor's wiring): between the initial
+    // verify and the list/dump spawns sits the whole plan print, and a swap in
+    // that window must not run unaudited bytes under the cached verdict
+    // (critic S-3). The binary is ~7 MB; a fresh sha256 read is milliseconds.
+    pin,
+    allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+    loud: (line) => io.err(line.trimEnd()),
   });
 
   // --include-sap: the vendor's code must not land inside a git working tree
@@ -302,6 +316,12 @@ async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
   try {
     run = await sidecar.run(verb, {args});
   } catch (error) {
+    if (error instanceof SidecarVerifyError) {
+      // The re-verification immediately before the spawn refused (a swap in
+      // the window after the first verify): a setup failure, not a connect
+      // problem -- the message names both hashes.
+      return fail(error.message);
+    }
     // A timeout or a child that could not start: cannot-connect, not usage --
     // the binary itself was verified and hand-shaken.
     fail(error.message);

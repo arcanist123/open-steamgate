@@ -104,9 +104,6 @@ async function runExtract(argv, {env = {}, out} = {}) {
     ...process.env,
     OSD_HANA_DUMP: fakePath,
     OSD_HANA_PASSWORD: PASSWORD,
-    FAKE_SIDECAR_RECORD: recordPath,
-    FAKE_SIDECAR_LIST: LIST_FIXTURE,
-    FAKE_SIDECAR_DUMP: DUMP_FIXTURE,
     ...env,
   };
   const code = await extractMain([
@@ -118,6 +115,15 @@ async function runExtract(argv, {env = {}, out} = {}) {
     stdin: {isTTY: false},
     isTTY: false,
     sidecarTimeoutMs: 500,
+    // the FAKE sidecar's scenario knobs reach the child only through the
+    // seam: since the fix round the child env is the core's minimal
+    // allowlist (critic S-2) -- the parent's environment never leaks in
+    sidecarExtraEnv: {
+      FAKE_SIDECAR_RECORD: recordPath,
+      FAKE_SIDECAR_LIST: LIST_FIXTURE,
+      FAKE_SIDECAR_DUMP: DUMP_FIXTURE,
+      ...env,
+    },
   });
   return {code, lines, out, runs: () => sidecarRuns(from)};
 }
