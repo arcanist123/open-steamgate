@@ -278,7 +278,7 @@ import {buildCheck, ddicWritten, ensureLayers, generationOf, islandBasenames, is
 import {dumperConfigured, dumpRound, printedCommand, provenanceFor} from "./hana-closure-dumper.mjs";
 import {cascadeOf, classifyFindings, exclusionCandidates, nameFromAbapFile, parseFindings} from "./hana-closure-exclude.mjs";
 import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistry, testCodeObjects, waitsOf, writeClosureRecord} from "./hana-closure-graph.mjs";
-import {TADIR, requestFor, tadirKinds} from "./hana-closure-request.mjs";
+import {TADIR, readDumpAnswer, requestFor, tadirKinds} from "./hana-closure-request.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
@@ -406,52 +406,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
   const stubRecords = () => stubList(stubMap);
   const reportedDynamic = new Set();
   for (;;) {
-    // what the dump's own manifest says the dictionary answered, read on
-    // every continuation: every name in closure.missing (the requested
-    // names the dictionary does not have) joins the gaps with the kind it
-    // is missing under; a name a later round reports resolved leaves them.
-    // The answer is PER KIND -- a kind-less name is asked under TABL, DTEL
-    // and TTYP, and a name that resolved under one of them is one the
-    // dictionary HAS: `missing` under the other two is not "does not
-    // exist", so it must not re-enter the gaps over a resolution. A
-    // hand-written dump without a manifest answers nothing here.
-    try {
-      const manifest = JSON.parse(readFileSync(join(dump, "manifest.json"), "utf8"));
-      const resolved = new Set();
-      // and they accumulate per kind (round 7): the per-name DDIC fill and
-      // the resolved-vs-written counts of the iteration line read them
-      // across all the dumps of the walk
-      state.resolved ??= {};
-      for (const [kind, list] of Object.entries(manifest.closure?.resolved ?? {})) {
-        state.resolved[kind] = [...new Set([...(state.resolved[kind] ?? []),
-          ...list.map((n) => String(n).trim().toUpperCase())])];
-        for (const name of state.resolved[kind]) resolved.add(name);
-      }
-      for (const name of resolved) delete state.missing[name];
-      for (const [kind, list] of Object.entries(manifest.closure?.missing ?? {})) {
-        for (const name of list) {
-          const upper = String(name).trim().toUpperCase();
-          if (state.asked[upper] !== undefined && resolved.has(upper) === false) {
-            state.missing[upper] = {kind, iteration: state.asked[upper].iteration};
-          }
-        }
-      }
-      // and the kinds the dumper's closure does not follow (FIX-1's dumper
-      // update): the name was asked, the dictionary existence is UNANSWERED
-      // -- a gap with the reason, unless a kind's missing already said
-      // does-not-exist (that is the stronger word) or a round resolved it
-      for (const [kind, list] of Object.entries(manifest.closure?.unhandled ?? {})) {
-        for (const name of list) {
-          const upper = String(name).trim().toUpperCase();
-          if (state.asked[upper] !== undefined && resolved.has(upper) === false && state.missing[upper] === undefined) {
-            state.missing[upper] = {kind, iteration: state.asked[upper].iteration, reason: "unhandled by the dumper's closure"};
-          }
-        }
-      }
-      saveState(out, state);
-    } catch {
-      // no manifest, no closure: the findings are the only word
-    }
+    // what the dump's own manifest answered, per kind, accumulated
+    // (tools/hana-closure-request.mjs readDumpAnswer, milestone 4's carve)
+    readDumpAnswer(state, dump);
+    saveState(out, state);
 
     // the layers dirs of the walk so far, this iteration's dump converted
     // first when new (round 4's accumulation; the loop saves state.layers)
