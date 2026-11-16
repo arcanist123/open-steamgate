@@ -41,6 +41,7 @@ import {classifyFindings, nameFromAbapFile} from "./hana-closure-exclude.mjs";
 import {requestKindOf, stripFriends, cutSignatureParams} from "./hana-closure-graph.mjs";
 import {recordStub} from "./hana-closure-report.mjs";
 import {objectNameInFinding} from "./hana-closure-framework.mjs";
+import {moduleStubReason} from "./hana-closure-fm.mjs";
 
 // the island class and interface files a stub pass may rewrite or exclude:
 // gen/hana-src/**/*.clas.abap, the locals includes beside them, and the
@@ -798,8 +799,18 @@ export function planStubPass({source, findings, basename, refs = [], missingOf =
   let dropped = 0;
   for (const block of blocks) {
     if (sigMethods.has(block.method) === true) continue;
-    const inside = findings.filter((f) => f.line > block.headerEnd.row && f.line < block.endStart.row);
-    if (inside.length === 0) continue;
+    const within = findings.filter((f) => f.line > block.headerEnd.row && f.line < block.endStart.row);
+    if (within.length === 0) continue;
+    // a call to a function module nobody provides (tools/hana-closure-fm.mjs,
+    // milestone 4) is a finding of the walk, not of the transpiler: alone, it
+    // stubs the method with the module in the raise text; beside other
+    // findings, those decide and the cut takes the call with the body
+    const inside = within.filter((f) => f.fm === undefined);
+    if (inside.length === 0) {
+      const names = within.map((f) => f.fm);
+      stubs.push({...block, missing: [], missingKinds: [], finding: within[0].raw, reason: moduleStubReason(names)});
+      continue;
+    }
     const methodRefs = refs.filter((r) => r.level === "method" && r.method === block.method);
     const {missing, missingKinds} = blockNames(methodRefs, inside);
     // the nameless wordings that name an object (`Class or type "X" not

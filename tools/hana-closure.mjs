@@ -281,6 +281,7 @@ import {analyseIsland, graphDecide, mergeNames, requestKindOf, structuralRegistr
 import {TADIR, readDumpAnswer, requestFor, tadirKinds} from "./hana-closure-request.mjs";
 import {registerSeed, seedNamespaces} from "./hana-closure-seed.mjs";
 import {frameworkNamespaces, frameworkNames, frameworkPredicate, splitFrameworkNames, writeFrameworkNames} from "./hana-closure-framework.mjs";
+import {moduleFindings, scanFunctionModules} from "./hana-closure-fm.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
 import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
@@ -483,8 +484,13 @@ export async function run(args = process.argv.slice(2), options = {}) {
     // graph decision's input, in both modes
     const reg = await structuralRegistry(root, say);
     const analysis = analyseIsland({reg, root, classPaths: islandClassPaths(root)});
+    // function modules (milestone 4, tools/hana-closure-fm.mjs): findings of
+    // the walk, the absent ones stub candidates in the stub rounds
+    const modules = scanFunctionModules(reg, island);
+    const fmCache = new Map();
+    const withModules = (list) => (stubUnresolved === true ? [...list, ...moduleFindings(islandClassPaths(root), modules.absent, fmCache)] : list);
     const fwNames = frameworkNames();
-    let all = parseFindings(await validationMessage(root, join(out, "closure-stubs.json")));
+    let all = withModules(parseFindings(await validationMessage(root, join(out, "closure-stubs.json"))));
     let findings = all.filter((f) => island.has(f.file));
     // FIX-1: this iteration's analysis errors, keyed by file ("red, unknown
     // cause" -- kept, never excluded); without --stub-unresolved this is the
@@ -778,7 +784,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
           writeRecord();
           writeFileSync(join(out, "framework-gaps.json"), JSON.stringify(frameworkGapList(gapFindings), null, 2) + "\n");
         }
-        all = parseFindings(await validationMessage(root, join(out, "closure-stubs.json")));
+        all = withModules(parseFindings(await validationMessage(root, join(out, "closure-stubs.json"))));
         findings = all.filter((f) => island.has(f.file));
       }
       writeRecord();
@@ -797,7 +803,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
       ? {...analysis, objects: analysis.objects.filter((o) => testExcluded.has(o.object) === false)}
       : analysis;
     const {names: structuralNames, structuralCount, rest} = mergeNames(
-      {analysis: analysisForNames, findings, classPaths: islandClassPaths(root)});
+      {analysis: analysisForNames, findings: findings.filter((f) => f.fm === undefined), classPaths: islandClassPaths(root)});
     const classified = classifyFindings(rest);
     // the search helps the island hands to the /IWBEP/ API by name, and what
     // the helps and views that arrived still name (tools/hana-closure-shlp.mjs)
@@ -867,7 +873,9 @@ export async function run(args = process.argv.slice(2), options = {}) {
       .map((name) => ({name, kind: state.refused[name].kind, first_finding: state.refused[name].first_finding, reason: state.refused[name].reason}));
     // recomputed every pass: a gap that a later round resolves leaves the
     // file on its own
-    writeFileSync(join(out, "closure-gaps.json"), JSON.stringify({gaps: [...gaps, ...refusedGaps]}, null, 2) + "\n");
+    // and the function modules nobody provides (milestone 4): FUNC gaps,
+    // never asked -- the request's own gaps list does not carry them
+    writeFileSync(join(out, "closure-gaps.json"), JSON.stringify({gaps: [...gaps, ...refusedGaps, ...modules.gaps]}, null, 2) + "\n");
     // per-kind gap counts and resolved-vs-written DDIC counts on the line
     // (round 7): a writer-of-record hole is written < resolved, visible
     // before anything asks
@@ -876,7 +884,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
     const writtenDdic = ddicWritten(root);
     const ddicCounts = TADIR.filter((k) => (state.resolved?.[k] ?? []).length > 0)
       .map((k) => `${k} ${state.resolved[k].length}/${writtenDdic[k]?.size ?? 0}`).join(", ");
-    say(`iteration ${state.iteration}: ${fresh.length} new name(s), ${gaps.length} gap(s), ${unscoped} outside the island (not asked), ${refusedGaps.length} merge-refusal gap(s), ${cascades} cascade finding(s) skipped, ${structuralCount} structural, ${unclassified.length} unclassified${stubUnresolved === true ? `, ${deferredOnly.length} deferred by stubs, ${stubMap.size} stubbed method(s), ${liftedNow} lifted, framework gaps: ${frameworkGaps}${cycles > 0 ? `, ${cycles} cycle member(s) kept` : ""}` : ""}, ${objects.total} island object(s)${gapKinds !== "" ? `, gaps by kind: ${gapKinds}` : ""}${ddicCounts !== "" ? `, DDIC resolved/written: ${ddicCounts}` : ""}, ${present} cascade (present)${excludedRecords.length > 0 ? `, ${excludedRecords.filter((r) => r.level !== "cycle").length} excluded` : ""}${stubUnresolved === true && guardBySuffix === true ? ", service guard: by suffix, no registration" : ""}${frameworkByName > 0 ? `, framework names: ${frameworkByName}` : ""}`);
+    say(`iteration ${state.iteration}: ${fresh.length} new name(s), ${gaps.length} gap(s), ${unscoped} outside the island (not asked), ${refusedGaps.length} merge-refusal gap(s), ${cascades} cascade finding(s) skipped, ${structuralCount} structural, ${unclassified.length} unclassified${stubUnresolved === true ? `, ${deferredOnly.length} deferred by stubs, ${stubMap.size} stubbed method(s), ${liftedNow} lifted, framework gaps: ${frameworkGaps}${cycles > 0 ? `, ${cycles} cycle member(s) kept` : ""}` : ""}, ${objects.total} island object(s)${gapKinds !== "" ? `, gaps by kind: ${gapKinds}` : ""}${ddicCounts !== "" ? `, DDIC resolved/written: ${ddicCounts}` : ""}, ${present} cascade (present)${excludedRecords.length > 0 ? `, ${excludedRecords.filter((r) => r.level !== "cycle").length} excluded` : ""}${stubUnresolved === true && guardBySuffix === true ? ", service guard: by suffix, no registration" : ""}${frameworkByName > 0 ? `, framework names: ${frameworkByName}` : ""}, function modules: ${modules.summary.called} called/${modules.summary.absent} absent`);
     for (const line of unclassified) say(`unclassified: ${line}`);
 
     if (fresh.length === 0) {
@@ -890,10 +898,10 @@ export async function run(args = process.argv.slice(2), options = {}) {
       say(`fixed point: every unresolved name has been asked and nothing new is named; ${gaps.length + refusedGaps.length} gap(s) -> ${join(out, "closure-gaps.json")}`);
       const seeds = seedClasses(root);
       writeClosureSummary(out, {...closureSummary({iterations: state.iteration, islandObjects: objects.total, seeds: seeds.all, named: seeds.named,
-        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps], requireUnstubbed, load,
+        present: (name) => objectFilePresent(name, "clas", island), excluded: excludedObjects, stubs: stubRecords(), lifted: [...liftedMap.values()], gaps: [...gaps, ...refusedGaps, ...modules.gaps], requireUnstubbed, load,
         searchHelps: searchHelpSummary({found: shlpFound, islandFiles: island, seeds: new Set(seeds.all)})}),
-      framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {})});
-      return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps], cascades, unclassified, unscoped,
+      function_modules: modules.summary, framework_names: frameworkByName, ...(seeds.services.length > 0 ? {seed_services: seeds.services} : {})});
+      return {stopped: "fixed-point", iteration: state.iteration, gaps: [...gaps, ...refusedGaps, ...modules.gaps], cascades, unclassified, unscoped,
         ...(stubUnresolved === true ? {stubs: stubRecords(), stubRounds} : {})};
     }
 

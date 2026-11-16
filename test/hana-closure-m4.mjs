@@ -170,4 +170,39 @@ describe("hana-closure milestone 4: the closure on a second service", function (
     expect(summary.seed_services.map((s) => s.service)).to.deep.equal(["ZOSD_H5X_A_SRV", "ZOSD_H5X_W"]);
   });
 
+  it("5: function modules are findings: counted, FUNC gaps, the caller stubbed with the module named, never asked", async () => {
+    const fugr = {
+      "zosd_h5x_fg.fugr.xml": `<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_FUGR" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values>
+ <AREAT>h5x</AREAT>
+ <INCLUDES><SOBJ_NAME>SAPLZOSD_H5X_FG</SOBJ_NAME></INCLUDES>
+ <FUNCTIONS><item><FUNCNAME>ZOSD_H5X_PRESENT_FM</FUNCNAME><SHORT_TEXT>h5x</SHORT_TEXT></item></FUNCTIONS></asx:values></asx:abap>
+</abapGit>
+`,
+      "zosd_h5x_fg.fugr.saplzosd_h5x_fg.abap": "FUNCTION-POOL zosd_h5x_fg.\n",
+      "zosd_h5x_fg.fugr.zosd_h5x_present_fm.abap": "FUNCTION zosd_h5x_present_fm.\n  RETURN.\nENDFUNCTION.\n",
+    };
+    const seed = cls("zcl_osd_h5x_seed", ["METHODS absent.", "METHODS present.", "METHODS dynamic."], {
+      absent: ["CALL FUNCTION 'ZOSD_H5X_ABSENT_FM'."],
+      present: ["CALL FUNCTION 'ZOSD_H5X_PRESENT_FM'."],
+      dynamic: ["DATA lv_name TYPE string.", "lv_name = 'ZOSD_H5X_PRESENT_FM'.", "CALL FUNCTION lv_name."],
+    });
+    const {root, env, seedDump} = make({src: fugr, seed: {"zcl_osd_h5x_seed.clas.abap": seed}});
+    const result = await run(ARGS(seedDump), {root, env, say});
+    expect(result.stopped).to.equal("fixed-point");
+    const fm = readJson(outFile(root, "closure-summary.json")).function_modules;
+    expect([fm.called, fm.present, fm.absent, fm.dynamic]).to.deep.equal([2, 1, 1, 1]);
+    expect(fm.by_name.find((m) => m.name === "ZOSD_H5X_ABSENT_FM")).to.deep.include({present: false});
+    const funcGap = readJson(outFile(root, "closure-gaps.json")).gaps.find((g) => g.kind === "FUNC");
+    expect(funcGap.name).to.equal("ZOSD_H5X_ABSENT_FM");
+    expect(funcGap.used_by).to.deep.equal([{file: "zcl_osd_h5x_seed.clas.abap", line: 9}]);
+    const stubs = readJson(outFile(root, "closure-stubs.json")).stubs;
+    expect(stubs.map((s) => s.method)).to.deep.equal(["ABSENT"]);
+    const layer = readdirSync(join(root, "gen", "hana-src")).find((f) => f !== "manifest.json");
+    expect(readFileSync(join(root, "gen", "hana-src", layer, "src", "zcl_osd_h5x_seed.clas.abap"), "utf8"))
+      .to.include("missing = 'function module ZOSD_H5X_ABSENT_FM not in the island'");
+    expect(allRequested(root), "the dumper is not asked for function groups").to.deep.equal([]);
+  });
+
 });
