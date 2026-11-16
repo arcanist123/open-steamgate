@@ -2,20 +2,27 @@
 // the report is built from it. It is driven by THE LISTING: every in-scope
 // object ends in EXACTLY ONE state -- written / written-partial /
 // skipped:<reason> / unsupported -- and every PART of an object the converter
-// knows it cannot write (a function module include missing from the dump,
-// dynpros, a GUI status, variants, documentation, a text pool it left out) is
-// a LINE under that object, never a silent gap. extract.mjs refuses exit 0
-// unless the ledger accounts for the listing's in-scope count exactly.
+// knows it cannot write is a LINE under that object, never a silent gap.
+// Fix round 4: the two part kinds are kept apart everywhere --
+//   not-extracted: the dump shows the part exists and it was not written --
+//   the ONLY kind that makes an object written-partial (it lives on the
+//   entry's `parts`);
+//   not-checked: the dump cannot tell whether the part exists -- it never
+//   counts toward written-partial; it lives on the entry's `unchecked` list.
+// extract.mjs refuses exit 0 unless the ledger accounts for the listing's
+// in-scope count exactly.
 
 export const LEDGER_STATES = Object.freeze(["written", "written-partial", "skipped", "unsupported"]);
 
 // A part line's disposition:
-//   "not written" -- the converter knows this part did not reach the output;
-//   "not checked" -- the dump cannot even tell whether the object has this
-//                    part, so saying nothing would claim a completeness the
-//                    run does not have (critic M4: the dump carries no screen
-//                    tables at all, verified against the real manifest).
-export const PART_DISPOSITIONS = Object.freeze(["not written", "not checked"]);
+//   "not extracted" -- the dump shows this part exists and it did not reach
+//                      the output (a failed include, foreign keys carried but
+//                      not serialised, a text pool left out, a sidecar error);
+//   "not checked"   -- the dump cannot even tell whether the object has this
+//                      part, so saying nothing would claim a completeness the
+//                      run does not have (critic M4: the dump carries no screen
+//                      tables at all, verified against the real manifest).
+export const PART_DISPOSITIONS = Object.freeze(["not extracted", "not checked"]);
 
 // ---- name safety (attack 2 / N7 / N10) --------------------------------------
 // One path component -- a package or an object name AFTER abapGit's folding
@@ -51,6 +58,7 @@ export class Ledger {
       status: undefined,
       reason: undefined,
       parts: [],
+      unchecked: [],
       files: [],
       state: r.state ?? "A",
       generated: r.generated === true,
@@ -69,6 +77,7 @@ export class Ledger {
       status: "skipped",
       reason,
       parts: [],
+      unchecked: [],
       files: [],
       state: row.state ?? "A",
       generated: row.generated === true,

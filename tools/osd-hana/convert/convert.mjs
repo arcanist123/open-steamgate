@@ -266,16 +266,16 @@ export async function convert({
     const notes = [];
     const other = (poolLangs.get(key(program)) ?? []).filter((x) => x !== l);
     for (const lang of [...new Set(other)].sort()) {
-      notes.push({part: "text pool", disposition: "not written", reason: `language ${lang} pool not extracted (only the ${l} pool is written)`});
+      notes.push({part: "text pool", disposition: "not extracted", reason: `language ${lang} pool not extracted (only the ${l} pool is written)`});
     }
     const r = repotext.get(`${key(program)}:${l}`);
     if (!r) {
-      if (other.length > 0) notes.push({part: "text pool", disposition: "not written", reason: `master pool in ${l} missing from the dump; only ${[...new Set(other)].sort().join(",")}`});
+      if (other.length > 0) notes.push({part: "text pool", disposition: "not extracted", reason: `master pool in ${l} missing from the dump; only ${[...new Set(other)].sort().join(",")}`});
       return {node: undefined, notes};
     }
     let e = decodeTextpool(r.DATA);
     if (e === null) {
-      notes.push({part: "text pool", disposition: "not written", reason: "not fixed records"});
+      notes.push({part: "text pool", disposition: "not extracted", reason: "not fixed records"});
       return {node: undefined, notes};
     }
     if (dropEmptyTitle) e = e.filter((x) => !(x.ID === "R" && x.KEY === "" && x.LENGTH === 0));
@@ -381,7 +381,7 @@ export async function convert({
     // accounting.
     if (active.error) {
       errors.push({program: p, error: String(active.error)});
-      o.partNotes.push({part: `include ${p}`, disposition: "not written", reason: `the dump could not deliver the source: ${String(active.error)}`});
+      o.partNotes.push({part: `include ${p}`, disposition: "not extracted", reason: `the dump could not deliver the source: ${String(active.error)}`});
       continue;
     }
     if (active.empty) {
@@ -390,7 +390,7 @@ export async function convert({
     }
     if (!active.file || path.isAbsolute(active.file) || active.file.split(/[\\/]/).includes("..")) {
       errors.push({program: p, error: "invalid source path"});
-      o.partNotes.push({part: `include ${p}`, disposition: "not written", reason: `the dump names an unusable source path (${String(active.file ?? "none")})`});
+      o.partNotes.push({part: `include ${p}`, disposition: "not extracted", reason: `the dump names an unusable source path (${String(active.file ?? "none")})`});
       continue;
     }
     const partKey = o.type === "CLAS" || o.type === "INTF" || o.type === "BDEF" ? p.slice(30) : p;
@@ -482,11 +482,12 @@ export async function convert({
   }
 
   // ---- SHOULD-1 (critic round 2): what `written` covers, said per object ----
-  // The dump has no DD05S/DD08L (foreign keys), DD12L/DD17S (secondary
-  // indexes), DD35L/DD36S (search-help assignments), no DD03T/SEOCOMPOTX
-  // (component texts) -- for those aspects the object is written-partial
-  // with a line naming what cannot be told. Where the table IS in the dump
-  // and this converter does not write it, the line says "not extracted".
+  // Fix round 4: the two part kinds. Where the dump CARRIES the table and
+  // this converter does not write it (DD05S/DD08L foreign keys when present),
+  // the line is "not extracted" -- it lands on `parts` and makes the object
+  // written-partial. Where the dump carries none of the aspect's tables
+  // (DD12L/DD17S, DD35L/DD36S, DD03T, SEOCOMPOTX), the line is "not checked":
+  // it lands on the object's `unchecked` list and never makes written-partial.
   // Translations the converter leaves out (one language is written) are
   // "not extracted" and name the language.
   const dumpHasTable = async (t) => {
@@ -578,7 +579,7 @@ export async function convert({
         content = await fs.readFile(real, "utf8");
       } catch (e) {
         errors.push({program: k, object: o.name, error: e.message});
-        o.partNotes.push({part: `source ${k}`, disposition: "not written", reason: `not readable inside the dump directory: ${e.message}`});
+        o.partNotes.push({part: `source ${k}`, disposition: "not extracted", reason: `not readable inside the dump directory: ${e.message}`});
         continue;
       }
       o.parts.set(k, content);
@@ -681,8 +682,15 @@ export async function convert({
     e.files = o.files;
     e.state = stateOf(o);
     e.generated = key(o.row.GENFLAG) === "X";
-    e.parts = plan.parts;
-    e.status = plan.parts.length > 0 ? "written-partial" : "written";
+    // Fix round 4: the two part kinds are split at the entry. `parts` carries
+    // what the dump SHOWS exists and this tool did not write ("not
+    // extracted") -- the only kind that makes the object written-partial.
+    // `unchecked` carries what the dump cannot even tell ("not checked") --
+    // the object stays `written` and carries the list; a blind spot is not a
+    // loss, and a signal that is always on is no signal.
+    e.parts = plan.parts.filter((p) => p.disposition === "not extracted");
+    e.unchecked = plan.parts.filter((p) => p.disposition === "not checked");
+    e.status = e.parts.length > 0 ? "written-partial" : "written";
   }
 
   return {

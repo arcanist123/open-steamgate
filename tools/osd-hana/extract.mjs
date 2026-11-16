@@ -23,11 +23,15 @@
 //   4. convert   -- the abapGit-layout repository in <out> (see ./convert/).
 //   5. report    -- <out>/extract-report.json and .md, always written.
 //
-// Exit codes: 0 everything in scope written; 3 partial (something written
-// partially, skipped or unsupported -- the report says what); 1 usage; 2
-// connection; 4 refused output directory; 5 no ABAP schema; 6 internal error
-// (a conversion/write failure or the ledger invariant -- a best-effort report
-// is still written and names the failure; never an uncaught crash).
+// Exit codes (fix round 4: "not checked" is not "partial"): 0 everything in
+// scope written -- an object whose only gap is a part the dump cannot even
+// check (screens, GUI status, variants, component texts, ...) is written,
+// carrying its `unchecked` list; 3 partial (a part the dump SHOWS exists was
+// not extracted, an object skipped or unsupported, or an error -- the report
+// says what); 1 usage; 2 connection; 4 refused output directory; 5 no ABAP
+// schema; 6 internal error (a conversion/write failure or the ledger
+// invariant -- a best-effort report is still written and names the failure;
+// never an uncaught crash).
 import fs from "node:fs/promises";
 import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
@@ -81,8 +85,10 @@ large read). The dump lands in <out>/.osd-hana/dump (or --dump-dir) and is
 reused when its manifest echoes the same request. The report is written to
 <out>/extract-report.json and extract-report.md.
 
-Exit codes: 0 everything in scope written; 3 partial (something written
-partially, skipped or unsupported -- the report says what); 1 usage; 2 cannot
+Exit codes: 0 everything in scope written (a part the dump cannot even check
+does not count against the object -- it is carried as its 'unchecked' list);
+3 partial (a part the dump shows exists was not extracted, an object skipped
+or unsupported, or an error -- the report says what); 1 usage; 2 cannot
 connect; 4 refused output directory; 5 no ABAP schema; 6 internal error (the
 report, best effort, is written anyway and names the failure).`;
 
@@ -558,7 +564,7 @@ export async function extractMain(argv, {
     const matches = base === "" ? [] : conversion.entries.filter((e) => e.name.toUpperCase() === base || e.id.toUpperCase() === base);
     if (matches.length > 0) {
       for (const e of matches) {
-        e.parts.push({part: "dump error", disposition: "not written", reason: `${err.error ?? JSON.stringify(err)}`});
+        e.parts.push({part: "dump error", disposition: "not extracted", reason: `${err.error ?? JSON.stringify(err)}`});
         if (e.status === "written") e.status = "written-partial";
       }
     } else {
@@ -600,12 +606,15 @@ export async function extractMain(argv, {
       + `${mismatch.duplicates.length ? `, duplicate ledger keys: ${mismatch.duplicates.join(", ")}` : ""}`
       + `${mismatch.missing.length ? `, missing from the ledger: ${mismatch.missing.join(", ")}` : ""}`
       + `${mismatch.extra.length ? `, in the ledger but not in scope: ${mismatch.extra.join(", ")}` : ""}`;
-  } else if (dumpErrors.length > 0 || dumpPartial) {
-    // M-3: "all written" would be a lie while the sidecar itself reported
-    // that it could not deliver everything
-    reportDoc.sentence = `the sidecar reported ${dumpErrors.length} error${dumpErrors.length === 1 ? "" : "s"} on this dump${dumpPartial ? " (exit partial)" : ""} -- the report lists them on their objects; nothing is claimed complete`;
   } else {
-    reportDoc.sentence = sentence(totalsDoc, conversion.entries);
+    // M-3: "all written" would be a lie while the sidecar itself reported
+    // that it could not deliver everything; round 4: the sentence speaks in
+    // the two part kinds and never says "all"/"completely" while any
+    // unchecked part exists
+    const s = sentence(totalsDoc, conversion.entries);
+    reportDoc.sentence = (dumpErrors.length > 0 || dumpPartial)
+      ? `the sidecar reported ${dumpErrors.length} error${dumpErrors.length === 1 ? "" : "s"} on this dump${dumpPartial ? " (exit partial)" : ""} -- the report lists them on their objects; ${s}`
+      : s;
   }
   await writeReport(out, reportDoc);
 
@@ -884,8 +893,16 @@ function totals(plan, entries, dumpedCount, dumpedInScope, scopeIds) {
     unsupported: 0,
     perType,
     notExtracted: [],
+    // fix round 4, the two counters over the written objects (the ledger's
+    // set accounting above is unchanged): part lines known to be missing vs
+    // part lines the dump cannot even check
+    notExtractedParts: 0,
+    uncheckedParts: 0,
+    uncheckedObjects: 0,
+    unchecked: [],
   };
   const byType = {};
+  const uncheckedKinds = new Map();
   for (const e of entries) {
     if (e.status === undefined) continue; // the failure path: unresolved yet
     const slot = perType[e.type] ?? {inScope: 0, written: 0, writtenPartial: 0, skipped: 0, unsupported: 0};
@@ -905,6 +922,16 @@ function totals(plan, entries, dumpedCount, dumpedInScope, scopeIds) {
       t.skipped++;
       slot.skipped++;
     }
+    if (e.status === "written" || e.status === "written-partial") {
+      // the two part kinds, counted separately (round 4)
+      t.notExtractedParts += (e.parts ?? []).length;
+      const un = e.unchecked ?? [];
+      t.uncheckedParts += un.length;
+      if (e.status === "written" && un.length > 0) {
+        t.uncheckedObjects++;
+        for (const u of un) uncheckedKinds.set(u.part, (uncheckedKinds.get(u.part) ?? 0) + 1);
+      }
+    }
     if (e.status !== "written") {
       byType[e.type] = (byType[e.type] ?? 0) + 1;
       t.notExtracted.push({type: e.type, status: e.status});
@@ -913,20 +940,28 @@ function totals(plan, entries, dumpedCount, dumpedInScope, scopeIds) {
   t.accounts = accountsFor(scopeIds ?? new Set(), entries).accounts
     && Object.values(perType).every((v) => v.written + v.writtenPartial + v.skipped + v.unsupported === v.inScope);
   t.notExtracted = Object.entries(byType).sort(([a], [b]) => a.localeCompare(b)).map(([type, count]) => ({type, count}));
+  t.unchecked = [...uncheckedKinds.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([kind, count]) => ({kind, count}));
   return t;
 }
 
+// Fix round 4: the summary speaks in the two part kinds and NEVER overclaims
+// -- no sentence says "all" or "completely" while any unchecked part exists
+// (a signal that is always on is no signal). The "N objects written. For K of
+// them this tool could not check: <part kinds with counts>." sentence sits at
+// the top of extract-report.md and prints once on the console; the per-object
+// lists stay in the json and in the md's collapsed section. Losses (not
+// extracted, skipped, unsupported) are named first, as before.
 function sentence(t, entries = []) {
-  if (t.writtenPartial + t.skipped + t.unsupported === 0) return `all ${t.inScope} objects in scope were written`;
+  const losses = t.writtenPartial + t.skipped + t.unsupported;
   const byType = t.notExtracted.map((x) => `${x.type} ${x.count}`).join(", ");
-  // NOTE-1 (critic round 2): exit 3 says nothing when every non-written
-  // status is only 'not checked' -- separate honest incompleteness from loss.
-  const uncheckedOnly = entries.filter((e) => e.status === "written-partial" && (e.parts ?? []).length > 0 && (e.parts ?? []).every((p) => p.disposition === "not checked"));
-  const lost = t.writtenPartial + t.skipped + t.unsupported - uncheckedOnly.length;
-  if (lost <= 0) {
-    return `all ${t.inScope} objects in scope were written as far as this tool checks -- ${uncheckedOnly.length} object${uncheckedOnly.length === 1 ? "" : "s"} carry 'not checked' parts the dump cannot tell (screens, GUI statuses, variants, documentation, component texts)`;
+  const parts = [];
+  if (losses > 0) parts.push(`${losses} object${losses === 1 ? "" : "s"} of ${t.inScope} could not be fully extracted (${byType})`);
+  if (t.uncheckedObjects > 0) {
+    const kinds = t.unchecked.map((x) => `${x.kind} ${x.count}`).join(", ");
+    parts.push(`${t.written} object${t.written === 1 ? "" : "s"} written. For ${t.uncheckedObjects} of them this tool could not check: ${kinds}`);
   }
-  return `${t.writtenPartial + t.skipped + t.unsupported} objects of ${t.inScope} could not be fully extracted (${byType})`;
+  if (parts.length === 0) return `all ${t.inScope} objects in scope were written`;
+  return `${parts.join(". ")}.`;
 }
 
 async function writeReport(out, reportDoc) {

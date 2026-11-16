@@ -30,6 +30,11 @@ export function renderMdReport(doc) {
   const t = doc.totals;
   lines.push("# extract report");
   lines.push("");
+  // fix round 4: the summary is the FIRST thing in the report, and it never
+  // says "all"/"completely" while any unchecked part exists
+  if (doc.sentence) lines.push(doc.sentence[0].toUpperCase() + doc.sentence.slice(1));
+  if (doc.ledger_error !== undefined) lines.push(`> LEDGER INVARIANT BROKEN: ${doc.ledger_error}`);
+  if (doc.sentence || doc.ledger_error !== undefined) lines.push("");
   lines.push(`- out: \`${doc.out}\``);
   lines.push(`- dump: \`${doc.dump_dir}\`${doc.dump_reused ? " (reused: same request, sidecar exit 0)" : ""}`);
   lines.push(`- sidecar: ${doc.sidecar.version} (${String(doc.sidecar.commit).slice(0, 7)}), ${doc.sidecar.pinned ? "pinned" : "UNPINNED"}, sha256 ${doc.sidecar.sha256.slice(0, 12)}`);
@@ -65,10 +70,13 @@ export function renderMdReport(doc) {
   lines.push(`| total | ${t.inScope} | ${t.written} | ${t.writtenPartial} | ${t.skipped} | ${t.unsupported} |`);
   lines.push("");
   lines.push(`Totals: on the system ${t.onSystem}, dumped ${t.dumped}${t.dumped_in_scope !== undefined ? ` (${t.dumped_in_scope} of them in scope)` : ""}, in scope ${t.inScope} = written ${t.written} + written-partial ${t.writtenPartial} + skipped ${t.skipped} + unsupported ${t.unsupported}.`);
-  lines.push("");
-  if (doc.sentence) lines.push(doc.sentence[0].toUpperCase() + doc.sentence.slice(1) + ".");
-  if (t.writtenPartial > 0) {
+  // the two part kinds, counted (fix round 4)
+  if ((t.notExtractedParts ?? 0) > 0 || (t.uncheckedParts ?? 0) > 0) {
     lines.push("");
+    lines.push(`Part lines: the dump shows ${t.notExtractedParts ?? 0} part(s) exist and this tool did not write them ("not extracted"); for ${t.uncheckedParts ?? 0} part(s) the dump cannot tell ("not checked") -- on ${t.uncheckedObjects ?? 0} written object(s).`);
+  }
+  lines.push("");
+  if ((t.uncheckedParts ?? 0) > 0) {
     lines.push("Note: program screens, GUI statuses and variants are not checked: the dump carries no screen/CUA/variant tables, so on every PROG/FUGR these parts read `not checked` rather than claiming completeness. Table CONTENTS are not extracted in this job; translated text pools and function documentation are part lines under their objects.");
   }
   if (doc.ddic_tables) {
@@ -85,12 +93,26 @@ export function renderMdReport(doc) {
     lines.push("");
     lines.push("## partially written objects");
     lines.push("");
-    lines.push("The files are on disk; the parts below are what the dump could not give.");
+    lines.push("The files are on disk; the parts below exist -- the dump shows them -- and were not extracted (`not extracted`). A part the dump cannot even tell about is not a loss: it stays on the object's `unchecked` list in the collapsed section below and in the json.");
     lines.push("");
     for (const o of partial) {
       lines.push(`- ${sanitizeText(o.type)} ${sanitizeText(o.name)} (${sanitizeText(o.package)}):`);
       for (const p of o.parts) lines.push(`  - ${sanitizeText(p.part)} -- ${sanitizeText(p.disposition)}: ${sanitizeText(p.reason)}`);
     }
+  }
+  // fix round 4: the per-object blind-spot lists live here (collapsed) and in
+  // the json -- the top sentence carries only the kinds with counts
+  const uncheckedObjects = (doc.objects ?? []).filter((o) => (o.unchecked ?? []).length > 0);
+  if (uncheckedObjects.length > 0) {
+    lines.push("");
+    lines.push(`<details><summary>Objects with parts this tool could not check (${uncheckedObjects.length})</summary>`);
+    lines.push("");
+    for (const o of uncheckedObjects) {
+      lines.push(`- ${sanitizeText(o.type)} ${sanitizeText(o.name)} (${sanitizeText(o.package)}):`);
+      for (const p of o.unchecked) lines.push(`  - ${sanitizeText(p.part)} -- not checked: ${sanitizeText(p.reason)}`);
+    }
+    lines.push("");
+    lines.push("</details>");
   }
   const notWritten = doc.objects.filter((o) => o.status === "skipped" || o.status === "unsupported");
   if (notWritten.length > 0) {
@@ -140,11 +162,6 @@ export function renderMdReport(doc) {
     lines.push("## internal error");
     lines.push("");
     lines.push(doc.internal_error);
-  }
-  if (doc.ledger_error !== undefined) {
-    lines.push("");
-    lines.push(`> LEDGER INVARIANT BROKEN: ${doc.ledger_error}`);
-    lines.push("");
   }
   if (doc.objects.some((o) => o.state !== "A")) {
     lines.push("");
