@@ -37,7 +37,11 @@ because the sidecar is read-only by construction and cannot create a user.
    hashes. An explicit path that is not in the pin is refused unless
    `--allow-unpinned-sidecar` is given, and is then announced loudly. A
    target the pin does not cover (e.g. win32-arm64) is refused under its own
-   name, never silently mapped to another target.
+   name, never silently mapped to another target. A `--sidecar-pin` naming a
+   file other than the module's own `sidecar.lock.json` counts as **unpinned
+   for every claim**: it can check bytes, but it never produces a `pinned:
+   true` — the embedding host substitutes its pin through a trusted caller
+   seam, not through the CLI flag.
 3. **Handshake** — `--version --json` must say `schema: 1`, `read_only: true`
    and carry the capabilities the verb needs (`probe` for the doctor); a
    pinned binary must also state the pinned version and commit. Otherwise the
@@ -84,11 +88,30 @@ check, one place) and changes nothing.
 `osd hana doctor --create-reader` (`--drop-reader` to undo):
 
 - shows the exact SQL (password masked) and asks for consent; `--yes` for
-  non-interactive use;
+  non-interactive use. The consent screen and the wire are ONE source: the
+  statements executed are the statements shown, with the mask replaced by the
+  generated password at execution time only;
 - the reader name must be **ours**: `--reader-name` must match
   `^OSD_[A-Z0-9_]{1,26}$` (default `OSD_READER`), for create and drop alike —
   the name is sent UNQUOTED (anything else would be an injection, not a
   name), and a name that is not ours must never reach `DROP USER` at all;
+- the schema name is checked **before any consent text is built**: a name
+  carrying C0/C1 control characters (ESC, CR, LF, TAB, DEL, the C1 range) is
+  refused outright — a name that can rewrite the terminal must not get onto
+  the consent screen. The conservative set a real ABAP schema name draws from
+  is upper-case letters, digits, `_` and `/` at most; printable-but-unusual
+  names are kept working through the identifier quoting, and every name a
+  message prints goes through one `show()` that escapes non-printables;
+- **before CREATE USER** the catalogue is asked whether the name exists: a
+  user that already exists — ours from an earlier run and maybe in use, or
+  somebody else's — is never CREATEd over and never dropped. The refusal says
+  so and points at `--reader-name` (a different name) or `--drop-reader`;
+- any **failure of CREATE USER itself** — 258 (no USER ADMIN), 331 (the name
+  existed after all), 412 (the database's password policy rejects the
+  generated password; the generator uses letters and digits only), a network
+  error, anything — sends **no DROP**: this run created nothing, so it removes
+  nothing. Only failures **after** a successful CREATE drop the half-set-up
+  reader again and say what happened;
 - the tenant database reaches **every** connection of the path
   (administrator, reader proof, drop) — one place builds the driver's options;
 - SQL shape as measured (E1 report): the user name is sent **unquoted** and
@@ -97,26 +120,37 @@ check, one place) and changes nothing.
   never concatenated;
 - the reader's password is CSPRNG-generated (28 characters, upper + lower +
   digit, letters and digits only, so nothing needs escaping on the wire) and
-  is never printed, logged or put on argv;
-- `CREATE USER <name> PASSWORD <pw> NO FORCE_FIRST_PASSWORD_CHANGE`,
+  is never printed, logged or put on argv — **including the `--json`
+  document**, which reports `{user, schema, stored_at}` only. The secret
+  store is the password's only resting place;
+- the statements: `CREATE USER <name> PASSWORD <pw> NO FORCE_FIRST_PASSWORD_CHANGE`,
   `ALTER USER <name> DISABLE PASSWORD LIFETIME`,
   `GRANT SELECT ON SCHEMA "<schema>" TO <name>`, then a real connection as
-  the reader proving one SELECT; on any failure after CREATE the user is
-  dropped again and what happened is said;
+  the reader proving one SELECT;
+- the connection is **encrypted only when asked**: `--encrypt` (TLS with
+  certificate validation, hdb's `useTLS`) or `--trust-server-certificate`
+  (TLS without validation, announced loudly in the consent text). Without
+  `--encrypt` the consent text says plainly that the connection is not
+  encrypted and the new password travels in clear — use a trusted network;
 - error 258 on CREATE USER = this login may not create users → the two ways
   on (a login with USER ADMIN, or go on read-only with the present login);
   error 258 on GRANT = this login may not grant the schema → the schema's
-  owner is named as the login that can; error 332 after a failed create means
-  "user absent", not the cause;
+  owner is named as the login that can; a 332 after a failed create means
+  "user absent", never the cause;
+- every driver error text passes a redactor holding this run's passwords —
+  an error message never repeats a password verbatim;
 - the administrator's password is used for these statements only and is never
   stored;
 - the reader's credentials go to the secret store under a key of **host,
-  port, database and name**, with the connection facts in the entry. The
+  port, database and name**, with the connection facts, the creation time and
+  the **system identity** (`SYSTEM_ID` + `DATABASE_NAME` from
+  `SYS.M_DATABASE`) in the entry. The file backend writes atomically (temp
+  file + rename in the `0700` directory) and refuses a symlinked store. The
   extension injects VS Code SecretStorage behind the same `get/set/delete`
   interface.
 
-`--drop-reader` drops **only a reader this tool created**, and says so before
-anything is sent:
+`--drop-reader` drops **only a reader this tool created**, and proves it
+before anything is sent:
 
 - the name must match `^OSD_[A-Z0-9_]{1,26}$` and must not be the login the
   run is connected as (the current login is necessarily in `SYS.USERS` —
@@ -125,9 +159,16 @@ anything is sent:
   + name. Otherwise the tool refuses — it never drops a user it does not own
   — and prints the one statement an administrator can run by hand
   (`DROP USER <name> CASCADE`). There is no force flag, by decision;
-- then consent, `DROP USER <name> CASCADE`, the SYS.USERS absence proof, and
-  the stored secret is removed. A 332 means "already absent": still proved,
-  still removed, said so.
+- **proof of ownership, then consent**: the stored password must log on AS
+  THE READER to this exact host/port/database — success proves the user is
+  the one this store created; and when the entry carries one, the recorded
+  system identity must match `SYS.M_DATABASE` now (an address is not an
+  identity: every HXE container is `localhost:39017/HXE`, and a tunnel puts
+  any system behind `localhost:<port>`). A failed proof refuses, prints the
+  one hand-run SQL line, and **keeps the secret**;
+- then `DROP USER <name> CASCADE` with the administrator login, the
+  `SYS.USERS` absence proof, and the stored secret is removed. A 332 means
+  "already absent": still proved, still removed, said so.
 
 Windows notes: `chmod` has no effect there; the secret file inherits the
 profile's ACLs, and `fchmod` is skipped rather than pretending. A sidecar
@@ -145,8 +186,10 @@ refuses a binary whose hash or self-description does not match.
 
 ## Tests
 
-`test/osd-hana-doctor.mjs`, with a FAKE sidecar
-(`test/osd-hana/fake-sidecar.mjs`, a shebang script the tests point
-`OSD_HANA_DUMP` at, verified against `test/osd-hana/pin.json`) and a FAKE
-`hdb` client injected through the reader's `clientFactory` seam. No network,
-no database.
+`test/osd-hana-doctor.mjs` (sidecar handling, verdicts, connection input) and
+`test/osd-hana-reader.mjs` (the dedicated reader, the secret store), with a
+FAKE sidecar (`test/osd-hana/fake-sidecar.mjs`, a shebang script the tests
+point `OSD_HANA_DUMP` at, verified against a generated pin through the
+trusted `pinFile` seam) and a FAKE `hdb` client
+(`test/osd-hana/fake-client.mjs`) injected through the reader's
+`clientFactory` seam. No network, no database.
