@@ -71,7 +71,9 @@ the probe cannot succeed (a removed ABAP schema does not block a teardown).
 TLS: with a sidecar that has the "tls" capability, --encrypt /
 --trust-server-certificate / --ca-file / --tls-server-name are passed to the
 sidecar as well; without the capability a TLS ask is refused -- the doctor
-never connects in clear text when TLS was asked for.
+never connects in clear text when TLS was asked for. --ca-file and
+--tls-server-name need --encrypt: TLS is one consistent set for BOTH
+connections (the sidecar's and the reader path's).
 
 The reader path talks to the database through the Node driver hdb. Without
 --encrypt that connection is NOT encrypted and the new password travels in

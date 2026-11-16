@@ -70,21 +70,34 @@ connect or log on, **5** no ABAP schema found.
 
 The sidecar advertises the `tls` capability in its handshake (W0-contract
 "Additions"; the current pin `0d5767b` does not have it — the code is written
-against the capability and tested both ways with the fake). When you ask for
-TLS (`--encrypt`, `--trust-server-certificate`, `--ca-file`,
-`--tls-server-name`) and the pinned sidecar lacks the capability, the doctor
-**refuses** — it never falls back to clear text. With the capability, the
-flags are passed to the sidecar as well: the probe (and the reader probe)
-ride the sidecar's own session, not hdb's. The verdict then says the probe's
-`tls` value, one plain sentence each: **verified** ("the server's certificate
-was verified"), **unverified** ("encrypted, but the server is not
-authenticated"), **off** ("the connection is NOT encrypted"). The measured
-trial-image failure — a verified TLS connection to an **IP address** is
-refused with "certificate doesn't contain any IP SANs" (the self-signed
-certificate is issued for a host name, not an IP) — gets its own explanation
-on both paths: connect by the host NAME the certificate was issued for, or
-pass `--ca-file` with the server's PEM, or `--trust-server-certificate` on a
-network you trust.
+against the capability and tested both ways with the fake). TLS is **one
+consistent set of flags for both transports** — the sidecar's connection and
+the reader path's hdb connection:
+
+- `--ca-file` / `--tls-server-name` **need `--encrypt`**: without it they are
+  a usage error, refused before anything connects — TLS-shaped flags on one
+  transport while the other carries the new password in clear is not a thing
+  this tool does. `--trust-server-certificate` alone stays valid (it IS an
+  encryption request, just without validation);
+- with `--encrypt`, the CA file's content reaches **hdb too** (hdb's
+  documented `ca` option, passed to `tls.connect`; `--tls-server-name`
+  becomes hdb's `servername`) — a private CA verifies on both paths;
+- when you ask for TLS and the pinned sidecar lacks the capability, the
+  doctor **refuses** — it never falls back to clear text. Note this refuses
+  the WHOLE run, including `--create-reader` / `--drop-reader`, although hdb
+  could encrypt its own connection: fail-closed until the pin moves;
+- with the capability, the flags are passed to the sidecar as well: the
+  probe (and the reader probe) ride the sidecar's own session, not hdb's.
+
+The verdict says the probe's `tls` value, one plain sentence each:
+**verified** ("the server's certificate was verified"), **unverified**
+("encrypted, but the server is not authenticated"), **off** ("the connection
+is NOT encrypted"). The measured trial-image failure — a verified TLS
+connection to an **IP address** is refused with "certificate doesn't contain
+any IP SANs" (the self-signed certificate is issued for a host name, not an
+IP) — gets its own explanation on both paths: connect by the host NAME the
+certificate was issued for, or pass `--ca-file` with the server's PEM, or
+`--trust-server-certificate` on a network you trust.
 
 ## The verdict
 
@@ -115,6 +128,14 @@ The doctor reads the probe's login class and asks only for what is missing:
 |---|---|
 | **the administrator** (USER ADMIN, not the schema owner — the measured case) | it runs `CREATE USER`, `ALTER USER ... DISABLE PASSWORD LIFETIME` and `GRANT CATALOG READ`; the doctor then asks for the **schema owner's** login — the catalogue's owner name is shown as the suggestion — with the password from `$OSD_HANA_OWNER_PASSWORD` or a hidden prompt. Non-interactive use: `--owner-user` + `$OSD_HANA_OWNER_PASSWORD`. There is deliberately **no** `--owner-password-stdin` |
 | **the schema owner** | it runs `GRANT SELECT ON SCHEMA`; the doctor asks for an **administrator** login the same way: `--admin-user` + `$OSD_HANA_ADMIN_PASSWORD` (or a hidden prompt) |
+
+On a **real terminal** the doctor really asks, with the production wiring (no
+injected prompt): it asks only when **stdin AND stderr are a terminal**, with
+two separate prompts — a **visible** line question for a login NAME (the
+answer echoes; the catalogue's suggestion is the default when you just press
+Enter) and the **hidden** prompt for a PASSWORD (raw mode, nothing echoed).
+Without a terminal the refusal text names the flag and the environment
+variable, and nothing is sent.
 | **both** (one login that can do both — it exists on some systems) | one step, one consent, one connection |
 | **neither** | the doctor explains what the two logins must do and **sends nothing** |
 
@@ -123,8 +144,11 @@ administrator's `GRANT SELECT ON SCHEMA` fails with 258, and the schema owner
 cannot create users. The consent screen shows **all statements of both
 logins**, grouped by who runs each, before anything is sent — and the
 executed statements are exactly the printed ones (one statement source in
-`reader.mjs`, the password mask applied at print time only). Neither extra
-password is stored: each is used for its statements and dropped.
+`reader.mjs`, the password mask applied at print time only). Under "run as
+the new reader, changes nothing" it also lists the reader's own proof
+statements (one SELECT and the no-row UPDATE probe) and the `DROP USER` that
+undoes a failed run. Neither extra password is stored: each is used for its
+statements and dropped.
 
 `--no-catalog-read` leaves `GRANT CATALOG READ` out; the doctor then says
 that database procedures (AMDP) cannot be extracted with this reader (the
@@ -182,17 +206,23 @@ dump reports an empty catalog, exit 3).
   reader reading `"<schema>"."TADIR"`, and the write probe
   `UPDATE "<schema>"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`, which the
   database **must refuse** (measured: 258; the statement changes nothing even
-  if wrongly allowed). If the write is **not** refused, the reader is dropped
-  and the run fails loudly — "the reader can write";
+  if wrongly allowed). **Only HANA error 258 proves the refusal** (critic
+  M-1): if the probe is not refused, the reader is dropped and the run fails
+  loudly — "the reader can write"; if the probe answers any OTHER error (a
+  syntax error, anything) or the connection is lost, that proves NOTHING —
+  the reader is dropped, no secret is stored, and the run fails loudly
+  saying which of the three outcomes it was;
 - then the doctor runs the sidecar's `probe` **as the reader** and shows its
   verdict — the reader sees the database like the measured reader: class
   "other", no write on the schema, a dump identical to the owner's. In
   `--json` the reader's probe document comes as `reader_probe`;
 - the connection is **encrypted only when asked**: `--encrypt` (TLS with
-  certificate validation, hdb's `useTLS`) or `--trust-server-certificate`
-  (TLS without validation, announced loudly in the consent text). Without
-  `--encrypt` the consent text says plainly that the connection is not
-  encrypted and the new password travels in clear — use a trusted network;
+  certificate validation, hdb's `useTLS`; `--ca-file` / `--tls-server-name`
+  reach hdb as `ca` / `servername` — see "TLS" above for the one-set rule) or
+  `--trust-server-certificate` (TLS without validation, announced loudly in
+  the consent text). Without `--encrypt` the consent text says plainly that
+  the connection is not encrypted and the new password travels in clear — use
+  a trusted network;
 - error 258 on CREATE USER = this login may not create users → the two ways
   on (a login with USER ADMIN, or go on read-only with the present login);
   error 258 on `GRANT SELECT` in the one-login case = this login may not
