@@ -16,6 +16,7 @@ import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
 import {makeRedactor} from "../tools/osd-hana/redact.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
+import {readerStoreKey} from "../tools/osd-hana/reader.mjs";
 import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
 
 const h = makeHarness();
@@ -285,6 +286,78 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code2).to.equal(5);
     });
 
+    it("critic S-4: a database refusal that reaches the top level names the login this run connected with (mutation: the logins line dropped -> red)", async function () {
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const secretStore = h.store();
+      secretStore.set(
+        {user: "OSD_READER", password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015,
+          system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}},
+        readerStoreKey({host: HOST, port: 39015}, "OSD_READER"));
+      // the reader logon proof succeeds; the ADMINISTRATOR connection (the
+      // present login) fails -- that raw driver error reaches the doctor's
+      // top-level "database refused" path
+      const {log, factory} = fakeClientFactory([
+        ...SUCCESS_RULES,
+        {user: USER, match: /DROP USER/, rows: []},
+        {user: "OSD_READER", match: /FROM DUMMY/, rows: [{ONE: 1}]},
+      ]);
+      const broken = async (options) => {
+        if (options.user === USER) {
+          throw Object.assign(new Error("communication link failure"), {code: -10709});
+        }
+        return factory(options);
+      };
+      const code = await h.runDoctor(["--drop-reader", "--yes"], {
+        scenario: "owner-tenant",
+        deps: {store: secretStore, clientFactory: broken},
+      });
+      expect(code).to.equal(2);
+      const text = h.allText();
+      expect(text).to.include("the database refused");
+      // WHICH login this run was connected as is named
+      expect(text).to.include(`connected with: ${USER}`);
+    });
+
+    it("NOTE-5 (round 2): --drop-reader is NOT gated behind a successful probe -- it runs before the probe and works after the ABAP schema is gone (mutation: gate the drop behind the probe -> red)", async function () {
+      // the ABAP schema was removed: the probe exits 5 ("unsupported") -- and
+      // THAT is exactly when the reader must be tearable down. The drop proves
+      // ownership through the store entry and the reader logon, not the probe.
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const secretStore = h.store();
+      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD, database: undefined};
+      secretStore.set(
+        {user: "OSD_READER", password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015,
+          system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}},
+        readerStoreKey(connection, "OSD_READER"));
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      const code = await h.runDoctor(["--drop-reader", "--yes"], {
+        scenario: "unsupported",
+        deps: {store: secretStore, clientFactory: factory},
+      });
+      expect(code, h.allText()).to.equal(0);
+      expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
+      // the probe never ran: no probe output anywhere
+      expect(h.allText()).to.not.include("Verdict for the ABAP rescue");
+      // and the same when the probe cannot connect at all (the main login is
+      // broken -- the reader can still be torn down with the login given)
+      const secretStore2 = h.store();
+      secretStore2.set(
+        {user: "OSD_READER", password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015,
+          system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}},
+        readerStoreKey({host: HOST, port: 39015}, "OSD_READER"));
+      const {log: log2, factory: factory2} = fakeClientFactory(SUCCESS_RULES);
+      const code2 = await h.runDoctor(["--drop-reader", "--yes", "--json"], {
+        scenario: "connect-error",
+        deps: {store: secretStore2, clientFactory: factory2},
+      });
+      expect(code2, h.allText()).to.equal(0);
+      const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
+      expect(document.reader.dropped).to.equal(true);
+      expect(document.probe).to.equal(undefined);
+      // --drop-reader still needs no --schema even without the probe
+      expect(h.allText()).to.not.include("needs to know the ABAP schema");
+    });
+
     it("takes the password from the env file when no other channel gives one (critic M-1; mutation: ignore file.HANA_PASSWORD -> red)", async function () {
       // HANA_PASSWORD in --env-file is a documented password channel; a run
       // whose only channel is the env file must work, not refuse
@@ -332,6 +405,42 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code2).to.equal(1);
       expect(h.allText()).to.include("--double-dash");
       expect(() => parseFlags(["--nosuchflag"], {valueFlags: [], booleanFlags: []})).to.throw(UsageError);
+    });
+
+    it("NOTE-3 (round 2): an EMPTY host or user (env file or environment) is refused as a usage error, not deferred to an obscure driver error (mutation: accept empty strings -> red)", async function () {
+      // `HANA_HOST=` in an env file used to yield host: "" and pass the
+      // completeness check -- the failure then surfaced as an obscure driver
+      // error. collectConnection refuses it the way the password channel
+      // already refuses "".
+      const {collectConnection} = await import("../tools/osd-hana/connect.mjs");
+      const emptyHostEnv = join(h.root, "empty-host.env");
+      writeFileSync(emptyHostEnv, ["HANA_HOST=", "HANA_PORT=39015", `HANA_USER=${USER}`].join("\n"));
+      await collectConnection({flags: {"env-file": emptyHostEnv}, env: {}, stdin: {isTTY: false}, isTTY: false}).then(
+        () => expect.fail("should refuse an empty host"),
+        (error) => {
+          expect(error).to.be.an.instanceof(UsageError);
+          expect(error.message).to.include("empty");
+          expect(error.message).to.include("HANA_HOST");
+        });
+      const emptyUserEnv = join(h.root, "empty-user.env");
+      writeFileSync(emptyUserEnv, [`HANA_HOST=${HOST}`, "HANA_PORT=39015", "HANA_USER=", "HANA_PASSWORD=whatever-1"].join("\n"));
+      await collectConnection({flags: {"env-file": emptyUserEnv}, env: {}, stdin: {isTTY: false}, isTTY: false}).then(
+        () => expect.fail("should refuse an empty user"),
+        (error) => {
+          expect(error).to.be.an.instanceof(UsageError);
+          expect(error.message).to.include("empty");
+          expect(error.message).to.include("HANA_USER");
+        });
+      // an empty user from the process environment is the same refusal
+      await collectConnection({flags: {host: HOST, port: "39015"}, env: {HANA_USER: "", OSD_HANA_PASSWORD: "whatever-1"}, stdin: {isTTY: false}, isTTY: false}).then(
+        () => expect.fail("should refuse an empty user from the environment"),
+        (error) => expect(error).to.be.an.instanceof(UsageError));
+      // a well-populated env file still works end to end
+      const goodEnv = join(h.root, "good.env");
+      writeFileSync(goodEnv, [`HANA_HOST=${HOST}`, "HANA_PORT=39015", `HANA_USER=${USER}`, "HANA_PASSWORD=whatever-1"].join("\n"));
+      const connection = await collectConnection({flags: {"env-file": goodEnv}, env: {}, stdin: {isTTY: false}, isTTY: false});
+      expect(connection.host).to.equal(HOST);
+      expect(connection.user).to.equal(USER);
     });
 
     it("takes the password from --password-stdin, never from argv", async function () {
@@ -468,6 +577,172 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code).to.equal(2);
       expect(h.allText()).to.include("did not finish within");
     }).timeout(5000);
+
+    it("SHOULD-2 (round 2): a database-supplied schema name with control characters is escaped in the plain verdict -- the raw bytes never reach the terminal (mutation: print s.name raw -> red)", async function () {
+      // the probe document carries a schema name with ESC/CR in it (the fake
+      // sidecar's hostile-schema scenario); the plain verdict is the doctor's
+      // main output path -- the name must arrive escaped, not as bytes that
+      // rewrite the screen. --json is safe on its own (JSON.stringify escapes).
+      const code = await h.runDoctor([], {scenario: "hostile-schema"});
+      expect(code).to.equal(0);
+      const text = h.allText();
+      expect(text).to.include("ABAP schema X\\x1b[2K\\x0dHARMLESS");
+      expect(text).to.not.include("\u001b");
+      expect(text).to.not.include("\r");
+    });
+
+    it("NOTE-4 (round 2): the unpinned-sidecar WARNING prints ONCE per run, not again on every per-spawn re-verify (mutation: warn on every verify -> red)", async function () {
+      // the pin is in play, so every spawn re-verifies and used to repeat the
+      // WARNING: initial verify + one probe spawn = the same first line twice
+      const emptyPin = h.makePin({targets: {}});
+      const code = await h.runDoctor(["--allow-unpinned-sidecar"], {scenario: "owner-tenant", pin: emptyPin});
+      expect(code).to.equal(0);
+      const firstLines = h.err.map((l) => l.split("\n")[0]).filter((l) => l.includes("WARNING") && l.includes("UNPINNED"));
+      expect(firstLines).to.have.length(1);
+    });
+
+    // ---------------- TLS capability (W0-contract "Additions") -------------
+    const TLS_HANDSHAKE = {capabilities: ["probe", "list", "dump", "tls"]};
+
+    it("TLS: the verdict says the probe's tls value, one plain sentence each (verified / unverified / off)", async function () {
+      for (const [scenario, sentence, absent] of [
+        ["tls-verified", "TLS: on -- the server's certificate was verified", "NOT"],
+        ["tls-unverified", "TLS: on -- but the server's certificate was NOT verified", "authenticated"],
+        ["tls-off", "TLS: off -- the connection is NOT encrypted", undefined],
+      ]) {
+        const code = await h.runDoctor([], {scenario, handshakePatch: TLS_HANDSHAKE});
+        expect(code, scenario).to.equal(0);
+        const text = h.allText();
+        expect(text).to.include(sentence);
+        if (absent === undefined) expect(text).to.not.include("TLS: on");
+        // and in --json the probe document carries the field itself
+        const code2 = await h.runDoctor(["--json"], {scenario, handshakePatch: TLS_HANDSHAKE});
+        expect(code2).to.equal(0);
+        const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
+        expect(document.probe.tls).to.equal(scenario === "tls-verified" ? "verified" : scenario === "tls-unverified" ? "unverified" : "off");
+      }
+      // without the field (the current pinned binary has no tls), no sentence
+      const code3 = await h.runDoctor([], {scenario: "owner-tenant"});
+      expect(code3).to.equal(0);
+      expect(h.allText()).to.not.include("TLS:");
+    });
+
+    it("TLS: when the sidecar lacks the capability and the user asked for TLS, the doctor REFUSES -- never a clear-text connection (mutation: connect anyway -> red)", async function () {
+      // the default fake handshake has no "tls" capability
+      for (const argv of [["--encrypt"], ["--trust-server-certificate"]]) {
+        const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
+        expect(code, argv.join(" ")).to.equal(1);
+        expect(h.allText(), argv.join(" ")).to.include("tls");
+        expect(h.allText(), argv.join(" ")).to.include("NOT connect in clear text");
+        // nothing was said that looks like a verdict: no connection happened
+        expect(h.allText(), argv.join(" ")).to.not.include("Verdict for the ABAP rescue");
+      }
+      // --ca-file / --tls-server-name are refused even without the capability:
+      // they are a usage error without --encrypt (critic S-1), checked before
+      // the capability is even consulted
+      for (const argv of [["--ca-file", join(h.root, "ca.pem")], ["--tls-server-name", "hana.example.test"]]) {
+        const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
+        expect(code, argv.join(" ")).to.equal(1);
+        expect(h.allText(), argv.join(" ")).to.include("--encrypt");
+        expect(h.allText(), argv.join(" ")).to.not.include("Verdict for the ABAP rescue");
+      }
+      // and without a TLS ask, the same sidecar runs fine in clear
+      const code2 = await h.runDoctor([], {scenario: "owner-tenant"});
+      expect(code2).to.equal(0);
+    });
+
+    it("TLS flags are ONE consistent set for BOTH transports: --ca-file / --tls-server-name WITHOUT --encrypt is a usage error even with a tls-capable sidecar -- the sidecar must not get TLS while the reader path carries the new password in clear (critic S-1 / probe P7; mutation: the usage check dropped -> red)", async function () {
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      for (const argv of [["--ca-file", "/tmp/hana-ca.pem"], ["--tls-server-name", "hana.example.test"]]) {
+        const {factory, log} = fakeClientFactory(SUCCESS_RULES);
+        const code = await h.runDoctor(["--create-reader", "--yes", ...argv], {
+          scenario: "admin-system",
+          handshakePatch: TLS_HANDSHAKE,
+          env: {OSD_HANA_OWNER_PASSWORD: "owner-secret-pw-7"},
+          deps: {clientFactory: factory, store: h.store()},
+        });
+        expect(code, argv.join(" ")).to.equal(1);
+        const text = h.allText();
+        expect(text, argv.join(" ")).to.include("--encrypt");
+        expect(text, argv.join(" ")).to.include("clear");
+        // refused BEFORE anything connected: no hdb connection, no CREATE
+        expect(log.connections, argv.join(" ")).to.have.length(0);
+        expect(log.statements.some((s) => /CREATE USER/.test(s.sql)), argv.join(" ")).to.equal(false);
+      }
+    });
+
+    it("TLS: with --encrypt the CA file's content and the server name reach the READER path too -- every hdb connection (critic S-1 / probe P8; mutation: hdb drops the ca -> red)", async function () {
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const caPath = join(h.root, "ca-reader.pem");
+      writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nTESTCAFORROUND3\n-----END CERTIFICATE-----\n");
+      const {factory, log} = fakeClientFactory(SUCCESS_RULES);
+      const code = await h.runDoctor(["--create-reader", "--yes", "--owner-user", "OWNERLOGIN", "--database", "TEN", "--encrypt", "--ca-file", caPath, "--tls-server-name", "hana.example.test"], {
+        scenario: "admin-system",
+        handshakePatch: TLS_HANDSHAKE,
+        env: {OSD_HANA_OWNER_PASSWORD: "owner-secret-pw-7"},
+        deps: {clientFactory: factory, store: h.store()},
+      });
+      expect(code, h.allText()).to.equal(0);
+      // the suggestion lookup, the administrator, the owner, the reader proof
+      expect(log.connections.length).to.be.at.least(3);
+      for (const c of log.connections) {
+        expect(c.useTLS, "hdb must use TLS").to.equal(true);
+        expect(c.ca, "the CA reaches hdb (hdb passes it to tls.connect)").to.equal(readFileSync(caPath, "utf8"));
+        expect(c.servername).to.equal("hana.example.test");
+      }
+    });
+
+    it("TLS: with the capability, the TLS flags are passed to the sidecar as well (mutation: keep them from the sidecar -> red)", async function () {
+      rmSync(h.recordPath, {force: true});
+      // a REAL CA file: the doctor reads its content now (critic S-1 -- the
+      // CA reaches the reader path's hdb connections too)
+      const caPath = join(h.root, "ca-sidecar.pem");
+      writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nTESTCASIDECAR\n-----END CERTIFICATE-----\n");
+      const code = await h.runDoctor(["--encrypt", "--ca-file", caPath, "--tls-server-name", "hana.example.test"], {
+        scenario: "tls-verified",
+        handshakePatch: TLS_HANDSHAKE,
+        env: {FAKE_SIDECAR_RECORD: h.recordPath},
+      });
+      expect(code, h.allText()).to.equal(0);
+      const records = readFileSync(h.recordPath, "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.argv[0] === "probe");
+      expect(records.length).to.be.at.least(1);
+      for (const record of records) {
+        expect(record.argv).to.include("--encrypt");
+        expect(record.argv).to.include("--ca-file");
+        expect(record.argv[record.argv.indexOf("--ca-file") + 1]).to.equal(caPath);
+        expect(record.argv).to.include("--tls-server-name");
+        expect(record.argv[record.argv.indexOf("--tls-server-name") + 1]).to.equal("hana.example.test");
+      }
+      // no TLS flags asked, none passed even with the capability present
+      rmSync(h.recordPath, {force: true});
+      const code2 = await h.runDoctor([], {scenario: "tls-verified", handshakePatch: TLS_HANDSHAKE, env: {FAKE_SIDECAR_RECORD: h.recordPath}});
+      expect(code2).to.equal(0);
+      const record2 = readFileSync(h.recordPath, "utf8").trim().split("\n").map((l) => JSON.parse(l)).find((r) => r.argv[0] === "probe");
+      expect(record2.argv).to.not.include("--encrypt");
+    });
+
+    it("TLS: the 'no IP SANs' failure gets its own explanation, on the sidecar path and the reader path alike (mutation: drop the explanation -> red)", async function () {
+      // the sidecar's probe fails with the measured certificate error
+      const code = await h.runDoctor(["--encrypt"], {scenario: "ip-sans", handshakePatch: TLS_HANDSHAKE});
+      expect(code).to.equal(2);
+      expect(h.allText()).to.include("IP SAN");
+      expect(h.allText()).to.include("host NAME the certificate was issued for");
+      expect(h.allText()).to.include("--ca-file");
+      expect(h.allText()).to.include("--trust-server-certificate");
+      // and the hdb (reader-path) connection failing with the same fact
+      const {fakeClientFactory} = await import("./osd-hana/fake-client.mjs");
+      const factory = async () => {
+        throw Object.assign(new Error("connection failed: certificate doesn't contain any IP SANs"), {code: -10709});
+      };
+      const code2 = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
+        scenario: "both",
+        handshakePatch: TLS_HANDSHAKE,
+        deps: {clientFactory: factory},
+      });
+      expect(code2).to.equal(2);
+      expect(h.allText()).to.include("the database refused");
+      expect(h.allText()).to.include("host NAME the certificate was issued for");
+    });
   });
 
   // ---------------------------------------- redactor and defaults, directly
@@ -511,7 +786,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const factory = async () => {
         throw Object.assign(new Error(`authentication failed for '${PASSWORD}'`), {code: 401});
       };
-      const code = await h.runDoctor(["--create-reader", "--yes"], {deps: {clientFactory: factory}});
+      const code = await h.runDoctor(["--create-reader", "--yes"], {scenario: "both", deps: {clientFactory: factory}});
       expect(code).to.equal(2);
       expect(h.allText()).to.include("the database refused");
       expect(h.allText()).to.not.include(PASSWORD);

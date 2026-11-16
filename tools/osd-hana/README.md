@@ -66,6 +66,39 @@ The doctor's own exit codes: **0** ready to extract, **1** usage or setup
 (flag errors, sidecar not found / refused, consent declined), **2** cannot
 connect or log on, **5** no ABAP schema found.
 
+### TLS
+
+The sidecar advertises the `tls` capability in its handshake (W0-contract
+"Additions"; the current pin `0d5767b` does not have it — the code is written
+against the capability and tested both ways with the fake). TLS is **one
+consistent set of flags for both transports** — the sidecar's connection and
+the reader path's hdb connection:
+
+- `--ca-file` / `--tls-server-name` **need `--encrypt`**: without it they are
+  a usage error, refused before anything connects — TLS-shaped flags on one
+  transport while the other carries the new password in clear is not a thing
+  this tool does. `--trust-server-certificate` alone stays valid (it IS an
+  encryption request, just without validation);
+- with `--encrypt`, the CA file's content reaches **hdb too** (hdb's
+  documented `ca` option, passed to `tls.connect`; `--tls-server-name`
+  becomes hdb's `servername`) — a private CA verifies on both paths;
+- when you ask for TLS and the pinned sidecar lacks the capability, the
+  doctor **refuses** — it never falls back to clear text. Note this refuses
+  the WHOLE run, including `--create-reader` / `--drop-reader`, although hdb
+  could encrypt its own connection: fail-closed until the pin moves;
+- with the capability, the flags are passed to the sidecar as well: the
+  probe (and the reader probe) ride the sidecar's own session, not hdb's.
+
+The verdict says the probe's `tls` value, one plain sentence each:
+**verified** ("the server's certificate was verified"), **unverified**
+("encrypted, but the server is not authenticated"), **off** ("the connection
+is NOT encrypted"). The measured trial-image failure — a verified TLS
+connection to an **IP address** is refused with "certificate doesn't contain
+any IP SANs" (the self-signed certificate is issued for a host name, not an
+IP) — gets its own explanation on both paths: connect by the host NAME the
+certificate was issued for, or pass `--ca-file` with the server's PEM, or
+`--trust-server-certificate` on a network you trust.
+
 ## The verdict
 
 Said so a person who has never seen HANA can act on it: reachable? tenant or
@@ -85,12 +118,54 @@ check, one place) and changes nothing.
 
 ## The dedicated reader
 
-`osd hana doctor --create-reader` (`--drop-reader` to undo):
+`osd hana doctor --create-reader` (`--drop-reader` to undo).
+
+### Which login do I need?
+
+The doctor reads the probe's login class and asks only for what is missing:
+
+| the present login is… | what happens |
+|---|---|
+| **the administrator** (USER ADMIN, not the schema owner — the measured case) | it runs `CREATE USER`, `ALTER USER ... DISABLE PASSWORD LIFETIME` and `GRANT CATALOG READ`; the doctor then asks for the **schema owner's** login — the catalogue's owner name is shown as the suggestion — with the password from `$OSD_HANA_OWNER_PASSWORD` or a hidden prompt. Non-interactive use: `--owner-user` + `$OSD_HANA_OWNER_PASSWORD`. There is deliberately **no** `--owner-password-stdin` |
+| **the schema owner** | it runs `GRANT SELECT ON SCHEMA`; the doctor asks for an **administrator** login the same way: `--admin-user` + `$OSD_HANA_ADMIN_PASSWORD` (or a hidden prompt) |
+
+On a **real terminal** the doctor really asks, with the production wiring (no
+injected prompt): it asks only when **stdin AND stderr are a terminal**, with
+two separate prompts — a **visible** line question for a login NAME (the
+answer echoes; the catalogue's suggestion is the default when you just press
+Enter) and the **hidden** prompt for a PASSWORD (raw mode, nothing echoed).
+Without a terminal the refusal text names the flag and the environment
+variable, and nothing is sent.
+| **both** (one login that can do both — it exists on some systems) | one step, one consent, one connection |
+| **neither** | the doctor explains what the two logins must do and **sends nothing** |
+
+On the measured systems **no single login does the whole flow**: the
+administrator's `GRANT SELECT ON SCHEMA` fails with 258, and the schema owner
+cannot create users. The consent screen shows **all statements of both
+logins**, grouped by who runs each, before anything is sent — and the
+executed statements are exactly the printed ones (one statement source in
+`reader.mjs`, the password mask applied at print time only). Under "run as
+the new reader, changes nothing" it also lists the reader's own proof
+statements (one SELECT and the no-row UPDATE probe) and the `DROP USER` that
+undoes a failed run. Neither extra password is stored: each is used for its
+statements and dropped.
+
+`--no-catalog-read` leaves `GRANT CATALOG READ` out; the doctor then says
+that database procedures (AMDP) cannot be extracted with this reader (the
+dump reports an empty catalog, exit 3).
+
+### What the flow does
 
 - shows the exact SQL (password masked) and asks for consent; `--yes` for
   non-interactive use. The consent screen and the wire are ONE source: the
   statements executed are the statements shown, with the mask replaced by the
   generated password at execution time only;
+- the statements, per role: the **administrator** runs
+  `CREATE USER <name> PASSWORD <pw> NO FORCE_FIRST_PASSWORD_CHANGE`,
+  `ALTER USER <name> DISABLE PASSWORD LIFETIME` and
+  `GRANT CATALOG READ TO <name>` (needed for dumping database procedures —
+  without it the procedure definitions come back empty); the **schema owner**
+  runs `GRANT SELECT ON SCHEMA "<schema>" TO <name>`;
 - the reader name must be **ours**: `--reader-name` must match
   `^OSD_[A-Z0-9_]{1,26}$` (default `OSD_READER`), for create and drop alike —
   the name is sent UNQUOTED (anything else would be an injection, not a
@@ -110,10 +185,14 @@ check, one place) and changes nothing.
   existed after all), 412 (the database's password policy rejects the
   generated password; the generator uses letters and digits only), a network
   error, anything — sends **no DROP**: this run created nothing, so it removes
-  nothing. Only failures **after** a successful CREATE drop the half-set-up
-  reader again and say what happened;
+  nothing. Any failure **after** a successful CREATE drops the half-set-up
+  reader again — **by the administrator connection, the only one that can** —
+  and the message names **which login failed at which statement**: the
+  owner's refused `GRANT` (258), a wrong owner password, a failed owner logon,
+  all end with "the reader was dropped again; nothing was left behind";
 - the tenant database reaches **every** connection of the path
-  (administrator, reader proof, drop) — one place builds the driver's options;
+  (administrator, second login, reader proof, drop) — one place builds the
+  driver's options;
 - SQL shape as measured (E1 report): the user name is sent **unquoted** and
   validated (see above); the schema name is **quoted as an identifier** with
   embedded `"` doubled; in catalogue comparisons it is a **bound parameter**,
@@ -123,34 +202,51 @@ check, one place) and changes nothing.
   is never printed, logged or put on argv — **including the `--json`
   document**, which reports `{user, schema, stored_at}` only. The secret
   store is the password's only resting place;
-- the statements: `CREATE USER <name> PASSWORD <pw> NO FORCE_FIRST_PASSWORD_CHANGE`,
-  `ALTER USER <name> DISABLE PASSWORD LIFETIME`,
-  `GRANT SELECT ON SCHEMA "<schema>" TO <name>`, then a real connection as
-  the reader proving one SELECT;
+- after the grants, the reader is **proved twice**: a real connection as the
+  reader reading `"<schema>"."TADIR"`, and the write probe
+  `UPDATE "<schema>"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`, which the
+  database **must refuse** (measured: 258; the statement changes nothing even
+  if wrongly allowed). **Only HANA error 258 proves the refusal** (critic
+  M-1): if the probe is not refused, the reader is dropped and the run fails
+  loudly — "the reader can write"; if the probe answers any OTHER error (a
+  syntax error, anything) or the connection is lost, that proves NOTHING —
+  the reader is dropped, no secret is stored, and the run fails loudly
+  saying which of the three outcomes it was;
+- then the doctor runs the sidecar's `probe` **as the reader** and shows its
+  verdict — the reader sees the database like the measured reader: class
+  "other", no write on the schema, a dump identical to the owner's. In
+  `--json` the reader's probe document comes as `reader_probe`;
 - the connection is **encrypted only when asked**: `--encrypt` (TLS with
-  certificate validation, hdb's `useTLS`) or `--trust-server-certificate`
-  (TLS without validation, announced loudly in the consent text). Without
-  `--encrypt` the consent text says plainly that the connection is not
-  encrypted and the new password travels in clear — use a trusted network;
+  certificate validation, hdb's `useTLS`; `--ca-file` / `--tls-server-name`
+  reach hdb as `ca` / `servername` — see "TLS" above for the one-set rule) or
+  `--trust-server-certificate` (TLS without validation, announced loudly in
+  the consent text). Without `--encrypt` the consent text says plainly that
+  the connection is not encrypted and the new password travels in clear — use
+  a trusted network;
 - error 258 on CREATE USER = this login may not create users → the two ways
   on (a login with USER ADMIN, or go on read-only with the present login);
-  error 258 on GRANT = this login may not grant the schema → the schema's
-  owner is named as the login that can; a 332 after a failed create means
-  "user absent", never the cause;
-- every driver error text passes a redactor holding this run's passwords —
+  error 258 on `GRANT SELECT` in the one-login case = this login may not
+  grant the schema → the schema's owner is named as the login that can; a
+  332 after a failed create means "user absent", never the cause;
+- every driver error text passes a redactor holding ALL of this run's
+  passwords (the generated one, the present login's, the second login's) —
   an error message never repeats a password verbatim;
-- the administrator's password is used for these statements only and is never
-  stored;
+- the present login's password is used for its statements only and is never
+  stored, and so is the second login's;
 - the reader's credentials go to the secret store under a key of **host,
-  port, database and name**, with the connection facts, the creation time and
-  the **system identity** (`SYSTEM_ID` + `DATABASE_NAME` from
-  `SYS.M_DATABASE`) in the entry. The file backend writes atomically (temp
-  file + rename in the `0700` directory) and refuses a symlinked store. The
-  extension injects VS Code SecretStorage behind the same `get/set/delete`
-  interface.
+  port, database and name**, with the connection facts, the creation time,
+  whether `CATALOG READ` was granted, and the **system identity**
+  (`SYSTEM_ID` + `DATABASE_NAME` from `SYS.M_DATABASE`) in the entry. The
+  file backend writes atomically (temp file with `wx`, then rename **over**
+  the destination — the destination is never deleted first, so a crash can
+  lose the new entry, never every stored reader) and refuses a symlinked
+  store. The extension injects VS Code SecretStorage behind the same
+  `get/set/delete` interface.
 
 `--drop-reader` drops **only a reader this tool created**, and proves it
-before anything is sent:
+before anything is sent. It is **not gated behind a successful probe**: it
+runs before the probe entirely, so a removed ABAP schema (probe exit 5) or a
+broken main login does not block a teardown:
 
 - the name must match `^OSD_[A-Z0-9_]{1,26}$` and must not be the login the
   run is connected as (the current login is necessarily in `SYS.USERS` —
@@ -160,12 +256,14 @@ before anything is sent:
   — and prints the one statement an administrator can run by hand
   (`DROP USER <name> CASCADE`). There is no force flag, by decision;
 - **proof of ownership, then consent**: the stored password must log on AS
-  THE READER to this exact host/port/database — success proves the user is
-  the one this store created; and when the entry carries one, the recorded
-  system identity must match `SYS.M_DATABASE` now (an address is not an
-  identity: every HXE container is `localhost:39017/HXE`, and a tunnel puts
-  any system behind `localhost:<port>`). A failed proof refuses, prints the
-  one hand-run SQL line, and **keeps the secret**;
+  THE READER to this exact host/port/database, and the recorded system
+  identity must match `SYS.M_DATABASE` now (an address is not an identity:
+  every HXE container is `localhost:39017/HXE`, and a tunnel puts any system
+  behind `localhost:<port>`). A stored entry **without** a system identity —
+  written before identities were recorded — is **refused** with the hand-run
+  line: the reader logon alone proves the password works on whatever now
+  answers, not that it is the same system. A failed proof refuses, prints
+  the one hand-run SQL line, and **keeps the secret**;
 - then `DROP USER <name> CASCADE` with the administrator login, the
   `SYS.USERS` absence proof, and the stored secret is removed. A 332 means
   "already absent": still proved, still removed, said so.
@@ -186,10 +284,14 @@ refuses a binary whose hash or self-description does not match.
 
 ## Tests
 
-`test/osd-hana-doctor.mjs` (sidecar handling, verdicts, connection input) and
-`test/osd-hana-reader.mjs` (the dedicated reader, the secret store), with a
-FAKE sidecar (`test/osd-hana/fake-sidecar.mjs`, a shebang script the tests
-point `OSD_HANA_DUMP` at, verified against a generated pin through the
-trusted `pinFile` seam) and a FAKE `hdb` client
-(`test/osd-hana/fake-client.mjs`) injected through the reader's
-`clientFactory` seam. No network, no database.
+`test/osd-hana-doctor.mjs` (sidecar handling, verdicts, TLS capability,
+connection input), `test/osd-hana-reader.mjs` (the dedicated reader's
+mechanics, the secret store) and `test/osd-hana-two-login.mjs` (the guided
+two-login flow: roles, per-login statements, failure rules, the write proof,
+the reader probe), with a FAKE sidecar (`test/osd-hana/fake-sidecar.mjs`, a
+shebang script the tests point `OSD_HANA_DUMP` at, verified against a
+generated pin through the trusted `pinFile` seam; it answers its probe by WHO
+it is run as) and a FAKE `hdb` client (`test/osd-hana/fake-client.mjs`,
+scripted per login) injected through the reader's `clientFactory` seam.
+Every guard has a named mutation behind it, each confirmed RED. No network,
+no database.

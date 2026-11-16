@@ -99,6 +99,16 @@ const PROBES = {
       schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
     },
   },
+  // one login that is BOTH administrator and schema owner (exists on some
+  // systems): the guided flow does the whole create in one step
+  both: {
+    ok: true, exit: 0,
+    probe: {
+      db: "tenant", login_class: "admin", non_select_on_schema: {yes: true, kinds: ["DATABASE ADMIN"]},
+      abap_attached: "no",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}],
+    },
+  },
   writer: {
     ok: true, exit: 0,
     probe: {
@@ -108,7 +118,34 @@ const PROBES = {
     },
   },
   "no-schema": {ok: true, exit: 0, probe: {db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no", schemas: []}},
+  // SHOULD-2: a schema name from the database carrying control characters --
+  // the plain verdict must escape it (show()), never print the raw bytes
+  "hostile-schema": {
+    ok: true, exit: 0,
+    probe: {
+      db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no",
+      schemas: [{name: `X\u001b[2K\rHARMLESS`, basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
+    },
+  },
   "connect-error": {ok: false, exit: 2, error: "logon failed: the fake never lets anyone in"},
+  // TLS (W0 "Additions"): the probe reports tls verified | unverified | off
+  "tls-verified": {
+    ok: true, exit: 0,
+    probe: {db: "tenant", login_class: "schema_owner", non_select_on_schema: false, abap_attached: "no", tls: "verified",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}]},
+  },
+  "tls-unverified": {
+    ok: true, exit: 0,
+    probe: {db: "tenant", login_class: "schema_owner", non_select_on_schema: false, abap_attached: "no", tls: "unverified",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}]},
+  },
+  "tls-off": {
+    ok: true, exit: 0,
+    probe: {db: "tenant", login_class: "schema_owner", non_select_on_schema: false, abap_attached: "no", tls: "off",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 1234, tadir_rows: 2345, owned_by_login: true}]},
+  },
+  // the measured trial-image failure: verified TLS to an IP address refused
+  "ip-sans": {ok: false, exit: 2, error: "connection failed: TLS handshake: certificate doesn't contain any IP SANs"},
   // Redactor fodder on STDOUT (critic S-1): a buggy or hostile binary repeats
   // a credential inside its one-line JSON answer; the doctor must still
   // print nothing.
@@ -134,6 +171,22 @@ if (scenario === "echo-stderr") {
   process.stderr.write(`schema=${process.env.FAKE_SIDECAR_ECHO_SCHEMA ?? "?"}\n`);
   process.stderr.write(`${process.env.OSD_HANA_PASSWORD ?? ""}\n`);
   process.stderr.write(`ok: logon ${process.env.OSD_HANA_USER} on ${args[1] === "--host" ? args[2] : "?"} accepted\n`);
+}
+
+if (scenario === "roles") {
+  // the guided two-login flow: the sidecar answers by WHO it is run as --
+  // the reader's own probe (OSD_HANA_USER is the OSD_ reader) sees the
+  // database like the measured reader: login_class "other", no write, not
+  // the owner; the main login sees the administrator probe.
+  const isReader = (process.env.OSD_HANA_USER ?? "").startsWith("OSD_");
+  const answer = isReader
+    ? {ok: true, exit: 0, probe: {
+      db: "tenant", login_class: "other", non_select_on_schema: false, abap_attached: "no",
+      schemas: [{name: "TESTSCHEMA", basis_release: "7.57", clients: ["100"], reposrc_rows: 5, tadir_rows: 6, owned_by_login: false}],
+    }}
+    : PROBES["both"]; // the main login can do both roles: the flow is one step
+  process.stdout.write(`${JSON.stringify(answer)}\n`);
+  process.exit(answer.exit);
 }
 
 if (scenario === "hang") {

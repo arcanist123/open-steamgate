@@ -203,19 +203,41 @@ describe("tools/osd-hana: the dedicated reader", function () {
       store: h.store(), clientFactory: factory, say: (text) => said.push(text),
     });
     const consent = said[0];
-    // the three statement lines the consent screen shows
+    // the statement lines the consent screen shows: CREATE, ALTER,
+    // GRANT CATALOG READ, GRANT SELECT -- and the reader's two proof
+    // statements (critic S-3: they are sent as the reader, so they are on
+    // the screen too, under "run as the new reader, changes nothing")
     const printed = [...consent.matchAll(/^    (.*?)   -- /gm)].map((m) => m[1]);
-    expect(printed).to.have.length(3);
+    expect(printed).to.have.length(6);
     expect(printed[0]).to.include(READER_PASSWORD_MASK);
-    // the mutating statements that were actually sent, in order
-    const executed = log.statements.map((s) => s.sql)
-      .filter((sql) => /^(CREATE USER|ALTER USER|GRANT SELECT) /.test(sql));
-    expect(executed).to.have.length(3);
-    const password = /PASSWORD "([^"]+)"/.exec(executed[0])[1];
+    expect(consent).to.include("run as the new reader, changes nothing:");
+    // every statement that was actually sent and appears on the screen, in
+    // screen order
+    const password = /PASSWORD "([^"]+)"/.exec(log.statements.find((s) => s.sql.startsWith("CREATE USER")).sql)[1];
     expect(password).to.not.equal(READER_PASSWORD_MASK);
+    const resolved = printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password));
+    const executed = log.statements.map((s) => s.sql).filter((sql) => resolved.includes(sql));
     // executed == printed with the mask swapped for the real password -- and
     // nothing else differs
-    expect(executed).to.deep.equal(printed.map((sql) => sql.split(READER_PASSWORD_MASK).join(password)));
+    expect(executed).to.deep.equal(resolved);
+  });
+
+  it("S-3: the consent screen names the reader's proof statements AND the cleanup -- the SELECT and the no-row UPDATE probe under 'run as the new reader, changes nothing', and the DROP USER that undoes a failed run (critic S-3 / probe P9; mutation: the reader group dropped from the screen -> red)", async function () {
+    const {factory} = fakeClientFactory(SUCCESS_RULES);
+    const said = [];
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, readerName: DEFAULT_READER_NAME, yes: true,
+      store: h.store(), clientFactory: factory, say: (text) => said.push(text),
+    });
+    const consent = said[0];
+    expect(consent).to.include("run as the new reader, changes nothing:");
+    // the two proof statements, under that heading, with their honest whys
+    expect(consent).to.include(`SELECT COUNT(*) AS N FROM "${SCHEMA}"."TADIR"`);
+    expect(consent).to.include(`UPDATE "${SCHEMA}"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`);
+    expect(consent).to.include("the database must refuse this with error 258");
+    // and the cleanup that undoes a failed run is named before consent
+    expect(consent).to.include(`DROP USER ${DEFAULT_READER_NAME} CASCADE`);
   });
 
   it("requires consent: no --yes and no TTY means nothing is sent (mutation: consent always given -> red)", async function () {
@@ -263,13 +285,17 @@ describe("tools/osd-hana: the dedicated reader", function () {
     const statements = log.statements.map((s) => s.sql);
     // exact shapes, in order (E1: user unquoted, schema quoted as identifier);
     // the existence-guard SELECT and the identity read come first
-    // (critics M-B, S-A)
+    // (critics M-B, S-A); then CREATE, ALTER, GRANT CATALOG READ (the
+    // administrator's three), GRANT SELECT (the owner's), and the two proofs
     expect(statements[0]).to.equal("SELECT COUNT(*) AS N FROM SYS.USERS WHERE USER_NAME = ?");
     expect(statements[1]).to.equal("SELECT SYSTEM_ID, DATABASE_NAME FROM SYS.M_DATABASE");
     expect(statements[2]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
     expect(statements[3]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
-    expect(statements[4]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
+    expect(statements[4]).to.equal("GRANT CATALOG READ TO OSD_READER");
+    expect(statements[5]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
     expect(statements.some((s) => s.includes(`FROM "${SCHEMA}"."TADIR"`))).to.equal(true);
+    // and the write proof: the UPDATE probe that must be REFUSED
+    expect(statements.some((s) => s === `UPDATE "${SCHEMA}"."TADIR" SET "PGMID" = "PGMID" WHERE 1 = 0`)).to.equal(true);
     // the password is recoverable only from the one statement that carries it
     // and from the store -- never from the return value (critic M-A)
     const password = /PASSWORD "([^"]+)"/.exec(statements[2])[1];
@@ -532,6 +558,45 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(statSync(realDir).mode & 0o777).to.equal(0o755); // not tightened through the link
   });
 
+  it("SHOULD-1 (round 2): the atomic write never deletes the destination first -- a failure at the rename leaves the PREVIOUS store intact (mutation: rm the destination before the rename -> red)", async function () {
+    // the crash property, by fault injection instead of a crash: the rename
+    // fails after the temp write (power loss in the real world); the store
+    // that was there before must still be there, entry and all -- the old
+    // writeAtomic rmSync'd the destination BEFORE the rename, so this exact
+    // fault lost every stored reader
+    const dir = join(h.root, `no-rm-first-${Math.random().toString(16).slice(2)}`);
+    const s = fileSecretStore(dir);
+    s.set({user: "OSD_READER", password: "the-first-password-1"}, "OSD_READER");
+    const before = s.get("OSD_READER");
+    const brokenRename = () => {
+      throw Object.assign(new Error("rename failed: the fault this test injects"), {code: "EFAULT"});
+    };
+    const failing = fileSecretStore(dir, {rename: brokenRename});
+    expect(() => failing.set({user: "OSD_READER", password: "the-new-password-2"}, "OSD_READER")).to.throw("rename failed");
+    // the previous entry survived, with its old value
+    expect(s.get("OSD_READER")).to.deep.equal(before);
+    expect(s.get("OSD_READER").password).to.equal("the-first-password-1");
+    // and the successful path still replaces the destination outright
+    s.set({user: "OSD_READER", password: "the-new-password-2"}, "OSD_READER");
+    expect(s.get("OSD_READER").password).to.equal("the-new-password-2");
+  });
+
+  it("NOTE-2 (round 2): a corrupt store is refused with the file named and the remedy said, in set and delete alike -- never a raw SyntaxError (mutation: bare JSON.parse -> red)", async function () {
+    const dir = join(h.root, `corrupt-${Math.random().toString(16).slice(2)}`);
+    const {mkdirSync: mk} = await import("node:fs");
+    mk(dir, {recursive: true});
+    const {writeFileSync: wr} = await import("node:fs");
+    wr(join(dir, "reader-secret.json"), "{not json at all", {mode: 0o600});
+    const s = fileSecretStore(dir);
+    for (const call of [
+      () => s.set({user: "OSD_READER", password: "pw-1"}, "OSD_READER"),
+      () => s.delete("OSD_READER"),
+      () => s.get("OSD_READER"),
+    ]) {
+      expect(call, call.toString()).to.throw(/not valid JSON -- remove it and run --create-reader again/);
+    }
+  });
+
   it("NOTE: a relative XDG_CONFIG_HOME is ignored -- the store stays under the home directory, never the current working directory (mutation: honor it -> red)", function () {
     const dir = defaultSecretStoreDir({env: {XDG_CONFIG_HOME: "relative/path"}, home: "/home/someone", platform: "linux"});
     expect(dir).to.equal(join("/home/someone", ".config", "open-steamgate", "osd-hana"));
@@ -716,16 +781,24 @@ describe("tools/osd-hana: the dedicated reader", function () {
     expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.not.equal(undefined);
   });
 
-  it("S-A: an entry written before identities were recorded still drops -- the reader logon is the proof (mutation: require an identity -> red)", async function () {
-    // old entries carry no system_identity: the reader-logon proof decides
+  it("NOTE-1 (round 2): a legacy entry that carries no system identity is REFUSED, with the hand-run line -- the logon proof alone says the password works, not that the system is the same (mutation: drop on the logon proof alone -> red)", async function () {
+    // entries written before identities were recorded: the reader logon
+    // proves the stored password works on whatever now answers this address,
+    // not that it is the system the entry was written for -- so the drop is
+    // refused and the one hand-run statement is named, secret kept
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const secretStore = h.store();
     const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
-    h.seedStore(secretStore, connection);
-    const result = await dropReader({connection, yes: true, store: secretStore, clientFactory: factory});
-    expect(result.dropped).to.equal(true);
-    expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
-    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
+    h.seedStore(secretStore, connection, DEFAULT_READER_NAME, "gone-soon-42", {system_identity: undefined}); // legacy shape: no identity recorded
+    await dropReader({connection, yes: true, store: secretStore, clientFactory: factory}).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("no system identity");
+        expect(error.message).to.include("DROP USER OSD_READER CASCADE");
+      });
+    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.not.equal(undefined);
   });
 
   it("drop-reader: DROP ... CASCADE, absence proved, secret removed (mutation: skip store.delete -> red)", async function () {
@@ -749,6 +822,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
 
   it("drop-reader on an absent user: 332 is fine, the secret still goes", async function () {
     const {log, factory} = fakeClientFactory([
+      {match: /FROM SYS\.M_DATABASE/, rows: [{SYSTEM_ID: "SYSID-FIXTURE-1", DATABASE_NAME: "TEN"}]},
       {match: /DROP USER/, error: 332, message: "invalid user name"},
       {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
     ]);
@@ -824,8 +898,14 @@ describe("tools/osd-hana: the dedicated reader", function () {
   });
 
   it("S-D: through the doctor: --encrypt and --trust-server-certificate are CLI flags that reach the connections", async function () {
+    // the sidecar must advertise the tls capability for a TLS run to start
+    // at all (the doctor refuses --encrypt against a sidecar without it) --
+    // the hdb TLS options below are the READER path's own, threaded
+    // independently of the sidecar's capability
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const code = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
+      scenario: "both",
+      handshakePatch: {capabilities: ["probe", "list", "dump", "tls"]},
       deps: {clientFactory: factory},
     });
     expect(code, h.allText()).to.equal(0);
@@ -839,7 +919,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const secretStore = h.store();
     const code = await h.runDoctor(["--create-reader", "--yes", "--json"], {
-      scenario: "owner-tenant",
+      scenario: "both",
       deps: {clientFactory: factory, store: secretStore},
     });
     expect(code, h.allText()).to.equal(0);
@@ -864,7 +944,7 @@ describe("tools/osd-hana: the dedicated reader", function () {
     const {log, factory} = fakeClientFactory(SUCCESS_RULES);
     const secretStore = h.store();
     const code = await h.runDoctor(["--create-reader", "--yes"], {
-      scenario: "owner-tenant",
+      scenario: "both",
       deps: {clientFactory: factory, store: secretStore},
     });
     expect(code).to.equal(0);
