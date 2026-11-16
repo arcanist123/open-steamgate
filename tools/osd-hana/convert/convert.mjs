@@ -117,7 +117,9 @@ export async function convert({
   out,
   listed,            // the in-scope listing rows: the ledger's spine (M1)
   preSkipped = [],   // listed rows out of scope by rule: ledger-skipped with their reason (M-1, round 2)
+  keptPaths = [],    // [{path, why}] -- mirrors protectedPaths for the refusal wording (M-5)
   roots,             // the dump's directories (a chunked dump: one per part); default [dump]
+  protectedPaths = new Set(), // repo-relative files this run must NOT overwrite (M-5: the user's, or changed since the last run)
   onLedger = () => {}, // the failure-path seam: extract keeps the ledger even when this throws (S3)
 } = {}) {
   const allRoots = roots ?? [dump];
@@ -197,7 +199,10 @@ export async function convert({
     langs.set(l, (langs.get(l) ?? 0) + 1);
   }
   const masterLanguage = [...langs.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? "E";
-  await fs.writeFile(path.join(out, ".abapgit.xml"), repoDotXml({folderLogic: logic, masterLanguage}));
+  // M-5: a .abapgit.xml the user changed (or one the marker does not list)
+  // is kept, not overwritten
+  const keptDotAbapgit = protectedPaths.has(".abapgit.xml");
+  if (!keptDotAbapgit) await fs.writeFile(path.join(out, ".abapgit.xml"), repoDotXml({folderLogic: logic, masterLanguage}));
 
   // ---- repositories of sources ----------------------------------------------
   const trdir = new Map();
@@ -539,6 +544,16 @@ export async function convert({
   // ---- write -----------------------------------------------------------------
   for (const [upperId, plan] of plans) {
     const o = claimed.get(upperId);
+    // M-5: a plan that would overwrite a kept file refuses its object -- the
+    // user's bytes win, the ledger says why nothing was written.
+    const blocked = plan.files.find((f) => protectedPaths.has(f.rel));
+    if (blocked) {
+      const e = o.entry;
+      e.status = "skipped";
+      e.reason = `not overwritten: ${blocked.rel} is kept (${protectedKeptReason(blocked.rel, keptPaths)}), this object is not written`;
+      e.parts = plan.parts;
+      continue;
+    }
     for (const f of plan.files) {
       const p = path.join(out, f.rel);
       await fs.mkdir(path.dirname(p), {recursive: true});
@@ -556,6 +571,7 @@ export async function convert({
   return {
     folderLogic: logic,
     folders: [...folders.entries()].map(([p, f]) => ({package: p, folder: `src/${f}`})),
+    keptDotAbapgit,
     entries: ledger.entries,
     unaccounted: ledger.unaccounted(),
     errors,
@@ -578,6 +594,11 @@ async function* repoLists(roots) {
   }
   for (const list of groups.values()) yield list;
 }
+
+const protectedKeptReason = (rel, kept) => {
+  const k = kept.find((x) => x.path === rel);
+  return k ? k.why : "it is not ours";
+};
 
 // abapGit's FULL folder name (zcl_abapgit_folder_logic): lower case, a
 // namespace "/" becomes "#", a leading "$" (local packages) is stripped.

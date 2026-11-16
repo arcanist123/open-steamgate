@@ -29,6 +29,8 @@
 // (a conversion/write failure or the ledger invariant -- a best-effort report
 // is still written and names the failure; never an uncaught crash).
 import fs from "node:fs/promises";
+import {readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import path from "node:path";
 import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
@@ -246,18 +248,61 @@ export async function extractMain(argv, {
     loud: (line) => io.err(line.trimEnd()),
   });
 
-  // the output directory must be fresh (only our own work area may exist)
-  const existing = await freshOutEntries(out);
-  if (existing.length > 0) {
-    io.err(`osd hana extract: refusing a non-empty output directory: ${out} holds ${existing.join(", ")}`);
+  // ---- M-5 (critic round 2): the command never deletes or overwrites what
+  // it did not create. A marker file inside .osd-hana/ records that this
+  // directory is ours and exactly what we wrote (paths with SHA-256). An
+  // <out> that holds anything else is refused (exit 4), NOTHING TOUCHED --
+  // including one with only src/ and .abapgit.xml, which the fixed name list
+  // used to clean out. On a restart only marker-listed unchanged files are
+  // replaced; a file the user changed (or one the marker does not list) is
+  // kept and reported, and the object that would overwrite it is refused per
+  // object in the ledger.
+  const markerPath = path.join(out, ".osd-hana", "marker.json");
+  let marker;
+  try {
+    marker = JSON.parse(await fs.readFile(markerPath, "utf8"));
+  } catch {
+    marker = undefined;
+  }
+  const claimedOut = marker !== undefined;
+  const foreign = await foreignOutEntries(out, claimedOut);
+  if (foreign.length > 0) {
+    io.err(`osd hana extract: refusing the output directory ${out}: it holds ${foreign.join(", ")}, and ${markerPath} does not exist to say this command created them.`
+      + " Choose an empty directory (or restore the marker); nothing was touched.");
     return EXTRACT_EXIT.refusedOut;
+  }
+  const kept = []; // {path, why} -- never overwritten, reported, protected
+  const protectedPaths = new Set();
+  if (claimedOut) {
+    // .gitignore and the report files are always this command's own output
+    // (static text, regenerated every run); src/ and .abapgit.xml obey the
+    // marker: listed and unchanged may be replaced, anything else is kept.
+    const listed = new Map((Array.isArray(marker.files) ? marker.files : []).map((f) => [f.path, f.sha256]));
+    const protect = (rel, abs) => {
+      const why = listed.has(rel)
+        ? `it changed since the last run (marker hash ${String(listed.get(rel)).slice(0, 12)}...)`
+        : "the marker of the last run does not list it";
+      kept.push({path: rel, why});
+      protectedPaths.add(rel);
+    };
+    await walkFiles(path.join(out, "src"), "src", async (rel, abs) => {
+      if (!listed.has(rel) || listed.get(rel) !== sha256File(abs)) protect(rel, abs);
+    });
+    const dotAbapgit = path.join(out, ".abapgit.xml");
+    try {
+      const rel = ".abapgit.xml";
+      if (listed.get(rel) !== sha256File(dotAbapgit)) protect(rel, dotAbapgit);
+    } catch { /* not there -- nothing to protect */ }
   }
   const listDir = path.join(out, ".osd-hana", "list");
   await fs.mkdir(path.join(out, ".osd-hana"), {recursive: true});
   // M-2: the raw dump never belongs in the repository -- <out> is an
   // abapGit-layout repository a user will `git add .` in, so the work area is
-  // ignored by name the moment it exists
+  // ignored by name the moment it exists. The provisional marker claims the
+  // directory before anything is deleted (a crashed run leaves a claim, and
+  // its final form -- the full file list -- is written at the very end).
   await fs.writeFile(path.join(out, ".gitignore"), ".osd-hana/\n");
+  await writeMarker(markerPath, {schema: 1, tool: "osd hana extract", files: [], kept});
   // the listing is derived data of this very request; the sidecar refuses a
   // non-empty --out, so a restart clears it (the DUMP is the artefact that is
   // never thrown away -- reusableDump below decides over that one)
@@ -389,11 +434,12 @@ export async function extractMain(argv, {
   }
 
   // ---- 4: convert ----------------------------------------------------------
-  // the derived repository is refreshed from what THIS run writes: a restart
-  // over a drifted dump must not leave stale files behind (they would claim
-  // content the run did not produce)
-  await fs.rm(path.join(out, "src"), {recursive: true, force: true});
-  await fs.rm(path.join(out, ".abapgit.xml"), {force: true});
+  // the derived repository is refreshed from what THIS run writes -- but only
+  // the files the marker listed unchanged (M-5): kept files stay on disk, and
+  // the conversion refuses the objects that would overwrite them. Stale files
+  // of objects that no longer convert are still removed, so a restart over a
+  // drifted dump leaves nothing that claims content this run did not produce.
+  await clearUnprotected(path.join(out, "src"), protectedPaths);
   const dumpManifest = JSON.parse(await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8"));
   // M-3: the sidecar's own errors -- per chunk (aggregate) or in the one
   // manifest -- are never dropped; each becomes a ledger line or a run-level
@@ -460,7 +506,7 @@ export async function extractMain(argv, {
   let conversion;
   let ledgerAtFailure; // the S3 promise: even a mid-run failure keeps its ledger for the report
   try {
-    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, preSkipped: unknownClassRows, roots: dumpRoots.length > 0 ? dumpRoots : undefined, onLedger: (l) => { ledgerAtFailure = l; }});
+    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, preSkipped: unknownClassRows, roots: dumpRoots.length > 0 ? dumpRoots : undefined, protectedPaths, keptPaths: kept, onLedger: (l) => { ledgerAtFailure = l; }});
   } catch (error) {
     const entries = ledgerAtFailure?.entries ?? [];
     const reportDoc = {
@@ -521,6 +567,7 @@ export async function extractMain(argv, {
     unknown_class: unknownClassRows.length,
     dump_errors: runLevelDumpErrors,
     dump_partial: dumpPartial || dumpErrors.length > 0,
+    kept,
     duration_ms: durationMs,
     notice: flags["include-sap"] === true
       ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it."
@@ -539,6 +586,21 @@ export async function extractMain(argv, {
     reportDoc.sentence = sentence(totalsDoc);
   }
   await writeReport(out, reportDoc);
+
+  // ---- M-5: the marker's final form -- everything this run wrote, hashed ----
+  {
+    const files = [];
+    // per-object files carry their hash from the conversion
+    for (const e of conversion.entries) for (const f of e.files ?? []) files.push({path: f.path, sha256: f.sha256, bytes: f.bytes});
+    for (const rel of [".abapgit.xml", ".gitignore", "extract-report.json", "extract-report.md"]) {
+      const abs = path.join(out, rel);
+      try {
+        const st = await fs.stat(abs);
+        files.push({path: rel, sha256: sha256File(abs), bytes: st.size});
+      } catch { /* absent -- not ours to list */ }
+    }
+    await writeMarker(markerPath, {schema: 1, tool: "osd hana extract", finished: now().toISOString(), files, kept});
+  }
 
   if (flags["include-sap"] === true) io.out("NOTICE: this extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it.");
   io.out(`extract-report: ${path.join(out, "extract-report.md")}`);
@@ -655,7 +717,11 @@ async function readJsonl(file) {
   return out;
 }
 
-async function freshOutEntries(out) {
+// M-5: entries of <out> this command may touch. ".osd-hana" is always the
+// work area; every other name counts as ours only when the marker of a
+// previous run exists -- a directory holding only src/ and .abapgit.xml is
+// exactly the user's project that must be refused, not cleaned.
+async function foreignOutEntries(out, claimed) {
   let entries;
   try {
     entries = await fs.readdir(out);
@@ -663,10 +729,61 @@ async function freshOutEntries(out) {
     if (e.code === "ENOENT") return [];
     throw e;
   }
-  // entries this command itself may have written (a restart over a previous
-  // extraction of the same scope); anything else means the directory is in use
-  const ours = new Set([".osd-hana", ".abapgit.xml", ".gitignore", "src", "extract-report.json", "extract-report.md"]);
+  const ours = new Set(claimed
+    ? [".osd-hana", ".abapgit.xml", ".gitignore", "src", "extract-report.json", "extract-report.md"]
+    : [".osd-hana"]);
   return entries.filter((e) => !ours.has(e));
+}
+
+function sha256File(absPath) {
+  return createHash("sha256").update(readFileSync(absPath)).digest("hex");
+}
+
+// visit every file under `root` (which may not exist) as `<prefix>/<rel>`
+async function walkFiles(root, prefix, visit) {
+  let entries;
+  try {
+    entries = await fs.readdir(root, {withFileTypes: true});
+  } catch (e) {
+    if (e.code === "ENOENT") return;
+    throw e;
+  }
+  for (const e of entries) {
+    const abs = path.join(root, e.name);
+    const rel = `${prefix}/${e.name}`;
+    if (e.isDirectory()) await walkFiles(abs, rel, visit);
+    else if (e.isFile()) await visit(rel, abs);
+  }
+}
+
+// delete everything under `root` EXCEPT the protected relative paths, then
+// prune the directories left empty (M-5: kept files are never touched)
+async function clearUnprotected(root, protectedPaths) {
+  const doomed = [];
+  await walkFiles(root, "src", (rel, abs) => {
+    if (!protectedPaths.has(rel)) doomed.push(abs);
+  });
+  for (const abs of doomed) await fs.rm(abs, {force: true});
+  await pruneEmptyDirs(root);
+}
+
+async function pruneEmptyDirs(root) {
+  let entries;
+  try {
+    entries = await fs.readdir(root, {withFileTypes: true});
+  } catch (e) {
+    if (e.code === "ENOENT") return;
+    throw e;
+  }
+  for (const e of entries) {
+    if (e.isDirectory()) await pruneEmptyDirs(path.join(root, e.name));
+  }
+  const left = await fs.readdir(root);
+  if (left.length === 0) await fs.rmdir(root);
+}
+
+async function writeMarker(markerPath, doc) {
+  await fs.writeFile(markerPath, `${JSON.stringify(doc, null, 1)}\n`);
 }
 
 // The enclosing git working tree (directory or gitfile), or undefined.

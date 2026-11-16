@@ -1029,8 +1029,9 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(rep.kept.map((k) => k.path)).to.include("src/osd_x/zosd_x3.prog.abap");
     const md = readOutReport(out);
     expect(md).to.match(/kept/);
-    // everything else was refreshed normally
-    expect(rep.objects.find((o) => o.name === "ZCL_OSD_X1").status).to.equal("written-partial");
+    // everything else was refreshed normally (the CLAS is written-partial for
+    // its own reasons -- SHOULD-1 --, not because of the kept file)
+    expect(rep.objects.find((o) => o.name === "ZCL_OSD_X1").status).to.match(/^written/);
   });
 
   it("SHOULD-2: --sidecar-pin is a foreign pin -- refused without the flag, unpinned with it (mutation: the foreign pin is trusted)", async function () {

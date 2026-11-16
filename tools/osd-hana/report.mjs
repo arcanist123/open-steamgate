@@ -110,6 +110,14 @@ export function renderMdReport(doc) {
     for (const e of doc.dump_errors ?? []) lines.push(`- ${typeof e === "string" ? e : JSON.stringify(e)}`);
     if (doc.dump_partial === true && (doc.dump_errors?.length ?? 0) === 0) lines.push("- the sidecar ended with exit 3 (partial) without naming objects");
   }
+  if (doc.kept?.length > 0) {
+    lines.push("");
+    lines.push("## kept: files this run did not touch");
+    lines.push("");
+    lines.push("These files are on disk under `src/` (or as `.abapgit.xml`) and the marker of the last run does not vouch for them, so this run kept every byte and refused the objects that would have overwritten them. If they are yours, keep them; if they are leftovers of an interrupted run, remove the output directory and re-run.");
+    lines.push("");
+    for (const k of doc.kept) lines.push(`- ${k.path} -- ${k.why}`);
+  }
   if (doc.errors.length > 0) {
     lines.push("");
     lines.push("## errors");
