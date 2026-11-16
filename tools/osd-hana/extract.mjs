@@ -591,7 +591,11 @@ export async function extractMain(argv, {
   // for exactly the listing's in-scope count -- totals that do not add up are
   // an internal error, never a silently wrong report
   if (conversion.unaccounted.length > 0 || totalsDoc.accounts !== true) {
-    reportDoc.ledger_error = `the ledger accounts for ${conversion.entries.length - conversion.unaccounted.length} of ${plan.inScope} in-scope objects`;
+    const mismatch = accountsFor(scopeIds, conversion.entries);
+    reportDoc.ledger_error = `the ledger does not match the listing: ${conversion.unaccounted.length} unaccounted`
+      + `${mismatch.duplicates.length ? `, duplicate ledger keys: ${mismatch.duplicates.join(", ")}` : ""}`
+      + `${mismatch.missing.length ? `, missing from the ledger: ${mismatch.missing.join(", ")}` : ""}`
+      + `${mismatch.extra.length ? `, in the ledger but not in scope: ${mismatch.extra.join(", ")}` : ""}`;
   } else if (dumpErrors.length > 0 || dumpPartial) {
     // M-3: "all written" would be a lie while the sidecar itself reported
     // that it could not deliver everything

@@ -91,30 +91,42 @@ check, one place) and changes nothing.
 an abapGit-layout repository (an `.abapgit.xml` and `src/`) that abapGit can
 clone, diff and deploy:
 
-1. **Scope** — the objects the SIDECAR classifies as customer, local packages
-   included (`--no-local` leaves them out; on a trial system that is where
-   people's work lives). `--package`, `--name` (repeatable) and `--author`
-   narrow it; the request they build is schema-1 JSON the sidecar validates
-   field by field. SAP-delivered objects are extracted only with
-   `--include-sap` together with an explicit `--package` or `--name` — then
-   the output directory AND the dump directory must not sit inside a git
-   working tree (extract refuses), and the report and the console carry the
-   notice that the content is the vendor's and must not be published. Table
-   CONTENTS are not extracted; the sidecar's `tables` request field stays
-   reserved.
+1. **Scope** — fails CLOSED: in scope are exactly the objects the sidecar
+   classifies as `customer` (local packages included; `--no-local` leaves
+   them out). A missing, unknown or differently-cased class is NOT customer:
+   the object is left out, listed as `skipped: unknown-class`, and the run
+   says the sidecar may be newer than this module. `--package`, `--name`
+   (repeatable) and `--author` narrow the selection; the request they build
+   for `list` is schema-1 JSON the sidecar validates field by field.
+   SAP-delivered objects are extracted only with `--include-sap` together
+   with an explicit `--package` or `--name` — then the output directory AND
+   the dump directory must not sit inside a git working tree (extract
+   refuses), and the report and the console carry the notice that the
+   content is the vendor's and must not be published. Table CONTENTS are not
+   extracted; the sidecar's `tables` request field stays reserved.
 2. **Plan** — the sidecar's `list` (no sources read) becomes a per-type and
    per-package table with counts and byte estimates, and names the types the
    converter cannot write. `--dry-run` stops here; `--json` prints the plan
-   as one document.
-3. **Dump** — the sidecar's `dump` into `<out>/.osd-hana/dump` (or
-   `--dump-dir`, which may not be the output directory or inside it — the raw
-   dump would mix into the repository), with `ddic` so tables, data elements,
-   domains, search helps and views come along. Restartable: an existing dump
-   whose manifest echoes the same request and finished without errors is
-   reused; anything else is refused, never mixed. On a restart the live
-   listing is compared with the reused dump's own object list and any drift
-   (objects appeared or disappeared since the dump) is reported in the
-   report; `src/` and `.abapgit.xml` are refreshed, never left stale.
+   as one document. Names from the database never reach the terminal or the
+   report raw: control characters are printed escaped, never interpreted.
+3. **Dump** — the dump request NAMES the in-scope objects of the listing:
+   exact names, sorted, LIKE-escaped (the sidecar matches
+   `LIKE ? ESCAPE '\'`), in chunks of 500 (one request, one directory per
+   chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) so
+   a big selection cannot blow the sidecar's SQL parameter limit — and never
+   the user's patterns, so nothing of the vendor's is fetched unless
+   `--include-sap` asked for it. After the dump, every object the dump
+   fetched WITH sources on disk is checked against the scope set: anything
+   outside it refuses the run (exit 4), names the dump directory so it can
+   be removed, and writes nothing. `<out>/.gitignore` carries `.osd-hana/`
+   from the first moment — the raw dump never belongs in the repository.
+   Restartable: an existing dump whose aggregate manifest echoes the same
+   request selection (canonically compared; the names may drift with the
+   listing) and finished without errors is reused; anything else is refused,
+   never mixed. On a restart the live listing is compared with the reused
+   dump's own object list and any drift (objects appeared or disappeared
+   since the dump) is reported in the report; `src/` and `.abapgit.xml` are
+   refreshed — see the marker rule in 4.
 4. **Convert** — the dump becomes the repository: folder logic PREFIX when
    the package names allow it (one hierarchy, every child
    `<parent>_<suffix>`), otherwise FULL — and under FULL every package's
