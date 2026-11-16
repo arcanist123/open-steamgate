@@ -242,7 +242,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const text = h.allText();
       expect(text).to.include("tenant database");
       expect(text).to.include("TESTSCHEMA");
-      expect(text).to.include("release 7.57");
+      expect(text).to.include("release 757/0000000001");
       expect(text).to.include("clients 100, 200");
       expect(text).to.include("1234 source rows");
       expect(text).to.include("2345 repository objects");
@@ -763,8 +763,9 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(redact(`{"user":"TESTLOGIN"}`)).to.equal(`{"user":"***"}`);
       expect(redact(`WHERE S = '${SCHEMA}'`)).to.not.include(SCHEMA);
       expect(redact("nothing secret here")).to.equal("nothing secret here");
-      expect(canWrite({non_select_on_schema: {kinds: ["USER ADMIN"]}})).to.equal(true);
-      expect(canWrite({non_select_on_schema: false})).to.equal(false);
+      // the real probe document says it PER SCHEMA (non_select_on_schema + non_select_kinds)
+      expect(canWrite({login_class: "other", abap_schemas: [{schema: SCHEMA, owned_by_login: false, non_select_on_schema: true, non_select_kinds: ["INSERT"]}]})).to.equal(true);
+      expect(canWrite({login_class: "other", abap_schemas: [{schema: SCHEMA, owned_by_login: false, non_select_on_schema: false}]})).to.equal(false);
     });
 
     it("NOTE: the courtesy check's source holds hex digests only -- no plaintext defaults anywhere in the file (mutation: keep the literals -> red)", async function () {

@@ -22,6 +22,7 @@ because the sidecar is read-only by construction and cannot create a user.
 | `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64), the capabilities, and the public release URL + asset name per target |
 | `fetch-sidecar.mjs` | the BUILD-time fetcher: downloads the pinned release asset per target, verifies SHA-256 against the pin, writes it atomically. Never reached from the `osd hana` verbs |
 | `connect.mjs` | connection input: `--host --port --database --user`, `--env-file`, `--password-stdin`, hidden TTY prompt. **No `--password` flag, ever** (argv is visible to every user of the machine). The password channels, in order: `--password-stdin` > `HANA_PASSWORD` in the env file > `$OSD_HANA_PASSWORD` > the hidden prompt (TTY only); a run with none of them is a refusal that names all four |
+| `probe-doc.mjs` | reads the sidecar's `probe` document, in ONE place, by the real binary's field names (`abap_schemas[].schema`, per-schema `non_select_on_schema` / `abap_attached`, `login_class`, `admin_privileges`, `notes`); records what the document did not report, and turns the sidecar's "... not readable" notes into UNKNOWN (never a 0 or a "can only read"); other notes are printed verbatim |
 | `verdict.mjs` | the plain-language verdict and the `--json` document, from one source so they cannot disagree |
 | `reader.mjs` | the dedicated read-only user: `--create-reader` / `--drop-reader` (the only non-SELECT statements in the module, sent over `hdb`, never the sidecar) |
 | `secret-store.mjs` | where the reader's credentials live: a `get/set/delete` interface; the CLI default is a file under the user's config directory, `0600` in a `0700` directory, enforced with fchmod even when it already existed. The extension will inject VS Code SecretStorage behind the same interface |
@@ -65,7 +66,8 @@ because the sidecar is read-only by construction and cannot create a user.
 
 The doctor's own exit codes: **0** ready to extract, **1** usage or setup
 (flag errors, sidecar not found / refused, consent declined), **2** cannot
-connect or log on, **5** no ABAP schema found.
+connect or log on, **5** no ABAP schema readable by this login, or the
+sidecar could not examine the database (the message says which).
 
 ### TLS
 
@@ -106,7 +108,38 @@ Said so a person who has never seen HANA can act on it: reachable? tenant or
 system database? ABAP schema found? release, clients, repository size; is an
 ABAP server still attached (informational); what kind of login this is
 (schema owner / administrator / other) and whether it can do more than read.
-`--json` prints the same findings as one JSON document (never the password).
+`--json` prints the same findings as one JSON document (never the password):
+`probe` is the sidecar's document as it came, `verdict` is what the doctor read
+from it, and `verdict.missing` names what the sidecar did not report.
+
+Four rules about the probe document (`probe-doc.mjs`):
+
+- **A value the sidecar could not read is unknown, not zero.** The sidecar
+  leaves it at `0` / `false` and adds a note (`<schema>: REPOSRC not
+  readable`, `<schema>: TADIR not readable`, `<schema>: privileges not
+  readable`, `system privileges not readable`). The doctor then says "not
+  readable with this login" for a count, "could not determine whether this
+  login can write" instead of "can only read", and the `--create-reader` flow
+  asks whether the login is an administrator instead of assuming
+  (`verdict.unknown` in `--json`). A note it does not recognise is printed
+  verbatim under the verdict.
+
+- **A missing field is said, not guessed.** When the document lacks something
+  the verdict needs, the doctor prints "NOT REPORTED by the sidecar: ..." and
+  assumes nothing — it never renders an absent field as "none", "no" or "can
+  only read".
+- **"No ABAP schema" is claimed only when the document positively says so**:
+  the sidecar exits 5 with its probe document and `abap_schemas: null` ("no
+  ABAP schema readable by this login" — a login without `SELECT` on the schema
+  sees none, so the doctor names the schema owner or an administrator as the
+  way on). Exit 5 with the sidecar's error line instead means it could not
+  examine the database at all; the doctor says exactly that, and that it is
+  not a finding. An answer with no `abap_schemas` key at all is a disagreement
+  between the binary and this module: exit 1, said as such.
+- **Several ABAP schemas** in one database are all listed (each with its own
+  "attached" line); `--create-reader` then needs `--schema`. With `--schema`
+  the sidecar looks only at that one. Exit 5 therefore means "no ABAP schema
+  readable by this login, or the sidecar could not examine the database".
 
 The doctor never refuses a login because it is powerful: every session the
 sidecar opens is read-only at the database level, so extraction is safe with
@@ -314,8 +347,9 @@ file + rename). The rules it holds:
 
 ## Tests
 
-`test/osd-hana-doctor.mjs` (sidecar handling, verdicts, TLS capability,
-connection input), `test/osd-hana-fetch.mjs` (the build-time fetcher:
+`test/osd-hana-contract.mjs` (the recorded sidecar contracts; the doctor on
+the real probe document), `test/osd-hana-doctor.mjs` (sidecar handling,
+verdicts, TLS capability, connection input), `test/osd-hana-fetch.mjs` (the build-time fetcher:
 download + verify + atomic write, the mismatch refusal, the cached hit, the
 offline mode, the refused redirect, the truncated download, the unknown
 target, the not-a-runtime-tool guard — against a local HTTP server on
@@ -330,3 +364,22 @@ it is run as) and a FAKE `hdb` client (`test/osd-hana/fake-client.mjs`,
 scripted per login) injected through the reader's `clientFactory` seam.
 Every guard has a named mutation behind it, each confirmed RED. No network,
 no database.
+
+**The fakes are recorded contracts, not guesses.** `test/osd-hana/contract/`
+holds what the pinned binary really printed (`--version --json`, a successful
+`probe`, a refused logon, a refused connection — identifiers replaced, field
+names, nesting, value types and exit codes untouched) and `fields.json`, which
+lists every key a probe document may carry and where the knowledge comes from
+(`recorded`, the sidecar's own `source` at the pinned tag, or `announced` for a
+later version). The fake sidecar serves these documents with VALUES varied;
+`test/osd-hana-contract.mjs` fails when a scenario carries a key that file
+does not list. The first version of the doctor read names only the fake spoke,
+and was green on every test while answering "no ABAP schema" on a healthy
+database — that is what this arrangement exists to prevent.
+**To re-record** (required whenever `sidecar.lock.json` moves to a new
+version): fetch the pinned binary with `fetch-sidecar.mjs`, run the four
+commands the contract README names against a database with an ABAP schema
+(password only through `OSD_HANA_PASSWORD`), replace every identifier with a
+synthetic one, update `fields.json` from the sidecar's README and `probe.go`
+at the new tag, and run one real `osd hana doctor` — exit 0 and a full verdict
+is the acceptance.

@@ -1,0 +1,1 @@
+{"exit": 2, "document": {"error":"connect hana.example.test:39015 as TESTLOGIN: SQL Error 10 - authentication failed: Detailed info for this error can be found with correlation ID '00000000000000000000000000000001' (statement no: 0)","exit":2,"ok":false}}

@@ -2,7 +2,7 @@
 // test/osd-hana-reader.mjs): the FAKE sidecar bed, the io capture and the
 // constants. Fakes only -- no network, no database.
 import {createHash} from "node:crypto";
-import {chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -13,6 +13,7 @@ import {fileSecretStore} from "../../tools/osd-hana/secret-store.mjs";
 import {readerStoreKey} from "../../tools/osd-hana/reader.mjs";
 
 export const FAKE_SIDECAR = fileURLToPath(new URL("./fake-sidecar.mjs", import.meta.url));
+export const CONTRACT_DIR = fileURLToPath(new URL("./contract/", import.meta.url));
 export const PASSWORD = "correct-horse-battery-staple-42";
 export const USER = "TESTLOGIN";
 export const HOST = "hana.example.test";
@@ -55,7 +56,9 @@ export function makeHarness() {
     h.root = mkdtempSync(join(tmpdir(), "osd-hana-test-"));
     h.fakePath = join(h.root, "fake-sidecar");
     // The fake must be spawnable directly, like the real Go binary.
-    copyFileSync(FAKE_SIDECAR, h.fakePath);
+    // The copy cannot find the recorded contracts beside itself, so their
+    // directory is baked into it (the fake serves only recorded documents).
+    writeFileSync(h.fakePath, readFileSync(FAKE_SIDECAR, "utf8").replace("__CONTRACT_DIR__", CONTRACT_DIR.replaceAll("\\", "\\\\")));
     chmodSync(h.fakePath, 0o755);
     h.pinPath = h.makePin();
     h.recordPath = join(h.root, "record.ndjson");
@@ -78,6 +81,7 @@ export function makeHarness() {
     deps = {},
     pin = h.pinPath,
     argvPin,
+    schemaArg = true, // false: run without --schema (the probe then reports every ABAP schema)
   } = {}) => {
     const capturedIo = h.captureIo();
     h.out = capturedIo.lines.out;
@@ -102,7 +106,7 @@ export function makeHarness() {
       ...(env.FAKE_SIDECAR_ECHO_SCHEMA !== undefined ? {FAKE_SIDECAR_ECHO_SCHEMA: env.FAKE_SIDECAR_ECHO_SCHEMA} : {}),
     };
     return doctorMain([
-      "--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA,
+      "--host", HOST, "--port", "39015", "--user", USER, ...(schemaArg ? ["--schema", SCHEMA] : []),
       ...(argvPin !== undefined ? ["--sidecar-pin", argvPin] : []),
     ].concat(argv), {
       io: capturedIo.io,
