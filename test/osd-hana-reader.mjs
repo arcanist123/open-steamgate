@@ -176,15 +176,17 @@ describe("tools/osd-hana: the dedicated reader", function () {
     });
     const statements = log.statements.map((s) => s.sql);
     // exact shapes, in order (E1: user unquoted, schema quoted as identifier);
-    // the existence-guard SELECT comes first (critic M-B)
+    // the existence-guard SELECT and the identity read come first
+    // (critics M-B, S-A)
     expect(statements[0]).to.equal("SELECT COUNT(*) AS N FROM SYS.USERS WHERE USER_NAME = ?");
-    expect(statements[1]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
-    expect(statements[2]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
-    expect(statements[3]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
+    expect(statements[1]).to.equal("SELECT SYSTEM_ID, DATABASE_NAME FROM SYS.M_DATABASE");
+    expect(statements[2]).to.match(/^CREATE USER OSD_READER PASSWORD "[A-Za-z0-9]{28}" NO FORCE_FIRST_PASSWORD_CHANGE$/);
+    expect(statements[3]).to.equal("ALTER USER OSD_READER DISABLE PASSWORD LIFETIME");
+    expect(statements[4]).to.equal(`GRANT SELECT ON SCHEMA "${SCHEMA}" TO OSD_READER`);
     expect(statements.some((s) => s.includes(`FROM "${SCHEMA}"."TADIR"`))).to.equal(true);
     // the password is recoverable only from the one statement that carries it
     // and from the store -- never from the return value (critic M-A)
-    const password = /PASSWORD "([^"]+)"/.exec(statements[1])[1];
+    const password = /PASSWORD "([^"]+)"/.exec(statements[2])[1];
     expect(result.password).to.equal(undefined);
     expect(result.user).to.equal(DEFAULT_READER_NAME);
     expect(result.schema).to.equal(SCHEMA);
@@ -437,6 +439,139 @@ describe("tools/osd-hana: the dedicated reader", function () {
     s.delete("OSD_READER");
     expect(s.get("OSD_READER")).to.equal(undefined);
     expect(s.get("OTHER")).to.deep.equal({x: 1}); // another reader's secret stays
+  });
+
+  it("S-A: --create-reader records the system's identity next to the secret (critic S-A; mutation: store no identity -> red)", async function () {
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    await createReader({connection, schema: SCHEMA, yes: true, store: secretStore, clientFactory: factory});
+    // the identity was read from the catalogue, with bound columns, and
+    // travels inside the stored entry
+    const identityRead = log.statements.find((s) => s.sql.includes("FROM SYS.M_DATABASE"));
+    expect(identityRead.sql).to.include("SYSTEM_ID");
+    expect(identityRead.sql).to.include("DATABASE_NAME");
+    const stored = secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME));
+    expect(stored.system_identity).to.deep.equal({
+      system_id: "SYSID-FIXTURE-1", database_name: "TEN",
+    });
+  });
+
+  it("S-A: --drop-reader first logs on AS THE READER with the stored password; only then does the administrator DROP (critic S-A; mutation: drop without the reader logon -> red)", async function () {
+    // one event stream across both connections: connect (with its options)
+    // and exec in the order they happened
+    const events = [];
+    const factory = async (options) => {
+      events.push({type: "connect", options});
+      return {
+        exec: async (sql, params = []) => {
+          events.push({type: "exec", sql, params});
+          for (const rule of SUCCESS_RULES) {
+            if (rule.match.test(sql)) return {rows: rule.rows ?? []};
+          }
+          return {rows: []};
+        },
+        disconnect: async () => {},
+      };
+    };
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    h.seedStore(secretStore, connection, DEFAULT_READER_NAME, "gone-soon-42", {
+      system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"},
+    });
+    const result = await dropReader({connection, yes: true, store: secretStore, clientFactory: factory});
+    expect(result.dropped).to.equal(true);
+    // the proof: a connection AS THE READER with the stored password, opened
+    // BEFORE the administrator's DROP -- and the identity comparison also
+    // precedes the DROP
+    const dropIndex = events.findIndex((e) => e.type === "exec" && e.sql.startsWith("DROP USER"));
+    expect(dropIndex).to.not.equal(-1);
+    const proofConnect = events.findIndex((e) => e.type === "connect" && e.options.user === DEFAULT_READER_NAME);
+    expect(proofConnect).to.not.equal(-1);
+    expect(proofConnect).to.be.below(dropIndex);
+    // the proof connection logged on as the reader with the STORED password,
+    // on exactly this host and port
+    expect(events[proofConnect].options.password).to.equal("gone-soon-42");
+    expect(events[proofConnect].options.host).to.equal(HOST);
+    expect(events[proofConnect].options.port).to.equal(39015);
+    const identityIndex = events.findIndex((e) => e.type === "exec" && e.sql.includes("FROM SYS.M_DATABASE"));
+    expect(identityIndex).to.not.equal(-1);
+    expect(identityIndex).to.be.below(dropIndex);
+    // the administrator connection is what sends the DROP
+    const adminConnect = events.findIndex((e) => e.type === "connect" && e.options.user === USER);
+    expect(adminConnect).to.not.equal(-1);
+    expect(adminConnect).to.be.below(dropIndex);
+  });
+
+  it("S-A: a reader logon that fails means refuse -- the one hand-run SQL line, NO DROP, the secret stays (mutation: drop anyway -> red)", async function () {
+    // whatever answers on this host/port/database now does not accept the
+    // stored password as the reader: this tool cannot prove the user is the
+    // one its store created, so it must not drop it
+    const log = {connections: [], statements: []};
+    const factory = async (options) => {
+      log.connections.push(options);
+      if (options.user === DEFAULT_READER_NAME) {
+        throw Object.assign(new Error("logon failed: invalid username or password"), {code: 401});
+      }
+      return {
+        exec: async (sql, params = []) => {
+          log.statements.push({sql, params});
+          return {rows: []};
+        },
+        disconnect: async () => {},
+      };
+    };
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    h.seedStore(secretStore, connection, DEFAULT_READER_NAME, "gone-soon-42", {
+      system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"},
+    });
+    await dropReader({connection, yes: true, store: secretStore, clientFactory: factory}).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("DROP USER OSD_READER CASCADE");
+        expect(error.message).to.include("log on");
+      });
+    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.not.equal(undefined);
+  });
+
+  it("S-A: a different system identity behind the same host/port/database means refuse -- hand-run line, NO DROP, the secret stays (mutation: skip the identity check -> red)", async function () {
+    // an ssh tunnel moved: the entry was written on system A; whatever
+    // answers localhost:39015 today is system B -- the reader logon may even
+    // succeed there (restored backup), the identity must not match
+    const {log, factory} = fakeClientFactory([
+      {match: /FROM SYS\.M_DATABASE/, rows: [{SYSTEM_ID: "SYSID-OTHER-9", DATABASE_NAME: "TEN"}]},
+      {match: /DROP USER/, rows: []},
+      {match: /FROM SYS\.USERS/, rows: [{N: 0}]},
+    ]);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    h.seedStore(secretStore, connection, DEFAULT_READER_NAME, "gone-soon-42", {
+      system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"},
+    });
+    await dropReader({connection, yes: true, store: secretStore, clientFactory: factory}).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error).to.be.an.instanceof(ReaderError);
+        expect(error.message).to.include("DROP USER OSD_READER CASCADE");
+        expect(error.message).to.include("identifies as");
+      });
+    expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.not.equal(undefined);
+  });
+
+  it("S-A: an entry written before identities were recorded still drops -- the reader logon is the proof (mutation: require an identity -> red)", async function () {
+    // old entries carry no system_identity: the reader-logon proof decides
+    const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    h.seedStore(secretStore, connection);
+    const result = await dropReader({connection, yes: true, store: secretStore, clientFactory: factory});
+    expect(result.dropped).to.equal(true);
+    expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
+    expect(secretStore.get(readerStoreKey(connection, DEFAULT_READER_NAME))).to.equal(undefined);
   });
 
   it("drop-reader: DROP ... CASCADE, absence proved, secret removed (mutation: skip store.delete -> red)", async function () {

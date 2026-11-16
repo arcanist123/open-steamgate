@@ -214,6 +214,23 @@ async function countUsersNamed(client, name) {
   return Number(rows[0]?.N ?? 0);
 }
 
+// The installation identity, read at create time and compared at drop time
+// (critic S-A): SYSTEM_ID identifies the HANA installation uniquely and
+// survives restarts; DATABASE_NAME names the tenant. HOST and START_TIME are
+// deliberately NOT compared -- HOST is whichever node answered (it moves in a
+// scale-out or after a failover) and START_TIME is the last restart (it
+// changes every boot); neither identifies the system, and comparing them
+// would refuse every legitimate drop after an ordinary restart.
+async function readSystemIdentity(client) {
+  const {rows} = await client.exec(`SELECT SYSTEM_ID, DATABASE_NAME FROM SYS.M_DATABASE`);
+  const row = rows[0] ?? {};
+  return {system_id: row.SYSTEM_ID, database_name: row.DATABASE_NAME};
+}
+
+function sameSystemIdentity(a, b) {
+  return a?.system_id === b?.system_id && a?.database_name === b?.database_name;
+}
+
 // Best-effort cleanup. A 332 here means the user is absent (E1: after a
 // failed create every statement about the reader answers 332 invalid user
 // name) -- that is the success case for a cleanup, not an error.
@@ -322,6 +339,19 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       throw new ReaderError(describeNameTaken(readerName));
     }
 
+    // 0b. Record the installation identity BEFORE anything is created: the
+    // entry stored below carries it, and --drop-reader compares it back
+    // (critic S-A). A read failure here is a refusal, not a half-created
+    // reader: nothing exists yet, so there is nothing to clean up.
+    let systemIdentity;
+    try {
+      systemIdentity = await readSystemIdentity(adminClient);
+    } catch (error) {
+      throw new ReaderError(`osd hana: could not read the system's identity from SYS.M_DATABASE -- ${sqlErrorText(error)}\n` +
+        `  Refusing to create the reader without it: --drop-reader would have no identity to compare against, ` +
+        `and an entry without one is how a drop lands on the wrong system. Nothing was created.`);
+    }
+
     // 1. CREATE USER ... -- the one statement with the password on the wire.
     try {
       await adminClient.exec(`CREATE USER ${readerName} PASSWORD ${quotePasswordLiteral(password)} NO FORCE_FIRST_PASSWORD_CHANGE`);
@@ -375,7 +405,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       const storedAt = new Date().toISOString();
       store.set(
         {user: readerName, password, schema, host: connection.host, port: connection.port,
-          database: connection.database, stored_at: storedAt},
+          database: connection.database, stored_at: storedAt, system_identity: systemIdentity},
         readerStoreKey(connection, readerName));
       say(`osd hana: the reader's credentials are stored in ${store.location(readerName)}.`);
       return {user: readerName, schema, storedAt};
@@ -402,11 +432,24 @@ function cleanupDropFailedText(cleanup) {
   return `The drop of the reader failed too: ${sqlErrorText(cleanup.error)}.`;
 }
 
+// A refused drop always says the same three things: why the proof failed,
+// that the secret stays in the store, and the one statement an administrator
+// can run by hand when they KNOW the user is theirs (critic S-A: a failed
+// proof never costs the owner their record).
+function refuseDropText(readerName, why, connection) {
+  return `osd hana: refusing to drop ${readerName}: ${why}.\n` +
+    `  The stored secret stays in the store -- it costs nothing and it is removed the moment a drop is allowed.\n` +
+    `  If you are sure the user ${readerName} on ${connection.host}:${connection.port}` +
+    `${connection.database ? `/${connection.database}` : ""} is yours to remove, run this one statement by hand, ` +
+    `as a database administrator:\n` +
+    `  DROP USER ${readerName} CASCADE`;
+}
+
 // --------------------------------------------------------------- drop path
 
-/** Drop the reader: DROP USER <name> CASCADE, prove absence, remove the
- *  stored secret. The guards, in order, and each before anything is sent
- *  (critic M-2):
+/** Drop the reader: prove ownership, DROP USER <name> CASCADE, prove
+ *  absence, remove the stored secret. The guards and proofs, in order, and
+ *  each before anything is sent (critics M-2, S-A):
  *
  *  1. the name must match ^OSD_[A-Z0-9_]{1,26}$ -- a name that is not ours
  *     never reaches DROP USER;
@@ -416,7 +459,15 @@ function cleanupDropFailedText(cleanup) {
  *  3. the secret store must hold an entry for exactly this host + port +
  *     database + name -- the record --create-reader wrote. Otherwise the tool
  *     refuses and prints the one SQL line an administrator can run by hand.
- *     There is deliberately no force flag.
+ *     There is deliberately no force flag;
+ *  4. the stored password must log on AS THE READER to this host/port/
+ *     database (proof the user is the one this store created) and, when the
+ *     entry carries one, the system identity recorded at create time must
+ *     match SYS.M_DATABASE now -- host + port + database is an address, not
+ *     an identity. A failed proof refuses, prints the hand-run line and
+ *     KEEPS the secret;
+ *  5. then consent, the DROP with the administrator login, the absence proof,
+ *     and the store entry goes.
  *
  *  A 332 from the DROP means the user was already absent -- still prove it,
  *  still remove the secret, and say so. */
@@ -449,18 +500,58 @@ export async function dropReader({
       `and you are sure it is yours to remove, run this one statement by hand, as a database administrator:\n` +
       `  DROP USER ${readerName} CASCADE`);
   }
+
+  // Ownership proof, part 1 (critic S-A): log on AS THE READER with the
+  // stored password, to this exact host/port/database. Success proves a user
+  // of this name with this password lives on the system the entry was
+  // written for; failure means this tool cannot prove the user is the one
+  // its store created, and it must not drop it.
+  let proofClient;
+  try {
+    proofClient = await clientFactory(hdbConnectionOptions(connection, {user: readerName, password: stored.password}));
+    await proofClient.exec(`SELECT 1 AS ONE FROM DUMMY`);
+  } catch (error) {
+    throw new ReaderError(refuseDropText(readerName,
+      `the stored password did not log on as ${readerName} on this host, port and database ` +
+      `(${sqlErrorText(error)}) -- whatever user carries this name here, this tool cannot prove it is the one its store created`,
+      connection));
+  } finally {
+    if (proofClient !== undefined) await proofClient.disconnect();
+  }
+
   const lines = [
     `osd hana: about to drop the dedicated reader ${readerName} (DROP USER ${readerName} CASCADE),`,
     `  prove its absence in SYS.USERS, and remove its stored secret`,
     `  from ${store.location(readerName)}.`,
-    `  This is allowed because the secret store holds the entry this tool wrote for exactly`,
-    `  this host, port and database -- the only user it will ever drop.`,
+    `  The stored password just logged on as ${readerName} on this host, port and database -- the user`,
+    `  is the one this tool's store created. The system identity recorded at create time will be`,
+    `  compared before the DROP, and the DROP itself runs with the administrator login.`,
   ].join("\n");
   say(lines);
   await askConsent({yes, isTTY, prompt});
 
   const client = await clientFactory(hdbConnectionOptions(connection, {user: connection.user, password: connection.password}));
   try {
+    // Ownership proof, part 2 (critic S-A): the installation identity recorded
+    // at create time must match what the catalogue says now -- a matching
+    // host + port + database triple is NOT an identity (every HXE container
+    // is localhost:39017/HXE; a tunnel puts any system behind localhost:<port>).
+    if (stored.system_identity !== undefined) {
+      let now;
+      try {
+        now = await readSystemIdentity(client);
+      } catch (error) {
+        throw new ReaderError(refuseDropText(readerName,
+          `the system's identity could not be read from SYS.M_DATABASE (${sqlErrorText(error)}), ` +
+          `so it cannot be compared with the one recorded at create time`, connection));
+      }
+      if (!sameSystemIdentity(now, stored.system_identity)) {
+        throw new ReaderError(refuseDropText(readerName,
+          `the system now answering identifies as ${now.system_id}/${now.database_name}, but the entry was ` +
+          `written on ${stored.system_identity.system_id}/${stored.system_identity.database_name} -- the same ` +
+          `address now leads to a different system`, connection));
+      }
+    }
     let alreadyAbsent = false;
     try {
       await client.exec(`DROP USER ${readerName} CASCADE`);
