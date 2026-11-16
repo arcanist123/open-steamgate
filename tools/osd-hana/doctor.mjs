@@ -18,8 +18,9 @@ import {UsageError, parseFlags, collectConnection} from "./connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
-import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars} from "./sidecar.mjs";
+import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict} from "./verdict.mjs";
+import {resolve} from "node:path";
 
 export const DOCTOR_EXIT = Object.freeze({
   ok: 0,
@@ -72,6 +73,7 @@ export async function doctorMain(argv, {
   store = defaultSecretStore(),
   clientFactory,
   prompt,
+  pinFile, // the TRUSTED seam for the embedding host / tests to name a pin file; the CLI flag --sidecar-pin is a public input and never 'pins' by itself (critic S-E)
   sidecarExtraEnv, // the test seam: extra child-env for the sidecar; the CLI never sets it
   sidecarTimeoutMs = 120_000,
 } = {}) {
@@ -114,8 +116,20 @@ export async function doctorMain(argv, {
     return fail(error.message);
   }
   let pin;
+  let foreignPin = false;
   try {
-    pin = loadPin(flags["sidecar-pin"]);
+    // Two ways to name a pin: `pinFile`, the trusted seam the embedding host
+    // (the extension, the tests) uses to substitute its own pin; and the CLI
+    // flag --sidecar-pin, a public input. A pin file that is not the
+    // module's own sidecar.lock.json never makes a binary 'pinned' -- it can
+    // check bytes, but every pinned claim stays false and the run needs
+    // --allow-unpinned-sidecar (critic S-E).
+    const pinPath = pinFile ?? flags["sidecar-pin"] ?? DEFAULT_PIN_PATH;
+    pin = loadPin(pinPath);
+    // pinFile is the embedding host's own substitution (the extension names
+    // its bundled pin, the tests name a generated one): trusted. Only a
+    // --sidecar-pin the CLI user supplied is 'foreign' (critic S-E).
+    foreignPin = pinFile === undefined && resolve(pinPath) !== resolve(DEFAULT_PIN_PATH);
   } catch (error) {
     return fail(error.message);
   }
@@ -124,6 +138,7 @@ export async function doctorMain(argv, {
     verified = await verifySidecar(path, {
       pin,
       allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+      foreignPin,
       loud: (line) => io.err(line.trimEnd()),
     });
   } catch (error) {
@@ -167,6 +182,7 @@ export async function doctorMain(argv, {
     // binary is ~7 MB; a fresh sha256 read is milliseconds.
     pin,
     allowUnpinned: flags["allow-unpinned-sidecar"] === true,
+    foreignPin,
     loud: (line) => io.err(line.trimEnd()),
   });
   // The user and the password are credentials and travel in the child's

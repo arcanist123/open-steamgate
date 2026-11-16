@@ -342,8 +342,8 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       stdin.write(`${stdinPassword}\n`);
       stdin.end();
       const code = await doctorMain(
-        ["--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA, "--password-stdin", "--sidecar-pin", h.pinPath],
-        {io, env: {...process.env, OSD_HANA_DUMP: h.fakePath, FAKE_SIDECAR_PROBE: "owner-tenant"}, stdin, isTTY: false, sidecarTimeoutMs: 500});
+        ["--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA, "--password-stdin"],
+        {io, env: {...process.env, OSD_HANA_DUMP: h.fakePath, FAKE_SIDECAR_PROBE: "owner-tenant"}, stdin, isTTY: false, sidecarTimeoutMs: 500, pinFile: h.pinPath});
       expect(code).to.equal(0);
       expect(JSON.stringify({out: lines.out, err: lines.err})).to.not.include(stdinPassword);
     });
@@ -433,6 +433,33 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       const code2 = await h.runDoctor(["--allow-unpinned-sidecar", "--json"], {scenario: "writer", pin: emptyPin});
       expect(code2).to.equal(0);
       const document = JSON.parse(h.out.join("\n"));
+      expect(document.verdict.safetyNote).to.include("not checksum-verified");
+    });
+
+    it("S-E: a --sidecar-pin other than the module's own never makes a binary 'pinned' -- refused without the flag even when the hash matches (critic S-E; mutation: trust the foreign pin -> red)", async function () {
+      // the pin MATCHES the binary byte for byte -- and still must not
+      // produce a 'pinned: true': a pin the caller supplies is the caller's
+      // claim, not this module's pinning
+      const code = await h.runDoctor(["--create-reader"], {
+        argvPin: h.pinPath,
+      });
+      expect(code).to.equal(1);
+      expect(h.allText()).to.include("not the module's own pin");
+      expect(h.allText()).to.include("--allow-unpinned-sidecar");
+    });
+
+    it("S-E: with --allow-unpinned-sidecar a foreign pin runs UNPINNED and the read-only claim stays qualified (mutation: report pinned -> red)", async function () {
+      // writer scenario: the login can write; the binary saying so was
+      // verified against a CALLER-SUPPLIED pin -- the safety sentence must
+      // stay qualified exactly as for any unpinned binary
+      const code = await h.runDoctor(["--allow-unpinned-sidecar", "--json"], {
+        scenario: "writer",
+        argvPin: h.pinPath,
+      });
+      expect(code).to.equal(0);
+      const document = JSON.parse(h.out.join("\n"));
+      expect(document.sidecar.pinned).to.equal(false);
+      expect(h.allText()).to.include("UNPINNED");
       expect(document.verdict.safetyNote).to.include("not checksum-verified");
     });
 

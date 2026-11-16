@@ -65,10 +65,11 @@ export function makeHarness() {
     rmSync(h.root, {recursive: true, force: true});
   };
 
-  // The full doctor run against the fake sidecar: real spawn, real sha256,
-  // the generated test pin as the run's pin -- only the database behind the
-  // fake is not real. (S-E changes the pin's ride from the CLI flag to the
-  // trusted pinFile seam; until then it goes the way the CLI carries it.)
+  // The full doctor run against the fake sidecar: real spawn, real sha256 --
+  // only the database behind the fake is not real. The generated test pin
+  // rides the trusted `pinFile` seam (S-E: a pin handed to the CLI as
+  // --sidecar-pin is never "the module's own"); `argvPin` exists for the
+  // tests that exercise exactly that CLI path.
   h.runDoctor = async (argv, {
     scenario = "owner-tenant",
     handshakePatch,
@@ -76,6 +77,7 @@ export function makeHarness() {
     isTTY = false,
     deps = {},
     pin = h.pinPath,
+    argvPin,
   } = {}) => {
     const capturedIo = h.captureIo();
     h.out = capturedIo.lines.out;
@@ -101,7 +103,7 @@ export function makeHarness() {
     };
     return doctorMain([
       "--host", HOST, "--port", "39015", "--user", USER, "--schema", SCHEMA,
-      ...(argv.includes("--sidecar-pin") ? [] : ["--sidecar-pin", pin]),
+      ...(argvPin !== undefined ? ["--sidecar-pin", argvPin] : []),
     ].concat(argv), {
       io: capturedIo.io,
       env: runEnv,
@@ -109,6 +111,7 @@ export function makeHarness() {
       isTTY,
       sidecarTimeoutMs: 500,
       sidecarExtraEnv,
+      ...(argvPin !== undefined ? {} : {pinFile: pin}),
       ...deps,
     });
   };
