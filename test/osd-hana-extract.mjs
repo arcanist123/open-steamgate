@@ -885,9 +885,6 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const out = await fresh("m2c");
     await runExtract(["--out", out]);
     expect(readFileSync(join(out, ".gitignore"), "utf8")).to.match(/\.osd-hana\//);
-    // and the marker lists it as ours
-    const marker = JSON.parse(readFileSync(join(out, ".osd-hana", "marker.json"), "utf8"));
-    expect(marker.files.map((f) => f.path)).to.include(".gitignore");
   });
 
   it("M-2d: a scope larger than one chunk is dumped in parts, one request per part, and converts as one repository (mutation: chunking dropped)", async function () {

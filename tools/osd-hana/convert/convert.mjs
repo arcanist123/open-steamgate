@@ -40,12 +40,16 @@ async function* jsonl(file) {
     if (line.trim()) yield JSON.parse(line);
   }
 }
-async function rows(dump, name, optional = false) {
+// A chunked dump is several sidecar runs (one per name chunk, one directory
+// each); every table and the sources are read across all of them.
+async function rows(roots, name, optional = false) {
   const out = [];
-  try {
-    for await (const r of jsonl(path.join(dump, "tables", `${name}.jsonl`))) out.push(r);
-  } catch (e) {
-    if (!optional || e.code !== "ENOENT") throw e;
+  for (const root of roots) {
+    try {
+      for await (const r of jsonl(path.join(root, "tables", `${name}.jsonl`))) out.push(r);
+    } catch (e) {
+      if (!optional || e.code !== "ENOENT") throw e;
+    }
   }
   return out;
 }
@@ -113,17 +117,23 @@ export async function convert({
   out,
   listed,            // the in-scope listing rows: the ledger's spine (M1)
   preSkipped = [],   // listed rows out of scope by rule: ledger-skipped with their reason (M-1, round 2)
+  roots,             // the dump's directories (a chunked dump: one per part); default [dump]
   onLedger = () => {}, // the failure-path seam: extract keeps the ledger even when this throws (S3)
 } = {}) {
+  const allRoots = roots ?? [dump];
   const manifest = JSON.parse(await fs.readFile(path.join(dump, "manifest.json")));
-  const table = (n) => rows(dump, n, n !== "TADIR");
-  await fs.access(path.join(dump, "reposrc.jsonl"));
-  await fs.access(path.join(dump, "tables", "TADIR.jsonl"));
+  const table = (n) => rows(allRoots, n, n !== "TADIR");
+  for (const root of allRoots) {
+    await fs.access(path.join(root, "reposrc.jsonl"));
+    await fs.access(path.join(root, "tables", "TADIR.jsonl"));
+  }
   await fs.mkdir(path.join(out, "src"), {recursive: true});
 
   const sidecarObjects = new Map();
-  for await (const r of jsonl(path.join(dump, "objects.jsonl"))) {
-    sidecarObjects.set(`${key(r.type)}:${key(r.name)}`, r);
+  for (const root of allRoots) {
+    for await (const r of jsonl(path.join(root, "objects.jsonl"))) {
+      sidecarObjects.set(`${key(r.type)}:${key(r.name)}`, r);
+    }
   }
   const tadir = await table("TADIR");
   const objects = new Map(); // TYPE:NAME (uppercased) -> object
@@ -191,14 +201,14 @@ export async function convert({
 
   // ---- repositories of sources ----------------------------------------------
   const trdir = new Map();
-  for (const r of await rows(dump, "TRDIR", true)) trdir.set(key(r.NAME), r);
+  for (const r of await rows(allRoots, "TRDIR", true)) trdir.set(key(r.NAME), r);
   const tfdir = await table("TFDIR");
   const seoDf = new Map();
   const seoTx = new Map();
-  for (const r of await rows(dump, "SEOCLASSDF", true)) {
+  for (const r of await rows(allRoots, "SEOCLASSDF", true)) {
     if (key(r.VERSION || "1") === "1") seoDf.set(key(r.CLSNAME), r);
   }
-  for (const r of await rows(dump, "SEOCLASSTX", true)) {
+  for (const r of await rows(allRoots, "SEOCLASSTX", true)) {
     const n = key(r.CLSNAME);
     if (!seoTx.has(n) || key(r.LANGU) === "E") seoTx.set(n, r);
   }
@@ -206,7 +216,7 @@ export async function convert({
   const poolLangs = new Map();
   const errors = [];
   const poolOwner = (n) => objects.has(`PROG:${n}`) || (/^(.{1,30}?)=*CP$/.test(n) && n.length === 32 && objects.has(`CLAS:${n.slice(0, 30).replace(/=+$/, "")}`)) || /^(\/[^/]+\/)?(SAPL|L)/.test(n);
-  for (const r of await rows(dump, "REPOTEXT", true)) {
+  for (const r of await rows(allRoots, "REPOTEXT", true)) {
     if (key(r.R3STATE || "A") !== "A") continue;
     const n = key(r.PROGNAME);
     if (!poolOwner(n)) continue;
@@ -238,7 +248,7 @@ export async function convert({
   };
   const signatures = new Map();
   const fmTexts = new Map();
-  for (const r of (await rows(dump, "FUPARAREF", true)).filter((r) => key(r.R3STATE || "A") === "A").sort((a, b) => Number(a.PPOSITION || 0) - Number(b.PPOSITION || 0))) {
+  for (const r of (await rows(allRoots, "FUPARAREF", true)).filter((r) => key(r.R3STATE || "A") === "A").sort((a, b) => Number(a.PPOSITION || 0) - Number(b.PPOSITION || 0))) {
     const fm = key(r.FUNCNAME);
     if (!signatures.has(fm)) signatures.set(fm, []);
     signatures.get(fm).push({
@@ -247,7 +257,7 @@ export async function convert({
       reference: key(r.REFERENCE) === "X" ? "X" : "", type: key(r.TYPE) === "X", refClass: key(r.REF_CLASS) === "X" ? "X" : "",
     });
   }
-  for (const r of await rows(dump, "TFTIT", true)) {
+  for (const r of await rows(allRoots, "TFTIT", true)) {
     const fm = key(r.FUNCNAME);
     if (!fmTexts.has(fm) || key(r.SPRAS) === "E") fmTexts.set(fm, String(r.STEXT ?? "").trim());
   }
@@ -274,7 +284,7 @@ export async function convert({
     fmsOfGroup.get(group).push(r);
     if (inc) fmByInclude.set(`${group}:U${inc}`, fm);
   }
-  for (const r of await rows(dump, "TLIBG", true)) {
+  for (const r of await rows(allRoots, "TLIBG", true)) {
     const group = key(r.AREA);
     const owner = objects.get(`FUGR:${group}`);
     if (owner) {
@@ -317,7 +327,7 @@ export async function convert({
   // owner, and the owner takes its ACTIVE version (abapGit serializes the
   // active one); only-inactive sources are taken and the object is flagged
   // via its file states in objects.jsonl.
-  for await (const list of repoLists(dump)) {
+  for await (const list of repoLists(allRoots)) {
     const p = list[0].program;
     const o = resolve(p);
     if (!o || !claimed.has(o.id)) continue;
@@ -551,12 +561,14 @@ export async function convert({
 
 // reposrc.jsonl, grouped per program, active version first. One pass keeps
 // the whole dump from being held in memory: rows carry only their file path.
-async function* repoLists(dump) {
+async function* repoLists(roots) {
   const groups = new Map();
-  for await (const r of jsonl(path.join(dump, "reposrc.jsonl"))) {
-    const p = key(r.program);
-    if (!groups.has(p)) groups.set(p, []);
-    groups.get(p).push(r);
+  for (const root of roots) {
+    for await (const r of jsonl(path.join(root, "reposrc.jsonl"))) {
+      const p = key(r.program);
+      if (!groups.has(p)) groups.set(p, []);
+      groups.get(p).push(r);
+    }
   }
   for (const list of groups.values()) yield list;
 }

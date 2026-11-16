@@ -85,6 +85,7 @@ export async function extractMain(argv, {
   isTTY = Boolean(stdin?.isTTY),
   callerPath,
   pinFile, // the TRUSTED seam for the embedding host / tests to name a pin file; the CLI flag --sidecar-pin is a public input and never 'pins' by itself (critic S-E, SHOULD-2 round 2)
+  dumpChunkSize, // the test seam: how many names one dump request may carry (the CLI uses the default, 500)
   sidecarTimeoutMs = 600_000,
   // the test seam: extra child-env for the sidecar (the FAKE sidecar's
   // scenario knobs reach the child only through it -- the child env is the
@@ -253,6 +254,10 @@ export async function extractMain(argv, {
   }
   const listDir = path.join(out, ".osd-hana", "list");
   await fs.mkdir(path.join(out, ".osd-hana"), {recursive: true});
+  // M-2: the raw dump never belongs in the repository -- <out> is an
+  // abapGit-layout repository a user will `git add .` in, so the work area is
+  // ignored by name the moment it exists
+  await fs.writeFile(path.join(out, ".gitignore"), ".osd-hana/\n");
   // the listing is derived data of this very request; the sidecar refuses a
   // non-empty --out, so a restart clears it (the DUMP is the artefact that is
   // never thrown away -- reusableDump below decides over that one)
@@ -300,16 +305,84 @@ export async function extractMain(argv, {
   if (flags["dry-run"] === true) return EXTRACT_EXIT.ok;
 
   // ---- 3: dump -------------------------------------------------------------
-  const reused = await reusableDump(dumpDir, request);
-  let dumpRun;
+  // M-2 (critic round 2): nothing of the vendor's is fetched unless asked.
+  // The dump request NAMES the in-scope objects -- exact names, LIKE-escaped
+  // (the sidecar matches `LIKE ? ESCAPE '\'`), sorted, chunked -- built from
+  // the listing, never from the user's patterns; the unknown-class rows are
+  // not fetched at all. The sidecar has no per-type objects field yet (its
+  // schema-1 request takes names/packages/local only -- measured on the
+  // binary, "json: unknown field \"objects\""), so exact names are what the
+  // schema can carry; the post-dump audit below catches anything else.
+  const exactNamePattern = (name) => String(name).trim().replace(/([%_\\])/g, "\\$1");
+  const chunkSize = typeof dumpChunkSize === "number" && dumpChunkSize > 0 ? dumpChunkSize : 500;
+  const dumpNames = [...new Set(inScopeRows.map((r) => String(r.name).trim().toUpperCase()))].sort().map(exactNamePattern);
+  const dumpRequest = {
+    schema: 1,
+    names: dumpNames,
+    inactive: flags.inactive === true,
+    catalog: true,
+    ddic: true,
+    provenance: "osd hana extract",
+  };
+  const dumpRequestPath = path.join(out, ".osd-hana", "dump-request.json");
+  const reused = await reusableDump(dumpDir, dumpRequest);
+  let dumpErrors = [];
+  let dumpParts;
   if (reused.ok) {
     io.err(`osd hana extract: reusing the existing dump in ${dumpDir} (same request, sidecar exit 0)`);
+    if (Array.isArray(reused.errors)) dumpErrors = reused.errors;
   } else if (reused.exists) {
     return fail(`osd hana extract: refusing the dump directory ${dumpDir}: ${reused.why}\n` +
       "  A dump is never mixed. Remove the directory or pass --dump-dir.");
+  } else if (dumpNames.length === 0) {
+    // everything in scope is unknown-class: nothing to fetch (and the sidecar
+    // refuses an empty name list) -- the conversion below skips everything
+    await fs.rm(dumpDir, {recursive: true, force: true});
   } else {
-    dumpRun = await runVerb(sidecar, "dump", {requestPath, out: dumpDir, fail, connection});
-    if (typeof dumpRun === "number") return dumpRun;
+    const chunks = [];
+    for (let i = 0; i < dumpNames.length; i += chunkSize) chunks.push(dumpNames.slice(i, i + chunkSize));
+    if (chunks.length === 1) {
+      await fs.writeFile(dumpRequestPath, `${JSON.stringify(dumpRequest, null, 1)}\n`);
+      const dumpRun = await runVerb(sidecar, "dump", {requestPath: dumpRequestPath, out: dumpDir, fail, connection});
+      if (typeof dumpRun === "number") return dumpRun;
+    } else {
+      // one request per chunk, one directory per chunk: the sidecar refuses a
+      // non-empty --out, and its name IN-lists must stay under the SQL
+      // parameter limit (measured: ~4e4 parameters fail, w3 report #4)
+      dumpParts = [];
+      for (const [n, chunk] of chunks.entries()) {
+        const part = `part-${String(n + 1).padStart(5, "0")}`;
+        const partDir = path.join(dumpDir, part);
+        await fs.rm(partDir, {recursive: true, force: true});
+        const partRequest = {...dumpRequest, names: chunk};
+        const partRequestPath = path.join(out, ".osd-hana", `dump-request-${part}.json`);
+        await fs.writeFile(partRequestPath, `${JSON.stringify(partRequest, null, 1)}\n`);
+        const dumpRun = await runVerb(sidecar, "dump", {requestPath: partRequestPath, out: partDir, fail, connection});
+        if (typeof dumpRun === "number") return dumpRun;
+        const partManifest = JSON.parse(await fs.readFile(path.join(partDir, "manifest.json"), "utf8"));
+        dumpParts.push(part);
+        dumpErrors.push(...(partManifest.sidecar?.errors ?? []));
+      }
+      // the aggregate manifest is what reuse and the converter read: same
+      // sidecar block shape as a single dump, `parts` naming the directories
+      const first = JSON.parse(await fs.readFile(path.join(dumpDir, dumpParts[0], "manifest.json"), "utf8"));
+      const sidecarBlock = first.sidecar ?? {};
+      await fs.writeFile(path.join(dumpDir, "manifest.json"), `${JSON.stringify({
+        tool: sidecarBlock.name ?? "osd-hana-dump",
+        provenance: "osd hana extract",
+        request: dumpRequest,
+        sidecar: {
+          name: sidecarBlock.name ?? "osd-hana-dump",
+          version: sidecarBlock.version,
+          commit: sidecarBlock.commit,
+          request: dumpRequest,
+          counts: {package_objects: dumpNames.length},
+          errors: dumpErrors,
+          parts: dumpParts,
+          objects_report: "part-*/objects.jsonl",
+        },
+      }, null, 1)}\n`);
+    }
   }
 
   // ---- 4: convert ----------------------------------------------------------
@@ -322,9 +395,41 @@ export async function extractMain(argv, {
   // the dump holds every object of the request; the sidecar counts DDIC
   // objects as "rows", so the object total is its own package_objects
   const dumpedCount = dumpManifest.counts?.package_objects ?? dumpManifest.sidecar?.counts?.package_objects;
+  const dumpRoots = (dumpManifest.sidecar?.parts ?? []).map((p) => path.join(dumpDir, p));
+  const dumpObjects = [];
+  for (const root of dumpRoots.length > 0 ? dumpRoots : [dumpDir]) {
+    dumpObjects.push(...await readJsonl(path.join(root, "objects.jsonl")));
+  }
+  // ---- M-2: the dump delivers exactly the scope, or the run stops ----------
+  // A source the dump fetched although nothing in scope names it is the
+  // vendor's code landing on disk: the run refuses, names the dump directory
+  // (remove it), and writes nothing. Excluded closure rows (the sidecar's
+  // skipped DDIC metadata around the requested objects) are not sources and
+  // do not trip the audit.
+  const norm = (v) => String(v ?? "").trim().toUpperCase();
+  const scopeSet = new Set(inScopeRows.map((r) => `${norm(r.type)}:${norm(r.name)}`));
+  const carriesSource = (r) => (Array.isArray(r.files) && r.files.length > 0)
+    || ["w", "written"].includes(String(r.status ?? "").trim().toLowerCase());
+  const outOfScope = dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
+  if (outOfScope.length > 0) {
+    const list = outOfScope.slice(0, 8).map((r) => `${norm(r.type)}:${norm(r.name)}`).join(", ");
+    io.err(`osd hana extract: refusing the dump directory ${dumpDir}: it carries ${outOfScope.length} objects outside the scope (${list}${outOfScope.length > 8 ? ", ..." : ""})`
+      + " -- the dump was to fetch exactly the in-scope objects, so this is not ours to keep. Remove the dump directory (or pass --dump-dir) and re-run. Nothing was written.");
+    try {
+      await writeReport(out, {
+        schema: 1, out, dump_dir: dumpDir, request: dumpRequest,
+        sidecar: describeSidecar(verified, handshakeInfo),
+        folder_logic: {logic: "unknown", folders: []},
+        plan, totals: totals(plan, [], dumpedCount, undefined),
+        objects: [], errors: [{error: `the dump carries ${outOfScope.length} objects outside the scope: ${list}`}],
+        duration_ms: now().getTime() - started,
+        notice: flags["include-sap"] === true ? "This extraction includes SAP-delivered content. It is the vendor's property, not yours; do not publish it." : undefined,
+      });
+    } catch { /* the refusal itself must not be masked by a report problem */ }
+    return EXTRACT_EXIT.refusedOut;
+  }
   // of the dump's own object list, how many this run's scope covers (N2: the
   // dump total also counts SAP-class objects a narrow scope excluded)
-  const dumpObjects = await readJsonl(path.join(dumpDir, "objects.jsonl"));
   const inScopeDumpRow = (r) => (r.class !== "sap" || flags["include-sap"] === true)
     && (author === undefined || String(r.author ?? "").trim().toUpperCase() === author.toUpperCase());
   const dumpedInScope = dumpObjects.filter(inScopeDumpRow).length;
@@ -348,7 +453,7 @@ export async function extractMain(argv, {
   let conversion;
   let ledgerAtFailure; // the S3 promise: even a mid-run failure keeps its ledger for the report
   try {
-    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, preSkipped: unknownClassRows, onLedger: (l) => { ledgerAtFailure = l; }});
+    conversion = await convert({dump: dumpDir, out, listed: inScopeRows, preSkipped: unknownClassRows, roots: dumpRoots.length > 0 ? dumpRoots : undefined, onLedger: (l) => { ledgerAtFailure = l; }});
   } catch (error) {
     const entries = ledgerAtFailure?.entries ?? [];
     const reportDoc = {
@@ -459,7 +564,24 @@ async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
 
 /** Restart rule: an existing dump whose manifest echoes the same request and
  *  whose sidecar exit was 0 (no errors in the manifest block) is reused;
- *  anything else is refused, never mixed. */
+ *  anything else is refused, never mixed. The echo is compared on the
+ *  request's SELECTION (schema, flags, provenance -- canonically, so key
+ *  order of a re-writing sidecar cannot refuse a reuse, NOTE-6): the explicit
+ *  `names` are derived from the live listing and may drift between runs --
+ *  the drift logic (S4) reports what that means for the content. A chunked
+ *  dump's aggregate manifest must list parts that are all readable. */
+export function dumpRequestFingerprint(request) {
+  const {names, ...rest} = request ?? {};
+  return stableStringify(rest);
+}
+
+function stableStringify(v) {
+  if (v === null || v === undefined) return "null";
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  if (typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(v[k])}`).join(",")}}`;
+  return JSON.stringify(v);
+}
+
 export async function reusableDump(dumpDir, request) {
   let raw;
   try {
@@ -476,12 +598,19 @@ export async function reusableDump(dumpDir, request) {
   }
   const block = manifest.sidecar;
   if (block === undefined) return {exists: true, ok: false, why: "the manifest has no sidecar block (an old or partial dump)"};
-  if (JSON.stringify(block.request ?? null) !== JSON.stringify(request)) {
+  if (dumpRequestFingerprint(block.request ?? null) !== dumpRequestFingerprint(request)) {
     return {exists: true, ok: false, why: "its manifest echoes a different request"};
   }
   if ((block.errors?.length ?? 0) > 0) return {exists: true, ok: false, why: `its manifest carries ${block.errors.length} errors`};
   if (block.counts === undefined) return {exists: true, ok: false, why: "the manifest carries no counts (the dump did not finish)"};
-  return {exists: true, ok: true};
+  for (const part of block.parts ?? []) {
+    try {
+      await fs.access(path.join(dumpDir, part, "objects.jsonl"));
+    } catch {
+      return {exists: true, ok: false, why: `its part ${part} is missing (a partial chunked dump)`};
+    }
+  }
+  return {exists: true, ok: true, errors: block.errors ?? []};
 }
 
 async function readJsonl(file) {
@@ -507,7 +636,7 @@ async function freshOutEntries(out) {
   }
   // entries this command itself may have written (a restart over a previous
   // extraction of the same scope); anything else means the directory is in use
-  const ours = new Set([".osd-hana", ".abapgit.xml", "src", "extract-report.json", "extract-report.md"]);
+  const ours = new Set([".osd-hana", ".abapgit.xml", ".gitignore", "src", "extract-report.json", "extract-report.md"]);
   return entries.filter((e) => !ours.has(e));
 }
 
