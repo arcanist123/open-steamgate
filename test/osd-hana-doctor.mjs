@@ -491,5 +491,30 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(canWrite({non_select_on_schema: {kinds: ["USER ADMIN"]}})).to.equal(true);
       expect(canWrite({non_select_on_schema: false})).to.equal(false);
     });
+
+    it("NOTE: the courtesy check's source holds hex digests only -- no plaintext defaults anywhere in the file (mutation: keep the literals -> red)", async function () {
+      const {readFileSync} = await import("node:fs");
+      const {fileURLToPath} = await import("node:url");
+      const source = readFileSync(fileURLToPath(new URL("../tools/osd-hana/defaults.mjs", import.meta.url)), "utf8");
+      expect(source).to.not.include("HXEHana1");
+      expect(source).to.not.include("manager");
+      // the check itself still answers for the published defaults
+      expect(isPublicDefaultPassword("HXEHana1")).to.equal(true);
+      expect(isPublicDefaultPassword("manager")).to.equal(true);
+      expect(isPublicDefaultPassword(PASSWORD)).to.equal(false);
+    });
+
+    it("NOTE: a raw driver error that escapes the reader path never prints the administrator's password (mutation: verbatim -> red)", async function () {
+      // the administrator connect itself failed: the message escapes
+      // createReader as a coded driver error and the doctor's catch prints
+      // it -- through the redactor
+      const factory = async () => {
+        throw Object.assign(new Error(`authentication failed for '${PASSWORD}'`), {code: 401});
+      };
+      const code = await h.runDoctor(["--create-reader", "--yes"], {deps: {clientFactory: factory}});
+      expect(code).to.equal(2);
+      expect(h.allText()).to.include("the database refused");
+      expect(h.allText()).to.not.include(PASSWORD);
+    });
   });
 });

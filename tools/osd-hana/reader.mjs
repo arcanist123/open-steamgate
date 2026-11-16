@@ -23,6 +23,7 @@
 // happened: the module must not leave a half-set-up reader behind.
 import {randomBytes} from "node:crypto";
 import {createRequire} from "node:module";
+import {makeRedactor} from "./redact.mjs";
 
 // The reader name must be OURS, not merely well-formed: ^OSD_ followed by
 // 1-26 capitals/digits/underscores. The old pattern admitted SYSTEM, SYS and
@@ -412,12 +413,18 @@ export async function createReader({
   }));
   await askConsent({yes, isTTY, prompt});
 
+  // Driver texts pass through a redactor holding this run's passwords
+  // (critic note): HANA does not echo the literal for 331/412/258 and the
+  // generated alphabet cannot cause a syntax error 'near' itself -- but that
+  // is an assumption, and one line of redaction retires it.
+  const redact = makeRedactor([password, connection.password]);
+
   const adminClient = await clientFactory(hdbConnectionOptions(connection,
     {user: connection.user, password: connection.password, encrypt, trustServerCertificate}));
-  return runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt, trustServerCertificate});
+  return runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt, trustServerCertificate, redact});
 }
 
-async function runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt = false, trustServerCertificate = false}) {
+async function runCreatePlan({adminClient, connection, readerName, schema, password, plan, store, clientFactory, say, encrypt = false, trustServerCertificate = false, redact = (text) => text}) {
   try {
     // 0. Existence guard (critic M-B): a user that already exists -- ours
     // from an earlier run and maybe in use by a running extract, or somebody
@@ -427,7 +434,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
     try {
       existing = await countUsersNamed(adminClient, readerName);
     } catch (error) {
-      throw new ReaderError(`osd hana: could not check whether ${readerName} already exists -- ${sqlErrorText(error)}\n` +
+      throw new ReaderError(`osd hana: could not check whether ${readerName} already exists -- ${redact(sqlErrorText(error))}\n` +
         `  Refusing to run CREATE USER without that check: the tool may not create over a user it did not verify, ` +
         `and it never removes a user this run did not create.`);
     }
@@ -443,7 +450,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
     try {
       systemIdentity = await readSystemIdentity(adminClient);
     } catch (error) {
-      throw new ReaderError(`osd hana: could not read the system's identity from SYS.M_DATABASE -- ${sqlErrorText(error)}\n` +
+      throw new ReaderError(`osd hana: could not read the system's identity from SYS.M_DATABASE -- ${redact(sqlErrorText(error))}\n` +
         `  Refusing to create the reader without it: --drop-reader would have no identity to compare against, ` +
         `and an entry without one is how a drop lands on the wrong system. Nothing was created.`);
     }
@@ -463,7 +470,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       if (code === 258) throw new ReaderError(describe258OnCreate());
       if (code === 331) throw new ReaderError(describeNameTaken(readerName));
       if (code === 412) throw new ReaderError(describe412OnCreate());
-      throw new ReaderError(`osd hana: setting up the reader failed -- ${sqlErrorText(error)}\n` +
+      throw new ReaderError(`osd hana: setting up the reader failed -- ${redact(sqlErrorText(error))}\n` +
         `  The CREATE USER itself failed: this run created nothing and removed nothing -- a user that may ` +
         `exist under this name is not this run's to touch.`);
     }
@@ -480,7 +487,7 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
         if (errorCode(error) === 258) {
           const owner = await lookupSchemaOwner(adminClient, schema);
           const cleanup = await dropUserQuietly(adminClient, readerName);
-          throw new ReaderError(describe258OnGrant(schema, owner) + (cleanup.dropped || cleanup.absent ? "" : cleanupDropFailedText(cleanup)));
+          throw new ReaderError(describe258OnGrant(schema, owner) + (cleanup.dropped || cleanup.absent ? "" : redact(cleanupDropFailedText(cleanup))));
         }
         throw error;
       }
@@ -514,12 +521,12 @@ async function runCreatePlan({adminClient, connection, readerName, schema, passw
       // message -- dropping again would only bury the cause under a 332.)
       if (error instanceof ReaderError) throw error;
       const cleanup = await dropUserQuietly(adminClient, readerName);
-      const causedBy = sqlErrorText(error);
+      const causedBy = redact(sqlErrorText(error));
       const note = cleanup.dropped
         ? `The reader ${readerName} was dropped again; nothing was left behind.`
         : cleanup.absent
           ? `The reader ${readerName} is absent (HANA said 332, invalid user name -- that is "user absent", not the cause).`
-          : `${cleanupDropFailedText(cleanup)} Remove it by hand: DROP USER ${readerName} CASCADE.`;
+          : `${redact(cleanupDropFailedText(cleanup))} Remove it by hand: DROP USER ${readerName} CASCADE.`;
       throw new ReaderError(`osd hana: setting up the reader failed -- ${causedBy}\n  ${note}`);
     }
   } finally {
@@ -602,6 +609,10 @@ export async function dropReader({
       `  DROP USER ${readerName} CASCADE`);
   }
 
+  // Driver texts here pass through a redactor holding both passwords of this
+  // run (critic note) -- the same one-line assumption retirement as create.
+  const redact = makeRedactor([stored.password, connection.password]);
+
   // Ownership proof, part 1 (critic S-A): log on AS THE READER with the
   // stored password, to this exact host/port/database. Success proves a user
   // of this name with this password lives on the system the entry was
@@ -614,7 +625,7 @@ export async function dropReader({
   } catch (error) {
     throw new ReaderError(refuseDropText(readerName,
       `the stored password did not log on as ${readerName} on this host, port and database ` +
-      `(${sqlErrorText(error)}) -- whatever user carries this name here, this tool cannot prove it is the one its store created`,
+      `(${redact(sqlErrorText(error))}) -- whatever user carries this name here, this tool cannot prove it is the one its store created`,
       connection));
   } finally {
     if (proofClient !== undefined) await proofClient.disconnect();
@@ -647,7 +658,7 @@ export async function dropReader({
         now = await readSystemIdentity(client);
       } catch (error) {
         throw new ReaderError(refuseDropText(readerName,
-          `the system's identity could not be read from SYS.M_DATABASE (${sqlErrorText(error)}), ` +
+          `the system's identity could not be read from SYS.M_DATABASE (${redact(sqlErrorText(error))}), ` +
           `so it cannot be compared with the one recorded at create time`, connection));
       }
       if (!sameSystemIdentity(now, stored.system_identity)) {

@@ -8,7 +8,7 @@
 // Every guard here has a named mutation behind it: the test goes red when the
 // guard is removed. The mutations are listed in REPORT.md next to each test.
 import {expect} from "chai";
-import {mkdirSync, statSync, writeFileSync, chmodSync} from "node:fs";
+import {chmodSync, existsSync, mkdirSync, statSync, symlinkSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {
@@ -16,7 +16,7 @@ import {
   createReader, dropReader, generateReaderPassword, quoteIdentifier, readerStoreKey, show, validateReaderName,
 } from "../tools/osd-hana/reader.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
-import {fileSecretStore} from "../tools/osd-hana/secret-store.mjs";
+import {defaultSecretStoreDir, fileSecretStore} from "../tools/osd-hana/secret-store.mjs";
 import {HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
 import {SUCCESS_RULES, fakeClientFactory} from "./osd-hana/fake-client.mjs";
 
@@ -507,6 +507,74 @@ describe("tools/osd-hana: the dedicated reader", function () {
         expect(error.message).to.not.include("dropped");
       });
     expect(log.statements.some((s) => s.sql.startsWith("DROP USER"))).to.equal(false);
+  });
+
+  it("NOTE: the secret store writes atomically (temp file + rename) and never writes through a symlinked store (mutation: rm + writeFileSync in place -> red)", async function () {
+    const dir = join(h.root, `atomic-${Math.random().toString(16).slice(2)}`);
+    const s = fileSecretStore(dir);
+    s.set({user: "OSD_READER", password: "pw-one-1"}, "OSD_READER");
+    s.set({user: "OSD_READER_2", password: "pw-two-2"}, "OSD_READER_2");
+    // no temp files left behind, both entries present
+    const {readdirSync} = await import("node:fs");
+    expect((await readdirSync(dir)).sort()).to.deep.equal(["reader-secret.json"]);
+    expect(s.get("OSD_READER").password).to.equal("pw-one-1");
+    expect(s.get("OSD_READER_2").password).to.equal("pw-two-2");
+    // a symlinked store directory is refused, not chmodded through: the
+    // target's mode and content stay untouched
+    const realDir = join(h.root, `real-store-${Math.random().toString(16).slice(2)}`);
+    const linkDir = join(h.root, `link-store-${Math.random().toString(16).slice(2)}`);
+    mkdirSync(realDir, {recursive: true, mode: 0o755});
+    chmodSync(realDir, 0o755);
+    symlinkSync(realDir, linkDir, "dir");
+    const linked = fileSecretStore(linkDir);
+    expect(() => linked.set({user: "OSD_READER", password: "pw-three-3"}, "OSD_READER")).to.throw(/symbolic link/i);
+    expect(existsSync(join(realDir, "reader-secret.json"))).to.equal(false);
+    expect(statSync(realDir).mode & 0o777).to.equal(0o755); // not tightened through the link
+  });
+
+  it("NOTE: a relative XDG_CONFIG_HOME is ignored -- the store stays under the home directory, never the current working directory (mutation: honor it -> red)", function () {
+    const dir = defaultSecretStoreDir({env: {XDG_CONFIG_HOME: "relative/path"}, home: "/home/someone", platform: "linux"});
+    expect(dir).to.equal(join("/home/someone", ".config", "open-steamgate", "osd-hana"));
+    const absolute = defaultSecretStoreDir({env: {XDG_CONFIG_HOME: "/xdg/abs"}, home: "/home/someone", platform: "linux"});
+    expect(absolute).to.equal(join("/xdg/abs", "open-steamgate", "osd-hana"));
+  });
+
+  it("NOTE: driver error texts never repeat a password of this run -- the generated one or the administrator's (mutation: print sqlErrorText verbatim -> red)", async function () {
+    // the fake's error message echoes the password back the way a real
+    // driver can echo a value 'near' the error
+    const {log, factory} = fakeClientFactory([
+      {match: /CREATE USER/, error: 421, message: `syntax error near '${PASSWORD}'`},
+    ]);
+    await createReader({
+      connection: {host: HOST, port: 39015, user: USER, password: PASSWORD},
+      schema: SCHEMA, yes: true, store: h.store(), clientFactory: factory,
+    }).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error.message).to.include("421");
+        expect(error.message).to.not.include(PASSWORD);
+      });
+    // and the drop-time reader logon failure: the stored reader password must
+    // not leak through the driver's message either
+    const secretStore = h.store();
+    const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD};
+    const READER_PW = "gone-soon-42";
+    h.seedStore(secretStore, connection, DEFAULT_READER_NAME, READER_PW);
+    const factory2 = async (options) => {
+      if (options.user === DEFAULT_READER_NAME) {
+        throw Object.assign(new Error(`authentication failed for '${options.password}'`), {code: 401});
+      }
+      return {
+        exec: async (sql, params = []) => ({rows: []}),
+        disconnect: async () => {},
+      };
+    };
+    await dropReader({connection, yes: true, store: secretStore, clientFactory: factory2}).then(
+      () => expect.fail("should refuse"),
+      (error) => {
+        expect(error.message).to.not.include(READER_PW);
+        expect(error.message).to.not.include(PASSWORD);
+      });
   });
 
   it("enforces the secret file modes: dir 0700, file 0600, fchmod even when they existed (mutation: drop fchmod -> red)", function () {

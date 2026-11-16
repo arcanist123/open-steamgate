@@ -16,6 +16,7 @@
 // B.5).
 import {UsageError, parseFlags, collectConnection} from "./connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
+import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory} from "./reader.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
@@ -246,8 +247,11 @@ export async function doctorMain(argv, {
       }
       if (typeof error?.code === "number") {
         // The database refused: a connection or logon problem of the
-        // administrator login (hdb reports native codes).
-        io.err(`osd hana: the database refused (${error.code}): ${error.message}`);
+        // administrator login (hdb reports native codes). The driver message
+        // is quoted -- through the redactor holding this run's password
+        // (critic note), because a driver text can repeat a value verbatim.
+        const redact = makeRedactor([connection.password]);
+        io.err(redact(`osd hana: the database refused (${error.code}): ${error.message}`));
         return DOCTOR_EXIT.connection;
       }
       io.err(`osd hana: ${error.message}`);
