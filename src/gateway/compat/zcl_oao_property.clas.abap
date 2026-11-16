@@ -40,6 +40,14 @@ CLASS zcl_oao_property DEFINITION PUBLIC.
 * a date (DATS) behind the property: the V4 facade types it Edm.Date; the
 * V2 $metadata of a system writes no sap:display-format for it
     DATA mv_is_date        TYPE abap_bool.
+* milestone 4: the unit property the model named (set_unit_property; the
+* dictionary does not override it), the Atom feed customization of
+* set_as_title / set_as_updated (m:FC_TargetPath SyndicationTitle or
+* SyndicationUpdated, m:FC_KeepInContent), and set_disabled
+    DATA mv_unit_explicit     TYPE abap_bool.
+    DATA mv_fc_target_path    TYPE string.
+    DATA mv_fc_keep_in_content TYPE abap_bool.
+    DATA mv_disabled          TYPE abap_bool.
 ENDCLASS.
 
 CLASS zcl_oao_property IMPLEMENTATION.
@@ -134,6 +142,25 @@ CLASS zcl_oao_property IMPLEMENTATION.
   METHOD /iwbep/if_mgw_odata_item~set_label_from_text_element.
     mv_text_symbol    = iv_text_element_symbol.
     mv_text_container = iv_text_element_container.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_item~set_disabled.
+    mv_disabled = iv_disabled.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_property~set_unit_property.
+    mv_unit_property = iv_unit_property_name.
+    mv_unit_explicit = abap_true.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_property~set_as_title.
+    mv_fc_target_path     = 'SyndicationTitle'.
+    mv_fc_keep_in_content = iv_keep_in_content.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_property~set_as_updated.
+    mv_fc_target_path     = 'SyndicationUpdated'.
+    mv_fc_keep_in_content = iv_keep_in_content.
   ENDMETHOD.
 
   METHOD /iwbep/if_mgw_odata_property~set_maxlength.

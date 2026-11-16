@@ -6,6 +6,13 @@ CLASS zcl_oao_http_handler DEFINITION PUBLIC.
 * sap:unicode only where the model says so; sap:unit and sap:semantics
 * derived from the bound structure; the label of a function import
 * parameter.
+* Milestone 4, as a system writes them for a second generated service:
+* sap:is-thing-type on the EntityType; sap:label from the text pool on the
+* EntityType, the EntitySet, the Association (after sap:content-version),
+* the NavigationProperty and the FunctionImport; the Atom feed
+* customization m:FC_TargetPath / m:FC_KeepInContent of a title or updated
+* property; and no disabled element (the model's lists leave them out, the
+* parameters and the referential constraint are skipped here).
   PUBLIC SECTION.
     TYPES: BEGIN OF ty_data,
              content_type TYPE string,
@@ -105,6 +112,14 @@ CLASS zcl_oao_http_handler DEFINITION PUBLIC.
       RETURNING
         VALUE(rv_label) TYPE string.
 
+* ` sap:label="..."` of an element labelled from a text pool, '' for none
+    CLASS-METHODS text_label_xml
+      IMPORTING
+        iv_symbol     TYPE csequence
+        iv_container  TYPE csequence
+      RETURNING
+        VALUE(rv_xml) TYPE string.
+
 * an attribute value as XML writes it
     CLASS-METHODS escape
       IMPORTING
@@ -196,10 +211,13 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
     DATA lv_dependent_role TYPE string.
 
     rv_xml =
-      |      <Association Name="{ io_association->mv_name }" sap:content-version="1">\n| &&
+      |      <Association Name="{ io_association->mv_name }" sap:content-version="1"{
+        text_label_xml( iv_symbol    = io_association->mv_text_symbol
+                        iv_container = io_association->mv_text_container ) }>\n| &&
       |        <End Type="{ iv_namespace }.{ io_association->mv_left_type }" Multiplicity="{ multiplicity( io_association->mv_left_card ) }" Role="FromRole_{ io_association->mv_name }"/>\n| &&
       |        <End Type="{ iv_namespace }.{ io_association->mv_right_type }" Multiplicity="{ multiplicity( io_association->mv_right_card ) }" Role="ToRole_{ io_association->mv_name }"/>\n|.
-    IF io_association->mo_ref_constraint IS BOUND AND io_association->mo_ref_constraint->mt_pairs IS NOT INITIAL.
+    IF io_association->mo_ref_constraint IS BOUND AND io_association->mo_ref_constraint->mt_pairs IS NOT INITIAL
+        AND io_association->mo_ref_constraint->mv_disabled = abap_false.
       IF io_association->mo_ref_constraint->mv_principal_is_left = abap_true.
         lv_principal_role = |FromRole_{ io_association->mv_name }|.
         lv_dependent_role = |ToRole_{ io_association->mv_name }|.
@@ -222,6 +240,7 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
 
   METHOD function_import_xml.
     DATA lo_parameter TYPE REF TO zcl_oao_parameter.
+    DATA lt_parameters TYPE zcl_oao_action=>ty_parameters.
     DATA lv_return    TYPE string.
     DATA lv_facets    TYPE string.
     DATA lv_label     TYPE string.
@@ -244,14 +263,21 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
       rv_xml = rv_xml && | EntitySet="{ io_action->mv_return_entity_set }"|.
     ENDIF.
     rv_xml = rv_xml && | m:HttpMethod="{ io_action->mv_http_method }"|.
+    rv_xml = rv_xml && text_label_xml( iv_symbol    = io_action->mv_text_symbol
+                                       iv_container = io_action->mv_text_container ).
     IF io_action->mv_action_for IS NOT INITIAL.
       rv_xml = rv_xml && | sap:action-for="{ iv_namespace }.{ io_action->mv_action_for }"|.
     ENDIF.
-    IF io_action->mt_parameters IS INITIAL.
+    LOOP AT io_action->mt_parameters INTO lo_parameter.
+      IF lo_parameter->mv_disabled = abap_false.
+        APPEND lo_parameter TO lt_parameters.
+      ENDIF.
+    ENDLOOP.
+    IF lt_parameters IS INITIAL.
       rv_xml = rv_xml && |/>\n|.
     ELSE.
       rv_xml = rv_xml && |>\n|.
-      LOOP AT io_action->mt_parameters INTO lo_parameter.
+      LOOP AT lt_parameters INTO lo_parameter.
         IF lo_parameter->mv_edm_type IS INITIAL.
           lo_parameter->mv_edm_type = /iwbep/if_mgw_med_odata_types=>gcs_edm_data_types-string.
         ENDIF.
@@ -296,6 +322,19 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
     ENDIF.
     IF io_property->mv_rollname IS NOT INITIAL.
       rv_label = zcl_osd_ddic_info=>label( io_property->mv_rollname )-medium.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD text_label_xml.
+    DATA lv_label TYPE string.
+
+    IF iv_symbol IS INITIAL.
+      RETURN.
+    ENDIF.
+    lv_label = zcl_osd_textpool=>text_symbol( iv_container = iv_container
+                                              iv_symbol    = iv_symbol ).
+    IF lv_label IS NOT INITIAL.
+      rv_xml = | sap:label="{ escape( lv_label ) }"|.
     ENDIF.
   ENDMETHOD.
 
@@ -406,6 +445,12 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
     ENDCASE.
     IF io_property->mv_etag = abap_true.
       lv_facets = |{ lv_facets } ConcurrencyMode="Fixed"|.
+    ENDIF.
+* the Atom feed customization of a title or updated property, after the
+* facets and before the sap: annotations (as a system writes it)
+    IF io_property->mv_fc_target_path IS NOT INITIAL.
+      lv_facets = |{ lv_facets } m:FC_TargetPath="{ io_property->mv_fc_target_path }" m:FC_KeepInContent="{
+        map_boolean( io_property->mv_fc_keep_in_content ) }"|.
     ENDIF.
 * semantics: set_semantic, else the model's annotation, else what the
 * dictionary type implies (a currency key, a unit)
@@ -524,6 +569,7 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
     DATA lt_vocabulary   TYPE string_table.
     DATA lv_vocabulary   TYPE string.
     DATA lv_media        TYPE string.
+    DATA lv_thing        TYPE string.
 
     lo_mpc = zcl_oao_registry=>create_mpc( iv_service ).
     lo_mpc->define( ).
@@ -558,8 +604,15 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
         lv_media = ' m:HasStream="true"'.
       ENDIF.
 
+* a thing type (set_is_thing_type) says so, after its label
+      lv_thing = text_label_xml( iv_symbol    = lo_entity->mv_text_symbol
+                                 iv_container = lo_entity->mv_text_container ).
+      IF lo_entity->mv_is_thing_type = abap_true.
+        lv_thing = |{ lv_thing } sap:is-thing-type="true"|.
+      ENDIF.
+
       rv_xml = rv_xml &&
-        |      <EntityType Name="{ lv_entity_type }"{ lv_media }{ custom_annotations_xml( io_annotation = lo_entity->mo_annotation
+        |      <EntityType Name="{ lv_entity_type }"{ lv_media }{ lv_thing }{ custom_annotations_xml( io_annotation = lo_entity->mo_annotation
                                                                                           it_builtin    = lt_type_builtin ) } sap:content-version="1">\n| &&
         |        <Key>\n|.
       LOOP AT lt_properties INTO ls_property.
@@ -590,7 +643,9 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
           ENDIF.
         ENDLOOP.
         rv_xml = rv_xml &&
-          |        <NavigationProperty Name="{ lo_nav->mv_name }" Relationship="{ lv_namespace }.{ lo_nav->mv_association }" FromRole="{ lv_from_role }" ToRole="{ lv_to_role }"/>\n|.
+          |        <NavigationProperty Name="{ lo_nav->mv_name }" Relationship="{ lv_namespace }.{ lo_nav->mv_association }" FromRole="{ lv_from_role }" ToRole="{ lv_to_role }"{
+            text_label_xml( iv_symbol    = lo_nav->mv_text_symbol
+                            iv_container = lo_nav->mv_text_container ) }/>\n|.
       ENDLOOP.
       rv_xml = rv_xml && |      </EntityType>\n|.
 
@@ -598,7 +653,9 @@ CLASS zcl_oao_http_handler IMPLEMENTATION.
       LOOP AT lt_entity_sets INTO ls_entity_set.
         lv_searchable = searchable_xml( ls_entity_set-entity_set ).
         lv_sets_xml = lv_sets_xml &&
-          |        <EntitySet Name="{ ls_entity_set-name }" EntityType="{ lv_namespace }.{ lv_entity_type }" sap:creatable="{
+          |        <EntitySet Name="{ ls_entity_set-name }" EntityType="{ lv_namespace }.{ lv_entity_type }"{
+            text_label_xml( iv_symbol    = ls_entity_set-entity_set->mv_text_symbol
+                            iv_container = ls_entity_set-entity_set->mv_text_container ) } sap:creatable="{
             map_boolean( ls_entity_set-entity_set->mv_creatable ) }" sap:updatable="{
             map_boolean( ls_entity_set-entity_set->mv_updatable ) }" sap:deletable="{
             map_boolean( ls_entity_set-entity_set->mv_deletable ) }" sap:pageable="{

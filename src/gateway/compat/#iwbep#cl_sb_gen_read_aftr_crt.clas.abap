@@ -93,4 +93,14 @@ CLASS /iwbep/cl_sb_gen_read_aftr_crt IMPLEMENTATION.
     RETURN.
   ENDMETHOD.
 
+  METHOD /iwbep/if_mgw_req_entity~get_source_entity_type_name.
+* milestone 4: a read after a create is a direct read of every field -- no
+* source type, nothing selected (everything)
+    RETURN.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_req_entity~get_select_with_mandtry_fields.
+    RETURN.
+  ENDMETHOD.
+
 ENDCLASS.

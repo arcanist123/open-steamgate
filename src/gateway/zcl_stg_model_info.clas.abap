@@ -373,6 +373,10 @@ CLASS zcl_stg_model_info IMPLEMENTATION.
         ls_action-return_many = abap_true.
       ENDIF.
       LOOP AT lo_action->mt_parameters INTO lo_parameter.
+* a disabled parameter is not part of the function import (milestone 4)
+        IF lo_parameter->mv_disabled = abap_true.
+          CONTINUE.
+        ENDIF.
         CLEAR ls_info.
         ls_info-name      = lo_parameter->mv_name.
         ls_info-fieldname = to_upper( lo_parameter->mv_abap_fieldname ).

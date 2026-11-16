@@ -155,7 +155,9 @@ CLASS zcl_osd_ddic_info IMPLEMENTATION.
       ENDIF.
 * the reference field must be a component of this structure, and a
 * property of this type must be bound to it
+* (a unit the model named itself, set_unit_property, stays: milestone 4)
       IF ( ls_field-datatype = 'CURR' OR ls_field-datatype = 'QUAN' )
+          AND lo_property->mv_unit_explicit = abap_false
           AND ls_field-reffield IS NOT INITIAL
           AND ( ls_field-reftable IS INITIAL OR ls_field-reftable = lv_struct ).
         LOOP AT it_properties INTO ls_ref.

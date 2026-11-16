@@ -3,6 +3,17 @@ INTERFACE /iwbep/if_mgw_odata_action PUBLIC.
   INTERFACES /iwbep/if_mgw_odata_annotatabl.
   INTERFACES /iwbep/if_mgw_odata_item.
   ALIASES set_label_from_text_element FOR /iwbep/if_mgw_odata_item~set_label_from_text_element.
+* Overlay (milestone 4): set_disabled through the item, and the input
+* parameter read back by name (a redefining model disables parameters)
+  ALIASES set_disabled FOR /iwbep/if_mgw_odata_item~set_disabled.
+
+  METHODS get_input_parameter
+    IMPORTING
+      iv_name             TYPE /iwbep/if_mgw_med_odata_types=>ty_e_med_entity_name
+    RETURNING
+      VALUE(ro_parameter) TYPE REF TO /iwbep/if_mgw_odata_parameter
+    RAISING
+      /iwbep/cx_mgw_med_exception.
 
   METHODS create_input_parameter
     IMPORTING

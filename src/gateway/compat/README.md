@@ -65,3 +65,58 @@ do not travel to SAP.
   function import parameter; and no longer derives
   `sap:display-format="Date"` (the date mark `mv_is_date` stays for the V4
   facade; the SADL exposure sets the display format itself).
+
+Milestone 4, train 1 (the contract members a second generated service and
+the launchpad page services call; the names of those services stay in the
+private evidence):
+
+- model elements are items: `#iwbep#if_mgw_odata_item.intf` carries
+  `set_disabled` beside `set_label_from_text_element`, and the entity set,
+  the association, its set, the navigation property and the referential
+  constraint include it (`#iwbep#if_mgw_odata_{entity_set,assoc,assoc_set,
+  nav_prop,ref_constr}.intf`, implemented by `zcl_oao_{entity_set,
+  association,assoc_set,nav_prop,ref_constraint}.clas`). A label from the
+  text pool is written as `sap:label` on the EntityType, EntitySet,
+  Association (after `sap:content-version`), NavigationProperty and
+  FunctionImport; a disabled element is left out of `$metadata` and of the
+  model info (the model's and the type's lists skip it; `get_property` and
+  the getters still hand it out by name);
+- `#iwbep#if_mgw_odata_entity_typ.intf`: `set_is_thing_type`
+  (`sap:is-thing-type="true"`), `get_navigation_property`;
+- `#iwbep#if_mgw_odata_property.intf`: `set_unit_property` (`sap:unit`; the
+  dictionary's reference field no longer overrides it), `set_as_title` /
+  `set_as_updated` (`m:FC_TargetPath="SyndicationTitle|SyndicationUpdated"
+  m:FC_KeepInContent`, after the facets as a system writes them);
+- `#iwbep#if_mgw_odata_model.intf`: `set_model_features` (kept and read
+  back; the measured service's property labels stayed medium with
+  `use_long_label_for_property` set, so the writer does not change them),
+  `get_entity_set`, `get_association`, `get_association_set`, `get_action`;
+  every getter, `get_entity_type` included, raises the med exception for a
+  name the model lacks (it was an ASSERT). `create_assoc_set` on the
+  association adds a set of the model's name between the ends' default
+  sets; a derived default set is made once and kept, so disabling it sticks;
+- `#iwbep#if_mgw_odata_action.intf`: `get_input_parameter`;
+- request context: `get_source_entity_type_name` (entity and entity-set
+  facets), `get_search_string`, `get_skiptoken`,
+  `get_select_with_mandtry_fields` (`$select` in ABAP field names with the
+  set's keys added, empty for none or `*`; type
+  `#iwbep#t_mgw_tech_field_names.ttyp`, row type not measured), and
+  `get_entity_type_name` on the update facet
+  (`#iwbep#if_mgw_req_entity_u.intf`). `get_skiptoken` answers
+  `mv_skiptoken`, which the dispatcher does not fill yet;
+- exceptions (`#iwbep#cx_mgw_{base,busi,tech}_exception.clas`):
+  `gcs_http_status_codes`, `http_status_code`, `message_container` and
+  `get_msg_container` (the request's container unless one was given) on the
+  base; `resource_not_found` (020, measured), `resource_duplicate`,
+  `filter_not_supported`, `precondition_failed` and the `entity_type`,
+  `filter_param` parameters on the business exception;
+  `missing_authorization`, `entity_type`, `internal_service_name` on the
+  technical one. The numbers of the last four text ids are not measured and
+  carry 000 until they are; the dispatcher still answers every business
+  exception with 400, whatever `http_status_code` says;
+- message container: `reset`, `add_message_from_exception`, and the entity
+  type, keys and target on `add_message_text_only` /
+  `add_messages_from_bapi` (accepted, not kept, as on `add_message`).
+
+The twin is `test/hana-m4` (`ZOSD_M4A_SRV`), the cases
+`test/unit/zcl_osd_m4a_test`.
