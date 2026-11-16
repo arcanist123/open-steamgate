@@ -242,7 +242,9 @@ export async function extractMain(argv, {
 
   // ---- 4: convert ----------------------------------------------------------
   const dumpManifest = JSON.parse(await fs.readFile(path.join(dumpDir, "manifest.json"), "utf8"));
-  const dumpedCount = dumpManifest.sidecar?.counts ? dumpManifest.sidecar.counts.written + dumpManifest.sidecar.counts.skipped : dumpManifest.counts?.package_objects;
+  // the dump holds every object of the request; the sidecar counts DDIC
+  // objects as "rows", so the object total is its own package_objects
+  const dumpedCount = dumpManifest.counts?.package_objects ?? dumpManifest.sidecar?.counts?.package_objects;
   const outcomes = [];
   let conversion;
   try {
