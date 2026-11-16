@@ -205,27 +205,19 @@ export async function doctorMain(argv, {
   const probeArgs = ["--host", connection.host, "--port", String(connection.port)];
   if (connection.database !== undefined) probeArgs.push("--database", connection.database);
   if (connection.schema !== undefined) probeArgs.push("--abap-schema", connection.schema);
-  let probeRun;
-  try {
-    probeRun = await sidecar.run("probe", {args: probeArgs});
-  } catch (error) {
-    if (error instanceof SidecarVerifyError) {
-      // The re-verification immediately before the spawn refused (a swap in
-      // the window after the first verify): a setup failure, not a connect
-      // problem -- the message names both hashes.
-      return fail(error.message);
-    }
-    // A timeout or a child that could not start: it is a cannot-connect, not
-    // a usage error -- the binary itself was verified and hand-shaken.
-    io.err(error.message);
-    return DOCTOR_EXIT.connection;
-  }
-  const probe = probeRun.summary.probe ?? probeRun.summary;
-  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
-
   const finishReader = async (verb) => {
-    const schemaName = flags.schema ?? (schemas.length === 1 ? schemas[0].name : undefined);
-    if (flags.schema === undefined && schemaName === undefined) {
+    // --create-reader grants on an ABAP schema, so it needs one: from --schema
+    // or, when the probe found exactly one, that one. --drop-reader needs NO
+    // schema at all (round-2 NOTE-5: tearing a reader down after the ABAP
+    // schema was removed is exactly when --drop-reader is wanted) -- and it
+    // runs BEFORE the probe (below), because it must not be gated behind a
+    // successful probe of the main login either: the drop path proves
+    // ownership through the secret store and the reader logon, not through
+    // the probe.
+    const schemaName = verb === "create-reader"
+      ? (flags.schema ?? (schemas.length === 1 ? schemas[0].name : undefined))
+      : flags.schema;
+    if (verb === "create-reader" && flags.schema === undefined && schemaName === undefined) {
       io.err(`osd hana: --${verb} needs to know the ABAP schema -- pass --schema (the probe found ${schemas.length} schemas).`);
       return DOCTOR_EXIT.usage;
     }
@@ -243,13 +235,24 @@ export async function doctorMain(argv, {
       if (flags.json === true) {
         // the create result deliberately carries no password -- the secret
         // store is its only holder (critic M-A); --json reports the facts a
-        // caller can act on and nothing that unlocks anything
-        io.out(JSON.stringify({
-          ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
-          reader: verb === "create-reader"
-            ? {user: result.user, schema: result.schema, stored_at: result.storedAt}
-            : {dropped: result.dropped, absent: result.absent},
-        }, null, 1));
+        // caller can act on and nothing that unlocks anything. For drop the
+        // probe has NOT run (NOTE-5: the drop is not gated behind it), so
+        // the document carries the drop facts without a probe verdict.
+        io.out(JSON.stringify(verb === "create-reader"
+          ? {
+            ...jsonVerdict(probe, {connection, sidecar: describeSidecar(verified, handshakeInfo), warnings}),
+            reader: {user: result.user, schema: result.schema, stored_at: result.storedAt},
+          }
+          : {
+            command: "osd hana doctor",
+            sidecar: describeSidecar(verified, handshakeInfo),
+            connection: {
+              host: connection.host, port: connection.port, database: connection.database,
+              user: connection.user, schema: connection.schema,
+            },
+            reader: {dropped: result.dropped, absent: result.absent},
+            warnings,
+          }, null, 1));
       }
       return DOCTOR_EXIT.ok;
     } catch (error) {
@@ -271,6 +274,37 @@ export async function doctorMain(argv, {
     }
   };
 
+  // ---- --drop-reader runs BEFORE the probe (round-2 NOTE-5) --------------
+  // Tearing a reader down after the ABAP schema was removed (probe exits 5)
+  // -- or when the main login cannot probe at all -- is exactly when
+  // --drop-reader is wanted, and the drop path needs no schema and no probe:
+  // its proofs are the store entry and the reader logon. --create-reader,
+  // in contrast, reads its roles off the probe, so it runs behind it.
+  if (flags["drop-reader"] === true) {
+    return finishReader("drop-reader");
+  }
+
+
+  let probeRun;
+  try {
+    probeRun = await sidecar.run("probe", {args: probeArgs});
+  } catch (error) {
+    if (error instanceof SidecarVerifyError) {
+      // The re-verification immediately before the spawn refused (a swap in
+      // the window after the first verify): a setup failure, not a connect
+      // problem -- the message names both hashes.
+      return fail(error.message);
+    }
+    // A timeout or a child that could not start: it is a cannot-connect, not
+    // a usage error -- the binary itself was verified and hand-shaken.
+    io.err(error.message);
+    return DOCTOR_EXIT.connection;
+  }
+  const probe = probeRun.summary.probe ?? probeRun.summary;
+  const schemas = Array.isArray(probe.schemas) ? probe.schemas : [];
+
+
+  // ---- --create-reader and the verdict follow; the drop ran above ----
   // The doctor's exit-code contract, mapped from the sidecar's named outcomes.
   switch (probeRun.outcome) {
     case "done":
@@ -297,8 +331,8 @@ export async function doctorMain(argv, {
     return DOCTOR_EXIT.noAbapSchema;
   }
 
-  if (flags["create-reader"] === true || flags["drop-reader"] === true) {
-    return finishReader(flags["create-reader"] === true ? "create-reader" : "drop-reader");
+  if (flags["create-reader"] === true) {
+    return finishReader("create-reader");
   }
 
   if (flags.json === true) {

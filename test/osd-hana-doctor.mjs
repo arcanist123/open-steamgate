@@ -16,6 +16,7 @@ import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
 import {makeRedactor} from "../tools/osd-hana/redact.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
+import {readerStoreKey} from "../tools/osd-hana/reader.mjs";
 import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
 
 const h = makeHarness();
@@ -283,6 +284,46 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(code).to.equal(5);
       const code2 = await h.runDoctor([], {scenario: "no-schema"});
       expect(code2).to.equal(5);
+    });
+
+    it("NOTE-5 (round 2): --drop-reader is NOT gated behind a successful probe -- it runs before the probe and works after the ABAP schema is gone (mutation: gate the drop behind the probe -> red)", async function () {
+      // the ABAP schema was removed: the probe exits 5 ("unsupported") -- and
+      // THAT is exactly when the reader must be tearable down. The drop proves
+      // ownership through the store entry and the reader logon, not the probe.
+      const {fakeClientFactory, SUCCESS_RULES} = await import("./osd-hana/fake-client.mjs");
+      const secretStore = h.store();
+      const connection = {host: HOST, port: 39015, user: USER, password: PASSWORD, database: undefined};
+      secretStore.set(
+        {user: "OSD_READER", password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015,
+          system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}},
+        readerStoreKey(connection, "OSD_READER"));
+      const {log, factory} = fakeClientFactory(SUCCESS_RULES);
+      const code = await h.runDoctor(["--drop-reader", "--yes"], {
+        scenario: "unsupported",
+        deps: {store: secretStore, clientFactory: factory},
+      });
+      expect(code, h.allText()).to.equal(0);
+      expect(log.statements.some((s) => s.sql === "DROP USER OSD_READER CASCADE")).to.equal(true);
+      // the probe never ran: no probe output anywhere
+      expect(h.allText()).to.not.include("Verdict for the ABAP rescue");
+      // and the same when the probe cannot connect at all (the main login is
+      // broken -- the reader can still be torn down with the login given)
+      const secretStore2 = h.store();
+      secretStore2.set(
+        {user: "OSD_READER", password: "gone-soon-42", schema: SCHEMA, host: HOST, port: 39015,
+          system_identity: {system_id: "SYSID-FIXTURE-1", database_name: "TEN"}},
+        readerStoreKey({host: HOST, port: 39015}, "OSD_READER"));
+      const {log: log2, factory: factory2} = fakeClientFactory(SUCCESS_RULES);
+      const code2 = await h.runDoctor(["--drop-reader", "--yes", "--json"], {
+        scenario: "connect-error",
+        deps: {store: secretStore2, clientFactory: factory2},
+      });
+      expect(code2, h.allText()).to.equal(0);
+      const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
+      expect(document.reader.dropped).to.equal(true);
+      expect(document.probe).to.equal(undefined);
+      // --drop-reader still needs no --schema even without the probe
+      expect(h.allText()).to.not.include("needs to know the ABAP schema");
     });
 
     it("takes the password from the env file when no other channel gives one (critic M-1; mutation: ignore file.HANA_PASSWORD -> red)", async function () {
