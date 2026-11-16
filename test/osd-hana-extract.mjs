@@ -214,7 +214,7 @@ describe("osd hana extract", function () {
     // sha256 in the report matches the files on disk
     const rep = reportOf(out);
     const clas = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
-    expect(clas.status).to.equal("written-partial"); // component texts not checked (SHOULD-1)
+    expect(clas.status).to.equal("written"); // component texts are only 'not checked' -- written, carrying its unchecked list (round 4)
     for (const f of clas.files) {
       expect(f.sha256).to.equal(sha256(join(out, f.path)));
       expect(f.bytes).to.equal(statSync(join(out, f.path)).size);
@@ -328,13 +328,15 @@ describe("osd hana extract", function () {
     expect(r.code).to.equal(3);
     const rep = reportOf(out);
     expect(rep.totals.inScope).to.equal(14);
-    expect(rep.totals.written).to.equal(6); // DTEL, DOMA, TTYP, SHLP, VIEW, DDLS
-    expect(rep.totals.writtenPartial).to.equal(7); // CLAS/INTF (component texts), 2 TABL (FKs/indexes/texts), 2 PROG + FUGR (screens not checked)
+    expect(rep.totals.written).to.equal(11); // DTEL, DOMA, TTYP, SHLP, VIEW, DDLS + CLAS/INTF (component texts) + 2 PROG + FUGR (screens not checked -- round 4: written)
+    expect(rep.totals.writtenPartial).to.equal(2); // the 2 TABL: the dump CARRIES the foreign keys and they are not written
     expect(rep.totals.unsupported).to.equal(1);
     expect(rep.totals.skipped).to.equal(0);
     expect(rep.totals.written + rep.totals.writtenPartial + rep.totals.skipped + rep.totals.unsupported).to.equal(rep.totals.inScope);
     expect(rep.totals.dumped).to.equal(15);
-    expect(rep.sentence).to.equal("8 objects of 14 could not be fully extracted (CLAS 1, FUGR 1, INTF 1, PROG 2, SICF 1, TABL 2)");
+    expect(rep.sentence).to.match(/^3 objects of 14 could not be fully extracted \(SICF 1, TABL 2\)\./);
+    expect(rep.sentence).to.match(/11 objects written\. For 5 of them this tool could not check: /);
+    expect(rep.sentence).to.match(/component texts \(SEOCOMPOTX\) 2/).and.to.match(/dynpros 3/).and.to.match(/variants 3/);
     const md = readFileSync(join(out, "extract-report.md"), "utf8");
     expect(md).to.match(/could not be fully extracted/);
     expect(md).to.match(/\| SICF \(unsupported\) \| 1 \| 0 \| 0 \| 0 \| 1 \|/);
@@ -505,7 +507,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(t.inScope).to.equal(14);
     expect(t.written + t.writtenPartial + t.skipped + t.unsupported).to.equal(t.inScope);
     const totalsLine = readOut(out, "extract-report.md").split("\n").find((l) => l.startsWith("Totals:"));
-    expect(totalsLine).to.match(/in scope 14 = written 6 \+ written-partial 6 \+ skipped 1 \+ unsupported 1/);
+    expect(totalsLine).to.match(/in scope 14 = written 10 \+ written-partial 2 \+ skipped 1 \+ unsupported 1/);
   });
 
   it("M2: a function module whose include is missing from the dump is a part line and the group is written-partial (mutation: the missing-include check removed)", async function () {
@@ -521,7 +523,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(fugr.status).to.equal("written-partial");
     const part = fugr.parts.find((p) => /Z_OSD_X4_FM2/.test(p.part));
     expect(part, "a part line names the lost function").to.exist;
-    expect(part.disposition).to.equal("not written");
+    expect(part.disposition).to.equal("not extracted");
     expect(part.reason).to.match(/include LZOSG_X4U02/);
     // TFDIR.INCLUDE carries the bare number ("01"); the include's PROGRAM is
     // LZOSG_X4U01 and IS in the dump -- the present function must not be
@@ -533,24 +535,28 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     expect(rep.errors).to.deep.equal([]);
   });
 
-  it("M4: PROG and FUGR are written-partial with 'not checked' part lines for screens, GUI status and variants (mutation: the not-checked lines removed)", async function () {
+  it("M4: PROG and FUGR are written carrying 'not checked' parts for screens, GUI status and variants -- not written-partial (mutation: the not-checked lines removed; round 4: unchecked counted as partial)", async function () {
     const out = await fresh("m4");
-    await runExtract(["--out", out]);
+    const r = await runExtract(["--out", out]);
     const rep = reportOf(out);
     for (const name of ["ZOSD_X3", "ZOSD_XD"]) {
       const o = rep.objects.find((x) => x.name === name);
-      expect(o.status).to.equal("written-partial");
+      expect(o.status, `${name}: only not-checked parts`).to.equal("written");
+      expect(r.code).to.equal(3); // the SICF and the TABLs still make this run partial
       for (const part of ["dynpros", "GUI status", "variants"]) {
-        const p = o.parts.find((x) => x.part === part);
+        const p = o.unchecked.find((x) => x.part === part);
         expect(p, `${name}: ${part}`).to.exist;
         expect(p.disposition).to.equal("not checked");
       }
+      expect(o.parts, `${name}: no not-extracted part`).to.deep.equal([]);
     }
     const fugr = rep.objects.find((x) => x.name === "ZOSG_X4");
-    expect(fugr.parts.filter((p) => p.disposition === "not checked").map((p) => p.part))
+    expect(fugr.unchecked.map((p) => p.part))
       .to.deep.equal(["documentation of Z_OSD_X4_FM", "dynpros", "GUI status", "variants"]);
     const md = readOut(out, "extract-report.md");
     expect(md).to.match(/program screens, GUI statuses and variants are not checked/);
+    // the per-object unchecked lists sit in a collapsed section, not in the top sentence
+    expect(md).to.match(/<details>/).and.to.match(/could not check/);
   });
 
   it("M3: --include-sap refuses a --dump-dir inside a git working tree (mutation: the dump-dir git-tree check removed)", async function () {
@@ -764,7 +770,7 @@ describe("osd hana extract -- the fix round (critic M/S/N, attack 2)", function 
     const o = reportOf(out).objects.find((x) => x.name === "ZOSD_X3");
     const p = o.parts.find((x) => /language D/.test(x.reason));
     expect(p, "a part line names the dropped translation").to.exist;
-    expect(p.disposition).to.equal("not written");
+    expect(p.disposition).to.equal("not extracted");
   });
 
   it("the ledger accounts for every in-scope object exactly once, in exactly one state", async function () {
@@ -959,7 +965,7 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const clas = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
     const part = clas.parts.find((p) => p.part === "dump error");
     expect(part, "the error names its object").to.exist;
-    expect(part.disposition).to.equal("not written");
+    expect(part.disposition).to.equal("not extracted");
     expect(part.reason).to.match(/definition hidden/);
     expect(clas.status).to.equal("written-partial");
     // the unnamed error is a run-level line
@@ -985,11 +991,11 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(e.status).to.equal("written-partial");
     const ccimp = e.parts.find((p) => /CCIMP/.test(p.part));
     expect(ccimp, "the failed include is named").to.exist;
-    expect(ccimp.disposition).to.equal("not written");
+    expect(ccimp.disposition).to.equal("not extracted");
     expect(ccimp.reason).to.match(/decompress/);
     const ccau = e.parts.find((p) => /CCAU/.test(p.part));
     expect(ccau, "the unusable path is named").to.exist;
-    expect(ccau.disposition).to.equal("not written");
+    expect(ccau.disposition).to.equal("not extracted");
     expect(rep.errors.length).to.be.at.least(1);
   });
 
@@ -1144,7 +1150,7 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const fugr = rep.objects.find((o) => o.name === "ZOSG_X4");
     const part = fugr.parts.find((p) => /F01/i.test(p.part));
     expect(part, "the include gets its line").to.exist;
-    expect(part.disposition).to.equal("not written");
+    expect(part.disposition).to.equal("not extracted");
     expect(part.reason).to.match(/generated/i);
     expect(existsSync(join(out, "src/osd_x/zosg_x4.fugr.lzosg_x4f01.abap"))).to.equal(false);
   });
@@ -1156,15 +1162,18 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const rep = reportOf(out);
     const tabl = rep.objects.find((o) => o.name === "ZTAB_X5");
     expect(tabl.status).to.equal("written-partial");
-    // the dump CARRIES the foreign keys (DD05S/DD08L): "not extracted"
+    // the dump CARRIES the foreign keys (DD05S/DD08L): "not extracted" --
+    // the only kind of part that makes the object written-partial (round 4)
     const fks = tabl.parts.find((p) => /foreign key/i.test(p.part));
     expect(fks.disposition).to.equal("not extracted");
     expect(fks.reason).to.match(/DD05S|DD08L/);
-    // the dump carries no index tables: "not checked"
-    const idx = tabl.parts.find((p) => /index/i.test(p.part));
+    // the dump carries no index tables: "not checked" -- carried on the
+    // object's unchecked list, never counting toward written-partial
+    const idx = tabl.unchecked.find((p) => /index/i.test(p.part));
+    expect(idx, "the index blind spot is on the unchecked list").to.exist;
     expect(idx.disposition).to.equal("not checked");
-    expect(tabl.parts.some((p) => /search-help/i.test(p.part))).to.equal(true);
-    expect(tabl.parts.some((p) => /component text/i.test(p.part))).to.equal(true);
+    expect(tabl.unchecked.some((p) => /search-help/i.test(p.part))).to.equal(true);
+    expect(tabl.unchecked.some((p) => /component text/i.test(p.part))).to.equal(true);
     const namespaced = rep.objects.find((o) => o.name === "/NS/ZTAB_Y1");
     expect(namespaced.status).to.equal("written-partial");
   });
@@ -1178,21 +1187,23 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(r.code).to.equal(3);
     const rep = reportOf(out);
     const clas = rep.objects.find((o) => o.name === "ZCL_OSD_X1");
-    expect(clas.status).to.equal("written-partial");
-    expect(clas.parts.some((p) => p.disposition === "not checked" && /component text/i.test(p.reason))).to.equal(true);
+    expect(clas.status).to.equal("written-partial"); // the language-D class text EXISTS in the dump and is not written
+    expect(clas.unchecked.some((p) => p.disposition === "not checked" && /component text/i.test(p.reason))).to.equal(true);
     expect(clas.parts.some((p) => p.disposition === "not extracted" && /language D/.test(p.reason))).to.equal(true);
     const intf = rep.objects.find((o) => o.name === "ZIF_OSD_X2");
-    expect(intf.status).to.equal("written-partial");
+    expect(intf.status).to.equal("written"); // only the component-text blind spot
+    expect(intf.unchecked.some((p) => /component text/i.test(p.reason))).to.equal(true);
   });
 
-  it("NOTE-1: the sentence separates honest incompleteness from loss (mutation: the unchecked-only sentence removed)", async function () {
+  it("NOTE-1: a run whose only parts are 'not checked' exits 0 and says so -- a signal that is always on is no signal (round 4; mutation: unchecked-only kept at exit 3)", async function () {
     const fx = variant((list, dump) => {
       for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).filter((o) => ["PROG", "FUGR"].includes(o.type) && o.class === "customer"));
     });
     const out = await fresh("n1");
     const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
-    expect(r.code).to.equal(3); // the parts are not checked -- still not a clean exit 0
-    expect(reportOf(out).sentence).to.match(/as far as this tool checks/).and.to.match(/not checked/);
+    expect(r.code).to.equal(0); // every non-checked part is a blind spot, not a loss
+    const rep = reportOf(out);
+    expect(rep.sentence).to.match(/^3 objects written\. For 3 of them this tool could not check: /).and.to.match(/not checked|could not check/);
     // and where something is really lost, the sentence says "could not be fully extracted" as before
     const out2 = await fresh("n1b");
     await runExtract(["--out", out2]);
@@ -1254,7 +1265,7 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(e.status).to.equal("written-partial");
     const part = e.parts.find((p) => /CCAU/.test(p.part));
     expect(part, "the symlinked include is a part line").to.exist;
-    expect(part.disposition).to.equal("not written");
+    expect(part.disposition).to.equal("not extracted");
     expect(part.reason).to.match(/dump directory/);
     expect(readOutReport(out)).to.not.match(/hostname/);
   });
@@ -1459,3 +1470,128 @@ describe("osd hana extract -- fix round 3 (the default scope must not surprise)"
   });
 });
 
+
+// ------------------------------------------------------- fix round 4
+// "not checked" is not "partial" (the coordinator's decision): the two part
+// kinds are kept apart everywhere -- ledger, json, md, console.
+//   not-extracted = the dump shows the part exists and it was not written
+//   (a failed include, foreign keys carried but not serialised, a text pool
+//   left out, a sidecar error on the object);
+//   not-checked   = the dump cannot tell whether the part exists.
+// written-partial ONLY for not-extracted; only-unchecked objects are
+// `written`, carrying their unchecked list; exit 3 only for not-extracted
+// parts, skipped/unsupported objects, or errors. The summary never says
+// "all"/"completely" while any unchecked part exists. Each test names the
+// mutation that must turn it RED.
+describe("osd hana extract -- fix round 4 ('not checked' is not 'partial')", function () {
+
+  const readJsonl4 = (dir, name) => readFileSync(join(dir, name), "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+  const objectsRows4 = (dir) => readJsonl4(dir, "objects.jsonl");
+  const writeObjects4 = (dir, rows) => writeFileSync(join(dir, "objects.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + (rows.length ? "\n" : ""));
+  const writeTable4 = (dump, t, rows) => writeFileSync(join(dump, "tables", `${t}.jsonl`), rows.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const tableRows4 = (dump, t) => readJsonl4(join(dump, "tables"), `${t}.jsonl`);
+  const noOverclaim = (s) => !/\b(all|completely)\b/i.test(s);
+
+  function variant(mutate) {
+    const built = buildExtractFixtures(join(root, `fx4-${Math.random().toString(16).slice(2)}`));
+    if (mutate) mutate(built.list, built.dump);
+    return built;
+  }
+  // only the two PROGs: both convert, and their only part lines are the
+  // screen/GUI/variant blind spots the dump cannot even check
+  const progOnly = (list, dump) => {
+    for (const dir of [list, dump]) writeObjects4(dir, objectsRows4(dir).filter((o) => o.type === "PROG"));
+  };
+  const tpoolHex4 = (id, k, entry, len) => {
+    const s = id + k.padEnd(8, " ") + entry.padEnd(len, " ");
+    const b = Buffer.alloc(2 + 2 * s.length);
+    b.writeUInt16BE(len, 0);
+    for (let i = 0; i < s.length; i++) b.writeUInt16BE(s.charCodeAt(i), 2 + 2 * i);
+    return "0x" + b.toString("hex");
+  };
+  // ZOSD_X3 gains a German text pool: the dump SHOWS it exists, so leaving it
+  // out is a not-extracted part -- a real loss, not a blind spot
+  const withLoss = (list, dump) => {
+    progOnly(list, dump);
+    writeTable4(dump, "REPOTEXT", tableRows4(dump, "REPOTEXT").concat([{PROGNAME: "ZOSD_X3", LANGUAGE: "D", R3STATE: "A", DATA: tpoolHex4("I", "001", "Ueberschrift", 12)}]));
+  };
+
+  it("R4-1: an object with only not-checked parts is written, the run exits 0, and the top sentence carries the counts (mutation: unchecked parts still count as written-partial)", async function () {
+    const fx = variant(progOnly);
+    const out = await fresh("r4-unchecked-only");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code, "no not-extracted part, no skipped, no error: exit 0").to.equal(0);
+    const rep = reportOf(out);
+    for (const o of rep.objects) {
+      expect(o.status, `${o.name}`).to.equal("written");
+      expect(o.unchecked.length, `${o.name}: the blind spots are on the unchecked list`).to.be.at.least(3);
+    }
+    // the two counters (the ledger's set accounting is unchanged)
+    expect(rep.totals.uncheckedObjects).to.equal(2);
+    expect(rep.totals.uncheckedParts).to.equal(6);
+    expect(rep.totals.notExtractedParts).to.equal(0);
+    expect(rep.totals.unchecked).to.deep.equal([
+      {kind: "dynpros", count: 2}, {kind: "GUI status", count: 2}, {kind: "variants", count: 2},
+    ]);
+    // the sentence: the coordinator's exact wording, once, with kinds + counts
+    expect(rep.sentence).to.equal("2 objects written. For 2 of them this tool could not check: dynpros 2, GUI status 2, variants 2.");
+    // on the console, once
+    expect(r.lines.out.filter((l) => l.includes("could not check")).length, "once on the console").to.equal(1);
+    // at the TOP of the md (before the metadata), and never "all"/"completely"
+    const md = readFileSync(join(out, "extract-report.md"), "utf8");
+    const top = md.indexOf("2 objects written. For 2 of them this tool could not check:");
+    expect(top, "the sentence is at the top of the md").to.be.at.least(0);
+    expect(top).to.be.below(md.indexOf("- out:"));
+    expect(noOverclaim(md.slice(0, md.indexOf("\n", top)))).to.equal(true);
+    // the per-object lists stay in the json and in a collapsed md section
+    expect(md).to.match(/<details>/).and.to.match(/ZOSD_X3/);
+  });
+
+  it("R4-2: one not-extracted part makes the object written-partial and the run exit 3 (mutation: a known-missing part counted as merely unchecked)", async function () {
+    const fx = variant(withLoss);
+    const out = await fresh("r4-one-loss");
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump});
+    expect(r.code, "the dump SHOWS the D text pool exists: a real loss").to.equal(3);
+    const rep = reportOf(out);
+    const lost = rep.objects.find((o) => o.name === "ZOSD_X3");
+    expect(lost.status).to.equal("written-partial");
+    const p = lost.parts.find((x) => /language D/.test(x.reason));
+    expect(p, "the not-extracted part is a parts line").to.exist;
+    expect(p.disposition).to.equal("not extracted");
+    const fine = rep.objects.find((o) => o.name === "ZOSD_XD");
+    expect(fine.status).to.equal("written");
+    expect(rep.totals.notExtractedParts).to.equal(1);
+    expect(rep.totals.writtenPartial).to.equal(1);
+    expect(rep.sentence).to.match(/^1 object of 2 could not be fully extracted \(PROG 1\)\./);
+    expect(rep.sentence).to.match(/1 object written\. For 1 of them this tool could not check: /);
+    expect(noOverclaim(rep.sentence)).to.equal(true);
+  });
+
+  it("R4-3: the never-says-all rule -- both cases stay silent about completeness, the clean run may claim it (mutation: the 'all objects were written' sentence restored while unchecked parts exist)", async function () {
+    // case A: only unchecked parts -- no sentence may say "all" or "completely"
+    const fxA = variant(progOnly);
+    const outA = await fresh("r4-all-a");
+    await runExtract(["--out", outA], {list: fxA.list, dump: fxA.dump});
+    const repA = reportOf(outA);
+    expect(noOverclaim(repA.sentence), `sentence A: ${repA.sentence}`).to.equal(true);
+    const mdA = readFileSync(join(outA, "extract-report.md"), "utf8");
+    const topA = mdA.slice(0, mdA.indexOf("\n", mdA.indexOf("objects written")));
+    expect(noOverclaim(topA), `md top A: ${topA}`).to.equal(true);
+
+    // case B: one loss plus unchecked parts -- same rule
+    const fxB = variant(withLoss);
+    const outB = await fresh("r4-all-b");
+    await runExtract(["--out", outB], {list: fxB.list, dump: fxB.dump});
+    const repB = reportOf(outB);
+    expect(noOverclaim(repB.sentence), `sentence B: ${repB.sentence}`).to.equal(true);
+
+    // the clean run (nothing unchecked, nothing lost) MAY say "all"
+    const fxC = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects4(dir, objectsRows4(dir).filter((o) => ["DTEL", "DOMA", "TTYP", "SHLP", "VIEW", "DDLS"].includes(o.type)));
+    });
+    const outC = await fresh("r4-all-clean");
+    const rC = await runExtract(["--out", outC], {list: fxC.list, dump: fxC.dump});
+    expect(rC.code).to.equal(0);
+    expect(reportOf(outC).sentence).to.equal("all 6 objects in scope were written");
+  });
+});
