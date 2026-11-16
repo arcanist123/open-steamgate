@@ -19,7 +19,8 @@ because the sidecar is read-only by construction and cannot create a user.
 | `osd-hana.mjs` | the `osd hana <verb>` entry; `bin/osd.mjs` dispatches mode `hana` here |
 | `doctor.mjs` | the `doctor` verb: sidecar lifecycle + probe + verdict, exit codes |
 | `sidecar.mjs` | locate / verify (SHA-256 pin) / handshake / run the sidecar |
-| `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64) |
+| `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64), the capabilities, and the public release URL + asset name per target |
+| `fetch-sidecar.mjs` | the BUILD-time fetcher: downloads the pinned release asset per target, verifies SHA-256 against the pin, writes it atomically. Never reached from the `osd hana` verbs |
 | `connect.mjs` | connection input: `--host --port --database --user`, `--env-file`, `--password-stdin`, hidden TTY prompt. **No `--password` flag, ever** (argv is visible to every user of the machine). The password channels, in order: `--password-stdin` > `HANA_PASSWORD` in the env file > `$OSD_HANA_PASSWORD` > the hidden prompt (TTY only); a run with none of them is a refusal that names all four |
 | `verdict.mjs` | the plain-language verdict and the `--json` document, from one source so they cannot disagree |
 | `reader.mjs` | the dedicated read-only user: `--create-reader` / `--drop-reader` (the only non-SELECT statements in the module, sent over `hdb`, never the sidecar) |
@@ -282,10 +283,44 @@ win32-x64.
 target names). Bump it whenever the sidecar ships a new version — the doctor
 refuses a binary whose hash or self-description does not match.
 
+## Fetching the sidecar (BUILD time)
+
+The pin's `release` block names the public release URL and the asset name
+per target. `tools/osd-hana/fetch-sidecar.mjs` turns that into the binary a
+host bundles:
+
+    node tools/osd-hana/fetch-sidecar.mjs --target linux-x64 --out <dir>
+    node tools/osd-hana/fetch-sidecar.mjs --all --out <dir>
+
+It writes `<dir>/<target>/osd-hana-dump[.exe]`, mode 0755, atomically (temp
+file + rename). The rules it holds:
+
+- **verify against the pin, not against a downloaded checksum file** — the
+  pin is what this repo stands behind; a mismatch deletes the temp file,
+  exits non-zero and names both hashes;
+- **no host but the pin's release URL and GitHub's asset hosts** — every
+  hop (the first request and each redirect, followed manually) is checked
+  against that list before it is taken; `http://` is refused except on the
+  loopback, which exists for the tests;
+- **a cached hit makes no request** — a file already on disk with the
+  pinned hash is kept; `--offline` refuses to download and succeeds only on
+  such a hit;
+- **it is a build tool, not runtime code**: nothing runs at import time, no
+  new dependency (node's own `fetch`), and no `osd hana` verb references it
+  — the runtime's rule stands: locate and verify a binary that is already
+  on disk, never download (there is no download at runtime on purpose). The
+  platform packaging (one extension bundle per target) calls this script and
+  bundles its output.
+
 ## Tests
 
 `test/osd-hana-doctor.mjs` (sidecar handling, verdicts, TLS capability,
-connection input), `test/osd-hana-reader.mjs` (the dedicated reader's
+connection input), `test/osd-hana-fetch.mjs` (the build-time fetcher:
+download + verify + atomic write, the mismatch refusal, the cached hit, the
+offline mode, the refused redirect, the truncated download, the unknown
+target, the not-a-runtime-tool guard — against a local HTTP server on
+127.0.0.1 with the release URL injected through the pin seam, no real
+network), `test/osd-hana-reader.mjs` (the dedicated reader's
 mechanics, the secret store) and `test/osd-hana-two-login.mjs` (the guided
 two-login flow: roles, per-login statements, failure rules, the write proof,
 the reader probe), with a FAKE sidecar (`test/osd-hana/fake-sidecar.mjs`, a

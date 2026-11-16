@@ -32,6 +32,7 @@
     "test/osd-git.mjs",
     "test/osd-git-history.mjs",
     "test/osd-hana-doctor.mjs",
+    "test/osd-hana-fetch.mjs",
     "test/osd-hana-reader.mjs",
     "test/osd-hana-two-login.mjs",
     "test/osd-host.mjs",
