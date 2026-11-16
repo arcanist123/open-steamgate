@@ -70,7 +70,8 @@ export function targetManifest(xml, target) {
   if (/\bTargetPlatform=/.test(match[1])) {
     throw new PlatformPackageError("package-vsix-platforms: the input package already names a TargetPlatform -- give the universal package");
   }
-  return xml.replace(identity, `<Identity${match[1]} TargetPlatform="${target}" />`);
+  // a function replacement: a `$` in the attributes (`$&`, `$'`, `$1`) stays literal
+  return xml.replace(identity, () => `<Identity${match[1]} TargetPlatform="${target}" />`);
 }
 
 /** [Content_Types].xml that types the sidecar entry: `.exe` gets a Default

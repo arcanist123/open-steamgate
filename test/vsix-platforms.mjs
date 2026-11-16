@@ -18,7 +18,8 @@ import {execFileSync} from "node:child_process";
 import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {dirname, join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {contentTypesXml, extensionStaticParts, vsixManifestXml} from "../scripts/build-vsix.mjs";
 import {
   assertUniversal, defaultArchive, inspectPlatformVsix, main, packagePlatforms, packageTarget,
@@ -35,9 +36,27 @@ const PIN = {
   targets: Object.fromEntries(TARGETS.map((t) => [t, sha256(fakeBytes(t))])),
 };
 
-const hasZip = (() => {
-  try { execFileSync("zip", ["-v"], {stdio: "ignore"}); execFileSync("unzip", ["-v"], {stdio: "ignore"}); return true; } catch { return false; }
-})();
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Which of zip/unzip are not on PATH. */
+function missingZipTools() {
+  return ["zip", "unzip"].filter((tool) => {
+    try { execFileSync(tool, ["-v"], {stdio: "ignore"}); return false; } catch { return true; }
+  });
+}
+
+/** Without zip/unzip the packaging cases cannot run. On CI that is a
+ *  failure (a skipped suite there would be green having proven nothing);
+ *  locally it is a skip, said loudly. Returns "run", "skip" or "fail". */
+export function zipPrecondition(missing, env = process.env) {
+  if (missing.length === 0) return "run";
+  return env.CI ? "fail" : "skip";
+}
+
+const missingZip = missingZipTools();
+const zipVerdict = zipPrecondition(missingZip);
+const zipMessage = `vsix-platforms: ${missingZip.join(" and ")} not found on PATH; the platform-package cases need both`;
+if (zipVerdict === "skip") console.warn(`\n*** SKIPPING ${zipMessage} (CI would fail here) ***\n`);
 
 /** fetch-sidecar's contract, faked: place <outDir>/<target>/<name>, return its path. */
 function fakeFetcher({bytesFor = fakeBytes, calls = []} = {}) {
@@ -71,8 +90,11 @@ function makeUniversal(dir, {extra = []} = {}) {
 describe("vsix platform packages: one verified sidecar each", function () {
   this.timeout(30_000);
   let dir;
+  before(function () {
+    if (zipVerdict === "fail") throw new Error(`${zipMessage} (CI is set: install them, do not skip)`);
+  });
   beforeEach(function () {
-    if (!hasZip) this.skip();
+    if (zipVerdict === "skip") this.skip();
     dir = mkdtempSync(join(tmpdir(), "osd-vsix-platforms-"));
   });
   afterEach(() => { if (dir) rmSync(dir, {recursive: true, force: true}); });
@@ -148,7 +170,7 @@ describe("vsix platform packages: one verified sidecar each", function () {
 
   it("refuses a universal package that already carries a bin/ entry or a TargetPlatform", () => {
     const stray = makeUniversal(dir, {extra: [["extension/bin/linux-x64/osd-hana-dump", "x"]]});
-    expect(() => assertUniversal(stray)).to.throw(PlatformPackageError, "already carries extension/bin/linux-x64/osd-hana-dump");
+    expect(() => assertUniversal(stray)).to.throw(PlatformPackageError, /already carries (extension\/bin\/[^ ]*, )*extension\/bin\/linux-x64\/osd-hana-dump\b/);
     expect(() => targetManifest(targetManifest(vsixManifestXml({name: "n", version: "1"}), "linux-x64"), "darwin-x64"))
       .to.throw(PlatformPackageError, "already names a TargetPlatform");
   });
@@ -183,5 +205,30 @@ describe("vsix platform packages: one verified sidecar each", function () {
     expect(code, lines.join("\n")).to.equal(0);
     expect(lines.at(-1)).to.match(/^open-steamgate-linux-x64-0\.7\.1234\.vsix\t\d+$/);
     expect(await main(["--bogus"], {out: () => {}, err: () => {}})).to.equal(1);
+  });
+});
+
+describe("vsix platform packages: guards that need no zip", () => {
+  it("missing zip/unzip fails on CI and only skips locally", () => {
+    expect(zipPrecondition([], {CI: "true"})).to.equal("run");
+    expect(zipPrecondition([], {})).to.equal("run");
+    expect(zipPrecondition(["unzip"], {CI: "true"})).to.equal("fail");
+    expect(zipPrecondition(["zip", "unzip"], {})).to.equal("skip");
+  });
+
+  it("the extension's package.json `files` cannot pull bin/ into a plain vsce package", () => {
+    const {files} = JSON.parse(readFileSync(join(ROOT, "editors", "vscode", "package.json"), "utf8"));
+    const reachesBin = (pattern) => {
+      const first = pattern.replace(/^\.?\//, "").split("/")[0];
+      return first === "bin" || /[*?[{]/.test(first);
+    };
+    expect(files.filter(reachesBin)).to.deep.equal([]);
+  });
+
+  it("targetManifest keeps a `$` in an attribute literal", () => {
+    const xml = vsixManifestXml({name: "a$'b$&", version: "1.0.0-$&$1$$"});
+    const out = targetManifest(xml, "linux-x64");
+    expect(out).to.contain(`<Identity Language="en-US" Id="a$'b$&amp;" Version="1.0.0-$&amp;$1$$" Publisher="oisee" TargetPlatform="linux-x64" />`);
+    expect(out.replace(' TargetPlatform="linux-x64"', "")).to.equal(xml);
   });
 });
