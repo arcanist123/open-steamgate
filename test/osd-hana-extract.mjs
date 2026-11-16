@@ -8,7 +8,7 @@
 // suite goes RED when the guard is removed.
 import {expect} from "chai";
 import {createHash} from "node:crypto";
-import {chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync} from "node:fs";
+import {chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync} from "node:fs";
 import {execFileSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -22,6 +22,7 @@ import {decideFolderLogic, folderPaths} from "../tools/osd-hana/convert/convert.
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
 import {buildExtractFixtures, addNamespacedFunctionGroup, addSiblingFunctionGroups} from "./osd-hana/extract-fixtures.mjs";
 import {resolveProgramOwner} from "../tools/osd-hana/convert/ownership.mjs";
+import {CONTRACT_DIR} from "./osd-hana/harness.mjs";
 
 const FAKE_SIDECAR = fileURLToPath(new URL("./osd-hana/fake-sidecar.mjs", import.meta.url));
 const PASSWORD = "correct-horse-battery-staple-42";
@@ -162,7 +163,9 @@ before(function () {
   root = mkdtempSync(join(tmpdir(), "osd-hana-extract-test-"));
   ({list: LIST_FIXTURE, dump: DUMP_FIXTURE} = buildExtractFixtures(join(root, "fixtures")));
   fakePath = join(root, "fake-sidecar");
-  copyFileSync(FAKE_SIDECAR, fakePath);
+  // the fake serves the RECORDED contracts (test/osd-hana/contract/); a copy
+  // outside test/ gets the directory baked in, as the doctor harness does
+  writeFileSync(fakePath, readFileSync(FAKE_SIDECAR, "utf8").replace("__CONTRACT_DIR__", CONTRACT_DIR.replaceAll("\\", "\\\\")));
   chmodSync(fakePath, 0o755);
   pinPath = makePin();
   recordPath = join(root, "record.ndjson");
@@ -371,6 +374,44 @@ describe("osd hana extract", function () {
     const all = `${r.lines.out.join("\n")}\n${r.lines.err.join("\n")}\n${readFileSync(join(out, "extract-report.json"), "utf8")}\n${readFileSync(join(out, "extract-report.md"), "utf8")}\n${readFileSync(join(out, ".osd-hana", "request.json"), "utf8")}`;
     expect(all).to.not.match(new RegExp(PASSWORD));
     expect(all).to.not.match(new RegExp(USER));
+  });
+
+  it("parse raw, redact where printed: a short numeric password (\"123\") leaves the sidecar's counts (1234) and the plan numbers intact, and is masked in a printed error (mutation: extract prints run.summary / sidecar masks before parsing)", async function () {
+    const numericPassword = "123";
+    // the list and dump summaries carry counts that CONTAIN the password: a
+    // redactor run over the JSON text would turn 1234 into ***4 and break
+    // the one-line document
+    const list = join(root, "fixtures-numeric-list");
+    const dump = join(root, "fixtures-numeric-dump");
+    cpSync(LIST_FIXTURE, list, {recursive: true});
+    cpSync(DUMP_FIXTURE, dump, {recursive: true});
+    writeFileSync(join(list, "summary.json"), JSON.stringify({ok: true, objects: 1234, customer: 1234, sap: 1, generated: 0, source_bytes_compressed: 1234}));
+    writeFileSync(join(dump, "summary.json"), JSON.stringify({ok: true, objects: 1234, written: 1234, skipped: 2, files: 1234, bytes: 1234, errors: 0, seconds: 1}));
+    const env = {OSD_HANA_PASSWORD: numericPassword};
+
+    const planOut = await fresh("numeric-plan");
+    const plan = await runExtract(["--out", planOut, "--dry-run", "--json"], {env, list, dump});
+    expect(plan.code, plan.lines.err.join("\n")).to.equal(0);
+    const doc = JSON.parse(plan.lines.out.join("\n"));
+    expect(doc.plan.inScope).to.equal(14);
+    expect(doc.plan.customer).to.equal(14);
+    expect(doc.plan.sap).to.equal(1);
+
+    const fullOut = await fresh("numeric-full");
+    const full = await runExtract(["--out", fullOut], {env, list, dump});
+    expect(full.code, full.lines.err.join("\n")).to.equal(3); // the SICF is unsupported: partial, as in the golden run
+    expect(reportOf(fullOut).totals.inScope).to.equal(14);
+
+    // the error text the sidecar echoes is printed masked
+    const failing = join(root, "fixtures-numeric-conn");
+    cpSync(LIST_FIXTURE, failing, {recursive: true});
+    writeFileSync(join(failing, "summary.json"), JSON.stringify({ok: false, error: `logon refused for password '${numericPassword}' (attempt 1234)`}));
+    const connOut = await fresh("numeric-conn");
+    const conn = await runExtract(["--out", connOut], {env: {...env, FAKE_SIDECAR_EXIT: "2"}, list: failing});
+    expect(conn.code).to.equal(2);
+    const err = conn.lines.err.join("\n");
+    expect(err).to.match(/cannot connect or log on: logon refused for password '\*\*\*'/);
+    expect(err).to.not.include(`'${numericPassword}'`);
   });
 
   it("usage: no --out is exit 1; a non-empty output directory is refused (exit 4)", async function () {

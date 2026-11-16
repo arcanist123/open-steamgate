@@ -740,21 +740,26 @@ async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
     fail(error.message);
     return EXTRACT_EXIT.connection;
   }
+  // The doctor's rule (parse raw, redact where printed): every decision reads
+  // the RAW `run.summary` (and the outcome); what reaches a person is the
+  // masked `run.display`. A short numeric password ("123") must not turn a
+  // count of 1234 into ***4 -- and must not be printed when echoed in text.
+  const shown = run.display ?? {};
   switch (run.outcome) {
     case "done":
     case "partial": // the manifest carries the per-object reasons; the report accounts for them
       return run;
     case "connection":
-      fail(`osd hana: cannot connect or log on: ${run.summary.error ?? "the sidecar said so"}`);
+      fail(`osd hana: cannot connect or log on: ${shown.error ?? "the sidecar said so"}`);
       return EXTRACT_EXIT.connection;
     case "unsupported":
-      fail(`osd hana: no ABAP schema found on this database${run.summary.error ? ` (${run.summary.error})` : ""} -- there is no ABAP code to extract here.`);
+      fail(`osd hana: no ABAP schema found on this database${run.summary.error ? ` (${shown.error})` : ""} -- there is no ABAP code to extract here.`);
       return EXTRACT_EXIT.noAbapSchema;
     case "refused":
-      fail(`osd hana: the sidecar refused: ${run.summary.error ?? "unknown"}`);
+      fail(`osd hana: the sidecar refused: ${shown.error ?? "unknown"}`);
       return EXTRACT_EXIT.refusedOut;
     case "usage":
-      return fail(`osd hana: the sidecar refused the ${verb} as a usage error: ${run.summary.error ?? "unknown"}`);
+      return fail(`osd hana: the sidecar refused the ${verb} as a usage error: ${shown.error ?? "unknown"}`);
     default:
       return fail(`osd hana: unmapped sidecar outcome: ${run.outcome}`);
   }

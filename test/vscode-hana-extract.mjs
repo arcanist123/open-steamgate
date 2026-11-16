@@ -15,6 +15,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {buildExtractFixtures} from "./osd-hana/extract-fixtures.mjs";
 import {targetKey} from "../tools/osd-hana/sidecar.mjs";
+import {CONTRACT_DIR} from "./osd-hana/harness.mjs";
 
 const require = createRequire(import.meta.url);
 const {registerHanaExtractCommand, findModuleRoot, planItems, SECRET_PREFIX} =
@@ -201,7 +202,9 @@ before(function () {
   }
   cleanFixtures = clean;
   fakePath = path.join(root, "fake-sidecar");
-  copyFileSync(FAKE_SIDECAR, fakePath);
+  // the fake serves the RECORDED contracts (test/osd-hana/contract/); a copy
+  // outside test/ gets the directory baked in, as the doctor harness does
+  writeFileSync(fakePath, readFileSync(FAKE_SIDECAR, "utf8").replace("__CONTRACT_DIR__", CONTRACT_DIR.replaceAll("\\", "\\\\")));
   chmodSync(fakePath, 0o755);
   pinPath = makePin(fakePath);
   recordPath = path.join(root, "record.ndjson");
