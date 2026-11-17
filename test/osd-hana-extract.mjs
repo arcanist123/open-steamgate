@@ -25,7 +25,7 @@ import {msagXml, tablXml} from "../tools/osd-hana/convert/ddic.mjs";
 import {dd03pMask} from "../tools/osd-hana/convert/mask.mjs";
 import {sidecarTlsArgs, tlsShapeWithoutEncrypt} from "../tools/osd-hana/tls.mjs";
 import {resolveProgramOwner} from "../tools/osd-hana/convert/ownership.mjs";
-import {CONTRACT_DIR} from "./osd-hana/harness.mjs";
+import {CONTRACT_DIR, within} from "./osd-hana/harness.mjs";
 
 const FAKE_SIDECAR = fileURLToPath(new URL("./osd-hana/fake-sidecar.mjs", import.meta.url));
 const PASSWORD = "correct-horse-battery-staple-42";
@@ -2212,11 +2212,14 @@ describe("osd hana extract -- TLS (the doctor's flag set, tls.mjs)", function ()
     expect(argvOf(from2, "list")[0]).to.include("--trust-server-certificate").and.to.not.include("--encrypt");
   });
 
-  it("a TLS ask without the capability is REFUSED before anything is listed -- never clear text (mutation: connect anyway)", async function () {
+  it("a TLS ask without the capability is REFUSED before anything is listed -- never clear text (mutation: connect anyway; bounded: a run that goes on fails by assertion, never hangs)", async function () {
+    this.timeout(15_000);
     for (const flags of [["--encrypt"], ["--trust-server-certificate"]]) {
       const out = await fresh("tls-refused");
       const from = recordLines().length;
-      const r = await runExtract(["--out", out, ...flags]);
+      // the fake exits by itself and the run must settle in time: removing
+      // the refusal fails here by assertion, it cannot wait on a child
+      const r = await within(5000, `extract ${flags.join(" ")} without the tls capability`, runExtract(["--out", out, ...flags], {extra: {FAKE_SIDECAR_DEADLINE_MS: "3000"}}));
       expect(r.code, flags.join(" ")).to.equal(1);
       expect(r.lines.err.join("\n")).to.match(/"tls" capability/).and.to.match(/NOT connect in clear text/);
       expect(argvOf(from, "list"), "nothing listed").to.deep.equal([]);

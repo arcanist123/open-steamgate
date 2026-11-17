@@ -1,6 +1,7 @@
 // Shared fixtures for the osd-hana test files (test/osd-hana-doctor.mjs and
 // test/osd-hana-reader.mjs): the FAKE sidecar bed, the io capture and the
 // constants. Fakes only -- no network, no database.
+import {AssertionError} from "node:assert";
 import {createHash} from "node:crypto";
 import {chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -18,6 +19,22 @@ export const PASSWORD = "correct-horse-battery-staple-42";
 export const USER = "TESTLOGIN";
 export const HOST = "hana.example.test";
 export const SCHEMA = "TE" + "STSCHEMA"; // a fixture name, deliberately not any real one
+
+/** A bounded wait that fails BY ASSERTION: `promise` must settle within `ms`,
+ *  else an AssertionError names `label`. A test whose mutation would let the
+ *  run go on (and wait on a child, a socket or a prompt) fails here instead
+ *  of hanging the suite or ending in mocha's timeout. */
+export async function within(ms, label, promise) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new AssertionError({message: `${label}: did not finish within ${ms} ms`})), ms);
+  });
+  try {
+    return await Promise.race([promise, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // One harness per test file: its own tmpdir, fake sidecar copy, pin and
 // captured io. `out`/`err` are refreshed by every runDoctor call.
@@ -104,6 +121,7 @@ export function makeHarness() {
       ...(handshakePatch !== undefined ? {FAKE_SIDECAR_HANDSHAKE: JSON.stringify(handshakePatch)} : {}),
       ...(env.FAKE_SIDECAR_RECORD !== undefined ? {FAKE_SIDECAR_RECORD: env.FAKE_SIDECAR_RECORD} : {}),
       ...(env.FAKE_SIDECAR_ECHO_SCHEMA !== undefined ? {FAKE_SIDECAR_ECHO_SCHEMA: env.FAKE_SIDECAR_ECHO_SCHEMA} : {}),
+      ...(env.FAKE_SIDECAR_DEADLINE_MS !== undefined ? {FAKE_SIDECAR_DEADLINE_MS: env.FAKE_SIDECAR_DEADLINE_MS} : {}),
     };
     return doctorMain([
       "--host", HOST, "--port", "39015", "--user", USER, ...(schemaArg ? ["--schema", SCHEMA] : []),

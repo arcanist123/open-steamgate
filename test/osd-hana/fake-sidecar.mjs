@@ -29,6 +29,9 @@
 //                     schema and password on stderr first (redactor fodder)
 //     hang            never answers: sleeps 5 s, for the timeout test
 //     non-json-leak   exit 0, one non-JSON line with the password at offset 195
+//   FAKE_SIDECAR_DEADLINE_MS  the fake exits (code 97) after this many ms
+//                           whatever it is doing -- a test that must never
+//                           wait on a child sets it, so no fake outlives it
 //   FAKE_SIDECAR_RECORD     a file the fake appends its argv and which
 //                           credentials arrived through the environment to
 //                           (the password value itself is NEVER written --
@@ -38,6 +41,11 @@ import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 
 const [, , ...args] = process.argv;
+{
+  const deadline = Number(process.env.FAKE_SIDECAR_DEADLINE_MS);
+  // unref'd: it ends a fake that would sit, it never keeps one alive
+  if (Number.isFinite(deadline) && deadline > 0) setTimeout(() => process.exit(97), deadline).unref();
+}
 const scenario = process.env.FAKE_SIDECAR_PROBE ?? "owner-tenant";
 const DUMP_SCENARIOS = process.env.FAKE_SIDECAR_DUMP_SCENARIOS === "1";
 

@@ -17,7 +17,7 @@ import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/d
 import {makeRedactor, redactValues} from "../tools/osd-hana/redact.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
 import {readerStoreKey} from "../tools/osd-hana/reader.mjs";
-import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
+import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness, within} from "./osd-hana/harness.mjs";
 
 const h = makeHarness();
 
@@ -646,8 +646,14 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
 
     it("TLS: when the sidecar lacks the capability and the user asked for TLS, the doctor REFUSES -- never a clear-text connection (mutation: connect anyway -> red)", async function () {
       // the default fake handshake has no "tls" capability
+      // bounded (fix round): a mutant that goes on must fail by assertion --
+      // the fake exits by itself, no database client and no prompt can wait
+      const noWait = {
+        clientFactory: () => { throw new Error("no database in this test: the TLS refusal comes first"); },
+        prompt: async () => { throw new Error("no prompt in this test: the TLS refusal comes first"); },
+      };
       for (const argv of [["--encrypt"], ["--trust-server-certificate"]]) {
-        const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
+        const code = await within(5000, `doctor ${argv.join(" ")} without the tls capability`, h.runDoctor([...argv], {scenario: "owner-tenant", env: {FAKE_SIDECAR_DEADLINE_MS: "3000"}, deps: noWait}));
         expect(code, argv.join(" ")).to.equal(1);
         expect(h.allText(), argv.join(" ")).to.include("tls");
         expect(h.allText(), argv.join(" ")).to.include("NOT connect in clear text");
