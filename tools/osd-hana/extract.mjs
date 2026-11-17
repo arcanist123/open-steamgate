@@ -42,12 +42,14 @@ import {convert, outOfScopeSourcePrograms} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
 import {buildPlan, printPlan, consentGate, buildDumpRequest, requestedPairs, requestedOf, largePlanNumbers} from "./extract-plan.mjs";
 import {sidecarTlsArgs, tlsShapeWithoutEncrypt, TLS_VALUE_FLAGS, TLS_BOOLEAN_FLAGS} from "./tls.mjs";
+import {closureAllowance, closureOutOfBounds, mergeResolved, CLOSURE_KINDS} from "./closure.mjs";
 import {
   dumpRequestFingerprint, reusableDump, readJsonl, foreignOutEntries,
   sha256File, walkFiles, clearUnprotected, writeMarker, ensureGitignoreLine,
 } from "./extract-workarea.mjs";
 // the restart rule's public seam (the tests import it from here)
 export {dumpRequestFingerprint, reusableDump};
+export {closureAllowance, closureOutOfBounds, CLOSURE_KINDS};
 
 export const EXTRACT_EXIT = Object.freeze({
   ok: 0,
@@ -532,9 +534,21 @@ export async function extractMain(argv, {
   const closureSet = closureAllowance(dumpManifest);
   const carriesContent = (r) => (Array.isArray(r.files) && r.files.length > 0)
     || ["w", "written", "rows"].includes(String(r.status ?? "").trim().toLowerCase());
+  // the closure is bounded (v2.62.1 contract): it may add only dictionary
+  // kinds, and only as rows with no source files. A closure entry of any
+  // other kind -- dumped or not -- and a closure row that carries files or
+  // was `written` is over-delivery, named and refused like any other.
+  const closureViolations = closureOutOfBounds(dumpManifest);
+  const carriesFiles = (r) => (Array.isArray(r.files) && r.files.length > 0)
+    || ["w", "written"].includes(String(r.status ?? "").trim().toLowerCase());
+  for (const r of dumpObjects) {
+    const id = `${norm(r.type)}:${norm(r.name)}`;
+    if (closureSet.has(id) && !scopeSet.has(id) && carriesFiles(r)) closureViolations.push(`${id} (closure entry with source files)`);
+  }
   const outOfScope = dumpObjects.filter((r) => {
     const id = `${norm(r.type)}:${norm(r.name)}`;
-    return !scopeSet.has(id) && !closureSet.has(id) && carriesContent(r);
+    if (scopeSet.has(id) || !carriesContent(r)) return false;
+    return !closureSet.has(id) || carriesFiles(r);
   });
   const auditRoots = dumpRoots.length > 0 ? dumpRoots : [dumpDir];
   let orphanSources = [];
@@ -549,12 +563,15 @@ export async function extractMain(argv, {
     // audit's -- let the conversion path produce its report
     if (e.code !== "ENOENT") throw e;
   }
-  if (outOfScope.length > 0 || orphanSources.length > 0) {
+  if (outOfScope.length > 0 || orphanSources.length > 0 || closureViolations.length > 0) {
     const objList = outOfScope.slice(0, 8).map((r) => `${norm(r.type)}:${norm(r.name)}`).join(", ");
     const srcList = orphanSources.slice(0, 8).join(", ");
     const why = [
       outOfScope.length > 0
         ? `${outOfScope.length} object${outOfScope.length === 1 ? "" : "s"} with sources outside the scope (${objList}${outOfScope.length > 8 ? ", ..." : ""})`
+        : undefined,
+      closureViolations.length > 0
+        ? `${closureViolations.length} closure entr${closureViolations.length === 1 ? "y" : "ies"} out of bounds -- the closure may add only ${CLOSURE_KINDS.join(" ")} rows without source files (${closureViolations.slice(0, 8).join(", ")}${closureViolations.length > 8 ? ", ..." : ""})`
         : undefined,
       orphanSources.length > 0
         ? `${orphanSources.length} source row${orphanSources.length === 1 ? "" : "s"} outside the scope -- no in-scope object owns them (${srcList}${orphanSources.length > 8 ? ", ..." : ""})`
@@ -572,6 +589,7 @@ export async function extractMain(argv, {
       await fs.writeFile(path.join(dumpDir, "refused.json"), `${JSON.stringify({
         schema: 1, tool: "osd hana extract", refused_by: "scope audit", when: now().toISOString(), why,
         objects: outOfScope.map((r) => `${norm(r.type)}:${norm(r.name)}`),
+        closure: closureViolations,
         sources: orphanSources,
       }, null, 1)}\n`);
     } catch { /* marking must not mask the refusal */ }
@@ -964,31 +982,4 @@ function describeSidecar(verified, handshakeInfo) {
     commit: handshakeInfo?.commit,
     capabilities: handshakeInfo?.capabilities,
   };
-}
-
-/** The closure allowance of a dump: TYPE:NAME for every name the sidecar's
- *  dictionary closure resolved (manifest `closure.resolved`, per kind). A
- *  manifest without the block allows nothing extra. */
-export function closureAllowance(manifest) {
-  const allowed = new Set();
-  const resolved = manifest?.closure?.resolved;
-  if (resolved === null || typeof resolved !== "object") return allowed;
-  for (const [kind, names] of Object.entries(resolved)) {
-    if (!Array.isArray(names)) continue;
-    for (const n of names) allowed.add(`${String(kind).trim().toUpperCase()}:${String(n ?? "").trim().toUpperCase()}`);
-  }
-  return allowed;
-}
-
-function mergeResolved(closures) {
-  const merged = {};
-  for (const c of closures) {
-    for (const [kind, names] of Object.entries(c?.resolved ?? {})) {
-      if (!Array.isArray(names)) continue;
-      const set = new Set(merged[kind] ?? []);
-      for (const n of names) set.add(n);
-      merged[kind] = [...set].sort();
-    }
-  }
-  return merged;
 }

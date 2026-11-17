@@ -20,6 +20,7 @@ because the sidecar is read-only by construction and cannot create a user.
 | `extract.mjs` | the `extract` verb: scope → plan → dump → convert → report (see below) |
 | `extract-plan.mjs` | the extract plan document, the consent gate, and `buildDumpRequest` — the ONE function the dump request is built in |
 | `extract-workarea.mjs` | the extract work area: the dump restart rule (`reusableDump`), the marker (atomic), the `src/` refresh that never touches a kept file |
+| `closure.mjs` | the sidecar's dictionary closure (`closure.resolved`): what the scope audit allows beyond the scope, bounded to DDIC rows without files |
 | `report.mjs` | the extract report: `extract-report.md` and the JSON document, from one source |
 | `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers and message classes, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
 | `sidecar.mjs` | locate / verify (SHA-256 pin) / handshake / run the sidecar |
@@ -253,7 +254,10 @@ clone, diff and deploy:
    definition rows (`rows`) — must be in the scope set or be one of the
    names the sidecar lists in `closure.resolved` (exactly those extras are
    legitimate; a sidecar that over-delivers anything else still fails the
-   run), and every REPOSRC row it fetched must resolve to an in-scope
+   run). The closure itself is bounded: it may add only DOMA / DTEL / TABL /
+   TTYP / SHLP / VIEW, as `rows` without source files; any other kind in
+   `closure.resolved`, or a closure row with files, refuses the run and is
+   named. And every REPOSRC row it fetched must resolve to an in-scope
    owner (`convert/ownership.mjs` — the one resolver the converter writes
    by, so the two cannot drift). Anything outside the scope refuses the run
    (exit 4), names the dump directory so it can be removed, leaves the
@@ -343,6 +347,12 @@ Before publishing an extracted repository: remove `extract-report.json`,
 `extract-report.md` and `.osd-hana/` — they carry absolute local paths (and
 the dump). `.abapgit.xml`'s `MASTER_LANGUAGE` follows the dump's dominant
 TADIR master language, not a hard-coded guess.
+
+Known limits against abapGit:
+- MSAG long texts are not written (abapGit writes them); the dump has no
+  documentation tables, so they are `not checked`.
+- Technical languages are not filtered: every language the dump carries is
+  written (abapGit filters the technical ones out).
 
 ## The dedicated reader
 
