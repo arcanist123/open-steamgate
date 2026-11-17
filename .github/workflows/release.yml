@@ -792,8 +792,9 @@ jobs:
       # The five Marketplace platform packages, derived from the Marketplace
       # universal package just checked (so they carry its profile, browser
       # entry and pre-release property) by the same script and pin as
-      # vsix_platforms, read back the same way; the linux-x64 one is smoked
-      # on this runner like vsix_platform_smoke does.
+      # vsix_platforms, read back the same way. These are NOT the GitHub
+      # release bytes: vsix_platform_smoke (three OSes) covered those and the
+      # packaging script; of THESE, only linux-x64 is smoked, here.
       - name: Derive and verify the Marketplace platform packages
         run: |
           set -euo pipefail
@@ -815,9 +816,12 @@ jobs:
           fi
           node scripts/smoke-vsix-sidecar.mjs "build/vsix/platforms/open-steamgate-linux-x64-$version.vsix"
       # Platform packages first, the universal one last (its presence marks the
-      # version complete); a (version, target) already on the Marketplace is
-      # skipped with a notice, any failed publish stops the job red before the
-      # universal package. --pre-release on every package exactly when the
+      # version complete); a (version, target) already on the Marketplace on
+      # this channel is skipped with a notice -- the universal one too, it is
+      # not rebuilt over -- and one on the other channel fails before anything
+      # is published; stable repeats the "version is new" check first. Any
+      # failed publish stops the job red before the universal package.
+      # VSCE_PAT reaches vsce publish only (the script strips it for vsce show). --pre-release on every package exactly when the
       # channel is prerelease. Why a universal and five targeted packages of
       # one version may coexist, and how VS Code picks: the header of
       # scripts/publish-marketplace.mjs (vsce 4.0.0 publish.js, VS Code docs).

@@ -43,8 +43,10 @@ function fakeRelease({prerelease = true, override = {}} = {}) {
 /** A fake spawnSync: records calls, answers `show` with `versions`, fails a publish when told. */
 function fakeRun({versions = [], failOn} = {}) {
   const calls = [];
-  const run = (cmd, args) => {
+  const envs = [];
+  const run = (cmd, args, opts = {}) => {
     calls.push([cmd, ...args]);
+    envs.push({args, env: opts.env});
     if (args.includes("show")) return {status: 0, stdout: JSON.stringify({versions}), stderr: ""};
     if (args.includes("publish")) {
       const path = args[args.indexOf("--packagePath") + 1];
@@ -52,7 +54,7 @@ function fakeRun({versions = [], failOn} = {}) {
     }
     return {status: 2};
   };
-  return {run, calls, publishes: () => calls.filter((c) => c.includes("publish")).map((c) => c.at(-1))};
+  return {run, calls, envs, publishes: () => calls.filter((c) => c.includes("publish")).map((c) => c.at(-1))};
 }
 
 const prereleaseProps = [{key: PRERELEASE_PROPERTY, value: "true"}];
@@ -129,7 +131,7 @@ describe("Marketplace publish of the platform packages and the universal one", (
       // an older version's universal entry does not count for this one
       {version: "0.7.3100", properties: prereleaseProps},
     ];
-    const {publish, skip} = planPublish(packages, existing);
+    const {publish, skip} = planPublish(packages, existing, "prerelease");
     expect(skip.map((p) => p.target)).to.deep.equal(["linux-x64", "linux-arm64"]);
     expect(publish.map((p) => p.target ?? "universal")).to.deep.equal(["darwin-x64", "darwin-arm64", "win32-x64", "universal"]);
     const lines = [];
@@ -170,5 +172,63 @@ describe("Marketplace publish of the platform packages and the universal one", (
       .to.equal(0);
     expect(ok.publishes()).to.have.length(6);
     expect(main(["publish", "v1", "--channel", "prerelease", "--dir", DIR], {run: fakeRun().run, log: () => {}, archive, targets: TARGETS})).to.equal(1);
+  });
+
+  it("skips an existing entry only on the same channel; the other channel is a loud failure", () => {
+    const pre = fakeRelease();
+    const prePackages = collectPackages({dir: DIR, version: VERSION, channel: "prerelease", targets: TARGETS, ...pre});
+    // a stable entry of this version+target, met by a prerelease run
+    const stableThere = [{version: VERSION, targetPlatform: "darwin-x64", properties: []}];
+    expect(() => planPublish(prePackages, stableThere, "prerelease"))
+      .to.throw(MarketplaceError, /darwin-x64 v0\.7\.3200 is on the Marketplace as stable, this run is prerelease/);
+    const fake = fakeRun();
+    expect(() => publishAll({packages: prePackages, channel: "prerelease", existingVersions: stableThere, run: fake.run, log: () => {}}))
+      .to.throw(MarketplaceError);
+    expect(fake.publishes()).to.deep.equal([]);
+    // a prerelease entry met by a stable run
+    const st = fakeRelease({prerelease: false});
+    const stPackages = collectPackages({dir: DIR, version: VERSION, channel: "stable", targets: TARGETS, ...st});
+    const preThere = [{version: VERSION, targetPlatform: "linux-x64", properties: prereleaseProps}];
+    expect(() => planPublish(stPackages, preThere, "stable"))
+      .to.throw(MarketplaceError, /linux-x64 v0\.7\.3200 is on the Marketplace as prerelease, this run is stable/);
+    // same channel: skipped; unreadable properties: refused
+    expect(planPublish(stPackages, [{version: VERSION, targetPlatform: "linux-x64", properties: []}], "stable").skip.map((p) => p.target))
+      .to.deep.equal(["linux-x64"]);
+    expect(() => planPublish(stPackages, [{version: VERSION, targetPlatform: "linux-x64"}], "stable"))
+      .to.throw(MarketplaceError, /unreadable properties/);
+  });
+
+  it("a stable publish re-runs the version-is-new check on the entries it is about to publish against", () => {
+    const st = fakeRelease({prerelease: false});
+    const lines = [];
+    // a prerelease universal of the version appeared after the early check
+    const fake = fakeRun({versions: [{version: VERSION, properties: prereleaseProps}]});
+    expect(main(["publish", `vscode-stable-v${VERSION}`, "--channel", "stable", "--dir", DIR],
+      {run: fake.run, log: (l) => lines.push(l), ...st, targets: TARGETS})).to.equal(1);
+    expect(lines.join("\n")).to.match(/already exists as a pre-release/);
+    expect(fake.publishes()).to.deep.equal([]);
+    // interrupted stable publish: platform entries only, resumes
+    const resume = fakeRun({versions: [{version: VERSION, targetPlatform: "linux-x64", properties: []}]});
+    expect(main(["publish", `vscode-stable-v${VERSION}`, "--channel", "stable", "--dir", DIR],
+      {run: resume.run, log: () => {}, ...st, targets: TARGETS})).to.equal(0);
+    expect(resume.publishes()).to.have.length(5);
+  });
+
+  it("hands VSCE_PAT to vsce publish only, never to vsce show", () => {
+    const pre = fakeRelease();
+    const fake = fakeRun();
+    const env = {PATH: "/bin", VSCE_PAT: "secret-pat"};
+    expect(main(["publish", `vscode-v${VERSION}`, "--channel", "prerelease", "--dir", DIR],
+      {run: fake.run, log: () => {}, ...pre, targets: TARGETS, env})).to.equal(0);
+    const show = fake.envs.filter((e) => e.args.includes("show"));
+    const publish = fake.envs.filter((e) => e.args.includes("publish"));
+    expect(show).to.have.length(1);
+    expect(show[0].env).to.be.an("object").that.does.not.have.property("VSCE_PAT");
+    expect(show[0].env.PATH).to.equal("/bin");
+    expect(publish).to.have.length(6);
+    for (const p of publish) expect(p.env.VSCE_PAT).to.equal("secret-pat");
+    const checkNew = fakeRun();
+    main(["check-new", VERSION, "--channel", "stable"], {run: checkNew.run, log: () => {}, targets: TARGETS, env});
+    expect(checkNew.envs[0].env).to.not.have.property("VSCE_PAT");
   });
 });

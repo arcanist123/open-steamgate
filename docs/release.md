@@ -88,8 +88,12 @@ The Marketplace job publishes six packages of one version
 carrying its pinned `osd-hana-dump`, and then the universal package. It
 derives the five from the Marketplace universal package it just built, with
 `scripts/package-vsix-platforms.mjs` and the same pin as `vsix_platforms`,
-reads each back, smokes the `linux-x64` one on its runner, and needs
-`vsix_platform_smoke`. Each goes out as `vsce publish --packagePath <file>`
+and reads each back. These are **not** the bytes on the GitHub release: the
+Marketplace job builds its own five from the Marketplace-profile universal
+package, and only the `linux-x64` one is smoked, on that job's Linux runner.
+The three-OS smoke (`vsix_platform_smoke`, which the job needs) covers the
+GitHub release packages and the shared packaging script, not the Marketplace
+bytes for macOS and Windows. Each goes out as `vsce publish --packagePath <file>`
 (the package's own `TargetPlatform` names its target), with `--pre-release`
 on every package exactly when the channel is prerelease. VS Code 1.61 and
 newer install the package for their platform; the universal package, which
@@ -102,8 +106,13 @@ universal and five targeted packages of one version coexist.
 Reruns on the same tag are safe. The universal package goes last, so its
 presence means the version is complete. Before publishing, the job reads
 the Marketplace's entries and skips every (version, target) already there
-with a notice; the rest are published without `--skip-duplicate`, so a
-duplicate that appears meanwhile still fails. The Marketplace does not give
+on this run's channel with a notice. The universal package is skipped the same
+way: a rerun does not rebuild over it. An entry of the same version and target
+on the other channel, or with unreadable properties, fails the job before
+anything is published. A stable publish repeats the "version is new" check
+on those entries right before publishing. The rest are published without
+`--skip-duplicate`, so a duplicate that appears meanwhile still fails.
+`VSCE_PAT` is passed to `vsce publish` only; `vsce show` runs without it. The Marketplace does not give
 vsce a package's bytes to compare, so a skipped target keeps the bytes of
 the run that published it: a rerun completes a version, it does not replace
 one. A failed publish stops the job red before the universal package. For

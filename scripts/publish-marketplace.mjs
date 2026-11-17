@@ -27,13 +27,17 @@
 // Order and reruns. The universal package goes last, so its presence on the
 // Marketplace means the version is complete. Before publishing, the existing
 // entries are read (`vsce show --json`) and every (version, target) already
-// there is SKIPPED with a notice; the rest are published without
+// there ON THIS RUN'S CHANNEL is SKIPPED with a notice (the universal package
+// too: it is skipped, not rebuilt over); one there on the other channel stops
+// the run before anything is published. A stable run repeats the early
+// "version is new" check on those same entries. The rest are published without
 // --skip-duplicate, so a package that appears between the read and the
 // publish still fails loudly. The Marketplace does not expose a package's
 // bytes to vsce, so a skipped target keeps the bytes of the run that
 // published it: a rerun can complete a version, it cannot replace one. A
 // failed publish stops the run at once (the universal package is then never
-// published) and the job is red.
+// published) and the job is red. VSCE_PAT reaches `vsce publish` only; the
+// `vsce show` call (and the npm fetch of vsce it triggers) runs without it.
 import {execFileSync, spawnSync} from "node:child_process";
 import {existsSync, readFileSync} from "node:fs";
 import {basename, dirname, join, resolve} from "node:path";
@@ -105,13 +109,31 @@ const isPrereleaseEntry = (entry) =>
   (entry.properties ?? []).some((p) => p.key === PRERELEASE_PROPERTY && String(p.value) === "true");
 
 /** Split the packages into what to publish and what the Marketplace already
- *  has for this version (same target; the universal entry has none). */
-export function planPublish(packages, existingVersions) {
+ *  has for this version (same target; the universal entry has none). An
+ *  existing entry is skipped only when it is on this run's channel; one on
+ *  the other channel (or with unreadable properties) is refused, loudly. */
+export function planPublish(packages, existingVersions, channel) {
+  if (channel !== "prerelease" && channel !== "stable") throw new MarketplaceError(`unknown channel "${channel}"`);
   const publish = [];
   const skip = [];
+  const conflicts = [];
   for (const pkg of packages) {
-    const present = existingVersions.some((v) => v.version === pkg.version && (v.targetPlatform ?? undefined) === pkg.target);
-    (present ? skip : publish).push(pkg);
+    const present = existingVersions.filter((v) => v.version === pkg.version && (v.targetPlatform ?? undefined) === pkg.target);
+    if (present.length === 0) {
+      publish.push(pkg);
+      continue;
+    }
+    const label = `${EXTENSION_ID} ${pkg.target ?? "universal"} v${pkg.version}`;
+    if (present.some((v) => !Array.isArray(v.properties))) {
+      conflicts.push(`${label} is on the Marketplace with unreadable properties; cannot tell its channel`);
+    } else if (present.some((v) => isPrereleaseEntry(v) !== (channel === "prerelease"))) {
+      conflicts.push(`${label} is on the Marketplace as ${channel === "prerelease" ? "stable" : "prerelease"}, this run is ${channel}`);
+    } else {
+      skip.push(pkg);
+    }
+  }
+  if (conflicts.length > 0) {
+    throw new MarketplaceError(`refusing to publish over another channel:\n  - ${conflicts.join("\n  - ")}\nRelease a new commit with a new stamped version.`);
   }
   return {publish, skip};
 }
@@ -132,9 +154,17 @@ export function checkNewVersion(existingVersions, version) {
   return null;
 }
 
+/** The environment for a vsce call that needs no token: VSCE_PAT removed,
+ *  so only `vsce publish` ever sees it. */
+export function withoutPat(env) {
+  const {VSCE_PAT: _drop, ...rest} = env;
+  return rest;
+}
+
 /** `vsce show --json`: the extension's versions, [] when it is not there. */
-export function showVersions({run = spawnSync} = {}) {
-  const result = run(VSCE[0], [...VSCE.slice(1), "show", EXTENSION_ID, "--json"], {encoding: "utf8", maxBuffer: 64 * 1024 * 1024});
+export function showVersions({run = spawnSync, env = process.env} = {}) {
+  const result = run(VSCE[0], [...VSCE.slice(1), "show", EXTENSION_ID, "--json"],
+    {encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: withoutPat(env)});
   if (result.status !== 0) throw new MarketplaceError(`vsce show ${EXTENSION_ID} failed (exit ${result.status}): ${result.stderr ?? ""}`);
   const data = JSON.parse(result.stdout);
   if (!Array.isArray(data?.versions)) throw new MarketplaceError(`vsce show ${EXTENSION_ID} --json has no versions array`);
@@ -145,14 +175,14 @@ export function publishArgs(pkg, channel) {
   return [...VSCE.slice(1), "publish", ...(channel === "prerelease" ? ["--pre-release"] : []), "--packagePath", pkg.path];
 }
 
-export function publishAll({packages, channel, existingVersions, run = spawnSync, log = console.log}) {
-  const {publish, skip} = planPublish(packages, existingVersions);
+export function publishAll({packages, channel, existingVersions, run = spawnSync, log = console.log, env = process.env}) {
+  const {publish, skip} = planPublish(packages, existingVersions, channel);
   for (const pkg of skip) {
     log(`::notice::${EXTENSION_ID} ${pkg.target ?? "universal"} v${pkg.version} is already on the Marketplace; skipped (it keeps the bytes of the run that published it)`);
   }
   for (const pkg of publish) {
     log(`publishing ${basename(pkg.path)} (${pkg.target ?? "universal"}${channel === "prerelease" ? ", pre-release" : ""})`);
-    const result = run(VSCE[0], publishArgs(pkg, channel), {stdio: "inherit"});
+    const result = run(VSCE[0], publishArgs(pkg, channel), {stdio: "inherit", env});
     if (result.status !== 0) {
       throw new MarketplaceError(`vsce publish ${basename(pkg.path)} failed (exit ${result.status ?? result.signal}); ` +
         `${publish.indexOf(pkg) + 1 < publish.length ? "the remaining packages, the universal one included, were not published" : "nothing after it was attempted"}`);
@@ -167,12 +197,12 @@ function option(argv, flag) {
   return argv[at + 1];
 }
 
-export function main(argv, {run = spawnSync, log = console.log, archive = defaultArchive, exists = existsSync, targets} = {}) {
+export function main(argv, {run = spawnSync, log = console.log, archive = defaultArchive, exists = existsSync, targets, env = process.env} = {}) {
   const [command, subject] = argv;
   try {
     if (command === "check-new") {
       if (option(argv, "--channel") !== "stable") throw new MarketplaceError("check-new is the stable channel's check");
-      const refusal = checkNewVersion(showVersions({run}), subject);
+      const refusal = checkNewVersion(showVersions({run, env}), subject);
       if (refusal) {
         log(`::error::${refusal}`);
         return 1;
@@ -185,7 +215,14 @@ export function main(argv, {run = spawnSync, log = console.log, archive = defaul
       const channel = option(argv, "--channel");
       if ((channel === "stable") !== subject.startsWith("vscode-stable-v")) throw new MarketplaceError(`tag ${subject} is not on the ${channel} channel`);
       const packages = collectPackages({dir: option(argv, "--dir"), version, channel, targets: targets ?? pinnedTargets(), archive, exists});
-      const {published, skipped} = publishAll({packages, channel, existingVersions: showVersions({run}), run, log});
+      const existingVersions = showVersions({run, env});
+      if (channel === "stable") {
+        // the early check ran before the build; ask again on the entries
+        // this publish is about to be planned against
+        const refusal = checkNewVersion(existingVersions, version);
+        if (refusal) throw new MarketplaceError(refusal);
+      }
+      const {published, skipped} = publishAll({packages, channel, existingVersions, run, log, env});
       log(`Marketplace ${version}: published ${published.join(", ") || "nothing"}; already there ${skipped.join(", ") || "nothing"}`);
       return 0;
     }
