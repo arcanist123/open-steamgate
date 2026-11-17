@@ -54,15 +54,19 @@ You need `osd` and the sidecar `osd-hana-dump`.
 [vsp project](https://github.com/oisee/vibing-steampunk). It does the actual
 reading. It opens no listening socket.
 
-**VS Code:** the sidecar is bundled in the platform-specific extension
-packages. You need to do nothing.
+**VS Code:** the extension comes in five platform packages (linux-x64,
+linux-arm64, darwin-x64, darwin-arm64, win32-x64), and each carries exactly one
+sidecar, for its own platform. Install the one that matches your machine. The
+universal package carries no sidecar: the command then says so, and tells you
+to install the platform package of the same release or to point
+`OSD_HANA_DUMP` at the pinned binary. Nothing is downloaded.
 
 **Command line:** download the sidecar from the
-[v2.62.0 release](https://github.com/oisee/vibing-steampunk/releases/tag/v2.62.0).
+[v2.62.1 release](https://github.com/oisee/vibing-steampunk/releases/tag/v2.62.1).
 The assets are named `osd-hana-dump-<os>-<arch>` for Linux and macOS (amd64,
-arm64) and Windows (amd64). The release also has
-`osd-hana-dump-checksums.txt`. Check the SHA-256 of your download against it.
-Then tell `osd` where the file is:
+arm64) and `osd-hana-dump-windows-amd64.exe` for Windows. The SHA-256 each
+platform's file must have is in `tools/osd-hana/sidecar.lock.json`. Then tell
+`osd` where the file is:
 
 ```sh
 export OSD_HANA_DUMP=/path/to/osd-hana-dump-linux-amd64
@@ -81,11 +85,6 @@ read-only claim is its own and was not verified.
 Known targets in the pin: linux-x64, linux-arm64, darwin-x64, darwin-arm64,
 win32-x64. A platform outside that list (for example Windows on ARM) is
 refused by name.
-
-**macOS:** a binary you download may carry the quarantine flag. What is known:
-started from a shell, it starts. Gatekeeper may refuse it when you open it by
-double-clicking. Run it through `osd` from a terminal. We have not written down
-more than this.
 
 ## `osd hana doctor`
 
@@ -262,7 +261,7 @@ It takes the doctor's connection flags (`--host`, `--port`, `--database`,
 | `--name <pattern>` | narrow by object name (repeatable) |
 | `--author <user>` | narrow local objects by author |
 | `--no-local` | leave local `$` packages out |
-| `--inactive` | passed to the sidecar's request (inactive versions) |
+| `--inactive` | ask the sidecar to include inactive versions |
 | `--include-sap` | see "What is yours" above |
 | `--dry-run` | print the plan and stop. Never asks |
 | `--yes`, `--yes-large` | consent for scripts |
@@ -366,8 +365,14 @@ A dump from a different request is refused, never mixed. On a restart the
 report notes objects that appeared or disappeared in the database since the
 dump. `src/` and `.abapgit.xml` are rewritten from the dump.
 
-Names are sent in chunks of 500 per request, so a large selection does not
-hit the SQL parameter limit. Each chunk is its own `part-NNNNN` folder.
+The dump request names the in-scope objects exactly (sidecar v2.62.1), never
+your patterns, so nothing SAP-delivered is fetched unless `--include-sap` asked
+for it. Names go in chunks of 500 per request; each chunk is its own
+`part-NNNNN` folder. Before conversion, every dump is audited: if it holds
+content for an object that is not in scope (beyond the extra names the
+sidecar reports as dependencies it closed over), the run is refused with exit
+code 4, the repository is left as it was, and the dump is marked so that it
+is never reused. Remove that dump folder before you run again.
 
 ## What is extracted, and what is not
 
@@ -377,12 +382,16 @@ From the converter's own list of types (`SUPPORTED_TYPES` in
 | object type | result |
 |---|---|
 | CLAS, INTF | sources (the includes the dump delivers) and abapGit XML. Component texts are "not checked". Class texts in languages other than E are "not extracted" |
+| MSAG | message classes: master-language messages, plus the other languages' texts. Long texts are "not checked" (the dump has no documentation tables) |
 | PROG | source, and text pool. Screens, GUI statuses and variants are "not checked" |
-| FUGR | main program, includes and function modules with signatures. Screens, GUI statuses and variants are "not checked". Function texts in languages other than E are "not extracted" |
+| FUGR | main program, includes and function modules with signatures; the group's short text is its master-language TLIBT text. Screens, GUI statuses and variants are "not checked". Function texts in languages other than E are "not extracted" |
 | BDEF, DDLS, DDLX, SRVD | the source (CDS, behaviour, metadata extension, service definition) with abapGit XML |
 | TABL | definition from the dictionary tables. Foreign keys are "not extracted" when the dump carries them. Secondary indexes, search-help assignments and component texts are "not checked" while the dump lacks them. Table texts other than E are "not extracted". **Contents are not extracted** |
 | DTEL, DOMA, TTYP, SHLP, VIEW | definition from the dictionary tables |
-| any other type | `unsupported`: listed in the plan and the report, not written, exit 3 |
+| any other type (for example DCLS, which the sidecar can list) | `unsupported`: listed in the plan and the report, not written, exit 3 |
+
+A table field typed directly, without a data element, is written with the
+`MASK` the dictionary derives for it.
 
 There is no "rows-only" group in the converter. Rows of tables (table data) are
 never extracted.
@@ -396,24 +405,31 @@ types it finds, and marks the ones this converter cannot write.
 
 ## From VS Code
 
-*This section describes a command that is being built. It follows the agreed
-design, not a shipped release. Check the extension's changelog.*
+The command **"OSD: Extract my code from HANA"** (desktop only) runs the same
+steps with prompts instead of flags:
 
-The command **"OSD: Extract my code from HANA"** runs the same two steps with
-a form instead of flags:
+1. **Connection:** host, port, tenant (optional) and user, or a remembered
+   connection (setting `osd.hanaExtract.connections`, never a password). The
+   password is asked in a password box and used for this run only.
+2. **Doctor verdict:** the same plain-language verdict as `osd hana doctor`.
+   If your login can write, you are told why extraction is still safe.
+3. **Optional read-only user:** you can create a dedicated one first. The
+   exact SQL is shown, grouped by the login that runs each statement, and
+   nothing is sent unless you choose **Yes**. If a second login is needed you
+   are asked for it. The new user's generated password goes to VS Code
+   SecretStorage, and later runs can log on as that user.
+4. **Plan:** the objects in scope by type and, for local objects, by author,
+   with sizes. You can narrow to one author or leave local packages out.
+5. **Confirm:** you choose an empty folder and confirm "Extract N objects
+   (S MB) into ...?". Nothing is dumped before that.
+6. **Progress:** cancellable. Cancelling stops the reader.
+7. **Done:** the report (`extract-report.md`) opens. If not everything could be
+   written, a warning shows the report's first sentence.
 
-1. **Connection form:** host, port, tenant, user, password. The password is
-   kept in VS Code SecretStorage, not in a file.
-2. **Doctor verdict:** the same plain-language verdict as `osd hana doctor`,
-   in the editor.
-3. **Optional read-only user:** you can choose to create a dedicated
-   read-only user. The exact SQL is shown before anything is sent.
-4. **Plan:** the same plan as `--dry-run`.
-5. **Confirm:** nothing is dumped until you confirm.
-6. **Progress:** shown while the dump and the conversion run.
-7. **Done:** the extension opens the output folder and the report.
-
-The sidecar is bundled in the platform-specific packages of the extension.
+The form has no TLS fields; use the command line for `--encrypt`. The command
+needs the osd-hana tools: an open-steamgate checkout (`osd.home` or the
+workspace folder) or the bundled system after its first Start. The sidecar
+comes from the platform package, see "Getting the tool".
 
 ## Known limits
 
@@ -425,13 +441,10 @@ The sidecar is bundled in the platform-specific packages of the extension.
 - Only the E text of table, class and function texts is written. Other
   languages are reported as "not extracted".
 - Foreign keys that the dump carries are not written yet.
-- The sidecar request cannot yet name objects exactly. This tool sends exact
-  names plus include-name patterns, and refuses the run (exit 4) if the
-  dump brings back a source nobody in scope owns.
-- TLS needs a sidecar that has the `tls` capability. The pin on this branch
-  names an older sidecar build without it, so asking for TLS is refused
-  there until the pin moves. Check `tools/osd-hana/sidecar.lock.json` for the
-  state on your branch.
+- TLS needs a sidecar with the `tls` capability. The pinned v2.62.1 has it. An
+  older binary is refused for TLS, never used in clear text.
+- The VS Code form has no TLS fields.
+- Message-class long texts are "not checked".
 - An ABAP schema name with control characters is refused. Folder names that
   collide, or names unsafe as paths, refuse the objects concerned.
 - The reader flow needs two different logins on the systems measured so far.
