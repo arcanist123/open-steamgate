@@ -8,7 +8,7 @@ import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, unlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
-import {checkBinary, checkReleaseBinary, executableOf} from "../scripts/release-verify.mjs";
+import {adtSourcePath, checkBinary, checkReleaseBinary, executableOf} from "../scripts/release-verify.mjs";
 import {verifyPublicArtefact, writeArtefactProvenance} from "../tools/osd-provenance.mjs";
 import {hashOf, inputsOf} from "../tools/osd-build.mjs";
 import {stageVscodeWeb} from "../scripts/stage-vscode-web.mjs";
@@ -50,6 +50,20 @@ describe("scripts/release-verify: an artefact by its content", () => {
     writeFileSync(`${file}.sha256`, `${digest ?? createHash("sha256").update(bytes).digest("hex")}  ${name}\n`);
     return file;
   };
+
+  // vscode-v0.7.3126 failed here: the newest changed source was
+  // src/gateway/compat/#iwbep#cx_mgw_base_exception.clas.abap, and the
+  // check asked ADT for a class named "#iwbep#cx_mgw_base_exception"
+  it("asks ADT for a namespaced source by its object name, not its abapGit file name", () => {
+    expect(adtSourcePath("src/gateway/compat/#iwbep#cx_mgw_base_exception.clas.abap"))
+      .to.equal("/sap/bc/adt/oo/classes/%2Fiwbep%2Fcx_mgw_base_exception/source/main");
+    expect(adtSourcePath("src/demo/zcl_zstg_demo_dpc_ext.clas.abap"))
+      .to.equal("/sap/bc/adt/oo/classes/zcl_zstg_demo_dpc_ext/source/main");
+    expect(adtSourcePath("packs/x/src/#dmo#flight report.prog.abap"))
+      .to.equal("/sap/bc/adt/programs/programs/%2Fdmo%2Fflight%20report/source/main");
+    expect(adtSourcePath("src/z%odd.clas.abap")).to.equal("/sap/bc/adt/oo/classes/z%25odd/source/main");
+    expect(() => adtSourcePath("src/zfoo.intf.abap")).to.throw(/not an ABAP class or program/);
+  });
 
   it("reads the format and machine of each release target's header", () => {
     expect(executableOf(elf(0x3e))).to.deep.equal({format: "elf", machine: 0x3e});

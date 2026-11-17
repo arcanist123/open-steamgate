@@ -136,6 +136,20 @@ function newestAbap() {
   throw new Error("no ABAP class or program in this checkout's recent history is served as it is on disk");
 }
 
+// The ADT URL that serves an ABAP source file. abapGit names a file after
+// its object with each "/" of a namespace written "#"
+// (src/gateway/compat/#iwbep#cx_mgw_base_exception.clas.abap is
+// /IWBEP/CX_MGW_BASE_EXCEPTION), so the name in the URL is the object's, "/"
+// back in place, and the whole of it is one percent-encoded segment: the
+// router splits the path before it decodes a segment.
+export function adtSourcePath(file) {
+  const match = /([^/]+)\.(clas|prog)\.abap$/.exec(file);
+  if (!match) throw new Error(`${file} is not an ABAP class or program source`);
+  const name = match[1].replaceAll("#", "/");
+  const collection = match[2] === "clas" ? "oo/classes" : "programs/programs";
+  return `/sap/bc/adt/${collection}/${encodeURIComponent(name)}/source/main`;
+}
+
 export async function checkServe(file, {timeoutSeconds = 600} = {}) {
   const port = await freePort();
   const scratch = mkdtempSync(join(tmpdir(), "osd-release-serve-"));
@@ -180,8 +194,7 @@ export async function checkServe(file, {timeoutSeconds = 600} = {}) {
       throw new Error(`no generation named in X-OSD-Generation (${metadata.generation})`);
     }
     const newest = newestAbap();
-    const collection = newest.kind === "clas" ? "oo/classes" : "programs/programs";
-    const served = await fetch(`${base}/sap/bc/adt/${collection}/${encodeURIComponent(newest.name)}/source/main`);
+    const served = await fetch(`${base}${adtSourcePath(newest.file)}`);
     const text = await served.text();
     const expected = readFileSync(join(root, newest.file), "utf8");
     if (served.status !== 200 || text !== expected) {
