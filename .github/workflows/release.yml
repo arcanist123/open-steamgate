@@ -86,19 +86,15 @@ jobs:
           printf 'tag=%s\nchannel=%s\nversion=%s\n' "$tag" "$channel" "$version" >> "$GITHUB_OUTPUT"
       - name: Require a new Marketplace version
         # Only stable needs it: a prerelease rerun must still be able to repair
-        # its GitHub release before the Marketplace job reports the duplicate.
+        # its GitHub release and complete its Marketplace publish. Refuses a
+        # version that exists as a pre-release in any target, or whose
+        # universal package (published last) is already there; stable platform
+        # entries alone are an interrupted publish that this rerun completes
+        # (scripts/publish-marketplace.mjs, checkNewVersion).
         if: steps.release.outputs.channel == 'stable'
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: |
-          set -euo pipefail
-          npm exec --yes --package=@vscode/vsce@4.0.0 -- \
-            vsce show oisee.open-steamgate --json > "$RUNNER_TEMP/marketplace.json"
-          jq -e '.versions | type == "array"' "$RUNNER_TEMP/marketplace.json" >/dev/null
-          if jq -e --arg version "$RELEASE_VERSION" 'any(.versions[]; .version == $version)' "$RUNNER_TEMP/marketplace.json" >/dev/null; then
-            echo "::error::Marketplace version $RELEASE_VERSION already exists. A prerelease cannot be republished as stable; release a new commit with a new stamped version."
-            exit 1
-          fi
+        run: node scripts/publish-marketplace.mjs check-new "$RELEASE_VERSION" --channel stable
       - run: npm ci
       - name: Build and link the pinned transpiler and runtime
         run: |
@@ -152,6 +148,9 @@ jobs:
           fi
           node scripts/release-readme.mjs \
             "open-steamgate-$version.vsix" \
+            "open-steamgate-linux-x64-$version.vsix" "open-steamgate-linux-arm64-$version.vsix" \
+            "open-steamgate-darwin-x64-$version.vsix" "open-steamgate-darwin-arm64-$version.vsix" \
+            "open-steamgate-win32-x64-$version.vsix" \
             osd-linux-x64 osd-linux-arm64 osd-darwin-arm64 osd-darwin-x64 osd-windows-x64.exe osd-windows-arm64.exe \
             osgo-linux-x64 osgo-linux-arm64 osgo-darwin-arm64 osgo-darwin-x64 osgo-windows-x64.exe osgo-windows-arm64.exe \
             sqlite.yml duckdb.yml postgres.yml hana.yml > build/vsix/README.md
@@ -248,9 +247,11 @@ jobs:
   # exactly its own target's osd-hana-dump sidecar (tools/osd-hana/: fetched
   # from the pinned release and verified by SHA-256 against
   # sidecar.lock.json by fetch-sidecar, checked again on the packed bytes;
-  # scripts/package-vsix-platforms.mjs). Workflow artifacts only: nothing
-  # here is uploaded to the release or the Marketplace, and the release jobs
-  # do not wait for it.
+  # scripts/package-vsix-platforms.mjs). Kept as the workflow artifact
+  # vsix-platforms; vsix_platforms_release uploads exactly these bytes to the
+  # GitHub release after vsix_platform_smoke passed, and publish waits for it.
+  # The Marketplace job derives its own five from the Marketplace universal
+  # package (a different profile) with the same script.
   vsix_platforms:
     needs: vsix
     runs-on: ubuntu-latest
@@ -331,6 +332,67 @@ jobs:
           found=(build/vsix/platforms/open-steamgate-"$TARGET"-*.vsix)
           test "${#found[@]}" -eq 1
           node scripts/smoke-vsix-sidecar.mjs "${found[0]}"
+
+  # The five platform packages onto the GitHub release, beside the universal
+  # one: the smoked artifact's bytes, read back again (provenance record =
+  # these bytes, exactly one sidecar each), under the same gates as every
+  # other upload (full leak scan before touching a public release, tagged
+  # tests before replacing an asset on one). Needs the smoke: a red smoke
+  # leaves these off the release and the release in draft (publish needs this).
+  vsix_platforms_release:
+    needs: [vsix, vsix_platforms, vsix_platform_smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      actions: read
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.vsix.outputs.tag }}
+      FULL_SCAN: ${{ needs.vsix.outputs.full_scan }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix-platforms
+          path: build/vsix/platforms
+      - name: Verify, checksum and upload the five platform packages
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG##*v}"
+          node scripts/release-version.mjs "$RELEASE_TAG" --allow-untagged
+          git fetch --tags --force
+          node scripts/release-version.mjs --check-target "$RELEASE_TAG"
+          assets=()
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
+            asset="open-steamgate-$target-$version.vsix"
+            vsix="build/vsix/platforms/$asset"
+            test -f "$vsix"
+            node tools/osd-provenance.mjs verify "$vsix"
+            unzip -p "$vsix" extension.vsixmanifest | grep -q "TargetPlatform=\"$target\""
+            bins="$(unzip -Z1 "$vsix" | grep '^extension/bin/' | grep -v '/$')"
+            test "$bins" = "extension/bin/$target/osd-hana-dump$([[ $target == win32-* ]] && echo .exe || true)"
+            test "$(unzip -p "$vsix" extension/package.json | jq -r .version)" = "$version"
+            (cd build/vsix/platforms && sha256sum "$asset" > "$asset.sha256")
+            assets+=("$vsix" "$vsix.sha256")
+          done
+          test "$(find build/vsix/platforms -maxdepth 1 -name '*.vsix' | wc -l)" -eq 5
+          release_is_draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
+          if [[ "$release_is_draft" != true && "$FULL_SCAN" != true ]]; then
+            echo '::error::An existing published release requires OSD_LEAK_IDENTIFIERS and scanner exit 0 before uploading'
+            exit 1
+          fi
+          if [[ "$release_is_draft" != true ]]; then
+            tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            node tools/osd-ci-wait-tests.mjs "$RELEASE_TAG" "$tag_sha"
+          fi
+          gh release upload "$RELEASE_TAG" --clobber "${assets[@]}"
 
   binary:
     needs: vsix
@@ -596,7 +658,7 @@ jobs:
           node tools/osd-ci-wait-tests.mjs "$RELEASE_TAG" "$tag_sha"
 
   publish:
-    needs: [vsix, binary, osgo, compose, tagged_tests]
+    needs: [vsix, vsix_platforms_release, binary, osgo, compose, tagged_tests]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -628,7 +690,12 @@ jobs:
           git fetch --tags --force
           node scripts/release-version.mjs --check-target "$RELEASE_TAG"
           gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/release-assets.txt"
+          version="${RELEASE_TAG##*v}"
           for asset in \
+            "open-steamgate-$version.vsix" \
+            "open-steamgate-linux-x64-$version.vsix" "open-steamgate-linux-arm64-$version.vsix" \
+            "open-steamgate-darwin-x64-$version.vsix" "open-steamgate-darwin-arm64-$version.vsix" \
+            "open-steamgate-win32-x64-$version.vsix" \
             osd-linux-x64 osd-linux-arm64 osd-darwin-arm64 osd-darwin-x64 osd-windows-x64.exe osd-windows-arm64.exe \
             osgo-linux-x64 osgo-linux-arm64 osgo-darwin-arm64 osgo-darwin-x64 osgo-windows-x64.exe osgo-windows-arm64.exe; do
             grep -Fxq "$asset" "$RUNNER_TEMP/release-assets.txt"
@@ -644,7 +711,9 @@ jobs:
     # A draft dispatch is useful for review, but must never publish to the
     # Marketplace. Only the immutable tag-push path is a deployment trigger.
     if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/vscode-v') || startsWith(github.ref, 'refs/tags/vscode-stable-v'))
-    needs: [vsix, publish]
+    # vsix_platform_smoke is reached through publish too; named here so the
+    # gate is visible: no platform package goes out unless the smoke passed.
+    needs: [vsix, publish, vsix_platform_smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -720,7 +789,39 @@ jobs:
           for entry in extension/dist/web/extension.js extension/dist/web/duckdb-mvp.wasm extension/dist/web/app/flp.html; do
             unzip -l "$vsix" "$entry" >/dev/null || { echo "::error::Marketplace VSIX lacks $entry"; exit 1; }
           done
-      - name: Publish the built VSIX to Visual Studio Marketplace
+      # The five Marketplace platform packages, derived from the Marketplace
+      # universal package just checked (so they carry its profile, browser
+      # entry and pre-release property) by the same script and pin as
+      # vsix_platforms, read back the same way; the linux-x64 one is smoked
+      # on this runner like vsix_platform_smoke does.
+      - name: Derive and verify the Marketplace platform packages
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG##*v}"
+          vsix="build/vsix/open-steamgate-$version.vsix"
+          rm -rf build/vsix/platforms
+          node scripts/package-vsix-platforms.mjs --vsix "$vsix" --out build/vsix/platforms
+          count=0
+          for pkg in build/vsix/platforms/*.vsix; do
+            node tools/osd-provenance.mjs verify "$pkg"
+            bins="$(unzip -Z1 "$pkg" | grep '^extension/bin/' | grep -v '/$')"
+            test "$(printf '%s\n' "$bins" | wc -l)" -eq 1
+            count=$((count + 1))
+          done
+          test "$count" -eq 5
+          if unzip -Z1 "$vsix" | grep -q '^extension/bin/'; then
+            echo '::error::The Marketplace universal VSIX carries an extension/bin/ entry'
+            exit 1
+          fi
+          node scripts/smoke-vsix-sidecar.mjs "build/vsix/platforms/open-steamgate-linux-x64-$version.vsix"
+      # Platform packages first, the universal one last (its presence marks the
+      # version complete); a (version, target) already on the Marketplace is
+      # skipped with a notice, any failed publish stops the job red before the
+      # universal package. --pre-release on every package exactly when the
+      # channel is prerelease. Why a universal and five targeted packages of
+      # one version may coexist, and how VS Code picks: the header of
+      # scripts/publish-marketplace.mjs (vsce 4.0.0 publish.js, VS Code docs).
+      - name: Publish the built VSIX packages to Visual Studio Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
@@ -729,8 +830,4 @@ jobs:
             echo '::error::Configure the VSCE_PAT Actions secret before publishing'
             exit 1
           fi
-          vsix="build/vsix/open-steamgate-${RELEASE_TAG##*v}.vsix"
-          publish_flags=()
-          if [[ "$RELEASE_CHANNEL" == prerelease ]]; then publish_flags=(--pre-release); fi
-          npm exec --yes --package=@vscode/vsce@4.0.0 -- \
-            vsce publish "${publish_flags[@]}" --packagePath "$vsix"
+          node scripts/publish-marketplace.mjs publish "$RELEASE_TAG" --channel "$RELEASE_CHANNEL" --dir build/vsix
