@@ -42,12 +42,14 @@ import {convert, outOfScopeSourcePrograms} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
 import {buildPlan, printPlan, consentGate, buildDumpRequest, requestedPairs, requestedOf, largePlanNumbers} from "./extract-plan.mjs";
 import {sidecarTlsArgs, tlsShapeWithoutEncrypt, TLS_VALUE_FLAGS, TLS_BOOLEAN_FLAGS} from "./tls.mjs";
+import {closureAllowance, closureOutOfBounds, mergeResolved, CLOSURE_KINDS} from "./closure.mjs";
 import {
   dumpRequestFingerprint, reusableDump, readJsonl, foreignOutEntries,
   sha256File, walkFiles, clearUnprotected, writeMarker, ensureGitignoreLine,
 } from "./extract-workarea.mjs";
 // the restart rule's public seam (the tests import it from here)
 export {dumpRequestFingerprint, reusableDump};
+export {closureAllowance, closureOutOfBounds, CLOSURE_KINDS};
 
 export const EXTRACT_EXIT = Object.freeze({
   ok: 0,
@@ -980,48 +982,4 @@ function describeSidecar(verified, handshakeInfo) {
     commit: handshakeInfo?.commit,
     capabilities: handshakeInfo?.capabilities,
   };
-}
-
-/** The closure allowance of a dump: TYPE:NAME for every name the sidecar's
- *  dictionary closure resolved (manifest `closure.resolved`, per kind). A
- *  manifest without the block allows nothing extra. */
-export function closureAllowance(manifest) {
-  const allowed = new Set();
-  const resolved = manifest?.closure?.resolved;
-  if (resolved === null || typeof resolved !== "object") return allowed;
-  for (const [kind, names] of Object.entries(resolved)) {
-    if (!Array.isArray(names) || !CLOSURE_KINDS.includes(String(kind).trim().toUpperCase())) continue;
-    for (const n of names) allowed.add(`${String(kind).trim().toUpperCase()}:${String(n ?? "").trim().toUpperCase()}`);
-  }
-  return allowed;
-}
-
-/** The kinds a dictionary closure may add (W0 contract: "DDIC kinds add
- *  their closure"; MSAG is fetched by name, never by the closure). */
-export const CLOSURE_KINDS = ["DOMA", "DTEL", "TABL", "TTYP", "SHLP", "VIEW"];
-
-/** Every closure entry whose kind the closure may not add, as TYPE:NAME. */
-export function closureOutOfBounds(manifest) {
-  const bad = [];
-  const resolved = manifest?.closure?.resolved;
-  if (resolved === null || typeof resolved !== "object") return bad;
-  for (const [kind, names] of Object.entries(resolved)) {
-    const k = String(kind).trim().toUpperCase();
-    if (CLOSURE_KINDS.includes(k)) continue;
-    for (const n of Array.isArray(names) ? names : [names]) bad.push(`${k}:${String(n ?? "").trim().toUpperCase()}`);
-  }
-  return bad;
-}
-
-function mergeResolved(closures) {
-  const merged = {};
-  for (const c of closures) {
-    for (const [kind, names] of Object.entries(c?.resolved ?? {})) {
-      if (!Array.isArray(names)) continue;
-      const set = new Set(merged[kind] ?? []);
-      for (const n of names) set.add(n);
-      merged[kind] = [...set].sort();
-    }
-  }
-  return merged;
 }
