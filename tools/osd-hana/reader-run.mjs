@@ -180,7 +180,7 @@ async function runCreatePlan({connection, role, secondLogin, readerName, schema,
     // SANs explanation still fires), it just says which login it was now.
     // CREATE has not run yet: nothing to clean up.
     throw Object.assign(new Error(`osd hana: the administrator login ${adminLogin.user} failed to log on -- ${redact(sqlErrorText(error))}\n` +
-      `  The CREATE USER had not run yet: nothing was created and nothing needs cleaning up.`), {code: error.code});
+      `  The CREATE USER had not run yet: nothing was created and nothing needs cleaning up.`), {code: error.code, ...(error.driverCode !== undefined ? {driverCode: error.driverCode} : {})});
   }
   let ownerClient;
   // Best-effort cleanup by the administrator connection: a 332 means the

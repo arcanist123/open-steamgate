@@ -20,6 +20,7 @@ import {readFileSync} from "node:fs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory, describeNeitherRole, lookupSchemaOwnerLogin} from "./reader.mjs";
+import {CONNECTION_FAILED} from "./hdb-adapter.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict, readerRoleFromProbe, ipSansExplanation} from "./verdict.mjs";
@@ -434,7 +435,12 @@ export async function doctorMain(argv, {
         // password too -- a driver text can repeat a value verbatim), because
         // a driver text can repeat a value verbatim.
         const redact = makeRedactor([connection.password, secondLogin?.password]);
-        const text = redact(`osd hana: the database refused (${error.code}): ${error.message}`);
+        // CONNECTION_FAILED is the adapter's number for a driver or network
+        // failure (no answer, TLS refused): nothing was refused BY the
+        // database, so the line says "cannot connect" and names the driver code.
+        const text = redact(error.code === CONNECTION_FAILED
+          ? `osd hana: cannot connect or log on (${error.driverCode ?? error.code}): ${error.message}`
+          : `osd hana: the database refused (${error.code}): ${error.message}`);
         io.err(text);
         // and the logins this run actually connected with are named (critic
         // S-4: a wrong $OSD_HANA_ADMIN_PASSWORD used to read as "the database

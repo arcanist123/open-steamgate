@@ -17,6 +17,7 @@ import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/d
 import {makeRedactor, redactValues} from "../tools/osd-hana/redact.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
 import {readerStoreKey} from "../tools/osd-hana/reader.mjs";
+import {mapHdbError} from "../tools/osd-hana/hdb-adapter.mjs";
 import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
 
 const h = makeHarness();
@@ -379,7 +380,8 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       ]);
       const broken = async (options) => {
         if (options.user === USER) {
-          throw Object.assign(new Error("communication link failure"), {code: -10709});
+          // what the adapter makes of hdb's own driver failure (string code)
+          throw mapHdbError(Object.assign(new Error("Could not connect to any host: [ hana-host-1:30015 - communication link failure ]"), {code: "EHDBOPENCONN"}));
         }
         return factory(options);
       };
@@ -389,7 +391,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       });
       expect(code).to.equal(2);
       const text = h.allText();
-      expect(text).to.include("the database refused");
+      expect(text).to.include("cannot connect or log on (EHDBOPENCONN)");
       // WHICH login this run was connected as is named
       expect(text).to.include(`connected with: ${USER}`);
     });
@@ -812,7 +814,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       // and the hdb (reader-path) connection failing with the same fact
       const {fakeClientFactory} = await import("./osd-hana/fake-client.mjs");
       const factory = async () => {
-        throw Object.assign(new Error("connection failed: certificate doesn't contain any IP SANs"), {code: -10709});
+        throw mapHdbError(Object.assign(new Error("Could not connect to any host: [ 192.0.2.1:30015 - Hostname/IP does not match certificate's altnames: IP: 192.0.2.1 is not in the cert's list: ; certificate doesn't contain any IP SANs ]"), {code: "EHDBOPENCONN"}));
       };
       const code2 = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
         scenario: "both",
@@ -820,7 +822,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         deps: {clientFactory: factory},
       });
       expect(code2).to.equal(2);
-      expect(h.allText()).to.include("the database refused");
+      expect(h.allText()).to.include("cannot connect or log on (EHDBOPENCONN)");
       expect(h.allText()).to.include("host NAME the certificate was issued for");
     });
   });

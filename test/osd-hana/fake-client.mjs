@@ -1,5 +1,8 @@
-// The FAKE hdb client the osd-hana tests inject through the reader's
-// clientFactory seam, scripted with E1's answers (258 on create, 258 on grant,
+// The FAKE client the osd-hana tests inject through the reader's
+// clientFactory seam -- the interface of tools/osd-hana/hdb-adapter.mjs
+// (exec(sql, params) -> {rows}, disconnect(), numeric `code` on errors), NOT
+// the hdb driver's own API; test/osd-hana-hdb-adapter.mjs holds the adapter
+// to the real driver. Scripted with E1's answers (258 on create, 258 on grant,
 // 332, success). Rules are matched against the SQL -- and, when a rule names
 // a `user`, against the login the connection was opened AS (the two-login
 // flow must send each statement with the right login). The log records every
