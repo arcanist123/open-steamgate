@@ -35,6 +35,7 @@
     "test/osd-hana-doctor.mjs",
     "test/osd-hana-extract.mjs",
     "test/osd-hana-fetch.mjs",
+    "test/osd-hana-hdb-adapter.mjs",
     "test/osd-hana-reader.mjs",
     "test/osd-hana-two-login.mjs",
     "test/osd-host.mjs",

@@ -40,13 +40,16 @@ import {collectConnection, parseFlags, UsageError} from "./connect.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {convert, outOfScopeSourcePrograms} from "./convert/convert.mjs";
 import {renderMdReport, planDocuments} from "./report.mjs";
-import {buildPlan, printPlan, consentGate, buildDumpRequest, largePlanNumbers} from "./extract-plan.mjs";
+import {buildPlan, printPlan, consentGate, buildDumpRequest, requestedPairs, requestedOf, largePlanNumbers} from "./extract-plan.mjs";
+import {sidecarTlsArgs, tlsShapeWithoutEncrypt, TLS_VALUE_FLAGS, TLS_BOOLEAN_FLAGS} from "./tls.mjs";
+import {closureAllowance, closureOutOfBounds, mergeResolved, CLOSURE_KINDS} from "./closure.mjs";
 import {
   dumpRequestFingerprint, reusableDump, readJsonl, foreignOutEntries,
   sha256File, walkFiles, clearUnprotected, writeMarker, ensureGitignoreLine,
 } from "./extract-workarea.mjs";
 // the restart rule's public seam (the tests import it from here)
 export {dumpRequestFingerprint, reusableDump};
+export {closureAllowance, closureOutOfBounds, CLOSURE_KINDS};
 
 export const EXTRACT_EXIT = Object.freeze({
   ok: 0,
@@ -58,11 +61,11 @@ export const EXTRACT_EXIT = Object.freeze({
   internal: 6,
 });
 
-const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin"];
+const VALUE_FLAGS = ["host", "port", "database", "user", "schema", "env-file", "out", "dump-dir", "package", "name", "author", "sidecar-pin", ...TLS_VALUE_FLAGS];
 const REPEATABLE = ["package", "name"];
-const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "yes", "yes-large", "help"];
+const BOOLEAN_FLAGS = ["password-stdin", "json", "no-local", "inactive", "include-sap", "dry-run", "allow-unpinned-sidecar", "yes", "yes-large", "help", ...TLS_BOOLEAN_FLAGS];
 // the capabilities extract needs from the sidecar (contract W0)
-const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "inactive", "catalog", "ddic"];
+const NEEDED_CAPABILITIES = ["list", "dump", "local", "packages", "names", "closure", "inactive", "catalog", "ddic"];
 
 const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
                         [--package <pattern>]... [--name <pattern>]...
@@ -72,6 +75,8 @@ const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
                         connection flags as the doctor's (--host --port
                         --database --user --schema --env-file
                         --password-stdin --allow-unpinned-sidecar)
+                        [--encrypt | --trust-server-certificate]
+                        [--ca-file F] [--tls-server-name N]
 
 Extracts your own ABAP code out of a HANA database into an abapGit-layout
 repository (an .abapgit.xml and src/), reading ONLY through the sidecar
@@ -96,6 +101,11 @@ refusal report is <out>/.osd-hana/refused-report.md. A writing run's report
 is <out>/extract-report.json and extract-report.md; <out>/.gitignore is
 never overwritten (created when absent, the .osd-hana/ line appended when
 missing).
+
+TLS: the doctor's flags and rules. --encrypt verifies the server's
+certificate (--ca-file / --tls-server-name shape that and need --encrypt);
+--trust-server-certificate encrypts without verifying. A TLS ask against a
+sidecar without the "tls" capability is refused -- never a clear-text run.
 
 Exit codes: 0 everything in scope written (a part the dump cannot even check
 does not count against the object -- it is carried as its 'unchecked' list);
@@ -147,6 +157,13 @@ export async function extractMain(argv, {
   }
   const out = path.resolve(flags.out);
   const dumpDir = flags["dump-dir"] !== undefined ? path.resolve(flags["dump-dir"]) : path.join(out, ".osd-hana", "dump");
+
+  // TLS: --ca-file / --tls-server-name shape the certificate check, so they
+  // need --encrypt (the doctor's rule, tls.mjs) -- refused before anything runs
+  if (tlsShapeWithoutEncrypt(flags)) {
+    return fail("osd hana extract: --ca-file and --tls-server-name need --encrypt (they shape the certificate check). " +
+      "To encrypt WITHOUT certificate validation: --trust-server-certificate alone.");
+  }
 
   // --include-sap only together with an explicit --package/--name
   const hasExplicitSelection = (flags.package?.length ?? 0) > 0 || (flags.name?.length ?? 0) > 0;
@@ -232,6 +249,15 @@ export async function extractMain(argv, {
     return fail(`osd hana: the sidecar handshake could not run: ${error.message}`);
   }
 
+  // ---- TLS: the doctor's flag set and capability rule (tls.mjs) ----------
+  const tls = sidecarTlsArgs(flags, handshakeInfo);
+  if (tls.refused) {
+    return fail(`osd hana extract: this sidecar (${handshakeInfo.version ?? "unknown version"}) does not list the "tls" capability -- ` +
+      "it cannot encrypt its connection, and you asked it to (--encrypt / --trust-server-certificate / --ca-file / --tls-server-name).\n" +
+      "  Refusing: extract will NOT connect in clear text when TLS was asked for. Use a sidecar build with the tls capability, " +
+      "or re-run without the TLS flags on a network you trust.");
+  }
+
   // ---- connection ---------------------------------------------------------
   let connection;
   try {
@@ -240,6 +266,7 @@ export async function extractMain(argv, {
     if (error instanceof UsageError) return fail(`osd hana: ${error.message.replace(/^osd hana: /, "")}`);
     return fail(`osd hana: taking the password failed: ${error.message}`);
   }
+  connection = {...connection, tlsArgs: tls.args};
 
   // ---- the request (schema 1) --------------------------------------------
   const request = {
@@ -402,14 +429,12 @@ export async function extractMain(argv, {
   // ---- 3: dump -------------------------------------------------------------
   // M-2 (critic round 2): nothing of the vendor's is fetched unless asked.
   // The request is built in ONE function (buildDumpRequest,
-  // ./extract-plan.mjs) from the in-scope rows of the listing -- exact names
-  // plus the include-name patterns that bring a composite object's sources
-  // (the rule and its bed measurement live there, with the note that the
-  // patterns disappear with the sidecar release that selects objects exactly:
-  // requested: {TYPE: [names]}).
+  // ./extract-plan.mjs) from the in-scope rows of the listing: the exact
+  // (type, name) pairs as `requested: {TYPE: [names]}` -- the sidecar expands
+  // sources and closes the dictionary itself (the rule lives there).
   const chunkSize = typeof dumpChunkSize === "number" && dumpChunkSize > 0 ? dumpChunkSize : 500;
   const dumpRequest = buildDumpRequest({rows: inScopeRows, inactive: flags.inactive === true});
-  const dumpNames = dumpRequest.names;
+  const dumpPairs = requestedPairs(dumpRequest.requested);
   const dumpRequestPath = path.join(out, ".osd-hana", "dump-request.json");
   const reused = await reusableDump(dumpDir, dumpRequest);
   let dumpErrors = [];
@@ -421,13 +446,13 @@ export async function extractMain(argv, {
   } else if (reused.exists) {
     return fail(`osd hana extract: refusing the dump directory ${dumpDir}: ${reused.why}\n` +
       "  A dump is never mixed. Remove the directory or pass --dump-dir.");
-  } else if (dumpNames.length === 0) {
+  } else if (dumpPairs.length === 0) {
     // everything in scope is unknown-class: nothing to fetch (and the sidecar
-    // refuses an empty name list) -- the conversion below skips everything
+    // refuses an empty selection) -- the conversion below skips everything
     await fs.rm(dumpDir, {recursive: true, force: true});
   } else {
     const chunks = [];
-    for (let i = 0; i < dumpNames.length; i += chunkSize) chunks.push(dumpNames.slice(i, i + chunkSize));
+    for (let i = 0; i < dumpPairs.length; i += chunkSize) chunks.push(dumpPairs.slice(i, i + chunkSize));
     if (chunks.length === 1) {
       await fs.writeFile(dumpRequestPath, `${JSON.stringify(dumpRequest, null, 1)}\n`);
       const dumpRun = await runVerb(sidecar, "dump", {requestPath: dumpRequestPath, out: dumpDir, fail, connection});
@@ -435,14 +460,16 @@ export async function extractMain(argv, {
       dumpPartial = dumpPartial || dumpRun.outcome === "partial";
     } else {
       // one request per chunk, one directory per chunk: the sidecar refuses a
-      // non-empty --out, and its name IN-lists must stay under the SQL
-      // parameter limit (measured: ~4e4 parameters fail, w3 report #4)
+      // non-empty --out. Since v2.62.1 the sidecar keeps its own statements
+      // under 500 parameters, so chunking is a bound on one run's size, not
+      // a workaround any more.
       dumpParts = [];
+      const closures = [];
       for (const [n, chunk] of chunks.entries()) {
         const part = `part-${String(n + 1).padStart(5, "0")}`;
         const partDir = path.join(dumpDir, part);
         await fs.rm(partDir, {recursive: true, force: true});
-        const partRequest = {...dumpRequest, names: chunk};
+        const partRequest = {...dumpRequest, requested: requestedOf(chunk)};
         const partRequestPath = path.join(out, ".osd-hana", `dump-request-${part}.json`);
         await fs.writeFile(partRequestPath, `${JSON.stringify(partRequest, null, 1)}\n`);
         const dumpRun = await runVerb(sidecar, "dump", {requestPath: partRequestPath, out: partDir, fail, connection});
@@ -451,6 +478,7 @@ export async function extractMain(argv, {
         const partManifest = JSON.parse(await fs.readFile(path.join(partDir, "manifest.json"), "utf8"));
         dumpParts.push(part);
         dumpErrors.push(...(partManifest.sidecar?.errors ?? []));
+        if (partManifest.closure !== undefined) closures.push(partManifest.closure);
       }
       // the aggregate manifest is what reuse and the converter read: same
       // sidecar block shape as a single dump, `parts` naming the directories
@@ -465,11 +493,13 @@ export async function extractMain(argv, {
           version: sidecarBlock.version,
           commit: sidecarBlock.commit,
           request: dumpRequest,
-          counts: {package_objects: dumpNames.length},
+          counts: {package_objects: dumpPairs.length},
           errors: dumpErrors,
           parts: dumpParts,
           objects_report: "part-*/objects.jsonl",
         },
+        // the parts' closures, merged: the audit's allowance is their union
+        ...(closures.length > 0 ? {closure: {resolved: mergeResolved(closures)}} : {}),
       }, null, 1)}\n`);
     }
   }
@@ -493,13 +523,33 @@ export async function extractMain(argv, {
   // own directory and never reused: the next run refuses it and names the
   // directory to remove (reusableDump). "Just run it again" must not walk
   // past the refusal -- the audit is a pure function of dump + scope.
-  // Excluded closure rows (the sidecar's skipped DDIC metadata around the
-  // requested objects) are not sources and do not trip the object audit.
+  // An object outside the scope that carries content -- sources (files,
+  // `written`) or definition rows (`rows`) -- is over-delivery, EXCEPT the
+  // names the sidecar's dictionary closure reached, which it lists in the
+  // manifest's `closure.resolved` (v2.62.1): exactly those extras are
+  // legitimate, nothing else. Skipped rows (excluded, not-found) carry no
+  // content and do not trip the audit.
   const norm = (v) => String(v ?? "").trim().toUpperCase();
   const scopeSet = new Set(inScopeRows.map((r) => `${norm(r.type)}:${norm(r.name)}`));
-  const carriesSource = (r) => (Array.isArray(r.files) && r.files.length > 0)
+  const closureSet = closureAllowance(dumpManifest);
+  const carriesContent = (r) => (Array.isArray(r.files) && r.files.length > 0)
+    || ["w", "written", "rows"].includes(String(r.status ?? "").trim().toLowerCase());
+  // the closure is bounded (v2.62.1 contract): it may add only dictionary
+  // kinds, and only as rows with no source files. A closure entry of any
+  // other kind -- dumped or not -- and a closure row that carries files or
+  // was `written` is over-delivery, named and refused like any other.
+  const closureViolations = closureOutOfBounds(dumpManifest);
+  const carriesFiles = (r) => (Array.isArray(r.files) && r.files.length > 0)
     || ["w", "written"].includes(String(r.status ?? "").trim().toLowerCase());
-  const outOfScope = dumpObjects.filter((r) => !scopeSet.has(`${norm(r.type)}:${norm(r.name)}`) && carriesSource(r));
+  for (const r of dumpObjects) {
+    const id = `${norm(r.type)}:${norm(r.name)}`;
+    if (closureSet.has(id) && !scopeSet.has(id) && carriesFiles(r)) closureViolations.push(`${id} (closure entry with source files)`);
+  }
+  const outOfScope = dumpObjects.filter((r) => {
+    const id = `${norm(r.type)}:${norm(r.name)}`;
+    if (scopeSet.has(id) || !carriesContent(r)) return false;
+    return !closureSet.has(id) || carriesFiles(r);
+  });
   const auditRoots = dumpRoots.length > 0 ? dumpRoots : [dumpDir];
   let orphanSources = [];
   try {
@@ -513,12 +563,15 @@ export async function extractMain(argv, {
     // audit's -- let the conversion path produce its report
     if (e.code !== "ENOENT") throw e;
   }
-  if (outOfScope.length > 0 || orphanSources.length > 0) {
+  if (outOfScope.length > 0 || orphanSources.length > 0 || closureViolations.length > 0) {
     const objList = outOfScope.slice(0, 8).map((r) => `${norm(r.type)}:${norm(r.name)}`).join(", ");
     const srcList = orphanSources.slice(0, 8).join(", ");
     const why = [
       outOfScope.length > 0
         ? `${outOfScope.length} object${outOfScope.length === 1 ? "" : "s"} with sources outside the scope (${objList}${outOfScope.length > 8 ? ", ..." : ""})`
+        : undefined,
+      closureViolations.length > 0
+        ? `${closureViolations.length} closure entr${closureViolations.length === 1 ? "y" : "ies"} out of bounds -- the closure may add only ${CLOSURE_KINDS.join(" ")} rows without source files (${closureViolations.slice(0, 8).join(", ")}${closureViolations.length > 8 ? ", ..." : ""})`
         : undefined,
       orphanSources.length > 0
         ? `${orphanSources.length} source row${orphanSources.length === 1 ? "" : "s"} outside the scope -- no in-scope object owns them (${srcList}${orphanSources.length > 8 ? ", ..." : ""})`
@@ -536,6 +589,7 @@ export async function extractMain(argv, {
       await fs.writeFile(path.join(dumpDir, "refused.json"), `${JSON.stringify({
         schema: 1, tool: "osd hana extract", refused_by: "scope audit", when: now().toISOString(), why,
         objects: outOfScope.map((r) => `${norm(r.type)}:${norm(r.name)}`),
+        closure: closureViolations,
         sources: orphanSources,
       }, null, 1)}\n`);
     } catch { /* marking must not mask the refusal */ }
@@ -725,6 +779,7 @@ async function runVerb(sidecar, verb, {requestPath, out, fail, connection}) {
   const args = ["--request", requestPath, "--out", out, "--host", connection.host, "--port", String(connection.port)];
   if (connection.database !== undefined) args.push("--database", connection.database);
   if (connection.schema !== undefined) args.push("--abap-schema", connection.schema);
+  args.push(...(connection.tlsArgs ?? []));
   let run;
   try {
     run = await sidecar.run(verb, {args});

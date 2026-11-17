@@ -20,11 +20,13 @@ import {readFileSync} from "node:fs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "./defaults.mjs";
 import {makeRedactor} from "./redact.mjs";
 import {createReader, dropReader, ConsentRefused, ReaderError, hdbClientFactory, describeNeitherRole, lookupSchemaOwnerLogin} from "./reader.mjs";
+import {CONNECTION_FAILED} from "./hdb-adapter.mjs";
 import {defaultSecretStore} from "./secret-store.mjs";
 import {Sidecar, HandshakeError, SidecarVerifyError, handshake, locateSidecar, loadPin, verifySidecar, resetVerifiedSidecars, DEFAULT_PIN_PATH} from "./sidecar.mjs";
 import {plainVerdict, jsonVerdict, readerRoleFromProbe, ipSansExplanation} from "./verdict.mjs";
 import {ownsAbapSchema, readProbe, saysNoAbapSchema} from "./probe-doc.mjs";
 import {resolve} from "node:path";
+import {sidecarTlsArgs, tlsShapeWithoutEncrypt} from "./tls.mjs";
 
 export const DOCTOR_EXIT = Object.freeze({
   ok: 0,
@@ -55,8 +57,8 @@ then $OSD_HANA_PASSWORD, then a hidden prompt on a terminal. There is no
 --password flag, by design: argv is visible to every user of the machine.
 
 The sidecar binary osd-hana-dump is taken from OSD_HANA_DUMP (or the path the
-caller hands in), verified against tools/osd-hana/sidecar.lock.json, and
-hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
+caller hands in; the osd binary hands in osd-hana-dump in its own folder),
+verified against tools/osd-hana/sidecar.lock.json, and hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
 
 --create-reader sets up a dedicated read-only database user (asks for
 consent; --yes answers it non-interactively). The flow is guided by which
@@ -165,7 +167,7 @@ export async function doctorMain(argv, {
   // reader's password in CREATE USER -- goes out in clear text. Refused as a
   // usage error, before anything connects. (--trust-server-certificate alone
   // stays valid: it IS an encryption request, just without validation.)
-  if ((flags["ca-file"] !== undefined || flags["tls-server-name"] !== undefined) && flags.encrypt !== true) {
+  if (tlsShapeWithoutEncrypt(flags)) {
     return fail(`osd hana: --ca-file and --tls-server-name need --encrypt -- these flags shape TLS for BOTH connections ` +
       `(the sidecar's and the reader path's), and encrypting one while the other carries the new password in clear ` +
       `text is not a thing this tool does.\n` +
@@ -221,10 +223,8 @@ export async function doctorMain(argv, {
   // The sidecar advertises the `tls` capability; the reader path (hdb) has
   // its own TLS story. When the user asked for TLS and the pinned sidecar
   // cannot do it, the run REFUSES -- never a silent fall-back to clear text.
-  const tlsCapability = Array.isArray(handshakeInfo.capabilities) && handshakeInfo.capabilities.includes("tls");
-  const wantsTls = flags.encrypt === true || flags["trust-server-certificate"] === true
-    || flags["ca-file"] !== undefined || flags["tls-server-name"] !== undefined;
-  if (wantsTls && !tlsCapability) {
+  const tls = sidecarTlsArgs(flags, handshakeInfo);
+  if (tls.refused) {
     return fail(`osd hana: this sidecar (${handshakeInfo.version ?? "unknown version"}) does not list the "tls" capability -- ` +
       `it cannot encrypt its connection, and you asked it to (--encrypt / --trust-server-certificate / --ca-file).\n` +
       `  Refusing: the doctor will NOT connect in clear text when TLS was asked for. Use a sidecar build with the ` +
@@ -233,13 +233,7 @@ export async function doctorMain(argv, {
   // The TLS flags reach the sidecar's own connection as well (the probe and
   // every later run of this doctor ride the sidecar's session, not hdb's):
   // flags as the W0-contract "Additions" section defines them.
-  const sidecarTlsArgs = [];
-  if (tlsCapability) {
-    if (flags.encrypt === true) sidecarTlsArgs.push("--encrypt");
-    if (flags["trust-server-certificate"] === true) sidecarTlsArgs.push("--trust-server-certificate");
-    if (flags["ca-file"] !== undefined) sidecarTlsArgs.push("--ca-file", flags["ca-file"]);
-    if (flags["tls-server-name"] !== undefined) sidecarTlsArgs.push("--tls-server-name", flags["tls-server-name"]);
-  }
+  const sidecarTls = tls.args;
   // The reader path's TLS (hdb), from the same flags -- critic S-1 / probe
   // P8: with --encrypt --ca-file the CA used to reach the sidecar but never
   // hdb, so a private CA failed closed on the reader path while the sidecar
@@ -296,7 +290,7 @@ export async function doctorMain(argv, {
   const probeArgs = ["--host", connection.host, "--port", String(connection.port)];
   if (connection.database !== undefined) probeArgs.push("--database", connection.database);
   if (connection.schema !== undefined) probeArgs.push("--abap-schema", connection.schema);
-  probeArgs.push(...sidecarTlsArgs);
+  probeArgs.push(...sidecarTls);
   let readerProbeDocument; // the sidecar's probe answer, when run AS THE READER (create path)
 
   const finishReader = async (verb) => {
@@ -441,7 +435,12 @@ export async function doctorMain(argv, {
         // password too -- a driver text can repeat a value verbatim), because
         // a driver text can repeat a value verbatim.
         const redact = makeRedactor([connection.password, secondLogin?.password]);
-        const text = redact(`osd hana: the database refused (${error.code}): ${error.message}`);
+        // CONNECTION_FAILED is the adapter's number for a driver or network
+        // failure (no answer, TLS refused): nothing was refused BY the
+        // database, so the line says "cannot connect" and names the driver code.
+        const text = redact(error.code === CONNECTION_FAILED
+          ? `osd hana: cannot connect or log on (${error.driverCode ?? error.code}): ${error.message}`
+          : `osd hana: the database refused (${error.code}): ${error.message}`);
         io.err(text);
         // and the logins this run actually connected with are named (critic
         // S-4: a wrong $OSD_HANA_ADMIN_PASSWORD used to read as "the database

@@ -11,13 +11,14 @@ import {chmodSync, copyFileSync, writeFileSync, readFileSync, rmSync} from "node
 import {join} from "node:path";
 
 import {doctorMain} from "../tools/osd-hana/doctor.mjs";
-import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, resetVerifiedSidecars, runSidecarRaw, targetKey, verifySidecar} from "../tools/osd-hana/sidecar.mjs";
+import {EXIT_OUTCOMES, HandshakeError, Sidecar, SidecarRunError, handshake, loadPin, locateSidecar, resetVerifiedSidecars, runSidecarRaw, sidecarBesideExecutable, targetKey, verifySidecar, DEFAULT_PIN_PATH} from "../tools/osd-hana/sidecar.mjs";
 import {UsageError, parseFlags, readEnvFile} from "../tools/osd-hana/connect.mjs";
 import {isPublicDefaultPassword, publicDefaultWarning} from "../tools/osd-hana/defaults.mjs";
 import {makeRedactor, redactValues} from "../tools/osd-hana/redact.mjs";
 import {SAFETY_NOTE, canWrite} from "../tools/osd-hana/verdict.mjs";
 import {readerStoreKey} from "../tools/osd-hana/reader.mjs";
-import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness} from "./osd-hana/harness.mjs";
+import {mapHdbError} from "../tools/osd-hana/hdb-adapter.mjs";
+import {FAKE_SIDECAR, HOST, PASSWORD, SCHEMA, USER, makeHarness, within} from "./osd-hana/harness.mjs";
 
 const h = makeHarness();
 
@@ -212,6 +213,69 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       expect(locateSidecar({env: {OSD_HANA_DUMP: base}, platform: "linux"})).to.equal(base);
     });
 
+    it("the compiled osd binary's caller path is osd-hana-dump[.exe] beside its executable, and only when it is there (mutations: other directory / no .exe / no existence check -> red)", function () {
+      const seen = [];
+      const existsOnly = (wanted) => (candidate) => { seen.push(candidate); return candidate === wanted; };
+      // linux / darwin: the directory of process.execPath, the bare name
+      expect(sidecarBesideExecutable({execPath: "/opt/osd/bin/osd", platform: "linux", exists: existsOnly("/opt/osd/bin/osd-hana-dump")}))
+        .to.equal("/opt/osd/bin/osd-hana-dump");
+      expect(sidecarBesideExecutable({execPath: "/Users/x/osd-darwin-arm64", platform: "darwin", exists: existsOnly("/Users/x/osd-hana-dump")}))
+        .to.equal("/Users/x/osd-hana-dump");
+      // windows: backslash paths, the .exe name (never the extensionless one)
+      expect(sidecarBesideExecutable({execPath: "C:\\tools\\osd-windows-x64.exe", platform: "win32", exists: existsOnly("C:\\tools\\osd-hana-dump.exe")}))
+        .to.equal("C:\\tools\\osd-hana-dump.exe");
+      // nothing beside the binary: undefined, so locateSidecar's clear refusal speaks
+      seen.length = 0;
+      expect(sidecarBesideExecutable({execPath: "/opt/osd/bin/osd", platform: "linux", exists: existsOnly("/elsewhere/osd-hana-dump")})).to.equal(undefined);
+      expect(seen).to.deep.equal(["/opt/osd/bin/osd-hana-dump"]);
+      expect(sidecarBesideExecutable({execPath: "", platform: "linux", exists: () => true})).to.equal(undefined);
+      // the real file system: a file next to a stand-in executable is found
+      const exe = join(h.root, "osd");
+      writeFileSync(exe, "", {mode: 0o755});
+      expect(sidecarBesideExecutable({execPath: exe, platform: "linux"})).to.equal(undefined);
+      writeFileSync(join(h.root, "osd-hana-dump"), "", {mode: 0o755});
+      try {
+        expect(sidecarBesideExecutable({execPath: exe, platform: "linux"})).to.equal(join(h.root, "osd-hana-dump"));
+      } finally {
+        rmSync(join(h.root, "osd-hana-dump"), {force: true});
+      }
+    });
+
+    it("the binary's caller path keeps the precedence: OSD_HANA_DUMP wins over it, and it wins over the refusal (mutation: swap -> red)", function () {
+      const beside = sidecarBesideExecutable({execPath: "/opt/osd/osd", platform: "linux", exists: () => true});
+      expect(locateSidecar({env: {OSD_HANA_DUMP: h.fakePath}, callerPath: beside})).to.equal(h.fakePath);
+      expect(locateSidecar({env: {}, callerPath: beside})).to.equal("/opt/osd/osd-hana-dump");
+      // and the refusal names where the binary looks
+      expect(() => locateSidecar({env: {}, callerPath: sidecarBesideExecutable({execPath: "/opt/osd/osd", platform: "linux", exists: () => false})}))
+        .to.throw(/its own folder/);
+    });
+
+    it("a sidecar found beside the binary is verified against the pin like any other (mutation: skip verify for the caller path -> red)", async function () {
+      resetVerifiedSidecars();
+      // the fake is not the pinned osd-hana-dump: the module's own pin refuses it by checksum
+      const beside = sidecarBesideExecutable({execPath: join(h.root, "osd"), platform: "linux", exists: (p) => p === join(h.root, "osd-hana-dump")});
+      copyFileSync(h.fakePath, beside);
+      try {
+        const path = locateSidecar({env: {}, callerPath: beside});
+        const message = await verifySidecar(path, {pin: loadPin(), platform: "linux", arch: "x64"}).then(
+          () => expect.fail("an unpinned file beside the binary must be refused"),
+          (error) => error.message);
+        expect(message).to.include("checksum mismatch");
+      } finally {
+        rmSync(beside, {force: true});
+        resetVerifiedSidecars();
+      }
+    });
+
+    it("the module's own pin is the bundled copy of sidecar.lock.json, byte-for-byte the file's content (the compiled binary has no file beside it)", function () {
+      expect(loadPin()).to.deep.equal(JSON.parse(readFileSync(DEFAULT_PIN_PATH, "utf8")));
+      expect(loadPin(DEFAULT_PIN_PATH)).to.deep.equal(loadPin());
+      // a copy, not the module's object: a caller mutating its pin cannot change the next load
+      const first = loadPin();
+      first.targets["linux-x64"] = "0".repeat(64);
+      expect(loadPin().targets["linux-x64"]).to.not.equal("0".repeat(64));
+    });
+
     it("names an unsupported target honestly instead of collapsing Windows to win32-x64 (critic note; mutation: collapse -> red)", async function () {
       expect(targetKey("win32", "x64")).to.equal("win32-x64");
       expect(targetKey("win32", "arm64")).to.equal("win32-arm64");
@@ -316,7 +380,8 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       ]);
       const broken = async (options) => {
         if (options.user === USER) {
-          throw Object.assign(new Error("communication link failure"), {code: -10709});
+          // what the adapter makes of hdb's own driver failure (string code)
+          throw mapHdbError(Object.assign(new Error("Could not connect to any host: [ hana-host-1:30015 - communication link failure ]"), {code: "EHDBOPENCONN"}));
         }
         return factory(options);
       };
@@ -326,7 +391,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       });
       expect(code).to.equal(2);
       const text = h.allText();
-      expect(text).to.include("the database refused");
+      expect(text).to.include("cannot connect or log on (EHDBOPENCONN)");
       // WHICH login this run was connected as is named
       expect(text).to.include(`connected with: ${USER}`);
     });
@@ -634,16 +699,26 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         const document = JSON.parse(h.out.find((l) => l.trimStart().startsWith("{")));
         expect(document.probe.tls).to.equal(scenario === "tls-verified" ? "verified" : scenario === "tls-unverified" ? "unverified" : "off");
       }
-      // without the field (the current pinned binary has no tls), no sentence
-      const code3 = await h.runDoctor([], {scenario: "owner-tenant"});
+      // the recorded probe of the pinned binary carries tls "off"
+      const code4 = await h.runDoctor([], {scenario: "owner-tenant"});
+      expect(code4).to.equal(0);
+      expect(h.allText()).to.include("TLS: off -- the connection is NOT encrypted");
+      // without the field (a binary older than v2.62.1), no sentence
+      const code3 = await h.runDoctor([], {scenario: "no-tls-field"});
       expect(code3).to.equal(0);
       expect(h.allText()).to.not.include("TLS:");
     });
 
     it("TLS: when the sidecar lacks the capability and the user asked for TLS, the doctor REFUSES -- never a clear-text connection (mutation: connect anyway -> red)", async function () {
       // the default fake handshake has no "tls" capability
+      // bounded (fix round): a mutant that goes on must fail by assertion --
+      // the fake exits by itself, no database client and no prompt can wait
+      const noWait = {
+        clientFactory: () => { throw new Error("no database in this test: the TLS refusal comes first"); },
+        prompt: async () => { throw new Error("no prompt in this test: the TLS refusal comes first"); },
+      };
       for (const argv of [["--encrypt"], ["--trust-server-certificate"]]) {
-        const code = await h.runDoctor([...argv], {scenario: "owner-tenant"});
+        const code = await within(5000, `doctor ${argv.join(" ")} without the tls capability`, h.runDoctor([...argv], {scenario: "owner-tenant", env: {FAKE_SIDECAR_DEADLINE_MS: "3000"}, deps: noWait}));
         expect(code, argv.join(" ")).to.equal(1);
         expect(h.allText(), argv.join(" ")).to.include("tls");
         expect(h.allText(), argv.join(" ")).to.include("NOT connect in clear text");
@@ -745,7 +820,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
       // and the hdb (reader-path) connection failing with the same fact
       const {fakeClientFactory} = await import("./osd-hana/fake-client.mjs");
       const factory = async () => {
-        throw Object.assign(new Error("connection failed: certificate doesn't contain any IP SANs"), {code: -10709});
+        throw mapHdbError(Object.assign(new Error("Could not connect to any host: [ 192.0.2.1:30015 - Hostname/IP does not match certificate's altnames: IP: 192.0.2.1 is not in the cert's list: ; certificate doesn't contain any IP SANs ]"), {code: "EHDBOPENCONN"}));
       };
       const code2 = await h.runDoctor(["--create-reader", "--yes", "--encrypt"], {
         scenario: "both",
@@ -753,7 +828,7 @@ process.stdout.write(JSON.stringify({ok: true, exit: 0}) + "\\n");
         deps: {clientFactory: factory},
       });
       expect(code2).to.equal(2);
-      expect(h.allText()).to.include("the database refused");
+      expect(h.allText()).to.include("cannot connect or log on (EHDBOPENCONN)");
       expect(h.allText()).to.include("host NAME the certificate was issued for");
     });
   });

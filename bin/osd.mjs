@@ -53,6 +53,8 @@ const toolchainIdentity = typeof __OSD_TOOLCHAIN_IDENTITY__ !== "undefined"
   ? __OSD_TOOLCHAIN_IDENTITY__ : buildIdentity(process.cwd());
 const embeddedSeed = typeof __OSD_BINARY_SEEDED__ !== "undefined" && __OSD_BINARY_SEEDED__;
 const [, , mode = "up", ...rawArgs] = process.argv;
+// `osd hana` (tools/osd-hana/) is the rescue path off a HANA database and
+// needs no system: it runs from any folder, checkout or seed or neither.
 // Usage is not startup: do this before validating/mounting layers or
 // materializing a standalone system home, let alone building/listening.
 if (mode === "up" && rawArgs.includes("--help")) {
@@ -69,7 +71,8 @@ Environment: OSD_WARM=1 enables warm activation; STG_PORT sets the HTTP port.`);
 const {folders: userLayers, rest} = mode === "run" ? {folders: [], rest: rawArgs} : layerList(rawArgs);
 if (userLayers.length > 0) process.env.OSD_LAYERS = userLayers.join(process.platform === "win32" ? ";" : ":");
 if (compiled && !isCheckout(process.cwd()) && process.env.OSD_BINARY_HOME !== process.cwd()
-    && mode !== "ready" && mode !== "doctor" && mode !== "compiler" && mode !== "replay-promote" && !(mode === "unit" && rest.includes("--go"))) {
+    && mode !== "ready" && mode !== "doctor" && mode !== "compiler" && mode !== "replay-promote" && mode !== "hana"
+    && !(mode === "unit" && rest.includes("--go"))) {
   if (!embeddedSeed) throw new Error("checkout-mode binary requires an open-steamgate checkout; build with --seed for standalone use");
   const home = await ensureBinaryHome(resolve(import.meta.dir, "osd-seed.tar.gz"), dataDirOf());
   process.chdir(home);
@@ -354,8 +357,11 @@ switch (mode) {
   }
   case "hana": {
     // the osd-hana product line (tools/osd-hana/); the verbs dispatch inside
+    // the osd binary is a caller: it hands in the sidecar beside its own
+    // executable (OSD_HANA_DUMP still wins; the pin still verifies it)
     const {main} = await import("../tools/osd-hana/osd-hana.mjs");
-    process.exit(await main(rest));
+    const {sidecarBesideExecutable} = await import("../tools/osd-hana/sidecar.mjs");
+    process.exit(await main(rest, {callerPath: compiled ? sidecarBesideExecutable() : undefined}));
     break;
   }
   default:

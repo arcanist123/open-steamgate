@@ -4,7 +4,7 @@ These files are what the REAL binary printed, not what somebody thought it would
 The tests' fake sidecar serves these documents (and variants that change VALUES only);
 it may not invent a field -- `test/osd-hana-contract.mjs` fails when it does.
 
-- Recorded with: `osd-hana-dump v2.62.0` (commit `a0177d8649cc0eb490a29cc8730adf5fbdfa3361`),
+- Recorded with: `osd-hana-dump v2.62.1` (commit `c10a25cae70a032b87daa7c96906d0ecd6b588a5`),
   the binary `tools/osd-hana/sidecar.lock.json` pins, against a HANA database that holds an
   ABAP schema, on 2026-11-16.
 - Every identifier was replaced by a synthetic one (host, port, login, schema, clients,

@@ -20,15 +20,18 @@ because the sidecar is read-only by construction and cannot create a user.
 | `extract.mjs` | the `extract` verb: scope → plan → dump → convert → report (see below) |
 | `extract-plan.mjs` | the extract plan document, the consent gate, and `buildDumpRequest` — the ONE function the dump request is built in |
 | `extract-workarea.mjs` | the extract work area: the dump restart rule (`reusableDump`), the marker (atomic), the `src/` refresh that never touches a kept file |
+| `closure.mjs` | the sidecar's dictionary closure (`closure.resolved`): what the scope audit allows beyond the scope, bounded to DDIC rows without files |
 | `report.mjs` | the extract report: `extract-report.md` and the JSON document, from one source |
-| `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
+| `convert/` | the dump → abapGit-repository converter (`xml.mjs` the abapGit XML layout, `ddic.mjs` the DDIC serializers and message classes, `program.mjs` CLAS/INTF/PROG/FUGR, `convert.mjs` the walk) |
 | `sidecar.mjs` | locate / verify (SHA-256 pin) / handshake / run the sidecar |
+| `tls.mjs` | the sidecar's TLS flags and the capability rule, ONE place for `doctor` and `extract` |
 | `sidecar.lock.json` | the pin: version, commit, SHA-256 per target (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64), the capabilities, and the public release URL + asset name per target |
 | `fetch-sidecar.mjs` | the BUILD-time fetcher: downloads the pinned release asset per target, verifies SHA-256 against the pin, writes it atomically. Never reached from the `osd hana` verbs |
 | `connect.mjs` | connection input: `--host --port --database --user`, `--env-file`, `--password-stdin`, hidden TTY prompt. **No `--password` flag, ever** (argv is visible to every user of the machine). The password channels, in order: `--password-stdin` > `HANA_PASSWORD` in the env file > `$OSD_HANA_PASSWORD` > the hidden prompt (TTY only); a run with none of them is a refusal that names all four |
 | `probe-doc.mjs` | reads the sidecar's `probe` document, in ONE place, by the real binary's field names (`abap_schemas[].schema`, per-schema `non_select_on_schema` / `abap_attached`, `login_class`, `admin_privileges`, `notes`); records what the document did not report, and turns the sidecar's "... not readable" notes into UNKNOWN (never a 0 or a "can only read"); other notes are printed verbatim |
 | `verdict.mjs` | the plain-language verdict and the `--json` document, from one source so they cannot disagree |
 | `reader.mjs` | the dedicated read-only user: `--create-reader` / `--drop-reader` (the only non-SELECT statements in the module, sent over `hdb`, never the sidecar) |
+| `hdb-adapter.mjs` | the ONE module that touches the driver `hdb` (`createClient`, `connect`, `exec`, `prepare`+`exec`+`drop` for bound parameters, `disconnect`/`close`), statically imported so the compiled binary carries it; every error leaves it with a numeric `code` (driver/network failures as `-10709`, the driver code in `driverCode`). `test/osd-hana-hdb-adapter.mjs` holds it to the installed driver |
 | `secret-store.mjs` | where the reader's credentials live: a `get/set/delete` interface; the CLI default is a file under the user's config directory, `0600` in a `0700` directory, enforced with fchmod even when it already existed. The extension will inject VS Code SecretStorage behind the same interface |
 | `redact.mjs` | the redactor: child stderr passes through it; stdout is parsed raw and only what is printed or embedded is masked (`redactValues`: string values only, never keys or numbers; password, user, host masked; secrets shorter than 3 characters are ignored) |
 | `defaults.mjs` | the courtesy check: SHA-256 hashes of the public default passwords of HANA trial images; warn loudly, change nothing |
@@ -36,7 +39,9 @@ because the sidecar is read-only by construction and cannot create a user.
 ## How the doctor runs the sidecar
 
 1. **Locate** — `OSD_HANA_DUMP` (explicit path) wins, then the path the caller
-   handed in (the extension passes its bundled binary), then a clear error
+   handed in (the extension passes its bundled binary; the compiled `osd`
+   binary passes `osd-hana-dump[.exe]` from its own directory when one is
+   there, verified against the pin like any other), then a clear error
    that says how to get the binary. There is no download.
 2. **Verify** — before the first use in a process, SHA-256 of the file against
    `sidecar.lock.json` for this target. A mismatch is refused and names both
@@ -79,9 +84,10 @@ sidecar could not examine the database (the message says which).
 
 ### TLS
 
-The sidecar advertises the `tls` capability in its handshake (W0-contract
-"Additions"; the current pin `0d5767b` does not have it — the code is written
-against the capability and tested both ways with the fake). TLS is **one
+The sidecar advertises the `tls` capability in its handshake (since
+v2.62.1, the current pin; the code is written against the capability and
+tested both ways with the fake, so an older binary without it is still
+refused for TLS rather than used in clear text). TLS is **one
 consistent set of flags for both transports** — the sidecar's connection and
 the reader path's hdb connection:
 
@@ -99,6 +105,10 @@ the reader path's hdb connection:
   could encrypt its own connection: fail-closed until the pin moves;
 - with the capability, the flags are passed to the sidecar as well: the
   probe (and the reader probe) ride the sidecar's own session, not hdb's.
+
+`osd hana extract` takes the same four flags under the same rules (one
+helper, `tls.mjs`): the shape check before anything runs, the refusal
+without the capability, and the flags on every `list` and `dump` it runs.
 
 The verdict says the probe's `tls` value, one plain sentence each:
 **verified** ("the server's certificate was verified"), **unverified**
@@ -223,42 +233,31 @@ clone, diff and deploy:
    terminal the question says so and wants the full `yes`. The numbers live
    in exactly one place (`LARGE_PLAN` in `extract-plan.mjs`); the prompt,
    the refusals and this README quote it.
-3. **Dump** — the dump request NAMES the in-scope objects of the listing:
-   exact names, sorted, LIKE-escaped (the sidecar matches
-   `LIKE ? ESCAPE '\'`), in chunks of 500 (one request, one directory per
-   chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) so
-   a big selection cannot blow the sidecar's SQL parameter limit — and never
-   the user's patterns, so nothing of the vendor's is fetched unless
-   `--include-sap` asked for it. Composite objects carry, next to their
-   exact name, the include-name pattern their sources hide behind in
-   REPOSRC — measured on the real bed and confirmed there (round 3): a
-   class's/interface's sources sit behind the 30-character `=`-padded name
-   (`<name padded to 30 with =>%`), a function group's behind its main
-   program and includes (`SAPL<grp>`, `L<grp>___`, below); flat programs and DDIC
-   need only the exact name. TADIR selection stays exact (a padded prefix
-   names exactly one object), so the selection cannot widen.
-   `_` and `%` inside a REAL object name never act as wildcards unnoticed:
-   every literal is LIKE-escaped (`\_`, `\%`, `\\`) — the sidecar matches
-   with `LIKE ? ESCAPE '\'` (checked in its binary's strings), so an escaped
-   underscore matches exactly that name. A function group's include is
-   EXACTLY `L<grp>` + 3 characters (TOP, UXX, U01, F01, …: abapGit's and
-   the function library's naming), so the request carries `SAPL<grp>`
-   exactly and ONE include pattern `L<grp>___` — three single-character
-   wildcards, no letter (round 6). Length pins the match: group `ZA`'s
-   pattern is six characters, group `ZAU`'s includes seven, so a sibling
-   whose name extends the group's can never match (round 5's
-   `L<grp><letter>___` shapes did: `LZAU___` is `LZAUTOP`). The converter's
-   resolver (`convert/ownership.mjs`) splits off exactly those 3 characters
-   — an include that fits no in-scope group by exact length is ownerless
-   and the audit refuses the run. Namespaced groups take their real shape
-   (`/NS/GRP` → `/NS/SAPLGRP` exact, `/NS/LGRP___`). The
-   request is built in ONE function (`buildDumpRequest` in
-   `extract-plan.mjs`): the sidecar's next release selects objects exactly
-   (`requested: {TYPE: [names]}`), and then the patterns go away and only
-   that function changes.
+3. **Dump** — the dump request NAMES the in-scope objects of the listing,
+   exactly: `requested: {TYPE: [names]}` (sidecar v2.62.1), sorted and
+   de-duplicated, in chunks of 500 objects (one request, one directory per
+   chunk under `<out>/.osd-hana/dump/part-NNNNN`, one aggregate manifest) —
+   and never the user's patterns, so nothing of the vendor's is fetched
+   unless `--include-sap` asked for it. The sidecar selects TADIR per type,
+   expands the sources of CLAS / INTF / FUGR / PROG itself (a function group:
+   its main program `SAPL<grp>` and its includes `L<grp>` + exactly three
+   characters — so a sibling group whose name extends this one's is never
+   fetched), takes MSAG / DDLS / DDLX / SRVD / DCLS by name, and closes the
+   dictionary kinds over their dependencies; the extra names that closure
+   reached are listed in the manifest's `closure.resolved`. The request is
+   built in ONE function (`buildDumpRequest` in `extract-plan.mjs`); the
+   include-name LIKE patterns of the earlier rounds are gone with v2.62.1.
+   A dump made from such patterns is never reused for a `requested` run
+   (the reuse fingerprint carries the kind of selection).
    **The scope audit** runs on EVERY dump before conversion, reused or fresh
-   (round 5): every object the dump fetched WITH sources must be in the
-   scope set, and every REPOSRC row it fetched must resolve to an in-scope
+   (round 5): every object the dump delivered WITH content — sources, or
+   definition rows (`rows`) — must be in the scope set or be one of the
+   names the sidecar lists in `closure.resolved` (exactly those extras are
+   legitimate; a sidecar that over-delivers anything else still fails the
+   run). The closure itself is bounded: it may add only DOMA / DTEL / TABL /
+   TTYP / SHLP / VIEW, as `rows` without source files; any other kind in
+   `closure.resolved`, or a closure row with files, refuses the run and is
+   named. And every REPOSRC row it fetched must resolve to an in-scope
    owner (`convert/ownership.mjs` — the one resolver the converter writes
    by, so the two cannot drift). Anything outside the scope refuses the run
    (exit 4), names the dump directory so it can be removed, leaves the
@@ -291,7 +290,15 @@ clone, diff and deploy:
    `package_to_path` does. File names as abapGit writes them (lower case, a
    namespace `/` becomes `#`). ABAP is byte-identical to the dump; the XML is
    abapGit's own layout (BOM, one element per line, its field order), decided
-   from abapGit's serializers, not from single files. The report is built
+   from abapGit's serializers, not from single files. Message classes (MSAG,
+   from the T100A / T100T / T100 rows the sidecar dumps in every language)
+   are written as abapGit's `zcl_abapgit_object_msag` does: T100A without the
+   user/date stamps, the master-language messages, and `I18N_LANGS` / `T100T`
+   / `T100_TEXTS` for the other languages; their long texts are `not
+   checked` (no documentation tables in the dump). A function group's
+   `AREAT` is its master-language TLIBT text. A table field typed directly
+   (not by a data element) carries the `MASK` that DDIC derives for it
+   (`convert/mask.mjs`). The report is built
    from a ledger: every in-scope object ends in exactly one state, and every
    part the converter knows it cannot write is a line under its object, in
    exactly one of two kinds (round 4): `not extracted` — the dump shows the
@@ -340,6 +347,12 @@ Before publishing an extracted repository: remove `extract-report.json`,
 `extract-report.md` and `.osd-hana/` — they carry absolute local paths (and
 the dump). `.abapgit.xml`'s `MASTER_LANGUAGE` follows the dump's dominant
 TADIR master language, not a hard-coded guess.
+
+Known limits against abapGit:
+- MSAG long texts are not written (abapGit writes them); the dump has no
+  documentation tables, so they are `not checked`.
+- Technical languages are not filtered: every language the dump carries is
+  written (abapGit filters the technical ones out).
 
 ## The dedicated reader
 

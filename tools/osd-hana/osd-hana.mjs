@@ -6,6 +6,7 @@
 // which inject the io/seams.
 import {doctorMain} from "./doctor.mjs";
 import {extractMain} from "./extract.mjs";
+import {compiled} from "../osd-host.mjs";
 
 const VERBS = {
   doctor: doctorMain,
@@ -38,7 +39,10 @@ export async function main(argv, deps = {}) {
 // A tool run directly (node tools/osd-hana/osd-hana.mjs ...) without the osd
 // binary still works: the binary's dispatch (bin/osd.mjs, mode "hana") is
 // only the hosted path.
-if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+// In the compiled osd binary every bundled module shares the entry's
+// import.meta.url, so this guard would fire on import there (CLAUDE.md, the
+// binary's traps): compiled, bin/osd.mjs is the only way in.
+if (!compiled && process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   process.exitCode = await main(process.argv.slice(2));
 }
 

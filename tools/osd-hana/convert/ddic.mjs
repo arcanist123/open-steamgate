@@ -13,6 +13,7 @@
 // fields, ROWORCOLST = 'C' cleared (a field that does not exist on all
 // releases; abapGit clears it on serialize to avoid spurious diffs).
 import {xmlEscape, key, initial, elems, node, leaf, abapgitXmlDoc} from "./xml.mjs";
+import {dd03pMask} from "./mask.mjs";
 
 export const DD02V = ["TABNAME","DDLANGUAGE","TABCLASS","SQLTAB","DATMIN","DATMAX","DATAVG","CLIDEP","BUFFERED","COMPRFLAG","LANGDEP","DDTEXT","ACTFLAG","APPLCLASS","AUTHCLASS","MASTERLANG","MAINFLAG","CONTFLAG","RESERVETAB","GLOBALFLAG","PROZPUFF","VIEWREF","MULTIPLEX","SHLPEXI","VIEWGRANT","EXCLASS"];
 export const DD09L = ["TABNAME","AS4LOCAL","TABKAT","TABART","PUFFERUNG","SCHFELDANZ","PROTOKOLL","BUFALLOW","ROWORCOLST"];
@@ -20,10 +21,13 @@ export const DD09L = ["TABNAME","AS4LOCAL","TABKAT","TABART","PUFFERUNG","SCHFEL
 // INTTYPE INTLEN [REFTABLE PRECFIELD REFFIELD CONROUT] [NOTNULL] [DOMNAME]
 // DATATYPE LENG DECIMALS MASK [VALEXI] SHLPORIGIN ... COMPTYPE. The order of
 // FIELDNAME..COMPTYPE is as abapGit's own files write it (NOTNULL after
-// INTLEN, MASK after LENG, COMPTYPE last); MASK itself is never written by us
-// -- the dump's DD03L rows do not carry the column (listed in REPORT.md).
-export const DD03P = ["FIELDNAME","KEYFLAG","MANDATORY","ROLLNAME","CHECKTABLE","ADMINFIELD","INTTYPE","INTLEN","REFTABLE","PRECFIELD","REFFIELD","CONROUT","NOTNULL","DOMNAME","DATATYPE","LENG","DECIMALS","VALEXI","SHLPORIGIN","TABLETYPE","DEPTH","COMPTYPE","REFTYPE","LANGUFLAG","DBPOSITION","ANONYMOUS","OUTPUTSTYLE"];
-const BY_ELEMENT = ["DOMNAME","INTTYPE","INTLEN","DATATYPE","LENG","DECIMALS"];
+// INTLEN, MASK after DECIMALS, COMPTYPE last). The dump's DD03L rows do not
+// carry MASK; it is derived (convert/mask.mjs) and, like abapGit, cleared
+// for a field typed by a data element.
+export const DD03P = ["FIELDNAME","KEYFLAG","MANDATORY","ROLLNAME","CHECKTABLE","ADMINFIELD","INTTYPE","INTLEN","REFTABLE","PRECFIELD","REFFIELD","CONROUT","NOTNULL","DOMNAME","DATATYPE","LENG","DECIMALS","MASK","VALEXI","SHLPORIGIN","TABLETYPE","DEPTH","COMPTYPE","REFTYPE","LANGUFLAG","DBPOSITION","ANONYMOUS","OUTPUTSTYLE"];
+const BY_ELEMENT = ["DOMNAME","INTTYPE","INTLEN","DATATYPE","LENG","DECIMALS","MASK"];
+// values whose LEADING blanks belong to them (asXML drops trailing ones only)
+const KEEP_LEADING = new Set(["MASK"]);
 export const DD04V = ["ROLLNAME","DDLANGUAGE","DOMNAME","ROUTPUTLEN","MEMORYID","LOGFLAG","HEADLEN","SCRLEN1","SCRLEN2","SCRLEN3","DDTEXT","REPTEXT","SCRTEXT_S","SCRTEXT_M","SCRTEXT_L","DTELMASTER","RESERVEDTE","DATATYPE","LENG","OUTPUTLEN","DECIMALS","LOWERCASE","SIGNFLAG","CONVEXIT","VALEXI","ENTITYTAB","REFKIND","REFTYPE","PROXYTYPE","LTRFLDDIS","BIDICTRLC","NOHISTORY"];
 export const DD01V = ["DOMNAME","DDLANGUAGE","DATATYPE","LENG","OUTPUTLEN","DECIMALS","LOWERCASE","SIGNFLAG","LANGFLAG","VALEXI","ENTITYTAB","CONVEXIT","DDTEXT","DOMMASTER"];
 export const DD07V = ["DOMNAME","VALPOS","DDLANGUAGE","DOMVALUE_L","DOMVALUE_H","DDTEXT"];
@@ -32,7 +36,7 @@ export const DD40V = ["TYPENAME","DDLANGUAGE","ROWTYPE","ROWKIND","DATATYPE","LE
 function container(tag, order, row) {
   const children = order
     .filter((k) => !initial(k, row[k]))
-    .map((k) => leaf(k, String(row[k]).trim()));
+    .map((k) => leaf(k, KEEP_LEADING.has(k) ? String(row[k]).trimEnd() : String(row[k]).trim()));
   return node(tag, children);
 }
 
@@ -40,7 +44,7 @@ function ddicXml(type, values) {
   return abapgitXmlDoc(`LCL_OBJECT_${type}`, values);
 }
 
-export function tablXml(head, settings, fields) {
+export function tablXml(head, settings, fields, lookups = {}) {
   const values = [container("DD02V", DD02V, head)];
   if (settings) {
     const s = {...settings};
@@ -53,7 +57,7 @@ export function tablXml(head, settings, fields) {
     .filter((f) => /^0*$/.test(String(f.DEPTH ?? "").trim()) && String(f.ADMINFIELD ?? "0").trim() === "0")
     .sort((a, b) => Number(a.POSITION || 0) - Number(b.POSITION || 0))
     .map((f) => {
-      const r = {...f, ADMINFIELD: String(f.ADMINFIELD ?? "").trim() || "0"};
+      const r = {...f, ADMINFIELD: String(f.ADMINFIELD ?? "").trim() || "0", MASK: dd03pMask(f, lookups)};
       if (String(f.ROLLNAME ?? "").trim() && key(f.COMPTYPE) === "E") {
         for (const k of BY_ELEMENT) delete r[k];
       }
@@ -161,4 +165,44 @@ export function viewXml(head, settings, tables, fields, conditions) {
   values.push(table("DD28J_TABLE", "DD28J", DD28J, joins));
   values.push(table("DD28V_TABLE", "DD28V", DD28V, conds));
   return ddicXml("VIEW", values.filter((v) => v !== undefined));
+}
+
+// ---- message classes -------------------------------------------------------
+// abapGit's .msag.xml (zcl_abapgit_object_msag, serialize + serialize_texts):
+// T100A without RESPUSER/LASTUSER/LDATE/LTIME (cleared), then T100 -- the
+// messages in the master language, by MSGNR -- and, when other languages
+// exist, I18N_LANGS (the other languages, sorted), T100T (the class's short
+// text per other language, by SPRSL) and T100_TEXTS (`item` rows: SPRSL,
+// MSGNR, TEXT, by SPRSL then MSGNR). abapGit adds nothing for an empty table.
+// CHAR values keep their leading blanks (asXML drops only trailing ones).
+export const T100A = ["ARBGB","MASTERLANG","STEXT"];
+export const T100 = ["SPRSL","ARBGB","MSGNR","TEXT"];
+export const T100T = ["SPRSL","ARBGB","STEXT"];
+export const T100_TEXT = ["SPRSL","MSGNR","TEXT"];
+
+function charContainer(tag, order, row) {
+  const children = order
+    .filter((k) => !initial(k, row[k]))
+    .map((k) => leaf(k, String(row[k]).trimEnd()));
+  return node(tag, children);
+}
+
+export function msagXml(head, messages, shortTexts) {
+  const arbgb = key(head.ARBGB);
+  const master = key(head.MASTERLANG) || "E";
+  const lang = (r) => key(r.SPRSL);
+  const nr = (a, b) => String(a.MSGNR).localeCompare(String(b.MSGNR));
+  const stext = head.STEXT ?? shortTexts.find((t) => lang(t) === master)?.STEXT;
+  const values = [charContainer("T100A", T100A, {...head, ARBGB: arbgb, MASTERLANG: master, STEXT: stext})];
+  const main = messages.filter((m) => lang(m) === master).sort(nr);
+  if (main.length) values.push(node("T100", main.map((m) => charContainer("T100", T100, {...m, SPRSL: master, ARBGB: arbgb}))));
+  const others = [...new Set([...shortTexts, ...messages].map(lang).filter((l) => l !== "" && l !== master))].sort();
+  if (others.length) {
+    values.push(node("I18N_LANGS", others.map((l) => leaf("LANGU", l))));
+    const t = shortTexts.filter((r) => others.includes(lang(r))).sort((a, b) => lang(a).localeCompare(lang(b)));
+    if (t.length) values.push(node("T100T", t.map((r) => charContainer("T100T", T100T, {...r, SPRSL: lang(r), ARBGB: arbgb}))));
+    const m = messages.filter((r) => others.includes(lang(r))).sort((a, b) => lang(a).localeCompare(lang(b)) || nr(a, b));
+    if (m.length) values.push(node("T100_TEXTS", m.map((r) => charContainer("item", T100_TEXT, {...r, SPRSL: lang(r)}))));
+  }
+  return ddicXml("MSAG", values);
 }

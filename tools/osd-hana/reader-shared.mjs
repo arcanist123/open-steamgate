@@ -18,7 +18,6 @@
 //   332 after a failed create = the user is absent -- the consequence of the
 //   first failure, never shown as the cause.
 import {randomBytes} from "node:crypto";
-import {createRequire} from "node:module";
 
 // The reader name must be OURS, not merely well-formed: ^OSD_ followed by
 // 1-26 capitals/digits/underscores. The old pattern admitted SYSTEM, SYS and
@@ -132,29 +131,11 @@ export function generateReaderPassword({random = randomBytes, length = 28} = {})
 
 // ------------------------------------------------------------------- hdb
 
-/** The real client factory. `hdb` is already in the dependency tree; the seam
- *  (a `clientFactory` argument everywhere below) exists so the tests script a
- *  fake instead of a database -- this job has no database by rule. */
-export function hdbClientFactory({require = createRequire(import.meta.url)} = {}) {
-  const hdb = require("hdb");
-  return async function connect(options) {
-    const client = hdb.createConnection(options);
-    await new Promise((resolvePromise, reject) => {
-      client.connect((error) => (error ? reject(error) : resolvePromise()));
-    });
-    return {
-      options,
-      exec(sql, params = []) {
-        return new Promise((resolvePromise, reject) => {
-          client.exec(sql, params, (error, rows) => (error ? reject(error) : resolvePromise({rows: rows ?? []})));
-        });
-      },
-      disconnect() {
-        return new Promise((resolvePromise) => client.disconnect(() => resolvePromise()));
-      },
-    };
-  };
-}
+// The real client factory lives in hdb-adapter.mjs, the one module that
+// touches the driver; the seam (a `clientFactory` argument everywhere below)
+// exists so the tests script a fake at the ADAPTER's interface instead of a
+// database -- this job has no database by rule.
+export {hdbClientFactory, CONNECTION_FAILED} from "./hdb-adapter.mjs";
 
 // ---------------------------------------------------------------- helpers
 

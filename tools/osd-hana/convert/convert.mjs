@@ -20,7 +20,7 @@ import path from "node:path";
 import {createHash} from "node:crypto";
 import {createInterface} from "node:readline";
 import {key, filename, repoDotXml, decodeTextpool, tpoolNode} from "./xml.mjs";
-import {tablXml, dtelXml, domaXml, ttypXml, shlpXml, viewXml} from "./ddic.mjs";
+import {tablXml, dtelXml, domaXml, ttypXml, shlpXml, viewXml, msagXml} from "./ddic.mjs";
 import {groupFromMain, mainProgram} from "./program.mjs";
 import {Ledger, unsafeComponent} from "./ledger.mjs";
 import {planObjectFiles} from "./write.mjs";
@@ -29,10 +29,10 @@ import {resolveProgramOwner, programOwnerMaps} from "./ownership.mjs";
 // Objects this converter can write. A type outside this set that is IN SCOPE
 // is never dropped silently: it comes back as `unsupported` and the process
 // exit code is 3.
-export const SUPPORTED_TYPES = new Set(["CLAS", "INTF", "PROG", "FUGR", "BDEF", "DDLS", "DDLX", "SRVD", "TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW"]);
+export const SUPPORTED_TYPES = new Set(["CLAS", "INTF", "PROG", "FUGR", "BDEF", "DDLS", "DDLX", "SRVD", "TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW", "MSAG"]);
 // The DD/table views the converter actually reads -- the report says which
 // it looked at (SHOULD-1), and which tables the dump does not carry at all.
-export const TABLES_READ = Object.freeze(["TADIR", "TDEVC", "TRDIR", "TFDIR", "TLIBG", "FUPARAREF", "TFTIT", "SEOCLASSDF", "SEOCLASSTX", "REPOTEXT", "DD02L", "DD02T", "DD09L", "DD03L", "DD04L", "DD04T", "DD01L", "DD01T", "DD07L", "DD07T", "DD40L", "DD40T", "DD30L", "DD30T", "DD31S", "DD32S", "DD33S", "DD25L", "DD25T", "DD26S", "DD27S", "DD28S", "DDDDLSRC", "DDLXSRC_SRC", "SRVDSRC_SRC"]);
+export const TABLES_READ = Object.freeze(["TADIR", "TDEVC", "TRDIR", "TFDIR", "TLIBG", "FUPARAREF", "TFTIT", "SEOCLASSDF", "SEOCLASSTX", "REPOTEXT", "DD02L", "DD02T", "DD09L", "DD03L", "DD04L", "DD04T", "DD01L", "DD01T", "DD07L", "DD07T", "DD40L", "DD40T", "DD30L", "DD30T", "DD31S", "DD32S", "DD33S", "DD25L", "DD25T", "DD26S", "DD27S", "DD28S", "DDDDLSRC", "DDLXSRC_SRC", "SRVDSRC_SRC", "T100A", "T100T", "T100", "TLIBT"]);
 
 // Sources kept outside REPOSRC, one active row per object: type -> [table, name column, version column]
 const SOURCE_TABLES = {DDLS: ["DDDDLSRC", "DDLNAME", "AS4LOCAL"], DDLX: ["DDLXSRC_SRC", "DDLXNAME", "VERSION"], SRVD: ["SRVDSRC_SRC", "SRVDNAME", "VERSION"]};
@@ -179,6 +179,13 @@ export async function convert({
   const claims = ledger.markCaseCollisions(); // uppercased id -> surviving entry
   for (const [upperId, e] of claims) {
     if (!objects.has(upperId)) {
+      // a type this converter cannot write is `unsupported` whether or not
+      // the dump carries its TADIR row: the sidecar (v2.62.1) selects TADIR
+      // per requested kind and leaves the kinds it does not dump out of it
+      if (!SUPPORTED_TYPES.has(key(e.type))) {
+        e.status = "unsupported";
+        continue;
+      }
       // the listing has it, the dump does not (restart drift, a TADIR gap):
       // skipped, loud -- never a vanishing (critic M1)
       e.status = "skipped";
@@ -436,10 +443,16 @@ export async function convert({
     const dd27s = await by("DD27S", "VIEWNAME");
     const dd28s = await by("DD28S", "CONDNAME");
     const lang = (r) => (r ? {DDLANGUAGE: "E", ...r, DDLANGUAGE: key(r.DDLANGUAGE) || "E"} : {DDLANGUAGE: "E"});
+    // message classes: rows, not DD* -- T100A (head), T100 (messages) and
+    // T100T (short texts), every language (sidecar v2.62.1)
+    const t100a = await by("T100A", "ARBGB");
+    const t100 = await by("T100", "ARBGB");
+    const t100t = await by("T100T", "ARBGB");
     for (const o of objects.values()) {
       if (!claimed.has(o.id)) continue;
       if (o.type === "TABL" && dd02l.has(o.name)) {
-        o.ddic = tablXml({...dd02l.get(o.name)[0], ...lang(dd02t.get(o.name)), TABNAME: o.name}, dd09l.get(o.name)?.[0], dd03l.get(o.name) || []);
+        o.ddic = tablXml({...dd02l.get(o.name)[0], ...lang(dd02t.get(o.name)), TABNAME: o.name}, dd09l.get(o.name)?.[0], dd03l.get(o.name) || [],
+          {dd04l: (n) => dd04l.get(n)?.[0], dd01l: (n) => dd01l.get(n)?.[0]});
       } else if (o.type === "DTEL" && dd04l.has(o.name)) {
         o.ddic = dtelXml({...dd04l.get(o.name)[0], ...lang(dd04t.get(o.name)), ROLLNAME: o.name});
       } else if (o.type === "DOMA" && dd01l.has(o.name)) {
@@ -451,6 +464,10 @@ export async function convert({
         o.ddic = ttypXml({...dd40l.get(o.name)[0], ...lang(dd40t.get(o.name)), TYPENAME: o.name});
       } else if (o.type === "SHLP" && dd30l.has(o.name)) {
         o.ddic = shlpXml({...dd30l.get(o.name)[0], ...lang(dd30t.get(o.name)), SHLPNAME: o.name}, dd31s.get(o.name) || [], dd32s.get(o.name) || [], dd33s.get(o.name) || []);
+      } else if (o.type === "MSAG" && t100a.has(o.name)) {
+        o.ddic = msagXml(t100a.get(o.name)[0], t100.get(o.name) || [], t100t.get(o.name) || []);
+        o.partNotes = o.partNotes ?? [];
+        o.partNotes.push({part: "message long texts", disposition: "not checked", reason: "the dump carries no documentation tables (DOKIL/DOKTL), so it cannot be told whether these messages have long texts"});
       } else if (o.type === "VIEW" && dd25l.has(o.name)) {
         const fields = (dd27s.get(o.name) || []).map((r) => {
           const b = (dd03l.get(key(r.TABNAME)) || []).find((x) => key(x.FIELDNAME) === key(r.FIELDNAME)) || {};
@@ -605,15 +622,22 @@ export async function convert({
       o.parts.set(k, content);
     }
   }
-  // The group's short text (TLIBT) is not in the dump; abapGit suppresses the
-  // empty AREAT, and so do we (fugrXml).
-  const areatOf = (o) => o.sc?.areat ?? o.row.AREAT ?? "";
+  // The group's short text: TLIBT in the master language, as abapGit reads it
+  // (SPRAS = the object's language); an absent text stays empty and abapGit
+  // suppresses the empty AREAT, and so do we (fugrXml).
+  const tlibt = new Map(); // group -> Map(language -> AREAT)
+  for (const r of await table("TLIBT")) {
+    const g = key(r.AREA);
+    if (!tlibt.has(g)) tlibt.set(g, new Map());
+    tlibt.get(g).set(key(r.SPRAS), String(r.AREAT ?? "").trimEnd());
+  }
+  const areatOf = (o) => tlibt.get(o.name)?.get(key(o.row?.MASTERLANG) || masterLanguage) ?? o.sc?.areat ?? o.row.AREAT ?? "";
   const ctx = {
     folderOf, trdir, tpoolOf, seoDf, seoTx, fmByInclude, fmRow, fmTexts, signatures, fmsOfGroup, areatOf, errors,
     sourceNameColumn: {DDLS: "DDLNAME", DDLX: "DDLXNAME", SRVD: "SRVDNAME"},
   };
   const plans = new Map(); // uppercased id -> {files, parts} | {skip, parts}
-  const ddicTypes = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW"];
+  const ddicTypes = ["TABL", "DTEL", "DOMA", "TTYP", "SHLP", "VIEW", "MSAG"];
   for (const [upperId, o] of [...claimed.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const e = o.entry = claims.get(upperId);
     // SHOULD-3: this package lost the folder to another -- per-object

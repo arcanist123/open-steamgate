@@ -39,6 +39,7 @@ import {pipeline} from "node:stream/promises";
 import {Readable} from "node:stream";
 import {fileURLToPath} from "node:url";
 import {loadPin, SIDECAR_NAME} from "./sidecar.mjs";
+import {compiled} from "../osd-host.mjs";
 
 export const DEFAULT_PIN_PATH = fileURLToPath(new URL("./sidecar.lock.json", import.meta.url));
 
@@ -279,6 +280,9 @@ export async function main(argv, deps = {}) {
 }
 
 // A tool run directly -- and only then: importing this module runs nothing.
-if (process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+// In the compiled osd binary every bundled module shares the entry's
+// import.meta.url, so this guard would fire on import there (CLAUDE.md, the
+// binary's traps): compiled, bin/osd.mjs is the only way in.
+if (!compiled && process.argv[1] !== undefined && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   process.exitCode = await main(process.argv.slice(2));
 }
