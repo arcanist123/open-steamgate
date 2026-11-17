@@ -37,7 +37,9 @@ because the sidecar is read-only by construction and cannot create a user.
 ## How the doctor runs the sidecar
 
 1. **Locate** — `OSD_HANA_DUMP` (explicit path) wins, then the path the caller
-   handed in (the extension passes its bundled binary), then a clear error
+   handed in (the extension passes its bundled binary; the compiled `osd`
+   binary passes `osd-hana-dump[.exe]` from its own directory when one is
+   there, verified against the pin like any other), then a clear error
    that says how to get the binary. There is no download.
 2. **Verify** — before the first use in a process, SHA-256 of the file against
    `sidecar.lock.json` for this target. A mismatch is refused and names both

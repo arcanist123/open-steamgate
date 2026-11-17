@@ -56,8 +56,8 @@ then $OSD_HANA_PASSWORD, then a hidden prompt on a terminal. There is no
 --password flag, by design: argv is visible to every user of the machine.
 
 The sidecar binary osd-hana-dump is taken from OSD_HANA_DUMP (or the path the
-caller hands in), verified against tools/osd-hana/sidecar.lock.json, and
-hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
+caller hands in; the osd binary hands in osd-hana-dump in its own folder),
+verified against tools/osd-hana/sidecar.lock.json, and hand-shaken before use. A binary outside the pin needs --allow-unpinned-sidecar.
 
 --create-reader sets up a dedicated read-only database user (asks for
 consent; --yes answers it non-interactively). The flow is guided by which

@@ -25,9 +25,10 @@
 import {createHash} from "node:crypto";
 import {spawn} from "node:child_process";
 import {existsSync, readFileSync} from "node:fs";
-import {extname, resolve} from "node:path";
+import {extname, posix, resolve, win32} from "node:path";
 import {fileURLToPath} from "node:url";
 import {makeRedactor, redactValues} from "./redact.mjs";
+import OWN_PIN from "./sidecar.lock.json" with {type: "json"};
 
 export const SIDECAR_NAME = "osd-hana-dump";
 
@@ -41,16 +42,26 @@ export const EXIT_OUTCOMES = Object.freeze({
   5: "unsupported",
 });
 
+// The module's own pin is IMPORTED, not read off a path next to this file: in
+// the compiled osd binary every bundled module shares one import.meta.url
+// (/$bunfs/root/osd) and no sidecar.lock.json is on disk there. The path stays
+// as the pin's identity (what --sidecar-pin is compared against, what the
+// messages name); loading it answers the bundled copy (OWN_PIN, imported above).
 export const DEFAULT_PIN_PATH = fileURLToPath(new URL("./sidecar.lock.json", import.meta.url));
 
 export function loadPin(path = DEFAULT_PIN_PATH) {
-  let raw;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch (error) {
-    throw new Error(`osd-hana: cannot read the sidecar pin file ${path}: ${error.message}`);
+  let pin;
+  if (path === DEFAULT_PIN_PATH) {
+    pin = structuredClone(OWN_PIN);
+  } else {
+    let raw;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch (error) {
+      throw new Error(`osd-hana: cannot read the sidecar pin file ${path}: ${error.message}`);
+    }
+    pin = JSON.parse(raw);
   }
-  const pin = JSON.parse(raw);
   if (typeof pin.version !== "string" || typeof pin.commit !== "string" || typeof pin.targets !== "object") {
     throw new Error(`osd-hana: the sidecar pin file ${path} has no version/commit/targets`);
   }
@@ -97,8 +108,23 @@ export function locateSidecar({env = process.env, callerPath, platform = process
   throw new Error(
     `osd hana: the sidecar binary ${SIDECAR_NAME} was not found.\n` +
     `  Set OSD_HANA_DUMP to the path of the ${SIDECAR_NAME} binary, or pass its path to the caller\n` +
-    `  that starts osd hana (the osd extension bundles it).\n` +
+    `  that starts osd hana (the osd extension bundles it; the osd binary looks for it in its own folder).\n` +
     `  There is no download: get the binary from the osd-hana-dump release of the extension you use.`);
+}
+
+/** The caller path the compiled osd binary hands in: `osd-hana-dump` (on
+ *  Windows `osd-hana-dump.exe`) in the same directory as the osd executable
+ *  (process.execPath's directory) -- a sidecar unpacked beside the binary.
+ *  Undefined when no such file is there, so locateSidecar's clear refusal
+ *  still speaks. Only for the compiled binary: under node, execPath is node
+ *  itself and its directory says nothing about osd. It is a caller path like
+ *  any other -- OSD_HANA_DUMP still wins, and the file is verified against
+ *  the pin before it runs. */
+export function sidecarBesideExecutable({execPath = process.execPath, platform = process.platform, exists = existsSync} = {}) {
+  if (typeof execPath !== "string" || execPath === "") return undefined;
+  const paths = platform === "win32" ? win32 : posix;
+  const candidate = paths.join(paths.dirname(execPath), platform === "win32" ? `${SIDECAR_NAME}.exe` : SIDECAR_NAME);
+  return exists(candidate) ? candidate : undefined;
 }
 
 // Verified once per process per path ("verify before every first use in a

@@ -408,6 +408,9 @@ jobs:
             # bubblewrap needs them to hide the checkout from the binary under test.
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
             node scripts/smoke-binary.mjs "build/release/$ASSET"
+            # the HANA rescue path from the executable alone: usage, and an
+            # extract --dry-run plan through the fake sidecar placed beside it
+            node scripts/smoke-binary-hana.mjs "build/release/$ASSET"
             node scripts/release-verify.mjs serve "build/release/$ASSET" --timeout 300
           fi
           release_is_draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
