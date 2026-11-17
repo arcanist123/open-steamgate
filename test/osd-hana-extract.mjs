@@ -974,6 +974,26 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     }
   });
 
+  it("M-2b3: the closure is bounded -- it may add only dictionary kinds (DOMA DTEL TABL TTYP SHLP VIEW) as rows with no source files; a CLAS in closure.resolved, or a closure TABL with files, refuses the run and is named (mutation: closure kinds/files unchecked)", async function () {
+    const cases = [
+      {label: "CLAS in the closure", row: {type: "CLAS", name: "ZCL_CLOSURE_VENDOR", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "W", files: [{path: "src/ZCL_CLOSURE_VENDOR=====CS.abap", state: "A", sha256: "0".repeat(64), bytes: 60}]}, resolved: {CLAS: ["ZCL_CLOSURE_VENDOR"]}, named: /CLAS:ZCL_CLOSURE_VENDOR/, code: 4},
+      {label: "a CLAS listed but not dumped", row: undefined, resolved: {DTEL: ["ZCLOSURE_DTEL"], CLAS: ["ZCL_CLOSURE_GHOST"]}, named: /CLAS:ZCL_CLOSURE_GHOST/, code: 4},
+      {label: "a TABL with files", row: {type: "TABL", name: "ZCLOSURE_TABL", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "rows", files: [{path: "src/zclosure_tabl.abap", state: "A", sha256: "0".repeat(64), bytes: 10}]}, resolved: {TABL: ["ZCLOSURE_TABL"]}, named: /TABL:ZCLOSURE_TABL/, code: 4},
+      {label: "a normal DDIC closure", row: {type: "TABL", name: "ZCLOSURE_TABL", package: "SAP_PK", author: "SAP", class: "sap", state: "A", status: "rows", files: []}, resolved: {TABL: ["ZCLOSURE_TABL"], DOMA: ["ZCLOSURE_DOMA"], DTEL: ["ZCLOSURE_DTEL"]}, code: 3},
+    ];
+    for (const c of cases) {
+      const appendPath = join(root, `append-bound-${Math.random().toString(16).slice(2)}.jsonl`);
+      writeFileSync(appendPath, c.row ? JSON.stringify(c.row) + "\n" : "");
+      const out = await fresh("m2b3");
+      const r = await runExtract(["--out", out], {extra: {FAKE_SIDECAR_DUMP_APPEND: appendPath, FAKE_SIDECAR_CLOSURE: JSON.stringify({rounds: 1, resolved: c.resolved})}});
+      expect(r.code, `${c.label}: ${r.lines.err.join("\n")}`).to.equal(c.code);
+      if (c.code === 4) {
+        expect(r.lines.err.join("\n"), c.label).to.match(/closure/).and.to.match(c.named);
+        expect(existsSync(join(out, "src")), c.label).to.equal(false);
+      }
+    }
+  });
+
   it("M-2c: <out>/.gitignore carries .osd-hana/ -- the raw dump never belongs in the repository (mutation: the gitignore removed)", async function () {
     const out = await fresh("m2c");
     await runExtract(["--out", out]);
