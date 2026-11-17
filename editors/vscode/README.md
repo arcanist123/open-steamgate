@@ -133,6 +133,8 @@ explains how to point `OSD_HANA_DUMP` at the pinned binary. Before you publish
 an extracted folder, delete `extract-report.json`, `extract-report.md` and
 `.osd-hana/`: they contain local paths and the raw dump.
 
+The full guide (flags, the read-only user, TLS, the report, exit codes) is [docs/hana-rescue.md](../../docs/hana-rescue.md).
+
 ## Current limits
 
 - Portable AMDP support is limited. HANA-specific SQLScript needs HANA, and some methods are not portable to SQLite.
