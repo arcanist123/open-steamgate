@@ -272,6 +272,29 @@ describe("VS Code: Extract my code from HANA", function () {
     expect(dialog).to.include({canSelectFolders: true, canSelectFiles: false});
   });
 
+  it("Only package…: the pattern asked in an input box narrows the listing and the run to --package, without the default local scope (mutation: the step removed / the pattern not passed)", async () => {
+    const out = freshOut("only-package");
+    let asked = false;
+    const stub = await runCommand({
+      folder: out,
+      pick: (items, options) => {
+        if (/^Plan:/.test(options.title) && !asked) { asked = true; return items.find((i) => i.action?.askPackage); }
+        return defaultPick(items);
+      },
+      input: (options) => (/only package/.test(options.title ?? "") ? " $osd_x* " : defaultInput(options)),
+    }, {sidecarExtraEnv: {FAKE_SIDECAR_LIST: cleanFixtures.list, FAKE_SIDECAR_DUMP: cleanFixtures.dump}});
+    const box = stub.rec.inputs.find((o) => /only package/.test(o.title ?? ""));
+    expect(box, "the input box was shown").to.not.equal(undefined);
+    expect(box.validateInput("")).to.be.a("string");
+    expect(box.validateInput("$ZORK%")).to.equal(undefined);
+    const lists = recordLines().filter((r) => r.argv[0] === "list").slice(-2).map((r) => r.request);
+    expect(lists[0].packages, "the narrowed listing and the run").to.deep.equal(["$OSD_X%"]);
+    expect(lists[0].local).to.equal(undefined);
+    expect(lists[1].packages).to.deep.equal(["$OSD_X%"]);
+    expect(stub.runs()).to.include("dump");
+    expect(stub.rec.picks.filter((p) => /^Plan:/.test(p.options.title))).to.have.lengthOf(2);
+  });
+
   it("partial (exit 3) is a WARNING carrying the report's top sentence, not an error (mutation: exit 3 mapped to the error path)", async () => {
     const out = freshOut("partial");
     const stub = await runCommand({folder: out});
@@ -649,7 +672,8 @@ describe("VS Code: Extract my code from HANA -- manifest", function () {
       perAuthor: [{author: "A\u001b[2K", objects: 1, bytes: 1}, {author: "B", objects: 2, bytes: 2}], biggest: [{package: "$(gear)[x](command:y)", objects: 1, bytes: 1}]});
     expect(items[0]).to.include({label: "$(cloud-download) Extract 3 objects (2.5 MB)"});
     expect(items.filter((i) => i.action?.kind === "narrow").map((i) => i.label)).to.deep.equal([
-      "$(person) Only the local objects of A\\x1b\uff3b2K", "$(person) Only the local objects of B", "$(filter) Leave local packages ($...) out"]);
+      "$(package) Only package…", "$(person) Only the local objects of A\\x1b\uff3b2K", "$(person) Only the local objects of B", "$(filter) Leave local packages ($...) out"]);
+    expect(planItems({inScope: 1, bytes: 1}, {packagePattern: "$Z%"}).some((i) => i.action?.askPackage), "asked once, not offered again").to.equal(false);
     expect(items.find((i) => i.label === "SICF").detail).to.match(/cannot be written yet/);
     expect(JSON.stringify(items)).to.not.include("\u001b");
     expect(items.at(-1).label, "no icon, no link out of a package name").to.equal("\\$(gear)\uff3bx\uff3d(command:y)");

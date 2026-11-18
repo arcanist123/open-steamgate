@@ -47,9 +47,10 @@ async function* jsonl(file) {
 }
 // A chunked dump is several sidecar runs (one per name chunk, one directory
 // each); every table and the sources are read across all of them.
-async function rows(roots, name, optional = false) {
+async function rows(roots, name, optional = false, tableless = new Set()) {
   const out = [];
   for (const root of roots) {
+    if (tableless.has(root)) continue;
     try {
       for await (const r of jsonl(path.join(root, "tables", `${name}.jsonl`))) out.push(r);
     } catch (e) {
@@ -57,6 +58,30 @@ async function rows(roots, name, optional = false) {
     }
   }
   return out;
+}
+
+// A part of a chunked dump may carry no tables/ folder at all: the sidecar
+// (v2.62.1) writes none when nothing in the chunk selects a dictionary row --
+// measured on a chunk of 500 names that held only W3MI objects, whose part
+// had manifest.json, objects.jsonl and an empty reposrc.jsonl, and a manifest
+// saying `counts.rows_TADIR: 0`. Such a part is "no rows", not a broken dump.
+// Fail closed otherwise: a part without tables/ whose own manifest does not
+// say it read zero TADIR rows is refused, as before.
+async function tablelessPart(root) {
+  try {
+    await fs.access(path.join(root, "tables"));
+    return false;
+  } catch (e) {
+    if (e.code !== "ENOENT") throw e;
+  }
+  let partManifest;
+  try {
+    partManifest = JSON.parse(await fs.readFile(path.join(root, "manifest.json"), "utf8"));
+  } catch {
+    partManifest = undefined;
+  }
+  if (partManifest?.counts?.rows_TADIR === 0) return true;
+  throw Object.assign(new Error(`the dump part ${root} has no tables/ folder and its manifest does not say it read zero TADIR rows`), {code: "ENOENT"});
 }
 
 // ---- folder logic ----------------------------------------------------------
@@ -142,11 +167,13 @@ export async function convert({
 } = {}) {
   const allRoots = roots ?? [dump];
   const manifest = JSON.parse(await fs.readFile(path.join(dump, "manifest.json")));
-  const table = (n) => rows(allRoots, n, n !== "TADIR");
+  const tableless = new Set();
   for (const root of allRoots) {
     await fs.access(path.join(root, "reposrc.jsonl"));
-    await fs.access(path.join(root, "tables", "TADIR.jsonl"));
+    if (await tablelessPart(root)) tableless.add(root);
+    else await fs.access(path.join(root, "tables", "TADIR.jsonl"));
   }
+  const table = (n) => rows(allRoots, n, n !== "TADIR", tableless);
   await fs.mkdir(path.join(out, "src"), {recursive: true});
 
   const sidecarObjects = new Map();
@@ -383,7 +410,7 @@ export async function convert({
       continue;
     }
     const partKey = o.type === "CLAS" || o.type === "INTF" || o.type === "BDEF" ? p.slice(30) : p;
-    o.parts.set(partKey, path.join(dump, active.file));
+    o.parts.set(partKey, path.join(active[ROW_ROOT] ?? dump, active.file));
   }
 
   // ---- dictionary objects ----------------------------------------------------
@@ -753,12 +780,17 @@ export async function convert({
 
 // reposrc.jsonl, grouped per program, active version first. One pass keeps
 // the whole dump from being held in memory: rows carry only their file path.
+// The dump directory a REPOSRC row came from: a row's `file` is relative to
+// ITS part (`src/<program>.abap` inside part-NNNNN/), not to the aggregate
+// dump directory. A symbol, so no field is added to the sidecar's row.
+const ROW_ROOT = Symbol("dump part");
 async function* repoLists(roots) {
   const groups = new Map();
   for (const root of roots) {
     for await (const r of jsonl(path.join(root, "reposrc.jsonl"))) {
       const p = key(r.program);
       if (!groups.has(p)) groups.set(p, []);
+      r[ROW_ROOT] = root;
       groups.get(p).push(r);
     }
   }

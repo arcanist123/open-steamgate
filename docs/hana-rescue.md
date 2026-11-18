@@ -259,8 +259,8 @@ It takes the doctor's connection flags (`--host`, `--port`, `--database`,
 |---|---|
 | `--out <dir>` | where the repository goes (required) |
 | `--dump-dir <dir>` | where the raw dump goes. Default `<out>/.osd-hana/dump` |
-| `--package <pattern>` | narrow by package (repeatable) |
-| `--name <pattern>` | narrow by object name (repeatable) |
+| `--package <pattern>` | narrow by package (repeatable). `%` or `*` is the wildcard: `'$ZORK%'` is `$ZORK` and its subpackages. A local `$` package counts when a pattern matches it |
+| `--name <pattern>` | narrow by object name (repeatable), same wildcards |
 | `--author <user>` | narrow local objects by author |
 | `--no-local` | leave local `$` packages out |
 | `--inactive` | ask the sidecar to include inactive versions |
@@ -421,7 +421,8 @@ steps with prompts instead of flags:
    are asked for it. The new user's generated password goes to VS Code
    SecretStorage, and later runs can log on as that user.
 4. **Plan:** the objects in scope by type and, for local objects, by author,
-   with sizes. You can narrow to one author or leave local packages out.
+   with sizes. You can narrow to one package or pattern (**Only package…**,
+   for example `$ZORK%`), to one author, or leave local packages out.
 5. **Confirm:** you choose an empty folder and confirm "Extract N objects
    (S MB) into ...?". Nothing is dumped before that.
 6. **Progress:** cancellable. Cancelling stops the reader.

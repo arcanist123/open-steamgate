@@ -121,7 +121,7 @@ if (args[0] === "--version") {
 //                       tables/, src/, counts.json, summary.json)
 //   FAKE_SIDECAR_EXIT   override the exit code (0 default)
 if (args[0] === "list" || args[0] === "dump") {
-  const {cpSync: copySync, writeFileSync, readFileSync, appendFileSync, existsSync} = await import("node:fs");
+  const {cpSync: copySync, writeFileSync, readFileSync, appendFileSync, existsSync, rmSync} = await import("node:fs");
   const {join} = await import("node:path");
   const flag = (name) => {
     const i = args.indexOf(name);
@@ -199,6 +199,24 @@ if (args[0] === "list" || args[0] === "dump") {
       if (srcAppendPath !== undefined && existsSync(srcAppendPath)) {
         appendFileSync(reposrcPath, readFileSync(srcAppendPath, "utf8"));
       }
+    }
+    // A chunk that selects nothing the sidecar dumps from the dictionary:
+    // measured on v2.62.1 (2026-11-18), a 500-name chunk holding only W3MI
+    // objects came back as manifest.json + objects.jsonl (the rows as
+    // `status: skipped, reason: unsupported`) + an EMPTY reposrc.jsonl, with
+    // no tables/, src/ or catalog/ folder, the manifest saying
+    // `counts.rows_TADIR: 0` and the names under `closure.unhandled`. The
+    // fake gives exactly that shape for a W3MI-only dump request -- fields
+    // the real manifest carries, nothing else.
+    const requestedTypes = args[0] === "dump" && request?.requested ? Object.keys(request.requested) : [];
+    if (requestedTypes.length > 0 && requestedTypes.every((t) => t === "W3MI")) {
+      for (const d of ["tables", "src", "catalog"]) rmSync(join(outDir, d), {recursive: true, force: true});
+      writeFileSync(join(outDir, "reposrc.jsonl"), "");
+      const mp = join(outDir, "manifest.json");
+      const m = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};
+      m.counts = {...(m.counts ?? {}), rows_TADIR: 0};
+      m.closure = {rounds: 0, resolved: {}, unhandled: {W3MI: [...request.requested.W3MI]}};
+      writeFileSync(mp, `${JSON.stringify(m, null, 1)}\n`);
     }
     // the manifest's sidecar block echoes the request of this run -- a dump
     // is only reusable when it matches (extract.mjs reusableDump)

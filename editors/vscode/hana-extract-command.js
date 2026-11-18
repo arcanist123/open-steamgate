@@ -73,9 +73,12 @@ const sameConnection = (a, b) => a.host === b.host && String(a.port) === String(
 /** The quick-pick rows of a plan: the actions first, then the plan itself as
  *  read-only rows under separators (counts by type, per author, the biggest
  *  packages). Names come from the database: they go through shown(). */
-function planItems(plan, {separator = -1, noLocal = false, author} = {}) {
+function planItems(plan, {separator = -1, noLocal = false, author, packagePattern} = {}) {
   const clean = shown;
   const items = [{label: `$(cloud-download) Extract ${plan.inScope} objects (${mb(plan.bytes)})`, action: {kind: "extract"}}];
+  if (packagePattern === undefined) {
+    items.push({label: "$(package) Only package…", description: "a package name or pattern, for example $ZORK%", action: {kind: "narrow", askPackage: true}});
+  }
   if (author === undefined && Number(plan.localAuthors ?? 0) > 1) {
     for (const a of plan.perAuthor ?? []) {
       items.push({label: `$(person) Only the local objects of ${clean(a.author)}`, description: `${a.objects} objects, ${mb(a.bytes)}`, action: {kind: "narrow", author: a.author}});
@@ -269,8 +272,9 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
   }
 
   // ---- 3. the plan ---------------------------------------------------------
-  const narrowing = {author: undefined, noLocal: false};
-  const narrowArgs = () => [...(narrowing.author !== undefined ? ["--author", narrowing.author] : []), ...(narrowing.noLocal ? ["--no-local"] : [])];
+  const narrowing = {author: undefined, noLocal: false, packagePattern: undefined};
+  const narrowArgs = () => [...(narrowing.packagePattern !== undefined ? ["--package", narrowing.packagePattern] : []),
+    ...(narrowing.author !== undefined ? ["--author", narrowing.author] : []), ...(narrowing.noLocal ? ["--no-local"] : [])];
   let plan;
   for (;;) {
     errors.length = 0;
@@ -296,6 +300,14 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
       if (choice === undefined) return;
     } while (choice.action === undefined);
     if (choice.action.kind === "extract") break;
+    if (choice.action.askPackage) {
+      const value = await vscode.window.showInputBox({title: "Extract my code from HANA: only package", ignoreFocusOut: true,
+        prompt: "A package name or pattern; % or * is the wildcard ($ZORK% is $ZORK and its subpackages). Local packages count when the pattern names them.",
+        placeHolder: "$ZORK%",
+        validateInput: (v) => (v.trim() === "" ? "A package name or pattern." : /\s/.test(v.trim()) ? "One pattern, without spaces." : undefined)});
+      if (value === undefined) continue;
+      narrowing.packagePattern = value.trim().toUpperCase();
+    }
     if (choice.action.author !== undefined) narrowing.author = choice.action.author;
     if (choice.action.noLocal) narrowing.noLocal = true;
   }
