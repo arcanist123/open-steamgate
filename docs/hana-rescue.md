@@ -56,8 +56,10 @@ reading. It opens no listening socket.
 
 **VS Code:** the extension comes in five platform packages (linux-x64,
 linux-arm64, darwin-x64, darwin-arm64, win32-x64), and each carries exactly one
-sidecar, for its own platform. Install the one that matches your machine. The
-universal package carries no sidecar: the command then says so, and tells you
+sidecar, for its own platform. The Marketplace installs the one that matches
+your machine; from a GitHub release, install
+`open-steamgate-<platform>-<version>.vsix`. The universal package (served on
+every other platform, web included) carries no sidecar: the command then says so, and tells you
 to install the platform package of the same release or to point
 `OSD_HANA_DUMP` at the pinned binary. Nothing is downloaded.
 

@@ -2,8 +2,10 @@
   "files": [
     "test/ci-vsix-profile.mjs",
     "test/release-notes.mjs",
+    "test/release-marketplace.mjs",
     "test/release-readme.mjs",
     "test/release-verify.mjs",
+    "test/release-workflow-vsix.mjs",
     "test/third-party-notices.mjs",
     "test/vscode-abap-debug-view.mjs",
     "test/vscode-abapfs-bridge.mjs",
