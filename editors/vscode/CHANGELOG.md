@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Extract my code from HANA:** the plan offers **Only package…**, an input box for a package name or pattern (`$ZORK%`). `osd hana extract --package` / `--name` now narrow instead of adding to the default local scope, and `*` works as the wildcard. A dump chunk that holds only MIME objects (no `tables/` in its part) no longer stops the conversion with exit 6, and the sources of a dump of more than 500 objects are read from the part that delivered them.
+- **Extract my code from HANA:** the plan offers **Only package…**, an input box for a package name or pattern (`$ZORK%`); once set, only **Change package pattern…** is offered beside it. `osd hana extract --package` / `--name` now narrow instead of adding to the default local scope, and `*` works as the wildcard. A dump chunk that holds only MIME objects (no `tables/` in its part) no longer stops the conversion with exit 6, and the sources of a dump of more than 500 objects are read from the part that delivered them.
 
 - **`osd.engine: "osgo"`** (default `"node"`): Start runs the Go executable of this extension's release instead of the Node host. It is downloaded once into the extension's storage, verified against its `.sha256` and re-used; it is never in the VSIX. No asset for this platform, a checksum mismatch and no network each say so, with **Use the Node engine**. `osd.osgo.releaseTag` and `osd.osgo.binary` choose another release or a local executable.
 

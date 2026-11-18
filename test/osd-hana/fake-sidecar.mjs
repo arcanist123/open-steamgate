@@ -201,20 +201,22 @@ if (args[0] === "list" || args[0] === "dump") {
       }
     }
     // A chunk that selects nothing the sidecar dumps from the dictionary:
-    // measured on v2.62.1 (2026-11-18), a 500-name chunk holding only W3MI
-    // objects came back as manifest.json + objects.jsonl (the rows as
-    // `status: skipped, reason: unsupported`) + an EMPTY reposrc.jsonl, with
-    // no tables/, src/ or catalog/ folder, the manifest saying
-    // `counts.rows_TADIR: 0` and the names under `closure.unhandled`. The
-    // fake gives exactly that shape for a W3MI-only dump request -- fields
-    // the real manifest carries, nothing else.
+    // the recording contract/dump-part-w3mi-only.json (v2.62.1, 2026-11-18):
+    // a 500-name chunk holding only W3MI objects came back as manifest.json +
+    // objects.jsonl (the rows as `status: skipped, reason: unsupported`) + an
+    // EMPTY reposrc.jsonl, with no tables/, src/ or catalog/ folder, the
+    // manifest's counts only `rows_<table>` zeros, and the names under
+    // `closure.unhandled`. The fake gives that shape for a W3MI-only dump
+    // request; test/osd-hana-contract.mjs holds its keys to the recording.
     const requestedTypes = args[0] === "dump" && request?.requested ? Object.keys(request.requested) : [];
+    let partCounts; // the sidecar block's counts of such a part, as recorded
     if (requestedTypes.length > 0 && requestedTypes.every((t) => t === "W3MI")) {
+      partCounts = {skipped: request.requested.W3MI.length, skipped_unsupported: request.requested.W3MI.length};
       for (const d of ["tables", "src", "catalog"]) rmSync(join(outDir, d), {recursive: true, force: true});
       writeFileSync(join(outDir, "reposrc.jsonl"), "");
       const mp = join(outDir, "manifest.json");
       const m = existsSync(mp) ? JSON.parse(readFileSync(mp, "utf8")) : {};
-      m.counts = {...(m.counts ?? {}), rows_TADIR: 0};
+      m.counts = {rows_TADIR: 0}; // a W3MI-only part counts only rows_*, and these are 0
       m.closure = {rounds: 0, resolved: {}, unhandled: {W3MI: [...request.requested.W3MI]}};
       writeFileSync(mp, `${JSON.stringify(m, null, 1)}\n`);
     }
@@ -222,7 +224,7 @@ if (args[0] === "list" || args[0] === "dump") {
     // is only reusable when it matches (extract.mjs reusableDump)
     const manifestPath = join(outDir, "manifest.json");
     let manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : {};
-    const counts = existsSync(join(outDir, "counts.json")) ? JSON.parse(readFileSync(join(outDir, "counts.json"), "utf8")) : {written: 0, skipped: 0, skipped_excluded: 0, skipped_unsupported: 0};
+    const counts = partCounts ?? (existsSync(join(outDir, "counts.json")) ? JSON.parse(readFileSync(join(outDir, "counts.json"), "utf8")) : {written: 0, skipped: 0, skipped_excluded: 0, skipped_unsupported: 0});
     const errorPatch = process.env.FAKE_SIDECAR_ERRORS;
     const errors = errorPatch !== undefined ? JSON.parse(errorPatch) : [];
     manifest.sidecar = {

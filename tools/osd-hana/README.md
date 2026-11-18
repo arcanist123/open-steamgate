@@ -185,7 +185,13 @@ clone, diff and deploy:
    select, so with `--package` or `--name` the request carries `local` only
    for `--author` -- never the default `{all: true}` (measured: beside
    `$ZORK%` it listed every local object of the system). `*` in a pattern is
-   sent as `%`, the sidecar's wildcard.
+   sent as `%`; patterns are SQL `LIKE`, so `_` is any one character
+   (measured: `$ZOR__00` selects `$ZORK_00`). A `$` package a pattern
+   matches is selected even with `--no-local`. `--author` adds that
+   author's local objects from every package and then keeps only that
+   author's rows, so beside `--package` it widens the pattern rather than
+   narrowing it -- the VS Code command offers no author action once a
+   package pattern is set.
    SAP-delivered objects are extracted only with `--include-sap` together
    with an explicit `--package` or `--name` — then the output directory AND
    the dump directory must not sit inside a git working tree (extract

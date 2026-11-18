@@ -295,6 +295,35 @@ describe("VS Code: Extract my code from HANA", function () {
     expect(stub.rec.picks.filter((p) => /^Plan:/.test(p.options.title))).to.have.lengthOf(2);
   });
 
+  it("an author picked before the package pattern is dropped: the run is --package alone, never --package with --author (mutation: the author kept -> the scope widens)", async () => {
+    const out = freshOut("author-then-package");
+    // two authors of local objects, so the plan offers the author actions
+    const list = listCopy(cleanFixtures.list, "list-two-authors");
+    const file = path.join(list, "objects.jsonl");
+    writeFileSync(file, readFileSync(file, "utf8").split("\n").filter(Boolean)
+      .map((l) => { const r = JSON.parse(l); return JSON.stringify(r.name === "ZIF_OSD_X2" ? {...r, author: "SECONDDEV"} : r); }).join("\n") + "\n");
+    let step = 0;
+    const stub = await runCommand({
+      folder: out,
+      pick: (items, options) => {
+        if (/^Plan:/.test(options.title)) {
+          step++;
+          if (step === 1) return items.find((i) => i.action?.author !== undefined);
+          if (step === 2) return items.find((i) => i.action?.askPackage);
+        }
+        return defaultPick(items);
+      },
+      input: (options) => (/only package/.test(options.title ?? "") ? "$OSD_X%" : defaultInput(options)),
+    }, {sidecarExtraEnv: {FAKE_SIDECAR_LIST: list, FAKE_SIDECAR_DUMP: cleanFixtures.dump}});
+    expect(step, "author, then package, then extract").to.equal(3);
+    const lists = recordLines().filter((r) => r.argv[0] === "list").map((r) => r.request);
+    expect(lists.some((q) => q.local?.authors !== undefined), "the author step was taken").to.equal(true);
+    const last = recordLines().filter((r) => r.argv[0] === "list").at(-1).request;
+    expect(last.packages).to.deep.equal(["$OSD_X%"]);
+    expect(last.local, "no author beside the pattern").to.equal(undefined);
+    expect(stub.runs()).to.include("dump");
+  });
+
   it("partial (exit 3) is a WARNING carrying the report's top sentence, not an error (mutation: exit 3 mapped to the error path)", async () => {
     const out = freshOut("partial");
     const stub = await runCommand({folder: out});
@@ -673,9 +702,17 @@ describe("VS Code: Extract my code from HANA -- manifest", function () {
     expect(items[0]).to.include({label: "$(cloud-download) Extract 3 objects (2.5 MB)"});
     expect(items.filter((i) => i.action?.kind === "narrow").map((i) => i.label)).to.deep.equal([
       "$(package) Only package…", "$(person) Only the local objects of A\\x1b\uff3b2K", "$(person) Only the local objects of B", "$(filter) Leave local packages ($...) out"]);
-    expect(planItems({inScope: 1, bytes: 1}, {packagePattern: "$Z%"}).some((i) => i.action?.askPackage), "asked once, not offered again").to.equal(false);
     expect(items.find((i) => i.label === "SICF").detail).to.match(/cannot be written yet/);
     expect(JSON.stringify(items)).to.not.include("\u001b");
     expect(items.at(-1).label, "no icon, no link out of a package name").to.equal("\\$(gear)\uff3bx\uff3d(command:y)");
+  });
+
+  it("beside a package pattern the plan offers only Extract and Change package pattern: no author action (it would ADD that author's local objects everywhere), no 'leave local out' (mutation: the author rows shown beside a pattern)", () => {
+    const plan = {inScope: 3, bytes: 2_500_000, localAuthors: 2, perType: [{type: "CLAS", inScope: 3, bytes: 1, unsupported: 0}],
+      perAuthor: [{author: "A", objects: 1, bytes: 1}, {author: "B", objects: 2, bytes: 2}]};
+    const items = planItems(plan, {packagePattern: "$Z%"});
+    expect(items.filter((i) => i.action).map((i) => i.label)).to.deep.equal(["$(cloud-download) Extract 3 objects (2.5 MB)", "$(package) Change package pattern…"]);
+    expect(items.find((i) => i.action?.askPackage).description).to.equal("now $Z%");
+    expect(items.map((i) => i.label), "the plan rows stay").to.include.members(["Per type", "CLAS", "Per author (local objects)", "A", "B"]);
   });
 });
