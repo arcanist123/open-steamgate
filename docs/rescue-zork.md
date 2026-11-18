@@ -225,7 +225,13 @@ author of `$ZORK` as ZORK_DEV).
 ![The pattern $ZORK%](img/rescue-zork/08-package-pattern.png)
 
 The plan is listed again, now for the 29 objects of `$ZORK` and its
-subpackages, the same numbers as on the command line:
+subpackages, the same numbers as on the command line. Beside a pattern the
+plan offers only **Change package pattern…**: an author filter there would
+add that author's objects from other packages, and "leave local packages
+out" would not remove a `$` package the pattern names.
+
+In a pattern, `%` (or `*`) is any text and `_` is any one character, so
+`$ZORK_00` would also match a package `$ZORKX00`.
 
 ![The plan for $ZORK%: 29 objects](img/rescue-zork/09-plan-narrowed.png)
 
