@@ -41,5 +41,10 @@
     {"icf_name": "ZB3NOCLS", "icfparguid": "B000000000000000000000003", "icfactive": "X"},
     {"icf_name": "ZB3OFF", "icfparguid": "B000000000000000000000003", "icfactive": ""},
     {"icf_name": "ZB3MULTI", "icfparguid": "B000000000000000000000003", "icfactive": "X"}
+  ],
+  "apc_appl": [
+    {"application_id":"ZOSD_M4G_APC","version":"A","path":"/sap/bc/apc/sap/ZB3APC","class_name":"ZCL_OSD_M4G_APC","stateful":"X","connection_type":""},
+    {"application_id":"ZB3_NOCLS","version":"A","path":"/sap/bc/apc/sap/zb3nocls","class_name":"ZCL_B3_NOT_IN_THE_BUILD","stateful":"","connection_type":""},
+    {"application_id":"ZB3_TCP","version":"A","path":"/sap/bc/apc/sap/zb3tcp","class_name":"ZCL_OSD_M4G_APC","stateful":"","connection_type":"T"}
   ]
 }

@@ -140,6 +140,23 @@ export function createHostRecord({file, log = (line) => console.error(line)} = {
         finish();
       }
     },
+    /** a push-channel event (on_start, a message, a timer, on_close): run
+     *  it under a record of its own and write its line when it settles --
+     *  `outcome` "ok" or the error's class, never its text */
+    async event({channel, event}, work) {
+      if (file === undefined) return work();
+      const record = {channel, event, outcome: undefined, stubs: [], refused: [], tampered: []};
+      try {
+        const result = await store.run({record}, work);
+        record.outcome = "ok";
+        return result;
+      } catch (e) {
+        record.outcome = e?.code ?? e?.constructor?.name ?? "error";
+        throw e;
+      } finally {
+        write(record);
+      }
+    },
     /** the end of the boot: the load-time signals as one `boot` line */
     endBoot(extra = {}) {
       booting = false;

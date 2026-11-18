@@ -686,15 +686,6 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   });
 
   const server = guard.allowListener(createServer(app));
-  // osd-bind opens a second loopback listener (::1) from the primary's
-  // "listening" event, a server this host never holds: the guard admits a
-  // listen for exactly that window, closed in the same event, before any
-  // connection can be read
-  const closeWindow = guard.openListenWindow();
-  await new Promise((done, fail) => {
-    server.once("error", (error) => { closeWindow(); fail(error); });
-    listenBound(server, port, env, () => { closeWindow(); done(); });
-  });
   // the tenant's push channels on the same loopback listener. Every event
   // (on_start, each message, on_close) is a dialog step of its own: it
   // takes the one work process, commits or rolls back at its end, and runs
@@ -707,6 +698,26 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     const mounted = mountChannels(server, apcChannels, {
       host: zcl_apc_host, root,
       log: (line) => console.error(`hana-serve: ${line}`),
+      // every event: the guard checked first (a broken one closes the
+      // socket 1011 before any ABAP runs), one stub-trace record, and the
+      // writes it asked for said like an HTTP request's
+      event: (name, work, channel) => record.event({channel: channel.path, event: name}, async () => {
+        const broken = integrity({hook, guard});
+        if (broken.length > 0) {
+          record.note("tampered", {what: `not intact: ${broken.join(", ")}`});
+          const e = new Error("hana-serve: the host's guard is no longer the one it installed; no event runs");
+          e.code = "OSD_TAMPERED";
+          throw e;
+        }
+        const before = stats.writes.length;
+        try {
+          return await work();
+        } finally {
+          if (stats.writes.length > before) {
+            console.error(`hana-serve: APC ${channel.path} ${name} asked for ${stats.writes.length - before} write(s): ${stats.writes.slice(before).map((w) => `${w.method} ${w.kind}${w.refused ? ` [refused: ${w.refused}]` : ""}`).join(", ")}`);
+          }
+        }
+      }),
       admit: (req) => {
         const broken = integrity({hook, guard});
         if (broken.length > 0) {
@@ -721,6 +732,15 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     });
     for (const one of mounted) log(`hana-serve: APC ${one.path} -> ${one.handler}${one.stateful ? " (stateful)" : ""} (the tenant's APC_APPL row, a websocket on this listener)`);
   }
+  // osd-bind opens a second loopback listener (::1) from the primary's
+  // "listening" event, a server this host never holds: the guard admits a
+  // listen for exactly that window, closed in the same event, before any
+  // connection can be read
+  const closeWindow = guard.openListenWindow();
+  await new Promise((done, fail) => {
+    server.once("error", (error) => { closeWindow(); fail(error); });
+    listenBound(server, port, env, () => { closeWindow(); done(); });
+  });
   const address = server.address();
   const url = `http://${address.family === "IPv6" ? `[${address.address}]` : address.address}:${address.port}`;
   log(`hana-serve: listening on ${url}/sap/opu/odata/  (bound to ${describeBind(env)})`);

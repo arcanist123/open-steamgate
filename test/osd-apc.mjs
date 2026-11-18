@@ -122,3 +122,57 @@ describe("tools/osd-apc: a host may refuse an upgrade", () => {
     }
   });
 });
+
+// every event runs through the host's wrapper (hana-serve: the guard's
+// integrity, a trace record); a wrapper that refuses with OSD_TAMPERED
+// closes a live socket 1011 and the handler's event never runs
+describe("tools/osd-apc: the host's wrapper around every event", () => {
+  it("names each event, and a tampered one closes the socket 1011 without running it", async () => {
+    const saved = globalThis.abap;
+    const text = (v = "") => ({value: v, set(x) { this.value = x; return this; }, get() { return this.value; }});
+    globalThis.abap = {Classes: {}, context: {databaseConnections: {DEFAULT: {commit: async () => {}, rollback: async () => {}}}},
+      types: {String: function () { return text(); }, Integer: function () { return text(0); }}};
+    const ran = [];
+    const pushed = [];
+    class Host {
+      static METHODS = {CONSTRUCTOR: {parameters: {IT_FIELDS: {type: () => ({})}}}};
+      async constructor_() {}
+      async open() { ran.push("on_start"); pushed.push("ready"); return {get: () => "X"}; }
+      async drain() { const rows = pushed.splice(0).map((t) => ({get: () => t})); return {array: () => rows}; }
+      async message({iv_text}) { ran.push(`on_message ${iv_text.get()}`); pushed.push(`echo ${iv_text.get()}`); }
+      async close() { ran.push("on_close"); }
+    }
+    const events = [];
+    const server = createServer();
+    mountChannels(server, [{path: "/sap/bc/apc/sap/zb3", handler: "ZCL_B3", stateful: false}], {
+      host: Host,
+      event: (name, work, channel) => {
+        events.push(`${channel.path} ${name}`);
+        if (events.length === 3) {
+          const e = new Error("guard broken");
+          e.code = "OSD_TAMPERED";
+          return Promise.reject(e);
+        }
+        return work();
+      },
+    });
+    await new Promise((done) => server.listen(0, "127.0.0.1", done));
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${server.address().port}/sap/bc/apc/sap/zb3`);
+      const got = [];
+      const closed = new Promise((done) => { ws.onclose = (e) => done({code: e.code, reason: e.reason}); });
+      ws.onmessage = (m) => {
+        got.push(String(m.data));
+        if (got.length === 1) ws.send("one");
+        else if (got.length === 2) ws.send("two");
+      };
+      expect(await closed).to.deep.equal({code: 1011, reason: "host guard not intact"});
+      expect(got).to.deep.equal(["ready", "echo one"]);
+      expect(ran).to.deep.equal(["on_start", "on_message one"]);
+      expect(events).to.deep.equal(["/sap/bc/apc/sap/zb3 on_start", "/sap/bc/apc/sap/zb3 on_message", "/sap/bc/apc/sap/zb3 on_message"]);
+    } finally {
+      server.close();
+      globalThis.abap = saved;
+    }
+  });
+});

@@ -203,14 +203,18 @@ export async function serveChannel(options) {
     }
   };
   let shut = () => {};
+  // a host may wrap every event of the channel (hana-serve: the guard's
+  // integrity first, a trace record per event); an error it raises with
+  // code OSD_TAMPERED closes the socket as a host failure
+  const around = options.event === undefined ? ((name, work) => work()) : ((name, work) => options.event(name, work, channel));
   const queue = (work) => {
     return mailbox.enqueue(work).catch((e) => {
       log?.(`APC ${channel.path} (${channel.handler}): ${describe(e)}`);
-      shut(1011, "handler failed");
+      shut(1011, e?.code === "OSD_TAMPERED" ? "host guard not intact" : "handler failed");
     });
   };
   const timers = channel.stateful === true
-    ? apcTimerSession(abap, queue, undefined, drain)
+    ? apcTimerSession(abap, (work) => queue(() => around("on_timeout", work)), undefined, drain)
     : {step: dialogStep, close() {}};
   let closed = false;
   const subscriptions = [];
@@ -242,7 +246,7 @@ export async function serveChannel(options) {
   // handler refuses the connection, that is knowable now and should be said
   // in the language the client is still speaking — HTTP.
   const start = () => mailbox.enqueue(async () => {
-    const accepted = await timers.step(async () => {
+    const accepted = await around("on_start", () => timers.step(async () => {
       await host.constructor_({
         iv_handler: new abap.types.String().set(channel.handler),
         it_fields: fieldsOf(req.url, options.host),
@@ -269,7 +273,7 @@ export async function serveChannel(options) {
         }
       }
       return accepted.get() === "X";
-    });
+    }));
     if (closed || !accepted) return accepted;
     // Startup, publication and the open notification are the first mailbox
     // turn. An immediately due timer must wait for all three.
@@ -326,18 +330,18 @@ export async function serveChannel(options) {
       buffer = parsed.rest;
       if (parsed.opcode === OP.text) {
         const text = parsed.payload.toString("utf8");
-        queue(() => timers.step(async () => {
+        queue(() => around("on_message", () => timers.step(async () => {
           if (mailbox.closed) return;
           await host.message({iv_text: new abap.types.String().set(text)});
           await drain();
-        }));
+        })));
       } else if (parsed.opcode === OP.ping) {
         socket.write(frame(parsed.payload, OP.pong));
       } else if (parsed.opcode === OP.close) {
         timers.close();
-        mailbox.closeTurn(() => timers.step(async () => {
+        mailbox.closeTurn(() => around("on_close", () => timers.step(async () => {
           await host.close({iv_reason: new abap.types.String().set("closed by the client"), iv_code: new abap.types.Integer().set(1000)});
-        })).catch(e => log?.(`APC ${channel.path}: ${describe(e)}`))
+        }))).catch(e => log?.(`APC ${channel.path}: ${describe(e)}`))
           .finally(() => shut(1000, "bye"));
         return;
       }
@@ -355,7 +359,8 @@ export function mountChannels(server, channels, options = {}) {
   if (channels.length === 0) {
     return [];
   }
-  const byPath = new Map(channels.map((c) => [c.path, c]));
+  // a path is matched without regard to case, as the ICF matches it
+  const byPath = new Map(channels.map((c) => [c.path.toLowerCase(), c]));
   server.on("upgrade", (req, socket, head) => {
     // a host may refuse an upgrade before any ABAP runs (hana-serve: another
     // client, a guard that is not intact): {status, text} or undefined
@@ -364,14 +369,14 @@ export function mountChannels(server, channels, options = {}) {
       socket.end(`HTTP/1.1 ${refused.status} ${refused.reason ?? "Refused"}\r\nContent-Type: text/plain\r\n\r\n${refused.text ?? ""}`);
       return;
     }
-    const path = req.url.split("?")[0].replace(/\/+$/, "");
+    const path = req.url.split("?")[0].replace(/\/+$/, "").toLowerCase();
     const channel = byPath.get(path);
     if (channel === undefined) {
       socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
       return;
     }
     // an upgrade that throws must not take the listener with it
-    serveChannel({req, socket, head, channel, log: options.log, host: options.host, root: options.root})
+    serveChannel({req, socket, head, channel, log: options.log, host: options.host, root: options.root, event: options.event})
       .catch((e) => {
         options.log?.(`APC ${channel.path}: ${e?.message ?? e}`);
         socket.destroy();
