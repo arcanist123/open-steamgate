@@ -12,6 +12,9 @@ anywhere.
 
 It is for **rescuing your own code**. It is not a way to run SAP.
 
+A worked example, one package from start to finish with screenshots:
+[Rescue $ZORK](rescue-zork.md).
+
 Two commands do the work:
 
 - `osd hana doctor` looks at the database and says, in plain words, whether
