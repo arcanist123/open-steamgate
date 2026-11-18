@@ -38,11 +38,30 @@ describe("hana-serve-icf: the tenant's ICF tree as routes", () => {
       ["/sap/bc/zb3_long_external", "ZCL_B3_LONG", "ABAP"],
       ["/sap/bc/zb3app/zb3sub", "ZCL_B3_SUB", "ABAP"],
       ["/sap/bc/zb3plain", "ZCL_B3_PLAIN", "X"],
-      ["/sap/bc/zb3app", "ZCL_B3_LAST", "ABAP"],
     ]);
     expect(services.every((s) => s.active === true)).to.equal(true);
-    // the other host's node and the orphan are counted, never served
-    expect(counts).to.deep.equal({nodes: 10, orphans: 2, withHandler: 6});
+    // the other host's node and the orphan are counted, never served; a
+    // chain of two handlers is not one this host runs
+    expect(counts).to.deep.include({nodes: 10, orphans: 2, withHandler: 6, inactive: 0, activation: "unknown", multiHandler: ["/sap/bc/zb3app"]});
+  });
+
+  it("honours ICFSERVLOC: a node is served when it and every node above it below the host is active", () => {
+    const active = (name, parent, flag = "X") => ({ICF_NAME: name, ICFPARGUID: parent, ICFACTIVE: flag});
+    const ICFSERVLOC = [active("SAP", g(1)), active("BC", g(2)), active("ZB3APP", g(3), ""), active("ZB3SUB", g(4)),
+      active("A0B3LONG", g(3)), active("ZB3PLAIN", g(3))];
+    const {services, counts} = tenantServices({ICFSERVICE, ICFHANDLER, ICFSERVLOC});
+    // ZB3SUB is active, its parent ZB3APP is not: neither is served
+    expect(services.map((s) => s.path)).to.deep.equal(["/sap/bc/zb3_long_external", "/sap/bc/zb3plain"]);
+    expect(counts).to.deep.include({inactive: 2, activation: "ICFSERVLOC"});
+    // no row is not active
+    expect(tenantServices({ICFSERVICE, ICFHANDLER, ICFSERVLOC: []}).services).to.deep.equal([]);
+  });
+
+  it("keeps the first of two nodes on one path and counts the other", () => {
+    const rows = [node("DEFAULT_HOST", FF, g(1)), node("ZB3X", g(1), g(2)), node("A0B3X", g(1), g(3), "zb3x")];
+    const {services, counts} = tenantServices({ICFSERVICE: rows, ICFHANDLER: [handler("ZB3X", g(1), "ZCL_B3_ONE"), handler("A0B3X", g(1), "ZCL_B3_TWO")]});
+    expect(services.map((s) => s.handler)).to.deep.equal(["ZCL_B3_ONE"]);
+    expect(counts.duplicates).to.deep.equal(["/zb3x"]);
   });
 
   it("serves another virtual host when asked, and reads lower-case column names", () => {

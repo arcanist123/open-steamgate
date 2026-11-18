@@ -4,7 +4,7 @@
 //   STG_DB=hana HANA_EXISTING_SCHEMA=1 HANA_OWN_SCHEMA=<own> OSD_CLIENT=<client> \
 //     HANA_HOST=... HANA_PORT=... HANA_USER=... HANA_PASSWORD=... HANA_SCHEMA=<tenant> \
 //     [OSD_SQL_TRACE=1] [OSD_BIND=0.0.0.0] node tools/hana-serve.mjs [--port 3040] [--stub-trace <file>]
-//     [--w3mi-check <OBJID>]...
+//     [--icf] [--w3mi] [--w3mi-check <OBJID>]...
 //   HANA_OWN_SCHEMA=<own> node tools/hana-serve.mjs --check-trace <trace.ndjson> [--own-schema <own>]
 //
 // --check-trace needs the own schema the host ran with: shadow DDL is
@@ -55,13 +55,16 @@
 //     registry does not hold (the test's twin under test/hana-m2), said on
 //     startup.
 //
-// What it serves beyond OData (docs/hana-serve-icf.md,
-// tools/hana-serve-icf.mjs): the tenant's own ICF nodes whose handler class
+// What it serves beyond OData, each only when asked for (docs/hana-serve-icf.md,
+// tools/hana-serve-icf.mjs) -- an OData-only boot reads neither, so a user
+// without SELECT on these tables and a schema without their shadow objects
+// boot as before: `--icf`, the tenant's own ICF nodes whose handler class
 // the generation holds, each path built from the tenant's ICFSERVICE rows,
-// GET and HEAD only, through the same shim and dialog step; and SMW0 MIME
-// objects read out of the tenant's WWWDATA when the ABAP's WWWDATA_IMPORT
-// asks for one (abap.W3MI_LOADER). `--w3mi-check <OBJID>` reads one object
-// through that function module at boot and prints its size and SHA-256.
+// active per ICFSERVLOC, GET and HEAD only, through the same shim and
+// dialog step; `--w3mi`, SMW0 MIME objects read out of the tenant's WWWDATA
+// when the ABAP's WWWDATA_IMPORT asks for one (abap.W3MI_LOADER).
+// `--w3mi-check <OBJID>` (implies --w3mi) reads one object through that
+// function module at boot and prints its size and SHA-256.
 // A build where a pack hides an object of the rescued island
 // (tools/hana-serve-scope.mjs) is refused before it is built.
 //
@@ -412,7 +415,7 @@ export function parseApps(values = []) {
 
 /** Boot the generation and listen. Returns {server, url, close, stats, bindLog}. */
 export async function serve({root = process.cwd(), port = 3040, clientModule, env = process.env, log = console.log,
-  register = [], apps = [], stubTrace, w3miCheck = []} = {}) {
+  register = [], apps = [], stubTrace, icf: serveIcf = false, w3mi: serveW3mi = false, w3miCheck = []} = {}) {
   const refused = refusal(env);
   if (refused !== undefined) throw new Error(refused);
   const {loadDestinations} = await import("./rfc-replay.mjs");
@@ -512,9 +515,11 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   // the tenant's ICF tree and its SMW0 objects (tools/hana-serve-icf.mjs):
   // reads, on that same connection, inside a step like every other
   const icf = await import("./hana-serve-icf.mjs");
-  const tenant = await dialogStep(() => icf.readTenantServices(db), "hana-serve: the tenant's ICF tree");
-  const icfServices = tenant.services.filter((s) => abap.Classes[s.handler] !== undefined);
-  const w3mi = await dialogStep(() => icf.installW3mi(abap, db, {output, log}), "hana-serve: the tenant's MIME objects");
+  const tenant = serveIcf !== true ? undefined
+    : await dialogStep(() => icf.readTenantServices(db, {tenantSchema: env.HANA_SCHEMA}), "hana-serve: the tenant's ICF tree");
+  const icfServices = (tenant?.services ?? []).filter((s) => abap.Classes[s.handler] !== undefined);
+  const w3mi = serveW3mi !== true && w3miCheck.length === 0 ? undefined
+    : await dialogStep(() => icf.installW3mi(abap, db, {output, log}), "hana-serve: the tenant's MIME objects");
   const probe = await dialogStep(() => db.select({select: TRACE_PROBE_SQL}), "hana-serve: the trace probe");
   const answered = probe?.rows?.[0]?.probe ?? probe?.rows?.[0]?.PROBE;
   if (answered !== TRACE_PROBE_MARKER) throw new Error(`hana-serve: the probe SELECT answered ${JSON.stringify(probe?.rows?.[0])}, not ${TRACE_PROBE_MARKER}`);
@@ -524,9 +529,15 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     throw new Error(`hana-serve: the boot asked for ${stats.writes.length} write(s) (${stats.writes.map((w) => `${w.method} ${w.kind}${w.refused ? ` [refused: ${w.refused}]` : ""}`).join(", ")}); a read-only host does not start after that`);
   }
   log(`hana-serve: booted over client ${env.OSD_CLIENT}, ${stats.statements} statement(s), 0 writes${traceFile ? `; trace ${traceFile}` : "; trace off (OSD_SQL_TRACE=1)"}`);
-  log(`hana-serve: ICF: ${tenant.counts.nodes} node(s) read, ${tenant.counts.withHandler} with a handler, ${icfServices.length} handler class(es) in the generation; `
-    + "activation is not read, so a node present with a handler counts as active");
-  log(`hana-serve: W3MI: ${w3mi.objects} MIME object(s) in the tenant's WWWPARAMS, read from WWWDATA when asked for`);
+  if (tenant !== undefined) {
+    const c = tenant.counts;
+    log(`hana-serve: ICF: ${c.nodes} node(s) read, ${c.withHandler} with a handler, ${c.inactive} of them inactive, ${c.orphans} not under the host, `
+      + `${icfServices.length} servable with their handler class in the generation`);
+    if (c.activation === "unknown") console.error(`hana-serve: WARNING: ICF activation unknown (${tenant.activationError}): every node present with a handler counts as active`);
+    if (c.multiHandler.length > 0) log(`hana-serve: ICF: ${c.multiHandler.length} node(s) with a chain of several handlers not mounted (a system runs the chain in ICFORDER; this host does not): ${c.multiHandler.slice(0, 5).join(", ")}`);
+    if (c.duplicates.length > 0) log(`hana-serve: ICF: ${c.duplicates.length} node(s) on a path another node already serves, the first kept: ${c.duplicates.slice(0, 5).join(", ")}`);
+  } else log("hana-serve: ICF: the tenant's nodes are not served (--icf)");
+  if (w3mi !== undefined) log(`hana-serve: W3MI: ${w3mi.objects} MIME object(s) in the tenant's WWWPARAMS, read from WWWDATA when asked for`);
   for (const objid of w3miCheck) {
     const lines = await dialogStep(() => icf.importThroughAbap(abap, objid), `hana-serve: --w3mi-check ${objid}`);
     const read = w3mi.served.at(-1);
@@ -701,7 +712,8 @@ if (runsAs("hana-serve.mjs")) {
   try {
     const all = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]] : []));
     await serve({port: Number(portFlag ?? process.env.STG_PORT ?? 3040), clientModule: flag("client-module"),
-      register: parseRegistrations(all("register")), apps: parseApps(all("app")), stubTrace: flag("stub-trace"), w3miCheck: all("w3mi-check")});
+      register: parseRegistrations(all("register")), apps: parseApps(all("app")), stubTrace: flag("stub-trace"),
+      icf: argv.includes("--icf"), w3mi: argv.includes("--w3mi"), w3miCheck: all("w3mi-check")});
   } catch (e) {
     console.error(e?.message ?? e);
     process.exit(1);

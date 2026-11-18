@@ -411,7 +411,7 @@ describe("hana-serve over a fake DatabaseClient", function () {
       HANA_EXISTING_SCHEMA: "1", OSD_CLIENT: "100", HANA_SCHEMA: "OSDB3TENANT", HANA_OWN_SCHEMA: "OSDB3OWN",
       OSD_SQL_TRACE: "1", OSD_SQL_TRACE_FILE: traceFile, OSD_OUTPUT: output, FAKE_CLIENT_LOG: fakeLog,
     });
-    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs", "--app", `bed=${join(dir, "bed")}`, "--w3mi-check", "ZB3_STORY"],
+    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs", "--app", `bed=${join(dir, "bed")}`, "--icf", "--w3mi-check", "ZB3_STORY"],
       {cwd: root, env, stdio: ["ignore", "pipe", "pipe"]});
     base = await new Promise((resolve, reject) => {
       const take = (chunk) => {
@@ -442,7 +442,9 @@ describe("hana-serve over a fake DatabaseClient", function () {
   // built ourselves (tools/protocols/sap-cluster.mjs mimeCluster)
   it("mounts a tenant ICF node by its parent chain, only with its handler in the generation, GET and HEAD only", async () => {
     expect(lines.join("\n")).to.include("hana-serve: ICF /sap/bc/zb3icf/ -> ZCL_STG_ICF_DEMO");
-    expect(lines.join("\n")).to.match(/ICF: 6 node\(s\) read, 3 with a handler, 1 handler class\(es\) in the generation; activation is not read/);
+    expect(lines.join("\n")).to.match(/ICF: 8 node\(s\) read, 5 with a handler, 1 of them inactive, 1 not under the host, 1 servable/);
+    expect(lines.join("\n")).to.include("ICF: 1 node(s) with a chain of several handlers not mounted");
+    expect(lines.join("\n")).to.not.include("ICF activation unknown");
     const got = await fetch(`${base}/sap/bc/zb3icf/deeper`);
     expect(got.status).to.equal(200);
     const body = await got.json();
@@ -457,6 +459,9 @@ describe("hana-serve over a fake DatabaseClient", function () {
     // a handler the generation does not hold, and an orphan, are not routes
     expect((await fetch(`${base}/sap/bc/zb3nocls/`)).status).to.equal(404);
     expect((await fetch(`${base}/zb3orphan/`)).status).to.equal(404);
+    // inactive per ICFSERVLOC, and a chain of two handlers: not served
+    expect((await fetch(`${base}/sap/bc/zb3off/`)).status).to.equal(404);
+    expect((await fetch(`${base}/sap/bc/zb3multi/`)).status).to.equal(404);
   });
 
   it("reads an SMW0 object out of the tenant's WWWDATA through WWWDATA_IMPORT (--w3mi-check)", () => {

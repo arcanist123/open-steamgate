@@ -29,7 +29,8 @@ export function createClient(options = {}) {
   };
   const rowsFor = (sql) => {
     if (String(sql).includes("'OSD_TRACE_PROBE'")) return [{probe: "OSD_TRACE_PROBE"}];
-    const table = /\bFROM\s+"?([A-Za-z0-9_/]+)"?/i.exec(String(sql))?.[1]?.toLowerCase();
+    // a schema-qualified name ("SCHEMA"."TABLE") answers from the table
+    const table = /\bFROM\s+(?:"?[A-Za-z0-9_/]+"?\.)?"?([A-Za-z0-9_/]+)"?/i.exec(String(sql))?.[1]?.toLowerCase();
     asked.push(table);
     note(`select ${table}`);
     return (tables[table] ?? []).map((row) => ({...row}));

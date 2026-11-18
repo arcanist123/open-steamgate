@@ -13,15 +13,23 @@
 // ICF_NAME, lower case (a system matches a path without regard to case, and
 // so does express). The virtual host itself is not a segment; a node whose
 // chain does not reach a host -- a parent not among the rows -- is not
-// served. Activation is not among these rows: a system keeps it apart from
-// the node, and this host does not read it. So every node present with a
-// handler counts as active, and the startup line says so.
+// served. Activation is not among these rows: a system keeps it in
+// ICFSERVLOC (ICFACTIVE = 'X', measured on the bed 2026-11-18: 327 of 3444
+// rows active, the rescued node's among them). A node is served only when it
+// and every node above it up to the host have an active row; a node without
+// a row is not active. ICFSERVLOC is read schema-qualified on the tenant
+// (client-independent, so it reads what a synonym would) to make no shadow
+// object for it; when it cannot be read, activation is unknown, every node
+// with a handler counts as active, and the startup line says so loudly.
 //
 // A node is mounted only when its handler class is in the generation: a
 // system's tree names hundreds of handlers, and the island holds the few the
-// rescued code brings. The handler is the last row of the node's
-// ICFHANDLER chain (ICFORDER), and only ICFTYP A (an ABAP class) is served,
-// the rule tools/osd-icf.mjs follows for the tree's own nodes.
+// rescued code brings. Only a node with exactly ONE handler row is served:
+// a system runs a chain in ICFORDER until one handler answers, which this
+// host does not do, so a chain of several is counted and not mounted (13
+// nodes on the bed). Only ICFTYP A (an ABAP class) is served, the rule
+// tools/osd-icf.mjs follows for the tree's own nodes. Two nodes on one path
+// (spelled apart only by case) keep the first, and the count says so.
 //
 // W3MI. The runtime's WWWDATA_IMPORT (open-abap-core) answers a key from
 // abap.W3MI -- an object the build knows -- by asking abap.W3MI_LOADER when a
@@ -44,17 +52,22 @@ const isNoParent = (guid) => /^(?:0+|F+)$/i.test(String(guid ?? "").trim());
 
 /** One route per servable node of the tenant's ICF tree, longest path first:
  *  {path, name, handler, icftyp, type, active, travels, source}. `host` is the
- *  virtual host served (DEFAULT_HOST). `counts` says what was not served. */
-export function tenantServices({ICFSERVICE = [], ICFHANDLER = []} = {}, {host = "DEFAULT_HOST"} = {}) {
+ *  virtual host served (DEFAULT_HOST). `ICFSERVLOC` undefined means activation
+ *  is unknown (every node counts as active). `counts` says what was not served. */
+export function tenantServices({ICFSERVICE = [], ICFHANDLER = [], ICFSERVLOC} = {}, {host = "DEFAULT_HOST"} = {}) {
   const nodes = new Map();
   for (const row of ICFSERVICE) {
     const guid = up(field(row, "ICFNODGUID"));
     if (guid !== "") nodes.set(guid, row);
   }
   const segment = (row) => (String(field(row, "ICFALTNME") ?? "").trim() || String(field(row, "ICF_NAME") ?? "").trim()).toLowerCase();
+  const key = (row) => `${up(field(row, "ICF_NAME"))} ${up(field(row, "ICFPARGUID"))}`;
+  const activeRows = ICFSERVLOC === undefined ? undefined
+    : new Set(ICFSERVLOC.filter((r) => up(field(r, "ICFACTIVE")) === "X").map(key));
   const pathOf = (row) => {
     const segments = [];
     const seen = new Set();
+    const chain = [];
     let at = row;
     for (;;) {
       const parent = up(field(at, "ICFPARGUID"));
@@ -62,11 +75,12 @@ export function tenantServices({ICFSERVICE = [], ICFHANDLER = []} = {}, {host = 
       if (above === undefined) {
         // `at` is the top of the chain: a virtual host, or an orphan
         if (isNoParent(parent) === false || up(field(at, "ICF_NAME")) !== up(host)) return undefined;
-        return segments.length === 0 ? undefined : `/${segments.reverse().join("/")}`;
+        return segments.length === 0 ? undefined : {path: `/${segments.reverse().join("/")}`, chain};
       }
       if (seen.has(parent)) return undefined; // a cycle is no path
       seen.add(parent);
       segments.push(segment(at));
+      chain.push(at);
       at = above;
     }
   };
@@ -75,33 +89,61 @@ export function tenantServices({ICFSERVICE = [], ICFHANDLER = []} = {}, {host = 
     const key = `${up(field(h, "ICF_NAME"))} ${up(field(h, "ICFPARGUID"))}`;
     handlers.set(key, [...(handlers.get(key) ?? []), h]);
   }
-  const counts = {nodes: ICFSERVICE.length, orphans: 0, withHandler: 0};
+  const counts = {nodes: ICFSERVICE.length, orphans: 0, withHandler: 0, inactive: 0, activation: activeRows === undefined ? "unknown" : "ICFSERVLOC",
+    multiHandler: [], duplicates: []};
   const out = [];
+  const taken = new Set();
   for (const row of ICFSERVICE) {
-    const chain = (handlers.get(`${up(field(row, "ICF_NAME"))} ${up(field(row, "ICFPARGUID"))}`) ?? [])
-      .sort((a, b) => String(field(a, "ICFORDER")).localeCompare(String(field(b, "ICFORDER"))));
-    const last = chain.at(-1);
-    if (last === undefined) continue;
+    const chain = handlers.get(key(row)) ?? [];
+    if (chain.length === 0) continue;
     counts.withHandler += 1;
-    const path = pathOf(row);
-    if (path === undefined) {
+    const found = pathOf(row);
+    if (found === undefined) {
       counts.orphans += 1;
       continue;
     }
-    const icftyp = up(field(last, "ICFTYP"));
-    out.push({path, name: up(field(row, "ICF_NAME")), handler: up(field(last, "ICFHANDLER")), icftyp,
+    if (activeRows !== undefined && found.chain.some((node) => activeRows.has(key(node)) === false)) {
+      counts.inactive += 1;
+      continue;
+    }
+    if (chain.length > 1) {
+      counts.multiHandler.push(found.path);
+      continue;
+    }
+    if (taken.has(found.path)) {
+      counts.duplicates.push(found.path);
+      continue;
+    }
+    taken.add(found.path);
+    const icftyp = up(field(chain[0], "ICFTYP"));
+    out.push({path: found.path, name: up(field(row, "ICF_NAME")), handler: up(field(chain[0], "ICFHANDLER")), icftyp,
       type: icftyp === "A" ? "ABAP" : icftyp, active: true, travels: true, source: "tenant ICFSERVICE"});
   }
   return {services: out.sort((a, b) => b.path.length - a.path.length), counts};
 }
 
-/** the tenant's tree, read on the ABAP's connection */
-export async function readTenantServices(db, options) {
+/** the tenant's tree, read on the ABAP's connection. `tenantSchema` names
+ *  the schema ICFSERVLOC is read in (qualified: no shadow object is made for
+ *  it); without one, or when the read fails, activation is unknown and
+ *  `activationError` says why. */
+export async function readTenantServices(db, {tenantSchema, ...options} = {}) {
   const rows = async (sql) => (await db.select({select: sql}))?.rows ?? [];
-  return tenantServices({
+  let ICFSERVLOC;
+  let activationError;
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(tenantSchema ?? "")) === false) activationError = "no tenant schema to read ICFSERVLOC in";
+  else {
+    try {
+      ICFSERVLOC = await rows(`SELECT ICF_NAME, ICFPARGUID, ICFACTIVE FROM "${String(tenantSchema).toUpperCase()}"."ICFSERVLOC"`);
+    } catch (e) {
+      activationError = `ICFSERVLOC did not read (${String(e?.code ?? e?.message ?? e).slice(0, 120)})`;
+    }
+  }
+  const result = tenantServices({
     ICFSERVICE: await rows("SELECT ICF_NAME, ICFPARGUID, ICFNODGUID, ICFALTNME FROM ICFSERVICE"),
     ICFHANDLER: await rows("SELECT ICF_NAME, ICFPARGUID, ICFORDER, ICFTYP, ICFHANDLER FROM ICFHANDLER"),
+    ICFSERVLOC,
   }, options);
+  return {...result, activationError};
 }
 
 const literal = (v) => `'${String(v).replace(/'/g, "''")}'`;
@@ -145,7 +187,10 @@ export async function installW3mi(abap, db, {output, log = () => {}} = {}) {
   abap.W3MI_LOADER = async (objid, filename) => {
     const key = String(objid).trimEnd();
     if (tenant.has(key)) {
-      const bytes = await readTenantMimeBytes(db, key, tenant.get(key).filesize);
+      const {filesize} = tenant.get(key);
+      // without a size the object is its lines, padded to 255 at the end
+      if (filesize === undefined) log(`hana-serve: W3MI ${key}: WWWPARAMS has no filesize; served as its whole 255-byte lines, padding included`);
+      const bytes = await readTenantMimeBytes(db, key, filesize);
       const hex = bytes.toString("hex");
       served.push({objid: key, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex")});
       if (served.length > 16) served.shift();
