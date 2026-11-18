@@ -38,6 +38,7 @@
 import {readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync} from "node:fs";
 import {basename, join, resolve} from "node:path";
 import {contentFoldersOf, winningByLayer} from "./osd-packs.mjs";
+import {excludedObjectFiles} from "./hana-closure-exclusions.mjs";
 import {hostModules} from "./osd-host.mjs";
 import {systemFile} from "./osd-system.mjs";
 import {libraryPath} from "./osd-lib-path.mjs";
@@ -631,8 +632,13 @@ export async function generate(folders, out = DEFAULT_OUT, options = {}) {
   const root = options.root ?? process.cwd();
   const {convertProgram} = hostModules()?.guiConverter ?? await import(guiConverterPath(root));
   const reports = [];
+  // a report the build is kept from (the closure's exclusions, the serve
+  // scope: tools/hana-closure-exclusions.mjs) is not converted either: its
+  // class would be the one object of it the build still compiles
+  const kept = new Set(excludedObjectFiles(root).map((f) => resolve(root, f)));
   const files = winningByLayer(folders, (folder) => reportFiles([folder]),
-    (file) => basename(file).replace(/\.prog\.abap$/i, "").toUpperCase());
+    (file) => basename(file).replace(/\.prog\.abap$/i, "").toUpperCase())
+    .filter((file) => kept.has(resolve(root, file)) === false);
   const candidates = files.map((file) => {
     const source = readFileSync(file, "utf8");
     return {file, source, programName: programNameOf(source)};
