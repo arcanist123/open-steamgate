@@ -44,6 +44,7 @@
     "test/rap-flight-travel.mjs",
     "test/gateway-metadata-diff.mjs",
     "test/hana-serve.mjs",
+    "test/hana-serve-icf.mjs",
     "test/odata-read-diff.mjs",
     "test/gateway-annotation-registries.mjs"
   ],
