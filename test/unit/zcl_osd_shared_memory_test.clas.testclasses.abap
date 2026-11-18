@@ -62,11 +62,14 @@ CLASS ltcl_shared_memory IMPLEMENTATION.
 
   METHOD memory_and_buffer_differ.
     DATA a TYPE i VALUE 1.
+    DATA b TYPE i VALUE 9.
     EXPORT a = a TO SHARED BUFFER indx(zt) ID 'ZOSD_SHM_TEST_MEDIUM'.
-    IMPORT a = a FROM SHARED MEMORY indx(zt) ID 'ZOSD_SHM_TEST_MEDIUM'.
+    IMPORT a = b FROM SHARED MEMORY indx(zt) ID 'ZOSD_SHM_TEST_MEDIUM'.
     cl_abap_unit_assert=>assert_equals( act = sy-subrc exp = 4 ).
-    IMPORT a = a FROM SHARED BUFFER indx(zt) ID 'ZOSD_SHM_TEST_MEDIUM'.
+    cl_abap_unit_assert=>assert_equals( act = b exp = 9 ).
+    IMPORT a = b FROM SHARED BUFFER indx(zt) ID 'ZOSD_SHM_TEST_MEDIUM'.
     cl_abap_unit_assert=>assert_equals( act = sy-subrc exp = 0 ).
+    cl_abap_unit_assert=>assert_equals( act = b exp = 1 ).
   ENDMETHOD.
 
 ENDCLASS.

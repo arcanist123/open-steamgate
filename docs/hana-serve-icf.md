@@ -181,17 +181,25 @@ its `CLASS_NAME`, `STATEFUL` -- the fields a `*.sapc.xml` carries, so a row
 becomes the channel `tools/osd-apc.mjs` `mountChannels` takes
 (`tenantChannels` in `tools/hana-serve-icf.mjs`). Only the active version
 and only websocket applications (`CONNECTION_TYPE` blank; `T` is plain TCP)
-are channels, the path matched lower case, and only when the class is in
-the generation, like a node's handler.
+are channels, and only when the class is in the generation, like a node's
+handler. A path is matched without regard to case, as the ICF matches it.
 
 - The channel is mounted on the same loopback listener. Every event
   (`on_start`, each message, `on_close`) is a dialog step of its own
   (`tools/osd-dialog-step.mjs`): it takes the one work process, commits or
   rolls back at its end, and runs on the same read-only connection, so a
   write is refused there and shows in the trace like an HTTP request's.
+- Every event first checks the host's guard (`integrity()`, as each HTTP
+  request does): a guard that is no longer the one installed runs no ABAP
+  and closes the socket 1011 ("host guard not intact"). Each event gets its
+  own line in the stub trace (`{channel, event, outcome, stubs, ...}`), and
+  an event that asked for a write is said the way an HTTP request's is
+  (`hana-serve: APC <path> on_message asked for 1 write(s): ...`); the
+  database refuses it, the event dumps, the socket closes 1011
+  (`test/hana-serve.mjs`, over the fake client).
 - An upgrade from another `sap-client`, or to a host whose guard is no
   longer intact, is refused before any ABAP runs (`admit` in
-  `mountChannels`).
+  `mountChannels`). The channels are mounted before the listener opens.
 
 Two transpiler gaps stood between Zork's channel class and a socket; both
 are fixed in the pin (`local/osd-build-4l`), neither is upstream yet:
@@ -224,7 +232,14 @@ at that package (`tools/hana-serve-cut.mjs`):
   `gen/hana-src/999-serve-scope`, which sorts after every closure layer and
   so wins the name (`node tools/osd-inputs.mjs` lists the override); the
   closure's layers stay as the walk wrote them, and `--clear` removes the
-  overlay with the record.
+  overlay with the record. The overlay is cut in a folder beside the island
+  and renamed into place only when every class is done, so a refused cut
+  leaves the overlay it found. The build reads it only beside its record:
+  an overlay with no record, or with other files than the record's
+  `memberCuts` list, is refused where the build reads the scope
+  (`tools/hana-closure-exclusions.mjs`). The record may live elsewhere
+  (`OSD_HANA_CLOSURE_OUT`); the overlay is always in the island of the root
+  the scope cut, since that is where the build takes its layers from.
 
 ```sh
 node tools/hana-serve-scope.mjs --root <HTTP_HANDLER> --root <APC_CLASS> \
