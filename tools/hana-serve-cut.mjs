@@ -33,12 +33,13 @@
 // and `node tools/osd-inputs.mjs` lists the override. The closure's own
 // layers stay exactly as the walk wrote them; `--clear` removes the overlay
 // with the record.
-import {copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync} from "node:fs";
 import {basename, join} from "node:path";
 import * as abaplint from "@abaplint/core";
 import {applyStubs, methodBlocks} from "./hana-closure-stubs.mjs";
+import {SERVE_SCOPE_OVERLAY, serveScopeOverlay} from "./hana-closure-exclusions.mjs";
 
-export const OVERLAY_NAME = "999-serve-scope";
+export const OVERLAY_NAME = SERVE_SCOPE_OVERLAY;
 export const OVERLAY = join("gen", "hana-src", OVERLAY_NAME);
 
 /** folder name -> package, from the island's manifest.json (the closure
@@ -130,42 +131,54 @@ export function cutMembers(source, filename, gone) {
 }
 
 /** write the overlay for the scope's member cuts; returns the record. `read`
- *  reads a root-relative file. An object's XML goes along unchanged. */
+ *  reads a root-relative file. An object's XML goes along unchanged. All of
+ *  it is cut into a folder beside the island first and renamed into place
+ *  only when every class is done, so a cut that refuses leaves the overlay
+ *  it found (and the build, which checks overlay against record, never
+ *  meets half of one). The caller writes the record next. */
 export function writeOverlay(root, memberCuts, read) {
-  clearOverlay(root);
-  if (memberCuts.length === 0) return [];
-  const src = join(root, OVERLAY, "src");
-  mkdirSync(src, {recursive: true});
-  writeFileSync(join(root, OVERLAY, ".abapgit.xml"), [
-    "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
-    "<asx:abap xmlns:asx=\"http://www.sap.com/abapxml\" version=\"1.0\">",
-    " <asx:values>",
-    "  <DATA><MASTER_LANGUAGE>E</MASTER_LANGUAGE><STARTING_FOLDER>/src/</STARTING_FOLDER><FOLDER_LOGIC>PREFIX</FOLDER_LOGIC></DATA>",
-    " </asx:values>",
-    "</asx:abap>", ""].join("\n"));
+  const temp = join(root, "gen", `.serve-scope-overlay-${process.pid}`);
+  rmSync(temp, {recursive: true, force: true});
   const record = [];
-  for (const one of memberCuts) {
-    if (one.object.startsWith("CLAS ") === false) {
-      throw new Error(`hana-serve-scope: ${one.object} names ${one.gone.join(", ")}, which --cut-members-typed-by leaves out; only a class's members are cut`);
-    }
-    const entry = {object: one.object, gone: one.gone, attributes: [], stubbed: [], files: []};
-    for (const file of one.files) {
-      const target = join(src, basename(file));
-      if (file.endsWith(".abap")) {
-        const done = cutMembers(read(file), basename(file), one.gone);
-        writeFileSync(target, done.source);
-        entry.attributes.push(...done.attributes);
-        entry.stubbed.push(...done.stubbed);
-      } else {
-        copyFileSync(join(root, file), target);
+  try {
+    if (memberCuts.length > 0) {
+      const src = join(temp, "src");
+      mkdirSync(src, {recursive: true});
+      writeFileSync(join(temp, ".abapgit.xml"), [
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>",
+        "<asx:abap xmlns:asx=\"http://www.sap.com/abapxml\" version=\"1.0\">",
+        " <asx:values>",
+        "  <DATA><MASTER_LANGUAGE>E</MASTER_LANGUAGE><STARTING_FOLDER>/src/</STARTING_FOLDER><FOLDER_LOGIC>PREFIX</FOLDER_LOGIC></DATA>",
+        " </asx:values>",
+        "</asx:abap>", ""].join("\n"));
+      for (const one of memberCuts) {
+        if (one.object.startsWith("CLAS ") === false) {
+          throw new Error(`hana-serve-scope: ${one.object} names ${one.gone.join(", ")}, which --cut-members-typed-by leaves out; only a class's members are cut`);
+        }
+        const entry = {object: one.object, gone: one.gone, attributes: [], stubbed: [], files: []};
+        for (const file of one.files) {
+          const target = join(src, basename(file));
+          if (file.endsWith(".abap")) {
+            const done = cutMembers(read(file), basename(file), one.gone);
+            writeFileSync(target, done.source);
+            entry.attributes.push(...done.attributes);
+            entry.stubbed.push(...done.stubbed);
+          } else {
+            copyFileSync(join(root, file), target);
+          }
+          entry.files.push(`gen/hana-src/${OVERLAY_NAME}/src/${basename(file)}`);
+        }
+        record.push(entry);
       }
-      entry.files.push(`${OVERLAY.split("\\").join("/")}/src/${basename(file)}`);
     }
-    record.push(entry);
+    clearOverlay(root);
+    if (memberCuts.length > 0) renameSync(temp, serveScopeOverlay(root));
+  } finally {
+    rmSync(temp, {recursive: true, force: true});
   }
   return record;
 }
 
 export function clearOverlay(root) {
-  rmSync(join(root, OVERLAY), {recursive: true, force: true});
+  rmSync(serveScopeOverlay(root), {recursive: true, force: true});
 }

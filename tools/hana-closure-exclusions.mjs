@@ -32,7 +32,7 @@
 // graph osd-inputs sits in stays clean. A file an H5x-1 iterator wrote (an
 // array of records) still reads: its definition-level entries map into
 // roots/cascades, its method stubs into stubs.
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync, readdirSync, readFileSync} from "node:fs";
 import {dirname, join} from "node:path";
 
 // the record's path: gen/hana-closure/closure-stubs.json by default, the
@@ -127,12 +127,38 @@ export function excludedFiles(root, file = undefined) {
 export const serveScopeFile = (root) =>
   join(process.env.OSD_HANA_CLOSURE_OUT ?? join(root, "gen", "hana-closure"), "serve-scope.json");
 
+// the member-cut overlay (tools/hana-serve-cut.mjs): one more island
+// folder, written by the scope and read by the build like any other layer
+export const SERVE_SCOPE_OVERLAY = "999-serve-scope";
+export const serveScopeOverlay = (root) => join(root, "gen", "hana-src", SERVE_SCOPE_OVERLAY);
+
+/** the overlay as its record describes it, or a refusal: an overlay with no
+ *  record, or one whose files are not the files the record's memberCuts
+ *  list, is a rewrite of tenant code nobody can account for -- the build
+ *  would run it all the same, the later layer winning its names. */
+export function checkServeScopeOverlay(root, parsed, file) {
+  const dir = serveScopeOverlay(root);
+  const on = existsSync(join(dir, "src")) ? readdirSync(join(dir, "src")).sort().map((f) => `gen/hana-src/${SERVE_SCOPE_OVERLAY}/src/${f}`) : [];
+  const listed = (parsed?.memberCuts ?? []).flatMap((m) => (Array.isArray(m?.files) ? m.files : [])).sort();
+  if (existsSync(dir) === false && listed.length === 0) return;
+  if (parsed === undefined) throw new Error(`${dir}: a member-cut overlay without its serve-scope record (${file}); rerun tools/hana-serve-scope.mjs or --clear it`);
+  if (JSON.stringify(on) !== JSON.stringify(listed)) {
+    throw new Error(`${dir}: the member-cut overlay holds ${on.length} file(s), its record (${file}) lists ${listed.length}, not the same; rerun tools/hana-serve-scope.mjs or --clear it`);
+  }
+}
+
 /** the serve scope's left-out objects, [{object, files}]; none without a
  *  record. A record that does not read is a refusal, never "nothing left
- *  out": the whole island would build and the cut be silently gone. */
+ *  out": the whole island would build and the cut be silently gone. The
+ *  member-cut overlay is checked against the record here, where the build
+ *  reads it. */
 export function serveScopeLeftOut(root, file = serveScopeFile(root)) {
-  if (existsSync(file) === false) return [];
+  if (existsSync(file) === false) {
+    checkServeScopeOverlay(root, undefined, file);
+    return [];
+  }
   const parsed = JSON.parse(readFileSync(file, "utf8"));
+  checkServeScopeOverlay(root, parsed, file);
   if (Array.isArray(parsed?.leftOut) === false || parsed.leftOut.some((e) => Array.isArray(e?.files) === false)) {
     throw new Error(`${file}: not a serve-scope record (no leftOut list of {object, files}); rerun tools/hana-serve-scope.mjs or --clear it`);
   }

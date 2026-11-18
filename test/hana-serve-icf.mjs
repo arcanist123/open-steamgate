@@ -7,7 +7,7 @@ import {join} from "node:path";
 import {tenantChannels, tenantServices} from "../tools/hana-serve-icf.mjs";
 import {cutMembers, OVERLAY, writeOverlay, clearOverlay} from "../tools/hana-serve-cut.mjs";
 import {cut, islandObjects, identifiers} from "../tools/hana-serve-scope.mjs";
-import {excludedObjectFiles, serveScopeUnreachedTables} from "../tools/hana-closure-exclusions.mjs";
+import {excludedObjectFiles, serveScopeLeftOut, serveScopeUnreachedTables} from "../tools/hana-closure-exclusions.mjs";
 import {fragments, joinFragments, mimeBytes, mimeCluster, parseCluster, SAPClusterError} from "../tools/protocols/sap-cluster.mjs";
 
 // docs/hana-serve-icf.md: the tenant's ICF tree as routes, SMW0 objects out
@@ -175,6 +175,27 @@ describe("hana-serve-cut: members typed by a package the route does not run", ()
       expect(readText(root, `${OVERLAY}/src/zcl_b3_apc.clas.abap`)).to.include("zcx_osd_not_activated");
       // the overlay is output, never input: a second cut reads the closure's layers only
       expect(islandObjects(root).find((o) => o.key === "CLAS ZCL_B3_APC").files).to.deep.equal(["gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.abap", "gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.xml"]);
+      // the build reads the overlay only beside a record that lists it
+      const file = join(root, "gen", "hana-closure", "serve-scope.json");
+      const saved = process.env.OSD_HANA_CLOSURE_OUT;
+      delete process.env.OSD_HANA_CLOSURE_OUT;
+      try {
+        expect(() => serveScopeLeftOut(root)).to.throw(/overlay without its serve-scope record/);
+        mkdirSync(join(root, "gen", "hana-closure"), {recursive: true});
+        writeFileSync(file, JSON.stringify({...result, memberCuts: record}));
+        expect(serveScopeLeftOut(root).map((e) => e.object)).to.include("CLAS ZCL_B3_LLM");
+        writeFileSync(file, JSON.stringify({...result, memberCuts: []}));
+        expect(() => serveScopeLeftOut(root)).to.throw(/holds 2 file\(s\), its record .* lists 0/);
+        // a cut that refuses leaves the overlay it found, whole
+        const refusing = [{...result.memberCuts[0], files: [...result.memberCuts[0].files], gone: ["ZCL_B3_KEPT"]}];
+        const typed = read("gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.abap");
+        put("gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.abap", typed.replace("    METHODS forget.", "    METHODS forget IMPORTING io TYPE REF TO zcl_b3_kept."));
+        expect(() => writeOverlay(root, refusing, read)).to.throw(/MethodDef names ZCL_B3_KEPT/);
+        expect(readText(root, `${OVERLAY}/src/zcl_b3_apc.clas.abap`)).to.include("zcx_osd_not_activated");
+        expect(existsSync(join(root, "gen", `.serve-scope-overlay-${process.pid}`))).to.equal(false);
+      } finally {
+        if (saved !== undefined) process.env.OSD_HANA_CLOSURE_OUT = saved;
+      }
       clearOverlay(root);
       expect(islandObjects(root).length).to.equal(6);
     } finally {
