@@ -1668,6 +1668,12 @@ STG_DB=hana HANA_EXISTING_SCHEMA=1 HANA_SCHEMA=<tenant> HANA_OWN_SCHEMA=<own> OS
 HANA_OWN_SCHEMA=<own> node tools/hana-serve.mjs --check-trace <trace.ndjson> [--own-schema <own>]
 ```
 
+Since 2026-11-18 it also serves the tenant's own ICF nodes whose handler
+class the generation holds (paths from the tenant's `ICFSERVICE` parent
+chain, GET and HEAD only) and reads SMW0 objects out of the tenant's
+`WWWDATA` for `WWWDATA_IMPORT`; `tools/hana-serve-scope.mjs` cuts a rescued
+island to what a route needs. All of it: `docs/hana-serve-icf.md`.
+
 It refuses to start outside the mode, with `OSD_HANA_WRITE=1`, with
 `STG_DB_FRESH=1` or without `OSD_CLIENT`. The promise is read-only toward
 every system, not only the database: it also refuses to start with
