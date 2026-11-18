@@ -22,9 +22,12 @@
 //     purpose: a name in a string or a trailing comment keeps its object,
 //     so the cut can keep too much and never cuts what a body calls by a
 //     literal name.
-//   - only code under gen/hana-src is cut. The dictionary stays (a type
-//     nobody uses costs nothing), and so does everything of the tree's own
-//     (src/, packs, libraries).
+//   - only code under gen/hana-src is cut. The dictionary stays in the
+//     build (a type nobody uses costs nothing), but a table no kept object
+//     reaches (through the code, or a table's or data element's XML) leaves
+//     the shadow schema's eager set, so an existing-schema connect makes no
+//     object for it; everything of the tree's own (src/, packs, libraries)
+//     stays as it is.
 //   - the rest goes into gen/hana-closure/serve-scope.json (beside the
 //     closure's own record, OSD_HANA_CLOSURE_OUT moves both), which the
 //     build reads through the same seam as the closure's exclusions
@@ -52,7 +55,7 @@ export {scopeFile};
 
 export const ISLAND = join("gen", "hana-src");
 const CODE = new Set(["clas", "intf", "prog", "fugr"]);
-const KIND = {clas: "CLAS", intf: "INTF", prog: "PROG", fugr: "FUGR"};
+const KIND = {clas: "CLAS", intf: "INTF", prog: "PROG", fugr: "FUGR", tabl: "TABL", view: "VIEW", ttyp: "TTYP", dtel: "DTEL", doma: "DOMA"};
 
 const slash = (p) => p.split(sep).join("/");
 const nameOf = (base) => base.replace(/#/g, "/").toUpperCase();
@@ -77,7 +80,7 @@ export function islandObjects(root) {
   const objects = new Map();
   for (const path of walk(join(root, ISLAND), [])) {
     const m = /^([^.]+)\.([a-z]+)(?:\.|$)/.exec(path.split(sep).pop());
-    if (m === null || CODE.has(m[2]) === false) continue;
+    if (m === null || KIND[m[2]] === undefined) continue;
     const key = `${KIND[m[2]]} ${nameOf(m[1])}`;
     const one = objects.get(key) ?? {key, kind: KIND[m[2]], name: nameOf(m[1]), files: [], names: [nameOf(m[1])]};
     one.files.push(slash(relative(root, path)));
@@ -118,17 +121,25 @@ export function cut(objects, roots, read) {
     const one = queue.shift();
     if (kept.has(one.key)) continue;
     kept.add(one.key);
-    for (const file of one.files.filter((f) => f.endsWith(".abap"))) {
+    // code is read in its .abap files; a dictionary object in its XML,
+    // where a table names its data elements and a data element its domain
+    for (const file of one.files.filter((f) => (CODE.has(one.kind.toLowerCase()) ? f.endsWith(".abap") : f.endsWith(".xml")))) {
       for (const id of identifiers(read(file))) {
         const next = byName.get(id);
         if (next !== undefined && kept.has(next.key) === false) queue.push(next);
       }
     }
   }
+  const isCode = (o) => CODE.has(o.kind.toLowerCase());
   return {
     roots: wanted,
     kept: objects.filter((o) => kept.has(o.key)).map((o) => o.key),
-    leftOut: objects.filter((o) => kept.has(o.key) === false).map((o) => ({object: o.key, files: o.files})),
+    leftOut: objects.filter((o) => isCode(o) && kept.has(o.key) === false).map((o) => ({object: o.key, files: o.files})),
+    // a table no kept object reaches stays in the build (a type costs
+    // nothing) and leaves the shadow schema's eager set: on an existing
+    // schema the host makes no object for it at connect
+    // (tools/hana-shadow-schema.mjs ddicTables)
+    unreachedTables: objects.filter((o) => o.kind === "TABL" && kept.has(o.key) === false).map((o) => o.name),
   };
 }
 
@@ -174,7 +185,7 @@ if (runsAs("hana-serve-scope.mjs")) {
       const result = cut(islandObjects(root), roots, (f) => readFileSync(join(root, f), "utf8"));
       mkdirSync(dirname(file), {recursive: true});
       writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
-      console.log(`hana-serve-scope: roots ${result.roots.join(", ")}: ${result.kept.length} code object(s) kept, ${result.leftOut.length} left out of the build -> ${slash(relative(root, file))}`);
+      console.log(`hana-serve-scope: roots ${result.roots.join(", ")}: ${result.kept.length} object(s) kept, ${result.leftOut.length} code object(s) left out of the build, ${result.unreachedTables.length} table(s) out of the shadow schema's eager set -> ${slash(relative(root, file))}`);
       const hiding = await packsHidingTenant(root);
       if (hiding.length > 0) {
         console.error(`hana-serve-scope: ${describeHiding(hiding)}`);

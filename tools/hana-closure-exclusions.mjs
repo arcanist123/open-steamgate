@@ -136,6 +136,14 @@ export function serveScopeLeftOut(root, file = serveScopeFile(root)) {
   return Array.isArray(parsed?.leftOut) ? parsed.leftOut.filter((e) => Array.isArray(e?.files)) : [];
 }
 
+/** the island tables the serve scope does not reach: out of the shadow
+ *  schema's eager set (tools/hana-shadow-schema.mjs ddicTables) */
+export function serveScopeUnreachedTables(root, file = serveScopeFile(root)) {
+  if (existsSync(file) === false) return [];
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  return Array.isArray(parsed?.unreachedTables) ? parsed.unreachedTables.map((t) => String(t).toUpperCase()) : [];
+}
+
 /** every file of each excluded object, for the build's exclude_filter. */
 export function excludedObjectFiles(root, file = undefined) {
   const out = serveScopeLeftOut(root, file === undefined ? undefined : join(dirname(file), "serve-scope.json")).flatMap((e) => e.files);

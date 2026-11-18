@@ -32,6 +32,7 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {layers} from "./osd-inputs.mjs";
 import {clientField} from "./hana-ddic-map.mjs";
+import {serveScopeUnreachedTables} from "./hana-closure-exclusions.mjs";
 
 // the rule a table name must pass before it becomes SQL: the probe's
 // plain identifier shape plus the `/` of an SAP namespace (/DMO/TRAVEL).
@@ -349,5 +350,12 @@ export async function ensureShadowFor(db, {own, tenant, name}) {
 export function ddicTables(root = process.cwd()) {
   const config = JSON.parse(readFileSync(join(root, "abap_transpile.json"), "utf8"));
   const stack = layers(root, config);
-  return [...stack.owner.keys()].filter((key) => key.startsWith("TABL ")).map((key) => key.slice(5)).sort();
+  // a table of the rescued island no serve-scope root reaches is not made
+  // at connect (tools/hana-serve-scope.mjs); a statement that touches one
+  // still meets the 259 fallback
+  const unreached = new Set(serveScopeUnreachedTables(root));
+  const island = (folder) => String(folder).split("\\").join("/").startsWith("gen/hana-src/");
+  return [...stack.owner.entries()].filter(([key]) => key.startsWith("TABL "))
+    .filter(([key, folder]) => (island(folder) && unreached.has(key.slice(5).toUpperCase())) === false)
+    .map(([key]) => key.slice(5)).sort();
 }
