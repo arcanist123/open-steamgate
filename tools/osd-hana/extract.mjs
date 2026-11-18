@@ -274,14 +274,10 @@ export async function extractMain(argv, {
   connection = {...connection, tlsArgs: tls.args};
 
   // ---- the request (schema 1) --------------------------------------------
-  // A selection narrows; it is never added to the default. The sidecar's
-  // `local` field ADDS local objects to whatever `packages`/`names` select
-  // (measured on v2.62.1: `--package '$ZORK%'` beside `local: {all: true}`
-  // listed every local object of the system, 22 828 instead of 29), so with
-  // --package or --name the request carries `local` only when it was asked
-  // for by name (--author). A `$` package the pattern matches is selected by
-  // the pattern itself. `*` is accepted as the wildcard and sent as `%`, the
-  // sidecar's (SQL LIKE) wildcard; a `*` sent as such matches nothing.
+  // A selection narrows, never adds to the default: the sidecar's `local`
+  // ADDS to what `packages`/`names` select (v2.62.1: `$ZORK%` beside
+  // `local: {all: true}` listed 22 828 objects, not 29), so beside a pattern
+  // `local` is sent only for --author. `*` goes out as `%` (SQL LIKE).
   const pattern = (p) => p.replaceAll("*", "%");
   const selection = (flags.package?.length ?? 0) > 0 || (flags.name?.length ?? 0) > 0;
   const local = flags["no-local"] === true ? undefined
