@@ -283,7 +283,7 @@ import {registerSeed, seedNamespaces} from "./hana-closure-seed.mjs";
 import {frameworkNamespaces, frameworkNames, frameworkPredicate, splitFrameworkNames, writeFrameworkNames} from "./hana-closure-framework.mjs";
 import {moduleFindings, scanFunctionModules} from "./hana-closure-fm.mjs";
 import {conversionExitAsks, followAsks, islandSearchHelps, reportUnasked, searchHelpSummary} from "./hana-closure-shlp.mjs";
-import {closureSummary, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, serviceClasses, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
+import {closureSummary, refuseServeScope, has, liftedStubs, loadState, loadStubRecord, recordStub, saveState, serviceClasses, stubList, take, takeAll, trackLifted, writeClosureSummary} from "./hana-closure-report.mjs";
 
 // ------------------------------------------------------------ findings ----
 
@@ -343,14 +343,7 @@ export async function run(args = process.argv.slice(2), options = {}) {
   if (system === undefined) {
     throw new Error("hana-closure: --system <prefix> is required (the dump->layers converter names its layers <system>-<package>)");
   }
-  // a serve scope (tools/hana-serve-scope.mjs) keeps island code from every
-  // build, this walk's positive control included: a record left from an
-  // earlier island would cut this one silently
-  if (existsSync(join(out, "serve-scope.json"))) {
-    throw new Error(`hana-closure: ${join(out, "serve-scope.json")} holds a serve scope, which keeps island code from the build this walk checks; `
-      + "clear it first (node tools/hana-serve-scope.mjs --clear) and write it again after the walk");
-  }
-  mkdirSync(out, {recursive: true});
+  refuseServeScope(out); mkdirSync(out, {recursive: true}); // a serve scope left here would cut this walk's build
   // the seam readers follow OSD_HANA_CLOSURE_OUT when --out is not the default
   env.OSD_HANA_CLOSURE_OUT = out;
   const loaded = loadState(out);

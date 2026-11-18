@@ -5002,6 +5002,6 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: the statement compiles and the method throws a plain `Error` the moment it reaches it -- here, the first message of every push-channel connection
 - Impact on open-steamgate: rescued code that keeps state across sessions this way cannot run its push channel (Zork's APC, stage 2 of serving it over HANA); the HTTP route of stage 1 does not reach it
 - Smallest safe workaround: none taken yet -- stage 1 leaves the push-channel class out of the build through the serve scope (tools/hana-serve-scope.mjs). A runtime for the shared-memory medium (a per-process map keyed by table, area and ID, cleared with the process) is the candidate for stage 2
-- Upstream issue: needs an issue (abaplint/transpiler) after a critic pass
+- Upstream issue: needs an issue (abaplint/transpiler), as a feature request -- `main` at `a64f380e` (2026-11-18) still has both statements as the same `transpiler todo` throw, so this is an unimplemented statement, not a defect -- after a critic pass
 - Regression-test location: none yet (stage 2)
 - Upstream version containing a fix: unknown

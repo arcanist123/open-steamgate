@@ -35,7 +35,7 @@
 // (abaplint's class definition); closureSummary, given those `services`,
 // reports per service which of its classes carry stubs and applies
 // --require-unstubbed to every one of them.
-import {readdirSync, readFileSync, writeFileSync} from "node:fs";
+import {existsSync, readdirSync, readFileSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import * as abaplint from "@abaplint/core";
 import {dumpFacts, mergeRegistrations, registeredServices, segwRegistrations} from "./segw-registry.mjs";
@@ -315,4 +315,14 @@ export function writeClosureSummary(out, summary) {
   if (summary.failures.length > 0) {
     throw new Error(`the fixed point does not carry the service (${join(out, "closure-summary.json")}):\n  ${summary.failures.join("\n  ")}`);
   }
+}
+
+/** the closure walk's refusal to run over a serve scope: the record keeps
+ *  island code from every build, the walk's positive control included, so
+ *  one left from an earlier island would cut this walk silently */
+export function refuseServeScope(out) {
+  const file = join(out, "serve-scope.json");
+  if (existsSync(file) === false) return;
+  throw new Error(`hana-closure: ${file} holds a serve scope, which keeps island code from the build this walk checks; `
+    + "clear it first (node tools/hana-serve-scope.mjs --clear) and write it again after the walk");
 }

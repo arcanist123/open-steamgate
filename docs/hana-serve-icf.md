@@ -9,8 +9,10 @@
 
 `tools/hana-serve.mjs` is the read-only host over a HANA schema an SAP
 system already holds (docs/db-backends.md, "Existing schema, read-only").
-It served OData. It now also serves the tenant's own ICF nodes, and it reads
-SMW0 MIME objects out of the tenant's `WWWDATA` when the ABAP asks for one.
+It served OData. Asked to, it now also serves the tenant's own ICF nodes
+(`--icf`), and it reads SMW0 MIME objects out of the tenant's `WWWDATA`
+when the ABAP asks for one (`--w3mi`; `--w3mi-check` implies it). Without
+the flags a boot reads neither, exactly as an OData-only boot did before.
 Zork (the [zork-abap](https://github.com/oisee/zork-abap) interpreter,
 rescued from a tenant) is the worked example; nothing in the code knows it.
 
@@ -25,13 +27,21 @@ one segment per node, the external name (`ICFALTNME`) where it has one,
 else `ICF_NAME`, lower case. The virtual host is not a segment, and a node
 whose chain does not reach it is not served.
 
-- **Activation is not read.** A system keeps it apart from the node rows
-  this host reads, so every node present with a handler counts as active.
-  The startup line says so.
-- A node is mounted only when the last row of its `ICFHANDLER` chain is an
-  ABAP class (`ICFTYP` A) **that the generation holds**. A system's tree
-  names hundreds of handlers; the island holds the few the rescued code
-  brings, and the startup line counts both.
+- **Activation is read from `ICFSERVLOC`** (`ICFACTIVE = 'X'`; measured on
+  the bed: 327 of 3444 rows active, the rescued node's among them). A node
+  is served only when it and every node above it, up to the virtual host,
+  have an active row; a node without a row is not active. `ICFSERVLOC` is
+  read schema-qualified on the tenant (`HANA_SCHEMA`; the table is
+  client-independent, so this reads what a synonym would) so that no shadow
+  object is made for it. When it cannot be read, activation is unknown,
+  every node present with a handler counts as active, and the host warns.
+- A node is mounted only when its `ICFHANDLER` chain is **one** ABAP class
+  (`ICFTYP` A) **that the generation holds**. A system runs a chain of
+  several handlers in `ICFORDER` until one of them answers; this host does
+  not, so such a node (13 on the bed) is counted and not mounted. A
+  system's tree names hundreds of handlers; the island holds the few the
+  rescued code brings, and the startup line counts both. Two nodes whose
+  paths differ only by case keep the first, and the line says so.
 - Each request runs like an OData one: one dialog step, one stub-trace
   record, the tamper gate, and the refusals before a line of ABAP runs --
   any method but GET and HEAD (405), a method-override header (405), another
@@ -68,12 +78,22 @@ node tools/hana-serve-scope.mjs --clear      # before the closure walks again
 ```
 
 - The roots are named, never guessed: the handler class, and any class a
-  check calls.
+  check calls. The registrations the island carries as files are roots by
+  themselves (the handler of each `*.sicf.xml`, the classes of each
+  `*.iwsv.xml` and `*.iwmo.xml` under `gen/hana-src` and `gen/hana-segw`).
+  A tenant's ICF rows are not files: a handler served from them is named
+  with `--root`. A push channel's class (`*.sapc.xml`) is not a root, and
+  the tool says when it is cut.
 - An island object is kept when a kept object names it: every identifier of
   its `.abap` files (comment lines left out), function modules by the names
   their group's XML lists, dictionary objects through their XML (a table
-  names its data elements, a data element its domain). Coarse on purpose:
-  the cut can keep too much, never too little.
+  names its data elements, a data element its domain, a domain its
+  conversion exit's two function modules).
+- **Literal names only.** A name written out anywhere keeps its object, so
+  for those the cut keeps too much rather than too little. A name computed
+  at run time (`CALL METHOD (name)`, `CREATE OBJECT ... TYPE (name)`,
+  `CALL FUNCTION lv_name`) is not followed: its target needs its own
+  `--root`. The tool lists every kept object that makes such a call.
 - Code no root reaches is kept from the build through the closure's own
   exclusion seam (`tools/hana-closure-exclusions.mjs`); the transpiler and
   the report converter skip it and `node tools/osd-inputs.mjs` lists each
@@ -85,12 +105,15 @@ node tools/hana-serve-scope.mjs --clear      # before the closure walks again
   that does touch one still meets the 259 fallback.
 
 The record is `gen/hana-closure/serve-scope.json`. It names a real tenant's
-objects, so it stays under `gen/` and is never tracked.
+objects, so it stays under `gen/` and is never tracked. A record without its
+list of left-out objects is refused rather than read as "nothing left out",
+and the closure walk refuses to run while a record is there (it would cut
+the walk's own build): `--clear`, walk, then write the scope again.
 
 **Packs.** Packs are layered after the island, so a pack object with an
 island object's name wins it: the build would run our copy of the code, not
-the tenant's. Both the scope CLI and `hana-serve` refuse that build and name
-the objects. Select the packs a HANA build takes with `OSD_WEB_PACKS`
+the tenant's. Both the scope CLI (before it writes anything) and `hana-serve`
+refuse that build and name the objects. Select the packs a HANA build takes with `OSD_WEB_PACKS`
 (`OSD_WEB_PACKS=none` takes none). `packs/zork` is the case in point: it
 carries the same `zcl_ork_00_*` classes.
 
@@ -104,7 +127,7 @@ node tools/hana-serve-scope.mjs --root <HTTP_HANDLER> [--root ...]
 ( set -a; . <env file>; set +a
   STG_DB=hana HANA_EXISTING_SCHEMA=1 OSD_CLIENT=<client> OSD_WEB_PACKS=none \
   OSD_SQL_TRACE=1 node tools/hana-serve.mjs --port <port> \
-    --w3mi-check <OBJID> --stub-trace <file> )
+    --icf --w3mi --w3mi-check <OBJID> --stub-trace <file> )
 curl -s http://127.0.0.1:<port>/<the node's path>/
 node tools/hana-serve.mjs --check-trace <trace>   # nothing but reads was sent
 ```
@@ -112,9 +135,12 @@ node tools/hana-serve.mjs --check-trace <trace>   # nothing but reads was sent
 The env file carries `HANA_HOST`, `HANA_PORT`, `HANA_USER`, `HANA_PASSWORD`,
 `HANA_SCHEMA` (the tenant) and `HANA_OWN_SCHEMA` (a schema of your own,
 where the shadow objects live). The DDL the host may send is the shadow
-schema's, in your own schema only: for this route, a synonym each for
-`WWWPARAMS` and `WWWDATA` (client-independent tables), made by the 259
-fallback the first time they are read:
+schema's, in your own schema only. `ICFSERVICE` and `ICFHANDLER` are tables
+of this tree too (`src/osd/ddic`), so the connect makes a synonym for each
+the first time, like any table of the build (on the bed both were already
+there). `ICFSERVLOC` gets none (it is read schema-qualified). With `--w3mi`,
+a synonym each for `WWWPARAMS` and `WWWDATA`, made by the 259 fallback the
+first time they are read:
 
 ```sql
 CREATE SYNONYM "<OWN_SCHEMA>"."WWWPARAMS" FOR "<TENANT_SCHEMA>"."WWWPARAMS"
