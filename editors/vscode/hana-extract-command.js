@@ -73,9 +73,18 @@ const sameConnection = (a, b) => a.host === b.host && String(a.port) === String(
 /** The quick-pick rows of a plan: the actions first, then the plan itself as
  *  read-only rows under separators (counts by type, per author, the biggest
  *  packages). Names come from the database: they go through shown(). */
-function planItems(plan, {separator = -1, noLocal = false, author} = {}) {
+function planItems(plan, {separator = -1, noLocal = false, author, packagePattern} = {}) {
   const clean = shown;
   const items = [{label: `$(cloud-download) Extract ${plan.inScope} objects (${mb(plan.bytes)})`, action: {kind: "extract"}}];
+  // A package pattern is the whole selection: --author would ADD that
+  // author's local objects from every package, and --no-local does not take
+  // a $ package out that the pattern names, so neither is offered beside it.
+  if (packagePattern === undefined) {
+    items.push({label: "$(package) Only package…", description: "a package name or pattern, for example $ZORK%", action: {kind: "narrow", askPackage: true}});
+  } else {
+    items.push({label: "$(package) Change package pattern…", description: `now ${clean(packagePattern)}`, action: {kind: "narrow", askPackage: true}});
+    return planRows(plan, items, {separator, clean});
+  }
   if (author === undefined && Number(plan.localAuthors ?? 0) > 1) {
     for (const a of plan.perAuthor ?? []) {
       items.push({label: `$(person) Only the local objects of ${clean(a.author)}`, description: `${a.objects} objects, ${mb(a.bytes)}`, action: {kind: "narrow", author: a.author}});
@@ -84,6 +93,12 @@ function planItems(plan, {separator = -1, noLocal = false, author} = {}) {
   if (!noLocal && author === undefined && (plan.perAuthor ?? []).length > 0) {
     items.push({label: "$(filter) Leave local packages ($...) out", action: {kind: "narrow", noLocal: true}});
   }
+  return planRows(plan, items, {separator, clean});
+}
+
+/** The read-only rows of a plan under the actions: per type, per author,
+ *  the biggest packages. */
+function planRows(plan, items, {separator, clean}) {
   items.push({label: "Per type", kind: separator});
   for (const t of plan.perType ?? []) {
     items.push({label: clean(t.type), description: `${t.inScope} objects, ${mb(t.bytes)}`,
@@ -269,8 +284,9 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
   }
 
   // ---- 3. the plan ---------------------------------------------------------
-  const narrowing = {author: undefined, noLocal: false};
-  const narrowArgs = () => [...(narrowing.author !== undefined ? ["--author", narrowing.author] : []), ...(narrowing.noLocal ? ["--no-local"] : [])];
+  const narrowing = {author: undefined, noLocal: false, packagePattern: undefined};
+  const narrowArgs = () => [...(narrowing.packagePattern !== undefined ? ["--package", narrowing.packagePattern] : []),
+    ...(narrowing.author !== undefined ? ["--author", narrowing.author] : []), ...(narrowing.noLocal ? ["--no-local"] : [])];
   let plan;
   for (;;) {
     errors.length = 0;
@@ -296,6 +312,18 @@ async function extractFromHana(vscode, context, output, {moduleRoot, callerPath,
       if (choice === undefined) return;
     } while (choice.action === undefined);
     if (choice.action.kind === "extract") break;
+    if (choice.action.askPackage) {
+      const value = await vscode.window.showInputBox({title: "Extract my code from HANA: only package", ignoreFocusOut: true,
+        prompt: "A package name or pattern; % or * is any text, _ is any one character ($ZORK% is $ZORK and its subpackages). A $ package counts when the pattern names it.",
+        placeHolder: "$ZORK%", value: narrowing.packagePattern,
+        validateInput: (v) => (v.trim() === "" ? "A package name or pattern." : /\s/.test(v.trim()) ? "One pattern, without spaces." : undefined)});
+      if (value === undefined) continue;
+      narrowing.packagePattern = value.trim().toUpperCase();
+      // the pattern is the selection: an author or "no local" picked before
+      // would widen it (--author adds) or not apply (--no-local)
+      narrowing.author = undefined;
+      narrowing.noLocal = false;
+    }
     if (choice.action.author !== undefined) narrowing.author = choice.action.author;
     if (choice.action.noLocal) narrowing.noLocal = true;
   }

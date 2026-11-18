@@ -262,10 +262,10 @@ It takes the doctor's connection flags (`--host`, `--port`, `--database`,
 |---|---|
 | `--out <dir>` | where the repository goes (required) |
 | `--dump-dir <dir>` | where the raw dump goes. Default `<out>/.osd-hana/dump` |
-| `--package <pattern>` | narrow by package (repeatable) |
-| `--name <pattern>` | narrow by object name (repeatable) |
-| `--author <user>` | narrow local objects by author |
-| `--no-local` | leave local `$` packages out |
+| `--package <pattern>` | narrow by package (repeatable). The pattern is SQL `LIKE`: `%` (or `*`) is any text, `_` is any one character, so `'$ZORK%'` is `$ZORK` and its subpackages and `$ZORK_00` also matches `$ZORKX00`. A local `$` package the pattern matches is selected, even with `--no-local` |
+| `--name <pattern>` | narrow by object name (repeatable), same wildcards |
+| `--author <user>` | keep only this author's objects, and add this author's local objects from every package. Beside `--package` it is **not** a narrowing: it brings in the author's local objects outside the pattern too |
+| `--no-local` | leave local `$` packages out of the default scope (a `$` package a `--package` pattern names is still selected) |
 | `--inactive` | ask the sidecar to include inactive versions |
 | `--include-sap` | see "What is yours" above |
 | `--dry-run` | print the plan and stop. Never asks |
@@ -424,7 +424,11 @@ steps with prompts instead of flags:
    are asked for it. The new user's generated password goes to VS Code
    SecretStorage, and later runs can log on as that user.
 4. **Plan:** the objects in scope by type and, for local objects, by author,
-   with sizes. You can narrow to one author or leave local packages out.
+   with sizes. You can narrow to one package or pattern (**Only package…**,
+   for example `$ZORK%`), to one author, or leave local packages out. Once a
+   pattern is set, the plan offers only **Change package pattern…**: an
+   author beside a pattern would add that author's objects from other
+   packages.
 5. **Confirm:** you choose an empty folder and confirm "Extract N objects
    (S MB) into ...?". Nothing is dumped before that.
 6. **Progress:** cancellable. Cancelling stops the reader.

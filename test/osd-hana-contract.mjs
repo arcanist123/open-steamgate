@@ -13,13 +13,15 @@
 // Fakes only: no network, no database.
 import {expect} from "chai";
 import {execFileSync} from "node:child_process";
-import {readFileSync, readdirSync} from "node:fs";
+import {mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {readProbe, saysNoAbapSchema, isAdministrator} from "../tools/osd-hana/probe-doc.mjs";
 import {canWrite, jsonVerdict, plainVerdict, readerRoleFromProbe, SAFETY_NOTE} from "../tools/osd-hana/verdict.mjs";
 import {CONTRACT_DIR, FAKE_SIDECAR, SCHEMA, makeHarness} from "./osd-hana/harness.mjs";
 import {SUCCESS_RULES, fakeClientFactory} from "./osd-hana/fake-client.mjs";
+import {buildExtractFixtures} from "./osd-hana/extract-fixtures.mjs";
 
 const load = (name) => JSON.parse(readFileSync(join(CONTRACT_DIR, `${name}.json`), "utf8"));
 const FIELDS = load("fields");
@@ -81,6 +83,46 @@ describe("tools/osd-hana: the recorded sidecar contracts", function () {
     it("the fake's --version --json has exactly the recorded keys", function () {
       const out = JSON.parse(execFileSync(process.execPath, [FAKE_SIDECAR, "--version", "--json"], {encoding: "utf8"}));
       expect(Object.keys(out).sort()).to.deep.equal(Object.keys(load("version").document).sort());
+    });
+  });
+
+  describe("a dump part the fake writes is the recorded part's shape", function () {
+    /** Every key path of a JSON value (arrays: their elements' paths under []). */
+    const paths = (v, at = "") => {
+      if (Array.isArray(v)) return v.flatMap((x) => paths(x, `${at}[]`));
+      if (v !== null && typeof v === "object") return Object.entries(v).flatMap(([k, x]) => [`${at}.${k}`, ...paths(x, `${at}.${k}`)]);
+      return [];
+    };
+    it("a W3MI-only dump request: the part's files, manifest keys and object rows are a subset of the recording dump-part-w3mi-only (mutation: the fake gains a manifest field or a tables/ folder -> red)", function () {
+      const recorded = load("dump-part-w3mi-only");
+      const work = mkdtempSync(join(tmpdir(), "osd-hana-part-"));
+      try {
+        const fx = buildExtractFixtures(join(work, "fx"));
+        const out = join(work, "part");
+        const request = join(work, "request.json");
+        writeFileSync(request, JSON.stringify({schema: 1, requested: {W3MI: ["ZOSD_MIME_01.BIN"]}, catalog: true, ddic: true, provenance: "contract test"}));
+        writeFileSync(join(fx.dump, "objects.jsonl"), JSON.stringify(recorded.objects_row) + "\n");
+        try {
+          execFileSync(process.execPath, [FAKE_SIDECAR, "dump", "--request", request, "--out", out], {env: {...process.env, FAKE_SIDECAR_DUMP: fx.dump}, encoding: "utf8"});
+        } catch (error) {
+          if (error.status !== 0) throw error;
+        }
+        const files = readdirSync(out).sort().filter((f) => !["counts.json", "summary.json"].includes(f));
+        expect(files, "the part's files").to.deep.equal(recorded.files);
+        expect(readFileSync(join(out, "reposrc.jsonl"), "utf8").length).to.equal(recorded.reposrc_bytes);
+        const known = new Set(paths(recorded.manifest));
+        const invented = [...new Set(paths(JSON.parse(readFileSync(join(out, "manifest.json"), "utf8"))))].filter((p) => !known.has(p)
+          // the request echo holds what THIS request asked; its keys are the request's, checked by the request tests
+          && !p.startsWith(".sidecar.request."));
+        expect(invented, "manifest keys no recording carries").to.deep.equal([]);
+        const rowKeys = new Set(Object.keys(recorded.objects_row));
+        for (const line of readFileSync(join(out, "objects.jsonl"), "utf8").split("\n").filter(Boolean)) {
+          expect(Object.keys(JSON.parse(line)).filter((k) => !rowKeys.has(k)), "object-row keys").to.deep.equal([]);
+        }
+        expect(recorded.manifest.counts.rows_TADIR, "the recording says zero TADIR rows").to.equal(0);
+      } finally {
+        rmSync(work, {recursive: true, force: true});
+      }
     });
   });
 

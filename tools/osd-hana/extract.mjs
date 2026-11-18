@@ -81,8 +81,13 @@ const USAGE = `Usage: osd hana extract --out <dir> [--dump-dir <dir>]
 Extracts your own ABAP code out of a HANA database into an abapGit-layout
 repository (an .abapgit.xml and src/), reading ONLY through the sidecar
 binary osd-hana-dump (read-only by construction). The scope is the sidecar's
-customer classification, local packages included; --package/--name/--author
-narrow it, --no-local leaves local packages out. SAP-delivered objects are
+customer classification, local packages included; --no-local leaves local
+packages out. With --package or --name the selection is exactly what the
+patterns match, and a $ package a pattern matches is selected even with
+--no-local. Patterns are SQL LIKE: % (or *) is any text, _ is any one
+character, so $ZORK_00 also matches $ZORKX00. --author keeps only that
+author's objects AND adds that author's local objects from every package:
+beside --package it is not a narrowing. SAP-delivered objects are
 extracted only with --include-sap together with an explicit --package or
 --name; that content is the vendor's and must not be published. Table
 contents are not extracted.
@@ -269,13 +274,20 @@ export async function extractMain(argv, {
   connection = {...connection, tlsArgs: tls.args};
 
   // ---- the request (schema 1) --------------------------------------------
+  // A selection narrows, never adds to the default: the sidecar's `local`
+  // ADDS to what `packages`/`names` select (v2.62.1: `$ZORK%` beside
+  // `local: {all: true}` listed 22 828 objects, not 29), so beside a pattern
+  // `local` is sent only for --author. `*` goes out as `%` (SQL LIKE).
+  const pattern = (p) => p.replaceAll("*", "%");
+  const selection = (flags.package?.length ?? 0) > 0 || (flags.name?.length ?? 0) > 0;
+  const local = flags["no-local"] === true ? undefined
+    : flags.author !== undefined ? {authors: [flags.author]}
+      : selection ? undefined : {all: true};
   const request = {
     schema: 1,
-    ...(flags.package?.length ? {packages: [...flags.package]} : {}),
-    ...(flags.name?.length ? {names: [...flags.name]} : {}),
-    ...(flags["no-local"] === true
-      ? {}
-      : {local: flags.author !== undefined ? {authors: [flags.author]} : {all: true}}),
+    ...(flags.package?.length ? {packages: flags.package.map(pattern)} : {}),
+    ...(flags.name?.length ? {names: flags.name.map(pattern)} : {}),
+    ...(local === undefined ? {} : {local}),
     inactive: flags.inactive === true,
     catalog: true,
     ddic: true,

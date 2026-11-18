@@ -120,7 +120,8 @@ writes to the database.
    asked for it. The new user's generated password is kept in VS Code's
    secret storage, and later runs can log on as that user.
 3. **Plan.** The objects in scope are listed by type and, for local
-   objects, by author, with their size. You can narrow to one author or leave
+   objects, by author, with their size. You can narrow to one package or
+   pattern (**Only package…**, for example `$ZORK%`), to one author, or leave
    local packages out.
 4. **Extract.** Choose an empty folder and confirm "Extract N objects (S MB)
    into ...?". Progress can be cancelled; cancelling stops the reader. The

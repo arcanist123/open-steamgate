@@ -23,6 +23,14 @@ it may not invent a field -- `test/osd-hana-contract.mjs` fails when it does.
 
 Each file is `{"exit": <code>, "document": <the one JSON line of stdout>}`.
 
+`dump-part-w3mi-only.json` is one part (`part-NNNNN/`) of a real chunked `dump`
+(v2.62.1, 2026-11-18) whose 500-name chunk held only W3MI objects: `files` (the
+part's directory listing -- no `tables/`, `src/` or `catalog/`), `reposrc_bytes`
+(the empty `reposrc.jsonl`), the part's `manifest.json` and one `objects.jsonl`
+row. Object names, connection, schema and author are synthetic; keys, nesting,
+value types and the zero counts are as recorded. The fake's W3MI-only part is
+held to it (`test/osd-hana-contract.mjs`).
+
 `fields.json` lists every key a probe document may carry. Keys marked `"recorded"`
 appear in a recording above. Keys marked `"source"` were NOT produced by a recording
 (they need a login that owns the schema, an administrator, the system database, or a
