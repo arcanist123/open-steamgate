@@ -472,7 +472,7 @@ export function stubBodies(source, findings, filename = "zcl_stub.clas.abap", re
 
 // the one rewrite pass: cut every stub's body (header's closing dot to the
 // ENDMETHOD), back to front, the stub raise indented like the ENDMETHOD
-const applyStubs = (source, stubs) => {
+export const applyStubs = (source, stubs) => {
   const lines = source.split("\n");
   let out = source;
   for (const stub of [...stubs].sort((a, b) => offsetAt(source, b.headerEnd) - offsetAt(source, a.headerEnd))) {

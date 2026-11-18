@@ -357,6 +357,13 @@ export function mountChannels(server, channels, options = {}) {
   }
   const byPath = new Map(channels.map((c) => [c.path, c]));
   server.on("upgrade", (req, socket, head) => {
+    // a host may refuse an upgrade before any ABAP runs (hana-serve: another
+    // client, a guard that is not intact): {status, text} or undefined
+    const refused = options.admit?.(req);
+    if (refused !== undefined) {
+      socket.end(`HTTP/1.1 ${refused.status} ${refused.reason ?? "Refused"}\r\nContent-Type: text/plain\r\n\r\n${refused.text ?? ""}`);
+      return;
+    }
     const path = req.url.split("?")[0].replace(/\/+$/, "");
     const channel = byPath.get(path);
     if (channel === undefined) {

@@ -4,7 +4,8 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync}
 import {fileURLToPath} from "node:url";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {tenantServices} from "../tools/hana-serve-icf.mjs";
+import {tenantChannels, tenantServices} from "../tools/hana-serve-icf.mjs";
+import {cutMembers, OVERLAY, writeOverlay, clearOverlay} from "../tools/hana-serve-cut.mjs";
 import {cut, islandObjects, identifiers} from "../tools/hana-serve-scope.mjs";
 import {excludedObjectFiles, serveScopeUnreachedTables} from "../tools/hana-closure-exclusions.mjs";
 import {fragments, joinFragments, mimeBytes, mimeCluster, parseCluster, SAPClusterError} from "../tools/protocols/sap-cluster.mjs";
@@ -76,6 +77,109 @@ describe("hana-serve-icf: the tenant's ICF tree as routes", () => {
     const {services} = tenantServices({ICFSERVICE: [node("ZB3A", g(2), g(1)), node("ZB3B", g(1), g(2))],
       ICFHANDLER: [handler("ZB3A", g(2), "ZCL_B3_A")]});
     expect(services).to.deep.equal([]);
+  });
+});
+
+describe("hana-serve-icf: the tenant's APC applications as push channels", () => {
+  const row = (id, path, cls, extra = {}) => ({APPLICATION_ID: id, VERSION: "A", PATH: path, CLASS_NAME: cls, STATEFUL: "", CONNECTION_TYPE: "", ...extra});
+
+  it("makes a channel of each active websocket row, path lower case, longest first", () => {
+    const {channels, counts} = tenantChannels([
+      row("ZB3_APC", "/sap/bc/apc/sap/zb3", "ZCL_B3_APC", {STATEFUL: "X"}),
+      row("ZB3_LONG", "/SAP/BC/APC/SAP/ZB3_LONGER/", "zcl_b3_long"),
+      row("ZB3_TCP", "/sap/bc/apc/sap/zb3_tcp", "ZCL_B3_TCP", {CONNECTION_TYPE: "T"}),
+      row("ZB3_OLD", "/sap/bc/apc/sap/zb3_old", "ZCL_B3_OLD", {VERSION: "I"}),
+      row("ZB3_NOCLASS", "/sap/bc/apc/sap/zb3_none", ""),
+    ]);
+    expect(channels).to.deep.equal([
+      {path: "/sap/bc/apc/sap/zb3_longer", name: "ZB3_LONG", handler: "ZCL_B3_LONG", stateful: false, websocket: true, source: "tenant APC_APPL"},
+      {path: "/sap/bc/apc/sap/zb3", name: "ZB3_APC", handler: "ZCL_B3_APC", stateful: true, websocket: true, source: "tenant APC_APPL"},
+    ]);
+    expect(counts).to.deep.equal({rows: 5, active: 4, websocket: 3});
+  });
+
+  it("reads lower-case column names", () => {
+    const {channels} = tenantChannels([{application_id: "ZB3", version: "A", path: "/sap/bc/apc/sap/zb3", class_name: "ZCL_B3", stateful: "X", connection_type: ""}]);
+    expect(channels.map((c) => [c.path, c.handler, c.stateful])).to.deep.equal([["/sap/bc/apc/sap/zb3", "ZCL_B3", true]]);
+  });
+});
+
+describe("hana-serve-cut: members typed by a package the route does not run", () => {
+  const source = [
+    "CLASS zcl_b3_apc DEFINITION PUBLIC.",
+    "  PUBLIC SECTION.",
+    "    METHODS play.",
+    "    METHODS think.",
+    "    METHODS forget.",
+    "  PRIVATE SECTION.",
+    "    DATA mo_kept TYPE REF TO zcl_b3_kept.",
+    "    DATA mo_llm  TYPE REF TO zif_b3_llm.",
+    "    CLASS-DATA go_reg TYPE REF TO zcl_b3_registry.",
+    "ENDCLASS.",
+    "CLASS zcl_b3_apc IMPLEMENTATION.",
+    "  METHOD play.",
+    "    IF mo_kept IS BOUND.",
+    "      mo_kept->log( ).",
+    "    ENDIF.",
+    "  ENDMETHOD.",
+    "  METHOD think.",
+    "    mo_llm = zcl_b3_llm=>new( ).",
+    "    mo_llm->ask( ).",
+    "  ENDMETHOD.",
+    "  METHOD forget.",
+    "    CLEAR: mo_llm, go_reg.",
+    "    IF go_reg IS NOT BOUND.",
+    "      RETURN.",
+    "    ENDIF.",
+    "    go_reg->drop( ).",
+    "  ENDMETHOD.",
+    "ENDCLASS.",
+    ""].join("\n");
+
+  it("retypes the attributes to REF TO object and stubs the methods that call into the package, loudly", () => {
+    const done = cutMembers(source, "zcl_b3_apc.clas.abap", ["ZIF_B3_LLM", "ZCL_B3_LLM", "ZCL_B3_REGISTRY"]);
+    expect(done.attributes).to.deep.equal([{name: "MO_LLM", type: "ZIF_B3_LLM"}, {name: "GO_REG", type: "ZCL_B3_REGISTRY"}]);
+    expect(done.stubbed).to.deep.equal([{method: "THINK", missing: ["ZCL_B3_LLM", "ZIF_B3_LLM"]}, {method: "FORGET", missing: ["ZCL_B3_REGISTRY"]}]);
+    expect(done.source).to.include("DATA mo_llm  TYPE REF TO object.").and.include("CLASS-DATA go_reg TYPE REF TO object.")
+      .and.include("DATA mo_kept TYPE REF TO zcl_b3_kept.").and.include("mo_kept->log( ).")
+      .and.include("RAISE EXCEPTION TYPE zcx_osd_not_activated EXPORTING missing = 'ZCL_B3_LLM, ZIF_B3_LLM'.")
+      .and.not.include("zcl_b3_llm=>new");
+  });
+
+  it("refuses a definition that names the package any other way, by name", () => {
+    const typed = source.replace("    METHODS forget.", "    METHODS forget IMPORTING io TYPE REF TO zcl_b3_registry.");
+    expect(() => cutMembers(typed, "zcl_b3_apc.clas.abap", ["ZCL_B3_REGISTRY"])).to.throw(/zcl_b3_apc\.clas\.abap:5: MethodDef names ZCL_B3_REGISTRY/);
+  });
+
+  it("keeps an object of the package another root keeps, cuts the rest, and writes the overlay as the island's last layer", () => {
+    const root = mkdtempSync(join(tmpdir(), "hana-serve-cut-"));
+    try {
+      const put = (path, text) => {
+        mkdirSync(join(root, path, ".."), {recursive: true});
+        writeFileSync(join(root, path), text);
+      };
+      put("gen/hana-src/manifest.json", JSON.stringify({layers: [{name: "b3-app", package: "$ZB3", order: 1}, {name: "b3-llm", package: "$ZB3_LLM", order: 2}]}));
+      put("gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.abap", source);
+      put("gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.xml", "<x/>");
+      for (const name of ["zcl_b3_kept", "zcl_b3_llm", "zcl_b3_registry", "zcl_b3_deep"]) {
+        put(`gen/hana-src/002-b3-llm/src/${name}.clas.abap`, `CLASS ${name} DEFINITION.\nENDCLASS.\n`);
+      }
+      put("gen/hana-src/002-b3-llm/src/zif_b3_llm.intf.abap", "INTERFACE zif_b3_llm.\n  DATA d TYPE REF TO zcl_b3_deep.\nENDINTERFACE.\n");
+      const read = (f) => readText(root, f);
+      const packageOf = (o) => ({"001-b3-app": "$ZB3", "002-b3-llm": "$ZB3_LLM"})[o.files[0].split("/")[2]];
+      const result = cut(islandObjects(root), ["ZCL_B3_APC", "ZCL_B3_KEPT"], read, {cutPackages: ["$zb3_llm"], packageOf});
+      expect(result.kept).to.deep.equal(["CLAS ZCL_B3_APC", "CLAS ZCL_B3_KEPT"]);
+      expect(result.memberCuts.map((m) => [m.object, m.gone])).to.deep.equal([["CLAS ZCL_B3_APC", ["ZCL_B3_LLM", "ZCL_B3_REGISTRY", "ZIF_B3_LLM"]]]);
+      const record = writeOverlay(root, result.memberCuts, read);
+      expect(record[0].files).to.deep.equal([`${OVERLAY}/src/zcl_b3_apc.clas.abap`, `${OVERLAY}/src/zcl_b3_apc.clas.xml`]);
+      expect(readText(root, `${OVERLAY}/src/zcl_b3_apc.clas.abap`)).to.include("zcx_osd_not_activated");
+      // the overlay is output, never input: a second cut reads the closure's layers only
+      expect(islandObjects(root).find((o) => o.key === "CLAS ZCL_B3_APC").files).to.deep.equal(["gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.abap", "gen/hana-src/001-b3-app/src/zcl_b3_apc.clas.xml"]);
+      clearOverlay(root);
+      expect(islandObjects(root).length).to.equal(6);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
   });
 });
 
