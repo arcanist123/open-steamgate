@@ -133,7 +133,10 @@ export const serveScopeFile = (root) =>
 export function serveScopeLeftOut(root, file = serveScopeFile(root)) {
   if (existsSync(file) === false) return [];
   const parsed = JSON.parse(readFileSync(file, "utf8"));
-  return Array.isArray(parsed?.leftOut) ? parsed.leftOut.filter((e) => Array.isArray(e?.files)) : [];
+  if (Array.isArray(parsed?.leftOut) === false || parsed.leftOut.some((e) => Array.isArray(e?.files) === false)) {
+    throw new Error(`${file}: not a serve-scope record (no leftOut list of {object, files}); rerun tools/hana-serve-scope.mjs or --clear it`);
+  }
+  return parsed.leftOut;
 }
 
 /** the island tables the serve scope does not reach: out of the shadow
@@ -141,7 +144,9 @@ export function serveScopeLeftOut(root, file = serveScopeFile(root)) {
 export function serveScopeUnreachedTables(root, file = serveScopeFile(root)) {
   if (existsSync(file) === false) return [];
   const parsed = JSON.parse(readFileSync(file, "utf8"));
-  return Array.isArray(parsed?.unreachedTables) ? parsed.unreachedTables.map((t) => String(t).toUpperCase()) : [];
+  if (parsed?.unreachedTables === undefined) return [];
+  if (Array.isArray(parsed.unreachedTables) === false) throw new Error(`${file}: unreachedTables is not a list; rerun tools/hana-serve-scope.mjs or --clear it`);
+  return parsed.unreachedTables.map((t) => String(t).toUpperCase());
 }
 
 /** every file of each excluded object, for the build's exclude_filter. */

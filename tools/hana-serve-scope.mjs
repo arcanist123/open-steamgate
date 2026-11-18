@@ -15,13 +15,24 @@
 //
 //   - the roots are named, never guessed (`--root`, repeatable): a handler
 //     class, a class a check calls. Nothing here knows an application.
+//     The registrations the island carries as files are roots by
+//     themselves: the handler of every *.sicf.xml and the classes of every
+//     *.iwsv.xml / *.iwmo.xml under gen/hana-src and gen/hana-segw (a
+//     tenant's ICF rows are not files, so a handler served from those rows
+//     is named with --root). A push channel's class (*.sapc.xml) is not a
+//     root -- its closure is often what the cut is for -- and is said when
+//     it is cut.
 //   - an object is kept when a kept object's source names it: every
 //     identifier of its .abap files, comment lines (`*` in column 1) left
 //     out, against the names of the island's code objects (CLAS, INTF,
-//     PROG, FUGR and the function modules its XML lists). Coarse on
-//     purpose: a name in a string or a trailing comment keeps its object,
-//     so the cut can keep too much and never cuts what a body calls by a
-//     literal name.
+//     PROG, FUGR and the function modules its XML lists), and a domain's
+//     conversion exit (CONVEXIT -> CONVERSION_EXIT_<x>_INPUT/OUTPUT).
+//     LITERAL NAMES ONLY: a name in a string or a trailing comment keeps
+//     its object, so the cut keeps too much rather than too little for
+//     what is written out, but a name built at run time -- CALL METHOD
+//     (name), CREATE OBJECT ... TYPE (name), CALL FUNCTION lv_name -- is
+//     not seen. Such a target needs its own --root; every kept object that
+//     makes a dynamic call is listed when the record is written.
 //   - only code under gen/hana-src is cut. The dictionary stays in the
 //     build (a type nobody uses costs nothing), but a table no kept object
 //     reaches (through the code, or a table's or data element's XML) leaves
@@ -96,14 +107,58 @@ export function islandObjects(root) {
   return [...objects.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
 
-/** the identifiers of an ABAP source, comment lines left out */
+/** the identifiers of an ABAP source, comment lines left out; in a
+ *  domain's XML its conversion exit's two function modules besides */
 export function identifiers(source) {
   const out = new Set();
   for (const line of String(source).split(/\r?\n/)) {
     if (line.startsWith("*")) continue;
     for (const m of line.matchAll(/[A-Za-z0-9_/]+/g)) out.add(m[0].toUpperCase());
   }
+  for (const m of String(source).matchAll(/<CONVEXIT>([A-Za-z0-9_]+)<\/CONVEXIT>/g)) {
+    for (const way of ["INPUT", "OUTPUT"]) out.add(`CONVERSION_EXIT_${m[1].toUpperCase()}_${way}`);
+  }
   return out;
+}
+
+// a call whose target is computed at run time: the cut cannot follow it
+const DYNAMIC = /\bCALL\s+(?:METHOD\s+\(|METHOD\s+\S+(?:=>|->)\(|FUNCTION\s+(?!')[A-Za-z_])|\bCREATE\s+(?:OBJECT\s+\S+\s+TYPE|DATA\s+\S+\s+TYPE(?:\s+REF\s+TO)?)\s+\(|\bNEW\s+\(|(?:=>|->)\(|\bSUBMIT\s+\(/i;
+
+/** the kept code objects that make a dynamic call, [{object, file, line}] */
+export function dynamicCalls(objects, keptKeys, read) {
+  const kept = new Set(keptKeys);
+  const out = [];
+  for (const one of objects.filter((o) => kept.has(o.key) && CODE.has(o.kind.toLowerCase()))) {
+    for (const file of one.files.filter((f) => f.endsWith(".abap"))) {
+      const lines = read(file).split(/\r?\n/);
+      const at = lines.findIndex((l) => l.startsWith("*") === false && DYNAMIC.test(l.replace(/".*$/, "")));
+      if (at >= 0) {
+        out.push({object: one.key, file, line: at + 1});
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** the registrations the island carries as files: {roots, channels} --
+ *  roots the handler of every *.sicf.xml and the class of every *.iwsv.xml
+ *  and *.iwmo.xml, channels the class of every *.sapc.xml */
+export function registrations(root) {
+  const roots = new Set();
+  const channels = new Set();
+  for (const dir of [ISLAND, join("gen", "hana-segw")]) {
+    for (const path of walk(join(root, dir), [])) {
+      const name = path.split(sep).pop();
+      if (/\.(sicf|iwsv|iwmo|sapc)\.xml$/i.test(name) === false) continue;
+      const xml = readFileSync(path, "utf8");
+      const tag = /\.sicf\.xml$/i.test(name) ? "ICFHANDLER" : "CLASS_NAME";
+      for (const m of xml.matchAll(new RegExp(`<${tag}>([A-Za-z0-9_/]+)</${tag}>`, "g"))) {
+        (/\.sapc\.xml$/i.test(name) ? channels : roots).add(m[1].toUpperCase());
+      }
+    }
+  }
+  return {roots: [...roots].sort(), channels: [...channels].sort()};
 }
 
 /** kept and left out, from the roots. `objects` is islandObjects(root);
@@ -180,17 +235,26 @@ if (runsAs("hana-serve-scope.mjs")) {
       console.log(record === undefined ? "hana-serve-scope: no serve scope: the whole island is built"
         : `hana-serve-scope: roots ${record.roots.join(", ")}; ${record.kept.length} kept, ${record.leftOut.length} left out`);
     } else {
-      const roots = argv.flatMap((a, i) => (a === "--root" ? [argv[i + 1]] : []));
-      if (roots.length === 0 || roots.includes(undefined)) throw new Error("usage: hana-serve-scope --root <OBJECT> [--root <OBJECT>]... | --show | --clear");
-      const result = cut(islandObjects(root), roots, (f) => readFileSync(join(root, f), "utf8"));
+      const named = argv.flatMap((a, i) => (a === "--root" ? [argv[i + 1]] : []));
+      if (named.length === 0 || named.includes(undefined)) throw new Error("usage: hana-serve-scope --root <OBJECT> [--root <OBJECT>]... | --show | --clear");
+      // a build the scope would be written for and that runs a pack's copy
+      // of the island: refused before anything is written
+      const hiding = await packsHidingTenant(root);
+      if (hiding.length > 0) throw new Error(`hana-serve-scope: ${describeHiding(hiding)}`);
+      const objects = islandObjects(root);
+      const read = (f) => readFileSync(join(root, f), "utf8");
+      const known = new Set(objects.flatMap((o) => o.names));
+      const registered = registrations(root);
+      const automatic = registered.roots.filter((r) => known.has(r));
+      const result = cut(objects, [...new Set([...named.map((r) => String(r).replace(/#/g, "/").toUpperCase()), ...automatic])], read);
+      result.automaticRoots = automatic;
+      result.dynamicCalls = dynamicCalls(objects, result.kept, read);
       mkdirSync(dirname(file), {recursive: true});
       writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
-      console.log(`hana-serve-scope: roots ${result.roots.join(", ")}: ${result.kept.length} object(s) kept, ${result.leftOut.length} code object(s) left out of the build, ${result.unreachedTables.length} table(s) out of the shadow schema's eager set -> ${slash(relative(root, file))}`);
-      const hiding = await packsHidingTenant(root);
-      if (hiding.length > 0) {
-        console.error(`hana-serve-scope: ${describeHiding(hiding)}`);
-        process.exit(1);
-      }
+      console.log(`hana-serve-scope: roots ${result.roots.join(", ")}${automatic.length > 0 ? ` (${automatic.length} from the island's registrations)` : ""}: ${result.kept.length} object(s) kept, ${result.leftOut.length} code object(s) left out of the build, ${result.unreachedTables.length} table(s) out of the shadow schema's eager set -> ${slash(relative(root, file))}`);
+      const cut0 = new Set(result.leftOut.map((e) => e.object.replace(/^\S+ /, "")));
+      for (const channel of registered.channels.filter((c) => cut0.has(c))) console.log(`hana-serve-scope: the push channel class ${channel} is cut (name it with --root to keep it)`);
+      for (const d of result.dynamicCalls) console.log(`hana-serve-scope: ${d.object} calls by a name computed at run time (${d.file}:${d.line}): its target is not followed -- name it with --root`);
     }
   } catch (e) {
     console.error(e?.message ?? e);

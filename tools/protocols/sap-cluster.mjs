@@ -38,7 +38,8 @@ const KIND = {1: "elementary", 2: "structure", 3: "table"};
 
 /** the fragments of one cluster key joined back into one stream: sorted by
  *  SRTF2, each trimmed to the CLUSTR its row declares (the database pads
- *  every row to the column). A gap or a repeat is refused. `rows` are
+ *  every row to the column). A gap or a repeat is refused, and so is a
+ *  CLUSTR that is not a whole number between 1 and the row's own bytes. `rows` are
  *  {srtf2, clustr, clustd}, clustd a Buffer or hex text. */
 export function joinFragments(rows) {
   if (rows.length === 0) throw new SAPClusterError("no fragments");
@@ -47,7 +48,13 @@ export function joinFragments(rows) {
   sorted.forEach((f, i) => {
     if (f.seq !== i) throw new SAPClusterError(`fragment ${i} is ${sorted.some((g) => g.seq === i) ? "repeated" : "missing"}`);
   });
-  return Buffer.concat(sorted.map((f) => f.data.subarray(0, f.length > 0 && f.length <= f.data.length ? f.length : f.data.length)));
+  for (const f of sorted) {
+    // a length the row cannot hold is a broken row, never "the whole column"
+    if (Number.isInteger(f.length) === false || f.length <= 0 || f.length > f.data.length) {
+      throw new SAPClusterError(`fragment ${f.seq}: CLUSTR ${f.length} does not fit its ${f.data.length} byte(s) of CLUSTD`);
+    }
+  }
+  return Buffer.concat(sorted.map((f) => f.data.subarray(0, f.length)));
 }
 
 function asBytes(value) {
