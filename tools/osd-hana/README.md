@@ -180,7 +180,18 @@ clone, diff and deploy:
    the object is left out, listed as `skipped: unknown-class`, and the run
    says the sidecar may be newer than this module. `--package`, `--name`
    (repeatable) and `--author` narrow the selection; the request they build
-   for `list` is schema-1 JSON the sidecar validates field by field.
+   for `list` is schema-1 JSON the sidecar validates field by field. The
+   sidecar's `local` field ADDS local objects to what `packages`/`names`
+   select, so with `--package` or `--name` the request carries `local` only
+   for `--author` -- never the default `{all: true}` (measured: beside
+   `$ZORK%` it listed every local object of the system). `*` in a pattern is
+   sent as `%`; patterns are SQL `LIKE`, so `_` is any one character
+   (measured: `$ZOR__00` selects `$ZORK_00`). A `$` package a pattern
+   matches is selected even with `--no-local`. `--author` adds that
+   author's local objects from every package and then keeps only that
+   author's rows, so beside `--package` it widens the pattern rather than
+   narrowing it -- the VS Code command offers no author action once a
+   package pattern is set.
    SAP-delivered objects are extracted only with `--include-sap` together
    with an explicit `--package` or `--name` — then the output directory AND
    the dump directory must not sit inside a git working tree (extract

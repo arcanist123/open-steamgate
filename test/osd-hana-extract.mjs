@@ -265,6 +265,35 @@ describe("osd hana extract", function () {
     expect(requestOf(out).local).to.deep.equal({authors: ["DEVUSER"]});
   });
 
+  it("--package / --name narrow: the request never carries local:{all:true} beside a selection (mutation: the default local scope added to the patterns again -- measured: every local object of the system listed)", async function () {
+    let out = await fresh("narrow-pkg");
+    await runExtract(["--out", out, "--dry-run", "--package", "$OSD_X%"]);
+    expect(requestOf(out).packages).to.deep.equal(["$OSD_X%"]);
+    expect(requestOf(out).local).to.equal(undefined);
+
+    out = await fresh("narrow-name");
+    await runExtract(["--out", out, "--dry-run", "--name", "ZCL_OSD_%"]);
+    expect(requestOf(out).names).to.deep.equal(["ZCL_OSD_%"]);
+    expect(requestOf(out).local).to.equal(undefined);
+
+    // asked for by name, the author's local objects stay in the request
+    out = await fresh("narrow-pkg-author");
+    await runExtract(["--out", out, "--dry-run", "--package", "$OSD_X%", "--author", "DEVUSER"]);
+    expect(requestOf(out).local).to.deep.equal({authors: ["DEVUSER"]});
+
+    // no selection: the default scope is unchanged
+    out = await fresh("narrow-none");
+    await runExtract(["--out", out, "--dry-run"]);
+    expect(requestOf(out).local).to.deep.equal({all: true});
+  });
+
+  it("* is the wildcard alias of %: sent as % in --package and --name (mutation: * passed through -- the sidecar matched nothing)", async function () {
+    const out = await fresh("star");
+    await runExtract(["--out", out, "--dry-run", "--package", "$OSD_X*", "--name", "ZCL_*"]);
+    expect(requestOf(out).packages).to.deep.equal(["$OSD_X%"]);
+    expect(requestOf(out).names).to.deep.equal(["ZCL_%"]);
+  });
+
   it("scope: customer objects only by the sidecar's class; --include-sap without --package/--name is refused; SAP content in a git tree is refused (exit 4)", async function () {
     const out = await fresh("scope");
     const r = await runExtract(["--out", out, "--dry-run", "--json"]);
@@ -1020,6 +1049,10 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     const aggregate = JSON.parse(readFileSync(join(dumpDir, "manifest.json"), "utf8"));
     expect(aggregate.sidecar.parts.length).to.equal(3);
     expect(aggregate.sidecar.errors).to.deep.equal([]);
+    // every source is read from the part that delivered it (mutation: a
+    // part's `file` resolved against the aggregate dump directory -- every
+    // source of a chunked dump "not readable")
+    expect(reportOf(out).errors).to.deep.equal([]);
     // the repository is complete across the parts
     expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
     expect(existsSync(join(out, "src/osd_x/zddl_xb.ddls.asddls"))).to.equal(true);
@@ -1029,6 +1062,50 @@ describe("osd hana extract -- fix round 2 (CRITIC round 2)", function () {
     expect(r2.code).to.equal(3);
     expect(dumpRequests(from2).length).to.equal(0);
     expect(reportOf(out).dump_reused).to.equal(true);
+  });
+
+  it("a dump part with no tables/ folder (a chunk of only W3MI objects, the real v2.62.1 shape) is 'no rows', not an internal error (mutation: TADIR.jsonl demanded of every part again -> exit 6)", async function () {
+    // measured 2026-11-18: 1 513 objects in four chunks of 500; the fourth
+    // held only W3MI, its part came back without tables/, src/, catalog/, and
+    // the converter stopped with ENOENT on tables/TADIR.jsonl (exit 6)
+    const mime = (name) => ({type: "W3MI", name, package: "$OSD_X", author: "DEVUSER", class: "customer", status: "skipped", reason: "unsupported"});
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).concat([mime("ZOSD_STORY.Z3"), mime("ZOSD_STORY.TXT")]));
+    });
+    const out = await fresh("tableless-part");
+    const from = recordLines().length;
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump, chunk: 14});
+    const reqs = dumpRequests(from);
+    expect(reqs.length).to.equal(2);
+    expect(Object.keys(reqs[1].requested)).to.deep.equal(["W3MI"]);
+    const part2 = join(out, ".osd-hana", "dump", "part-00002");
+    expect(existsSync(join(part2, "tables")), "the fake gives the real part's shape").to.equal(false);
+    expect(r.lines.err.join("\n")).to.not.match(/ENOENT|internal error/);
+    expect(r.code, "partial (unsupported rows), never internal").to.equal(3);
+    const rep = reportOf(out);
+    expect(rep.errors).to.deep.equal([]);
+    expect(rep.objects.filter((o) => o.type === "W3MI").map((o) => o.status)).to.deep.equal(["unsupported", "unsupported"]);
+    expect(rep.objects.find((o) => o.name === "ZCL_OSD_X1").status).to.equal("written");
+    expect(existsSync(join(out, "src/osd_x/zcl_osd_x1.clas.abap"))).to.equal(true);
+  });
+
+  it("a part without tables/ whose manifest does not say zero TADIR rows is still refused (mutation: every missing tables/ accepted)", async function () {
+    const mime = (name) => ({type: "W3MI", name, package: "$OSD_X", author: "DEVUSER", class: "customer", status: "skipped", reason: "unsupported"});
+    const fx = variant((list, dump) => {
+      for (const dir of [list, dump]) writeObjects(dir, objectsRows(dir).concat([mime("ZOSD_STORY.Z3")]));
+    });
+    const out = await fresh("tableless-unexplained");
+    expect((await runExtract(["--out", out], {list: fx.list, dump: fx.dump, chunk: 14})).code).to.equal(3);
+    // the same part, its manifest no longer saying it read zero TADIR rows: a
+    // part that lost its tables/ for an unknown reason, not the measured shape
+    const mp = join(out, ".osd-hana", "dump", "part-00002", "manifest.json");
+    const m = JSON.parse(readFileSync(mp, "utf8"));
+    delete m.counts.rows_TADIR;
+    writeFileSync(mp, JSON.stringify(m));
+    const r = await runExtract(["--out", out], {list: fx.list, dump: fx.dump, chunk: 14});
+    expect(reportOf(out).dump_reused).to.equal(true);
+    expect(r.code).to.equal(6);
+    expect(r.lines.err.join("\n")).to.match(/no tables\/ folder and its manifest does not say it read zero TADIR rows/);
   });
 
   it("M-3: the sidecar's own errors are ledger lines and exit 3, never 'all written' (mutation: partial treated as done, errors dropped)", async function () {
