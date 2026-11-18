@@ -127,7 +127,7 @@ node tools/hana-serve-scope.mjs --root <HTTP_HANDLER> [--root ...]
 ( set -a; . <env file>; set +a
   STG_DB=hana HANA_EXISTING_SCHEMA=1 OSD_CLIENT=<client> OSD_WEB_PACKS=none \
   OSD_SQL_TRACE=1 node tools/hana-serve.mjs --port <port> \
-    --icf --w3mi --w3mi-check <OBJID> --stub-trace <file> )
+    --icf --w3mi --w3mi-check <OBJID> [--apc] --stub-trace <file> )
 curl -s http://127.0.0.1:<port>/<the node's path>/
 node tools/hana-serve.mjs --check-trace <trace>   # nothing but reads was sent
 ```
@@ -145,6 +145,12 @@ first time they are read:
 ```sql
 CREATE SYNONYM "<OWN_SCHEMA>"."WWWPARAMS" FOR "<TENANT_SCHEMA>"."WWWPARAMS"
 CREATE SYNONYM "<OWN_SCHEMA>"."WWWDATA" FOR "<TENANT_SCHEMA>"."WWWDATA"
+```
+
+With `--apc`, one more, the same way (`APC_APPL` is client-independent):
+
+```sql
+CREATE SYNONYM "<OWN_SCHEMA>"."APC_APPL" FOR "<TENANT_SCHEMA>"."APC_APPL"
 ```
 
 ## Measured on the bed (2026-11-18)
@@ -165,7 +171,96 @@ of the eager set. Then:
 - `--check-trace`: the positive control on both channels, no write; the
   only DDL the two synonyms above.
 
-The page then opens a websocket to the push channel, and that is not served
-yet: the channel's class keeps its sessions with `EXPORT`/`IMPORT ... TO
-SHARED MEMORY`, which the pinned transpiler turns into a throw (ANORMALIES,
-`ANOMALY-2026-11-18-export-import-shared-memory`). That is stage 2.
+The page then opens a websocket to the push channel; that is the next part.
+
+## APC: the push channel
+
+`--apc` serves the tenant's push channels. They are rows of `APC_APPL` --
+one per application: its `PATH` (the URL a page opens the websocket on),
+its `CLASS_NAME`, `STATEFUL` -- the fields a `*.sapc.xml` carries, so a row
+becomes the channel `tools/osd-apc.mjs` `mountChannels` takes
+(`tenantChannels` in `tools/hana-serve-icf.mjs`). Only the active version
+and only websocket applications (`CONNECTION_TYPE` blank; `T` is plain TCP)
+are channels, the path matched lower case, and only when the class is in
+the generation, like a node's handler.
+
+- The channel is mounted on the same loopback listener. Every event
+  (`on_start`, each message, `on_close`) is a dialog step of its own
+  (`tools/osd-dialog-step.mjs`): it takes the one work process, commits or
+  rolls back at its end, and runs on the same read-only connection, so a
+  write is refused there and shows in the trace like an HTTP request's.
+- An upgrade from another `sap-client`, or to a host whose guard is no
+  longer intact, is refused before any ABAP runs (`admit` in
+  `mountChannels`).
+
+Two transpiler gaps stood between Zork's channel class and a socket; both
+are fixed in the pin (`local/osd-build-4l`), neither is upstream yet:
+`EXPORT`/`IMPORT ... SHARED MEMORY` / `SHARED BUFFER`, which the class uses
+to count its connections (ANORMALIES
+`ANOMALY-2026-11-18-export-import-shared-memory`, test
+`test/unit/zcl_osd_shared_memory_test`), and `TYPE decfloat16`, in its
+session expiry check (`ANOMALY-2026-11-18-decfloat16-type-todo`).
+
+### Members typed by a library the route does not run
+
+The same class also drives an AI player: attributes typed by an LLM
+library, methods that call into it. Kept as a root, it keeps the whole
+library and its closure, and that is where the build breaks.
+`--cut-members-typed-by <PACKAGE>` (repeatable) on the scope stops the walk
+at that package (`tools/hana-serve-cut.mjs`):
+
+- a name a kept object outside the package gives to an object inside it is
+  not followed; the object stays only when something else keeps it (a root,
+  or a kept object of that package);
+- in the kept class, an attribute `TYPE REF TO <left-out object>` becomes
+  `TYPE REF TO object` (CLEAR, IS BOUND and IS INITIAL still mean what they
+  meant), and a method whose body names a left-out object, or calls through
+  such an attribute, gets the closure's stub body: `RAISE EXCEPTION TYPE
+  zcx_osd_not_activated` with the missing names. Loud: the raise names what
+  is missing and the host's stub trace records it;
+- anything else in a definition that names a left-out object (a parameter,
+  a type, `INHERITING FROM`) is refused by name;
+- the rewritten classes go into one more island folder,
+  `gen/hana-src/999-serve-scope`, which sorts after every closure layer and
+  so wins the name (`node tools/osd-inputs.mjs` lists the override); the
+  closure's layers stay as the walk wrote them, and `--clear` removes the
+  overlay with the record.
+
+```sh
+node tools/hana-serve-scope.mjs --root <HTTP_HANDLER> --root <APC_CLASS> \
+  [--root <A_CLASS_OF_THE_LIBRARY_THE_ROUTE_DOES_RUN>] \
+  --cut-members-typed-by <PACKAGE> [--cut-members-typed-by <PACKAGE>]
+```
+
+The identifier walk is coarse on purpose and keeps an object a string
+literal or a trailing comment names. When that object's package is not one
+the route runs, naming the package is how it goes.
+
+### Measured on the bed (2026-11-18)
+
+Roots: the HTTP handler, the Z-machine, the SMW0 loader, the channel class
+and the game tracker the channel keeps in play (the one class of the LLM
+library that play mode calls; it keeps four more of its package); the LLM package and the package of an error
+class the channel names only in a literal cut: 28 objects kept, 96 left
+out; in the channel class 4 attributes retyped and 4 methods stubbed (the
+AI framework, its steps and turns, and the save of an AI session).
+
+- Boot with `--icf --w3mi --apc`: 64 rows in `APC_APPL`, 59 active
+  websocket ones, 1 with its class in the generation, mounted at its path.
+- Headless Chromium on `http://127.0.0.1:<port>/sap/bc/zork/`: the page's
+  websocket connects, the banner and the session line arrive (the
+  connection count read back out of `SHARED MEMORY`), and the game plays:
+  `look`, `open mailbox` ("Opening the small mailbox reveals a leaflet."),
+  `read leaflet`, `go north`.
+- `--check-trace`: the positive control on both channels, 0 writes; the
+  only DDL of the stage the `APC_APPL` synonym above, on the first boot.
+- Known: closing the page runs `on_close`, which saves the AI session
+  first -- a stubbed method -- so it raises (logged, and in the stub trace)
+  before it unregisters the connection, and the count in the banner keeps
+  connections that are gone until the class's own expiry drops them.
+
+![The banner after the websocket connects](img/hana-serve/zork-01-connected.png)
+![look: West of House](img/hana-serve/zork-02-look.png)
+![open mailbox](img/hana-serve/zork-03-open-mailbox.png)
+![read leaflet](img/hana-serve/zork-04-read-leaflet.png)
+![go north: Zork played over HANA](img/hana-serve/zork-over-hana.png)
