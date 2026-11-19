@@ -146,6 +146,42 @@ export async function readTenantServices(db, {tenantSchema, ...options} = {}) {
   return {...result, activationError};
 }
 
+// APC. The tenant's push channels are rows of APC_APPL -- one per
+// application, its PATH (the URL the page opens the websocket on), its
+// CLASS_NAME and whether it is STATEFUL -- the fields a *.sapc.xml carries
+// and tools/osd-icf.mjs channelOf reads, so a row becomes the channel shape
+// tools/osd-apc.mjs mountChannels takes. Only the active version and only
+// websocket applications (CONNECTION_TYPE blank; T is plain TCP, which this
+// host does not speak) are channels; the path is matched lower case, as the
+// ICF matches it. Mounted only when the class is in the generation, like a
+// node's handler.
+
+/** the channels of APC_APPL rows: {channels, counts} */
+export function tenantChannels(rows = []) {
+  const counts = {rows: rows.length, active: 0, websocket: 0};
+  const out = [];
+  for (const row of rows) {
+    if (up(field(row, "VERSION")) !== "A") continue;
+    counts.active += 1;
+    if (up(field(row, "CONNECTION_TYPE")) !== "") continue;
+    counts.websocket += 1;
+    const path = String(field(row, "PATH") ?? "").trim().toLowerCase().replace(/\/+$/, "");
+    const handler = up(field(row, "CLASS_NAME"));
+    if (path === "" || handler === "") continue;
+    out.push({path, name: up(field(row, "APPLICATION_ID")), handler, stateful: up(field(row, "STATEFUL")) === "X",
+      websocket: true, source: "tenant APC_APPL"});
+  }
+  return {channels: out.sort((a, b) => b.path.length - a.path.length), counts};
+}
+
+/** the tenant's APC applications, read on the ABAP's connection. APC_APPL
+ *  is client-independent: the 259 fallback makes its synonym in our own
+ *  schema the first time (tools/hana-shadow-schema.mjs) */
+export async function readTenantChannels(db) {
+  const rows = (await db.select({select: "SELECT APPLICATION_ID, VERSION, PATH, CLASS_NAME, STATEFUL, CONNECTION_TYPE FROM APC_APPL"}))?.rows ?? [];
+  return tenantChannels(rows);
+}
+
 const literal = (v) => `'${String(v).replace(/'/g, "''")}'`;
 
 /** the MI objects of the tenant's WWWPARAMS: Map objid -> {filesize} */

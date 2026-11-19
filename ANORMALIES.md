@@ -4992,16 +4992,32 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-18-export-import-shared-memory -- `EXPORT`/`IMPORT ... SHARED MEMORY` transpile to a throw
 
-- Status: `open`
+- Status: `fixed in the pin` for SHARED MEMORY and SHARED BUFFER (oisee/transpiler `local/osd-build-4l`, `8aafdd71` + `c2b0b584` on 4k); every other medium still throws. Not upstream yet
 - Discovery date: `2026-11-18`
-- Affected versions: the pinned `@abaplint/transpiler` 2.14.19 (`statements/export.ts` and `statements/import.ts` return `throw new Error("Export, transpiler todo")` / `"Import, transpiler todo"` for every form of the statement)
+- Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`statements/export.ts` and `statements/import.ts` return `throw new Error("Export, transpiler todo")` / `"Import, transpiler todo"` for every form of the statement)
 - Affected ABAP statement, runtime API or adapter: `EXPORT name = dobj TO SHARED MEMORY dbtab(ar) ID id` and `IMPORT name = dobj FROM SHARED MEMORY dbtab(ar) ID id` (every other `EXPORT`/`IMPORT` medium alike)
 - Minimal ABAP reproducer: a class with one method holding `DATA lt TYPE STANDARD TABLE OF i WITH DEFAULT KEY.`, `EXPORT tab = lt TO SHARED MEMORY indx(zk) ID 'B3'.` and `IMPORT tab = lt FROM SHARED MEMORY indx(zk) ID 'B3'.`
 - Exact command used to run it: the reproducer transpiled alone with the pinned CLI (`abap_transpile`, `ignoreSyntaxCheck`); the generated method body is the two throws. First seen on Zork's push-channel class (`zork-abap`, src/zork_02), whose session bookkeeping in `on_start` does both, rescued out of a HANA tenant (docs/hana-serve-icf.md)
 - Expected SAP behaviour: the data objects are written to / read from the application server's shared memory under the area and ID; `IMPORT` sets `sy-subrc = 4` when nothing is stored there
 - Actual open-abap behaviour: the statement compiles and the method throws a plain `Error` the moment it reaches it -- here, the first message of every push-channel connection
 - Impact on open-steamgate: rescued code that keeps state across sessions this way cannot run its push channel (Zork's APC, stage 2 of serving it over HANA); the HTTP route of stage 1 does not reach it
-- Smallest safe workaround: none taken yet -- stage 1 leaves the push-channel class out of the build through the serve scope (tools/hana-serve-scope.mjs). A runtime for the shared-memory medium (a per-process map keyed by table, area and ID, cleared with the process) is the candidate for stage 2
-- Upstream issue: needs an issue (abaplint/transpiler), as a feature request -- `main` at `a64f380e` (2026-11-18) still has both statements as the same `transpiler todo` throw, so this is an unimplemented statement, not a defect -- after a critic pass
-- Regression-test location: none yet (stage 2)
+- Smallest safe workaround: none in OSG -- fixed in the transpiler instead: the runtime keeps one store per medium for the process (the application server's shared memory), keyed by dbtab, client (`sy-mandt` unless `CLIENT` is given), area and ID; `EXPORT` stores copies and replaces the cluster, `IMPORT` of a key without a cluster sets `sy-subrc` 4. Not modelled: the ID cut to the dbtab key length, displacement of SHARED BUFFER, refusal of references in an exported value, and the type check of `IMPORT` (no `CX_SY_IMPORT_MISMATCH_ERROR`: a target of another type is set with the ordinary MOVE conversion). The store is the process's: a recycled process (a warm-compile recycle, a restart) starts with no clusters, like an application server after a restart
+- Upstream issue: needs a PR (abaplint/transpiler), a feature (`main` at `a64f380e`, 2026-11-18, still throws `transpiler todo` for both statements), branch prepared on upstream main, after a critic pass
+- Regression-test location: `test/unit/zcl_osd_shared_memory_test` (5 methods: fail with the 4k pin, pass with 4l); in the transpiler, `test/statements/export_import.ts`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-18-decfloat16-type-todo -- `TYPE decfloat16` transpiles to a constructor that does not exist
+
+- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4l`, `e9958256` + `b2998ada`): `decfloat16` runs on the runtime's `DecFloat34`. Not upstream yet
+- Discovery date: `2026-11-18`
+- Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`transpile_types.ts` maps every type it does not know to `new abap.types.typeTodo<abaplint class name>()`)
+- Affected ABAP statement, runtime API or adapter: `DATA x TYPE decfloat16` (a method local, an attribute), `CONV decfloat16( ... )`
+- Minimal ABAP reproducer: a static method holding `DATA lv TYPE decfloat16.` and `lv = 30 * 60.`, called once
+- Exact command used to run it: the transpiler's own mocha, `test/types/decfloat16.ts` (fails with `abap.types.typeTodoDecFloat16Type is not a constructor` before, passes after). First seen on Zork's push channel, whose session expiry check computes in `decfloat16` (docs/hana-serve-icf.md, "APC")
+- Expected SAP behaviour: a decimal floating point number of 16 digits
+- Actual open-abap behaviour: the method throws `TypeError` at the declaration
+- Impact on open-steamgate: rescued code with a `decfloat16` local dies at its first line; here every push-channel connection
+- Smallest safe workaround: none in OSG -- the transpiler maps the type to the runtime's `DecFloat34`, an exact decimal. Not modelled: the 16 digit rounding and the range of `decfloat16` (a value with more than 16 significant digits is kept, not rounded), and RTTI: `cl_abap_typedescr` describes such a field as a `decfloat34` (type kind, length)
+- Upstream issue: needs a PR (abaplint/transpiler), branch `decfloat16` prepared on upstream main, after a critic pass
+- Regression-test location: in the transpiler, `test/types/decfloat16.ts`; in OSG, the push channel served over HANA (docs/hana-serve-icf.md)
 - Upstream version containing a fix: unknown

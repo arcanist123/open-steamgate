@@ -228,6 +228,27 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     A follow-up on the same pin keeps PRIMARY KEY inside a longer list one
     item (critic of #954).
 
+20. **transpiler: `EXPORT`/`IMPORT` TO/FROM `SHARED MEMORY` and `SHARED
+    BUFFER`** -- `ANOMALY-2026-11-18-export-import-shared-memory`. Both
+    statements transpiled to a runtime "transpiler todo" throw for every
+    medium (upstream `main` at `a64f380e`, 2.14.33, too), so this is a
+    feature, not a defect: a per-process store per medium keyed by dbtab,
+    client, area and ID, `IMPORT` of a missing cluster `sy-subrc` 4, every
+    other medium unchanged. In the pin `local/osd-build-4l` (`8aafdd71` +
+    `c2b0b584`); upstream branch `shared-memory`, one commit on `main`
+    `a64f380e`, prepared in a local clone and not pushed. Tests
+    `test/statements/export_import.ts`; here
+    `test/unit/zcl_osd_shared_memory_test`. One small PR from a branch
+    inside abaplint/transpiler after a critic pass; the draft text is kept
+    beside the branch, not in this tree.
+
+21. **transpiler: `TYPE decfloat16`** -- `ANOMALY-2026-11-18-decfloat16-type-todo`.
+    A `decfloat16` field transpiled to `new abap.types.typeTodoDecFloat16Type()`,
+    which is not a constructor; it now runs on the runtime's `DecFloat34`.
+    In the pin (`e9958256` + `b2998ada`); upstream branch `decfloat16`, one
+    commit on `main` `a64f380e`, not pushed. Test `test/types/decfloat16.ts`.
+    Its own PR, after item 20.
+
 ## What we carry, and what we wait for
 
 *Decided 2026-09-17, after the performance work made the question real.*

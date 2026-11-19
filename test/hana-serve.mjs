@@ -639,3 +639,83 @@ function traceCli(file, extra = {}, args = []) {
     child.on("exit", (code) => resolve({code, out, err}));
   });
 }
+
+// --apc in a boot of its own: its event's write attempt is meant to be in
+// the trace, which the no-write verdict of the boot above must not see
+describe("hana-serve --apc over a fake DatabaseClient", function () {
+  this.timeout(180000);
+  let child;
+  let apcBase;
+  const apcLines = [];
+  let apcDir;
+
+  before(async function () {
+    if (!existsSync(join(output, "init.mjs")) || !existsSync(join(output, "zcl_osd_m4g_apc.clas.mjs"))) this.skip();
+    apcDir = mkdtempSync(join(tmpdir(), "hana-serve-apc-"));
+    const env = {...process.env};
+    for (const name of ["STG_DB", "STG_SQL_TRACE", "STG_DB_TRACE", "OSD_HANA_WRITE", "STG_DB_FRESH", "OSD_BIND", "STG_TABLE_PROXY", "STG_RFC_PROXY"]) delete env[name];
+    Object.assign(env, {HANA_EXISTING_SCHEMA: "1", OSD_CLIENT: "100", HANA_SCHEMA: "OSDB3TENANT", HANA_OWN_SCHEMA: "OSDB3OWN",
+      OSD_SQL_TRACE: "1", OSD_SQL_TRACE_FILE: join(apcDir, "trace.ndjson"), OSD_OUTPUT: output});
+    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs", "--apc", "--stub-trace", join(apcDir, "stub.ndjson")],
+      {cwd: root, env, stdio: ["ignore", "pipe", "pipe"]});
+    apcBase = await new Promise((resolve, reject) => {
+      const take = (chunk) => {
+        for (const line of String(chunk).split("\n")) {
+          if (line === "") continue;
+          apcLines.push(line);
+          const m = /listening on (http:\/\/\S+?)\/sap\/opu\/odata\//.exec(line);
+          if (m) resolve(m[1]);
+        }
+      };
+      child.stdout.on("data", take);
+      child.stderr.on("data", take);
+      child.on("exit", (code) => reject(new Error(`hana-serve exited ${code} before listening:\n${apcLines.join("\n")}`)));
+    });
+  });
+
+  after(async () => {
+    if (child !== undefined && child.exitCode === null) {
+      const gone = new Promise((done) => child.once("exit", done));
+      child.kill("SIGTERM");
+      await gone;
+    }
+    if (apcDir !== undefined) rmSync(apcDir, {recursive: true, force: true});
+  });
+
+  // the tenant's push channels (APC_APPL, --apc): the fixture's channel
+  // class answers, and its write is refused by the read-only database: the
+  // event dumps, the socket closes 1011, the host says the write and the
+  // stub trace has a record per event
+  it("mounts the tenant's push channel, path in any case, and closes 1011 on an event whose write is refused", async () => {
+    expect(apcLines.join("\n")).to.include("hana-serve: APC: 3 application(s) in APC_APPL, 2 active websocket one(s), 1 with a class in the generation");
+    expect(apcLines.join("\n")).to.include("hana-serve: APC /sap/bc/apc/sap/zb3apc -> ZCL_OSD_M4G_APC (stateful)");
+    const ws = new WebSocket(`${apcBase.replace(/^http/, "ws")}/sap/bc/apc/sap/Zb3Apc`);
+    const got = [];
+    const closed = new Promise((done) => { ws.onclose = (e) => done(e.code); });
+    ws.onmessage = (m) => {
+      got.push(String(m.data));
+      if (got.length === 1) ws.send("hello");
+      else if (got.length === 2) ws.send("write");
+    };
+    expect(await closed).to.equal(1011);
+    expect(got).to.deep.equal(["ready", "echo hello"]);
+    const until = Date.now() + 5000;
+    while (!apcLines.some((l) => l.includes("on_message asked for")) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    expect(apcLines.join("\n")).to.match(/hana-serve: APC \/sap\/bc\/apc\/sap\/zb3apc on_message asked for 1 write\(s\): insert INSERT \[refused: FAKE_READONLY\]/);
+    const events = readFileSync(join(apcDir, "stub.ndjson"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).filter((r) => r.channel !== undefined);
+    expect(events.map((r) => [r.event, r.outcome === "ok"])).to.deep.equal([["on_start", true], ["on_message", true], ["on_message", false]]);
+    // another client is refused before any ABAP runs
+    const other = await new Promise((done) => {
+      const refused = new WebSocket(`${apcBase.replace(/^http/, "ws")}/sap/bc/apc/sap/zb3apc?sap-client=999`);
+      refused.onopen = () => done("open");
+      refused.onerror = () => done("refused");
+    });
+    expect(other).to.equal("refused");
+  });
+
+  it("keeps the event's write attempt in the trace as a refused attempt, nothing sent", () => {
+    const verdict = checkTrace(readTrace(join(apcDir, "trace.ndjson")), {ownSchema: "OSDB3OWN"});
+    expect(verdict.writes).to.deep.equal([]);
+    expect(verdict.refused.map((w) => `${w.op} ${w.table ?? ""}`.trim().toUpperCase())).to.deep.equal(["INSERT ZSTG_DEMO"]);
+  });
+});

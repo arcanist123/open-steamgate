@@ -4,7 +4,7 @@
 //   STG_DB=hana HANA_EXISTING_SCHEMA=1 HANA_OWN_SCHEMA=<own> OSD_CLIENT=<client> \
 //     HANA_HOST=... HANA_PORT=... HANA_USER=... HANA_PASSWORD=... HANA_SCHEMA=<tenant> \
 //     [OSD_SQL_TRACE=1] [OSD_BIND=0.0.0.0] node tools/hana-serve.mjs [--port 3040] [--stub-trace <file>]
-//     [--icf] [--w3mi] [--w3mi-check <OBJID>]...
+//     [--icf] [--w3mi] [--w3mi-check <OBJID>]... [--apc]
 //   HANA_OWN_SCHEMA=<own> node tools/hana-serve.mjs --check-trace <trace.ndjson> [--own-schema <own>]
 //
 // --check-trace needs the own schema the host ran with: shadow DDL is
@@ -64,7 +64,10 @@
 // dialog step; `--w3mi`, SMW0 MIME objects read out of the tenant's WWWDATA
 // when the ABAP's WWWDATA_IMPORT asks for one (abap.W3MI_LOADER).
 // `--w3mi-check <OBJID>` (implies --w3mi) reads one object through that
-// function module at boot and prints its size and SHA-256.
+// function module at boot and prints its size and SHA-256. `--apc`, the
+// tenant's push channels: each active websocket row of APC_APPL whose class
+// the generation holds, mounted on this listener (tools/osd-apc.mjs), every
+// event a dialog step on the same read-only connection.
 // A build where a pack hides an object of the rescued island
 // (tools/hana-serve-scope.mjs) is refused before it is built.
 //
@@ -415,7 +418,7 @@ export function parseApps(values = []) {
 
 /** Boot the generation and listen. Returns {server, url, close, stats, bindLog}. */
 export async function serve({root = process.cwd(), port = 3040, clientModule, env = process.env, log = console.log,
-  register = [], apps = [], stubTrace, icf: serveIcf = false, w3mi: serveW3mi = false, w3miCheck = []} = {}) {
+  register = [], apps = [], stubTrace, icf: serveIcf = false, w3mi: serveW3mi = false, apc: serveApc = false, w3miCheck = []} = {}) {
   const refused = refusal(env);
   if (refused !== undefined) throw new Error(refused);
   const {loadDestinations} = await import("./rfc-replay.mjs");
@@ -520,6 +523,18 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   const icfServices = (tenant?.services ?? []).filter((s) => abap.Classes[s.handler] !== undefined);
   const w3mi = serveW3mi !== true && w3miCheck.length === 0 ? undefined
     : await dialogStep(() => icf.installW3mi(abap, db, {output, log}), "hana-serve: the tenant's MIME objects");
+  // the tenant's push channels (APC_APPL, --apc): a channel whose class the
+  // generation holds is mounted on the listener below; a tenant without the
+  // table serves none and says why
+  let tenantApc;
+  if (serveApc === true) {
+    try {
+      tenantApc = await dialogStep(() => icf.readTenantChannels(db), "hana-serve: the tenant's APC applications");
+    } catch (e) {
+      log(`hana-serve: APC: APC_APPL not read (${runtimeText(e)}); no push channel is served`);
+    }
+  }
+  const apcChannels = (tenantApc?.channels ?? []).filter((c) => abap.Classes[c.handler] !== undefined);
   const probe = await dialogStep(() => db.select({select: TRACE_PROBE_SQL}), "hana-serve: the trace probe");
   const answered = probe?.rows?.[0]?.probe ?? probe?.rows?.[0]?.PROBE;
   if (answered !== TRACE_PROBE_MARKER) throw new Error(`hana-serve: the probe SELECT answered ${JSON.stringify(probe?.rows?.[0])}, not ${TRACE_PROBE_MARKER}`);
@@ -538,6 +553,8 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     if (c.duplicates.length > 0) log(`hana-serve: ICF: ${c.duplicates.length} node(s) on a path another node already serves, the first kept: ${c.duplicates.slice(0, 5).join(", ")}`);
   } else log("hana-serve: ICF: the tenant's nodes are not served (--icf)");
   if (w3mi !== undefined) log(`hana-serve: W3MI: ${w3mi.objects} MIME object(s) in the tenant's WWWPARAMS, read from WWWDATA when asked for`);
+  if (tenantApc !== undefined) log(`hana-serve: APC: ${tenantApc.counts.rows} application(s) in APC_APPL, ${tenantApc.counts.websocket} active websocket one(s), ${apcChannels.length} with a class in the generation`);
+  else if (serveApc !== true) log("hana-serve: APC: the tenant's push channels are not served (--apc)");
   for (const objid of w3miCheck) {
     const lines = await dialogStep(() => icf.importThroughAbap(abap, objid), `hana-serve: --w3mi-check ${objid}`);
     const read = w3mi.served.at(-1);
@@ -669,6 +686,52 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
   });
 
   const server = guard.allowListener(createServer(app));
+  // the tenant's push channels on the same loopback listener. Every event
+  // (on_start, each message, on_close) is a dialog step of its own: it
+  // takes the one work process, commits or rolls back at its end, and runs
+  // on the same read-only connection, so a write is refused there and
+  // counted like an HTTP request's. An upgrade from another client, or to a
+  // host whose guard is no longer intact, is refused before any ABAP runs.
+  if (apcChannels.length > 0) {
+    const {mountChannels} = await import("./osd-apc.mjs");
+    const {zcl_apc_host} = await from("zcl_apc_host.clas.mjs");
+    const mounted = mountChannels(server, apcChannels, {
+      host: zcl_apc_host, root,
+      log: (line) => console.error(`hana-serve: ${line}`),
+      // every event: the guard checked first (a broken one closes the
+      // socket 1011 before any ABAP runs), one stub-trace record, and the
+      // writes it asked for said like an HTTP request's
+      event: (name, work, channel) => record.event({channel: channel.path, event: name}, async () => {
+        const broken = integrity({hook, guard});
+        if (broken.length > 0) {
+          record.note("tampered", {what: `not intact: ${broken.join(", ")}`});
+          const e = new Error("hana-serve: the host's guard is no longer the one it installed; no event runs");
+          e.code = "OSD_TAMPERED";
+          throw e;
+        }
+        const before = stats.writes.length;
+        try {
+          return await work();
+        } finally {
+          if (stats.writes.length > before) {
+            console.error(`hana-serve: APC ${channel.path} ${name} asked for ${stats.writes.length - before} write(s): ${stats.writes.slice(before).map((w) => `${w.method} ${w.kind}${w.refused ? ` [refused: ${w.refused}]` : ""}`).join(", ")}`);
+          }
+        }
+      }),
+      admit: (req) => {
+        const broken = integrity({hook, guard});
+        if (broken.length > 0) {
+          record.note("tampered", {what: `not intact: ${broken.join(", ")}`});
+          return {status: 500, reason: "Internal Server Error", text: "hana-serve: the host's guard is no longer the one it installed; nothing is answered"};
+        }
+        const query = Object.fromEntries(new URL(req.url, "ws://loopback").searchParams);
+        const otherClient = clientRefusal({query, headers: req.headers}, String(env.OSD_CLIENT));
+        if (otherClient !== undefined) return {status: 400, reason: "Bad Request", text: otherClient};
+        return undefined;
+      },
+    });
+    for (const one of mounted) log(`hana-serve: APC ${one.path} -> ${one.handler}${one.stateful ? " (stateful)" : ""} (the tenant's APC_APPL row, a websocket on this listener)`);
+  }
   // osd-bind opens a second loopback listener (::1) from the primary's
   // "listening" event, a server this host never holds: the guard admits a
   // listen for exactly that window, closed in the same event, before any
@@ -713,7 +776,7 @@ if (runsAs("hana-serve.mjs")) {
     const all = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]] : []));
     await serve({port: Number(portFlag ?? process.env.STG_PORT ?? 3040), clientModule: flag("client-module"),
       register: parseRegistrations(all("register")), apps: parseApps(all("app")), stubTrace: flag("stub-trace"),
-      icf: argv.includes("--icf"), w3mi: argv.includes("--w3mi"), w3miCheck: all("w3mi-check")});
+      icf: argv.includes("--icf"), w3mi: argv.includes("--w3mi"), apc: argv.includes("--apc"), w3miCheck: all("w3mi-check")});
   } catch (e) {
     console.error(e?.message ?? e);
     process.exit(1);

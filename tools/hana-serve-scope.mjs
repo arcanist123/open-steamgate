@@ -61,6 +61,7 @@ import {existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writ
 import {dirname, join, relative, sep} from "node:path";
 import {runsAs} from "./osd-main.mjs";
 import {serveScopeFile as scopeFile, serveScopeLeftOut} from "./hana-closure-exclusions.mjs";
+import {OVERLAY_NAME, clearOverlay, packageOfObject, writeOverlay} from "./hana-serve-cut.mjs";
 
 export {scopeFile};
 
@@ -89,7 +90,10 @@ function walk(dir, out) {
 /** the island's code objects: {key, kind, name, files (root-relative), names} */
 export function islandObjects(root) {
   const objects = new Map();
+  // the overlay is this tool's own output (./hana-serve-cut.mjs), never input
+  const overlay = join(root, ISLAND, OVERLAY_NAME) + sep;
   for (const path of walk(join(root, ISLAND), [])) {
+    if (path.startsWith(overlay)) continue;
     const m = /^([^.]+)\.([a-z]+)(?:\.|$)/.exec(path.split(sep).pop());
     if (m === null || KIND[m[2]] === undefined) continue;
     const key = `${KIND[m[2]]} ${nameOf(m[1])}`;
@@ -164,12 +168,19 @@ export function registrations(root) {
 /** kept and left out, from the roots. `objects` is islandObjects(root);
  *  `read` reads a root-relative file. A root the island does not hold is
  *  an error naming it: a typo would otherwise cut everything. */
-export function cut(objects, roots, read) {
+export function cut(objects, roots, read, {cutPackages = [], packageOf = () => undefined} = {}) {
   const byName = new Map();
   for (const one of objects) for (const name of one.names) byName.set(name, one);
   const wanted = roots.map((r) => String(r).replace(/#/g, "/").toUpperCase());
   const unknown = wanted.filter((r) => byName.has(r) === false);
   if (unknown.length > 0) throw new Error(`hana-serve-scope: no code object of the island (${ISLAND}) is named ${unknown.join(", ")}`);
+  // --cut-members-typed-by: a name a kept object outside those packages
+  // gives to an object inside them is not followed. The object is kept only
+  // when something else reaches it (a root, or an object of the package that
+  // is kept); otherwise the member that names it is cut (./hana-serve-cut.mjs)
+  const cutting = new Set(cutPackages.map((p) => String(p).toUpperCase()));
+  const inCut = (o) => cutting.has(String(packageOf(o) ?? "").toUpperCase());
+  const deferred = new Map();
   const kept = new Set();
   const queue = wanted.map((r) => byName.get(r));
   while (queue.length > 0) {
@@ -181,13 +192,26 @@ export function cut(objects, roots, read) {
     for (const file of one.files.filter((f) => (CODE.has(one.kind.toLowerCase()) ? f.endsWith(".abap") : f.endsWith(".xml")))) {
       for (const id of identifiers(read(file))) {
         const next = byName.get(id);
-        if (next !== undefined && kept.has(next.key) === false) queue.push(next);
+        if (next === undefined || kept.has(next.key) === true) continue;
+        if (CODE.has(next.kind.toLowerCase()) && inCut(next) && inCut(one) === false) {
+          deferred.set(one.key, new Set([...(deferred.get(one.key) ?? []), next.key]));
+          continue;
+        }
+        queue.push(next);
       }
     }
   }
   const isCode = (o) => CODE.has(o.kind.toLowerCase());
+  const byKey = new Map(objects.map((o) => [o.key, o]));
+  // per kept object: the objects its members name that stayed out
+  const memberCuts = [...deferred.entries()]
+    .map(([key, names]) => ({object: key, files: byKey.get(key).files, gone: [...names].filter((n) => kept.has(n) === false).map((n) => byKey.get(n).name).sort()}))
+    .filter((m) => m.gone.length > 0)
+    .sort((a, b) => (a.object < b.object ? -1 : 1));
   return {
     roots: wanted,
+    cutPackages: [...cutting],
+    memberCuts,
     kept: objects.filter((o) => kept.has(o.key)).map((o) => o.key),
     leftOut: objects.filter((o) => isCode(o) && kept.has(o.key) === false).map((o) => ({object: o.key, files: o.files})),
     // a table no kept object reaches stays in the build (a type costs
@@ -202,7 +226,7 @@ export function cut(objects, roots, read) {
 export function readScope(root, file = scopeFile(root)) {
   if (existsSync(file) === false) return undefined;
   const parsed = JSON.parse(readFileSync(file, "utf8"));
-  return {roots: parsed.roots ?? [], kept: parsed.kept ?? [], leftOut: serveScopeLeftOut(root, file)};
+  return {roots: parsed.roots ?? [], kept: parsed.kept ?? [], leftOut: serveScopeLeftOut(root, file), memberCuts: parsed.memberCuts ?? []};
 }
 
 /** the pack objects that hide an island object: [{object, winner, hidden}] */
@@ -229,14 +253,20 @@ if (runsAs("hana-serve-scope.mjs")) {
   try {
     if (argv.includes("--clear")) {
       rmSync(file, {force: true});
-      console.log(`hana-serve-scope: no serve scope (${slash(relative(root, file))} removed)`);
+      clearOverlay(root);
+      console.log(`hana-serve-scope: no serve scope (${slash(relative(root, file))} and the member-cut overlay removed)`);
     } else if (argv.includes("--show")) {
       const record = readScope(root);
       console.log(record === undefined ? "hana-serve-scope: no serve scope: the whole island is built"
-        : `hana-serve-scope: roots ${record.roots.join(", ")}; ${record.kept.length} kept, ${record.leftOut.length} left out`);
+        : `hana-serve-scope: roots ${record.roots.join(", ")}; ${record.kept.length} kept, ${record.leftOut.length} left out`
+          + (record.memberCuts.length === 0 ? "" : `; members cut in ${record.memberCuts.length} class(es): `
+            + record.memberCuts.map((m) => `${m.object} (${m.attributes.length} attribute(s) retyped, ${m.stubbed.length} method(s) stubbed)`).join(", ")));
     } else {
       const named = argv.flatMap((a, i) => (a === "--root" ? [argv[i + 1]] : []));
-      if (named.length === 0 || named.includes(undefined)) throw new Error("usage: hana-serve-scope --root <OBJECT> [--root <OBJECT>]... | --show | --clear");
+      const cutPackages = argv.flatMap((a, i) => (a === "--cut-members-typed-by" ? [argv[i + 1]] : []));
+      if (named.length === 0 || named.includes(undefined) || cutPackages.includes(undefined)) {
+        throw new Error("usage: hana-serve-scope --root <OBJECT> [--root <OBJECT>]... [--cut-members-typed-by <PACKAGE>]... | --show | --clear");
+      }
       // a build the scope would be written for and that runs a pack's copy
       // of the island: refused before anything is written
       const hiding = await packsHidingTenant(root);
@@ -246,12 +276,18 @@ if (runsAs("hana-serve-scope.mjs")) {
       const known = new Set(objects.flatMap((o) => o.names));
       const registered = registrations(root);
       const automatic = registered.roots.filter((r) => known.has(r));
-      const result = cut(objects, [...new Set([...named.map((r) => String(r).replace(/#/g, "/").toUpperCase()), ...automatic])], read);
+      const options = cutPackages.length === 0 ? {} : {cutPackages, packageOf: packageOfObject(root)};
+      const result = cut(objects, [...new Set([...named.map((r) => String(r).replace(/#/g, "/").toUpperCase()), ...automatic])], read, options);
+      result.memberCuts = writeOverlay(root, result.memberCuts, read);
       result.automaticRoots = automatic;
       result.dynamicCalls = dynamicCalls(objects, result.kept, read);
       mkdirSync(dirname(file), {recursive: true});
       writeFileSync(file, `${JSON.stringify(result, null, 2)}\n`);
       console.log(`hana-serve-scope: roots ${result.roots.join(", ")}${automatic.length > 0 ? ` (${automatic.length} from the island's registrations)` : ""}: ${result.kept.length} object(s) kept, ${result.leftOut.length} code object(s) left out of the build, ${result.unreachedTables.length} table(s) out of the shadow schema's eager set -> ${slash(relative(root, file))}`);
+      for (const m of result.memberCuts) {
+        console.log(`hana-serve-scope: ${m.object}: members typed by ${m.gone.length} left-out object(s) cut -- ${m.attributes.length} attribute(s) retyped to REF TO object, `
+          + `${m.stubbed.length} method(s) stubbed (${m.stubbed.map((x) => x.method).join(", ")}) -> ${slash(OVERLAY_NAME)}`);
+      }
       const cut0 = new Set(result.leftOut.map((e) => e.object.replace(/^\S+ /, "")));
       for (const channel of registered.channels.filter((c) => cut0.has(c))) console.log(`hana-serve-scope: the push channel class ${channel} is cut (name it with --root to keep it)`);
       for (const d of result.dynamicCalls) console.log(`hana-serve-scope: ${d.object} calls by a name computed at run time (${d.file}:${d.line}): its target is not followed -- name it with --root`);
