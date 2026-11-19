@@ -411,7 +411,7 @@ describe("hana-serve over a fake DatabaseClient", function () {
       HANA_EXISTING_SCHEMA: "1", OSD_CLIENT: "100", HANA_SCHEMA: "OSDB3TENANT", HANA_OWN_SCHEMA: "OSDB3OWN",
       OSD_SQL_TRACE: "1", OSD_SQL_TRACE_FILE: traceFile, OSD_OUTPUT: output, FAKE_CLIENT_LOG: fakeLog,
     });
-    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs", "--app", `bed=${join(dir, "bed")}`],
+    child = spawn(process.execPath, [tool, "--port", "0", "--client-module", "test/fixtures/hana-serve/fake-client.mjs", "--app", `bed=${join(dir, "bed")}`, "--icf", "--w3mi-check", "ZB3_STORY"],
       {cwd: root, env, stdio: ["ignore", "pipe", "pipe"]});
     base = await new Promise((resolve, reject) => {
       const take = (chunk) => {
@@ -435,6 +435,39 @@ describe("hana-serve over a fake DatabaseClient", function () {
       await gone;
     }
     if (dir !== undefined) rmSync(dir, {recursive: true, force: true});
+  });
+
+  // the tenant's ICF tree and SMW0 objects (tools/hana-serve-icf.mjs), from
+  // the fixture's tenant-shaped rows: no URL, no ICFACTIVE, a cluster we
+  // built ourselves (tools/protocols/sap-cluster.mjs mimeCluster)
+  it("mounts a tenant ICF node by its parent chain, only with its handler in the generation, GET and HEAD only", async () => {
+    expect(lines.join("\n")).to.include("hana-serve: ICF /sap/bc/zb3icf/ -> ZCL_STG_ICF_DEMO");
+    expect(lines.join("\n")).to.match(/ICF: 8 node\(s\) read, 5 with a handler, 1 of them inactive, 1 not under the host, 1 servable/);
+    expect(lines.join("\n")).to.include("ICF: 1 node(s) with a chain of several handlers not mounted");
+    expect(lines.join("\n")).to.not.include("ICF activation unknown");
+    const got = await fetch(`${base}/sap/bc/zb3icf/deeper`);
+    expect(got.status).to.equal(200);
+    const body = await got.json();
+    expect(body.service).to.equal("ZSTG_ICF_DEMO");
+    expect(body.method).to.equal("GET");
+    const head = await fetch(`${base}/sap/bc/zb3icf/`, {method: "HEAD"});
+    expect(head.status).to.equal(200);
+    expect(await head.text()).to.equal("");
+    expect((await fetch(`${base}/sap/bc/zb3icf/`, {method: "POST", body: "x"})).status).to.equal(405);
+    expect((await fetch(`${base}/sap/bc/zb3icf/`, {headers: {"x-http-method": "DELETE"}})).status).to.equal(405);
+    expect((await fetch(`${base}/sap/bc/zb3icf/?sap-client=999`)).status).to.equal(400);
+    // a handler the generation does not hold, and an orphan, are not routes
+    expect((await fetch(`${base}/sap/bc/zb3nocls/`)).status).to.equal(404);
+    expect((await fetch(`${base}/zb3orphan/`)).status).to.equal(404);
+    // inactive per ICFSERVLOC, and a chain of two handlers: not served
+    expect((await fetch(`${base}/sap/bc/zb3off/`)).status).to.equal(404);
+    expect((await fetch(`${base}/sap/bc/zb3multi/`)).status).to.equal(404);
+  });
+
+  it("reads an SMW0 object out of the tenant's WWWDATA through WWWDATA_IMPORT (--w3mi-check)", () => {
+    // sha256 of the fixture's synthetic 1000 bytes, (i*37+11) & 255
+    expect(lines.join("\n")).to.include("--w3mi-check ZB3_STORY: 1000 byte(s) from the tenant's WWWDATA, SHA-256 57799de80e3dd6e2ac4d40c41a150d1662f7f87d0d994776a2fdc37c39b0ea4e; "
+      + "WWWDATA_IMPORT handed the ABAP 1020 byte(s) in 255-byte lines, the same bytes");
   });
 
   it("boots without a write and says it is not HANA", () => {

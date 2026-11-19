@@ -1668,6 +1668,25 @@ STG_DB=hana HANA_EXISTING_SCHEMA=1 HANA_SCHEMA=<tenant> HANA_OWN_SCHEMA=<own> OS
 HANA_OWN_SCHEMA=<own> node tools/hana-serve.mjs --check-trace <trace.ndjson> [--own-schema <own>]
 ```
 
+Since 2026-11-18, asked to, it also serves the tenant's own ICF nodes whose
+handler class the generation holds (`--icf`: paths from the tenant's
+`ICFSERVICE` parent chain, active per `ICFSERVLOC`, GET and HEAD only) and
+reads SMW0 objects out of the tenant's `WWWDATA` for `WWWDATA_IMPORT`
+(`--w3mi`); `tools/hana-serve-scope.mjs` cuts a rescued island to what a
+route needs. All of it: `docs/hana-serve-icf.md`.
+
+**The DDL a boot sends** is the shadow schema's and nothing else, in the own
+schema only (the read-only guard refuses any other): at connect, a view
+(client-dependent) or synonym (client-independent, or a DDIC view) for each
+table of the build the tenant holds and our own schema does not yet, minus
+the island tables a serve scope leaves unreached; after that, one such
+object for a table a statement touches that the eager set missed (the 259
+fallback). An OData-only boot reads no ICF or SMW0 table. `--icf` reads
+`ICFSERVICE` and `ICFHANDLER` (tables of the build: eager) and `ICFSERVLOC`
+schema-qualified (no object); `--w3mi` reads `WWWPARAMS` and `WWWDATA`
+(fallback synonyms the first time). A second boot finds them all and sends
+no DDL.
+
 It refuses to start outside the mode, with `OSD_HANA_WRITE=1`, with
 `STG_DB_FRESH=1` or without `OSD_CLIENT`. The promise is read-only toward
 every system, not only the database: it also refuses to start with

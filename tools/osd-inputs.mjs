@@ -27,7 +27,7 @@ import {activeSystem, layerDir, logicalSystemPath, matchesSourcePath} from "./os
 import {readFileSync, readdirSync, statSync, existsSync} from "node:fs";
 import {basename, join, resolve} from "node:path";
 import {expandedFolders, inputFoldersOf} from "./osd-packs.mjs";
-import {definitionExclusions} from "./hana-closure-exclusions.mjs";
+import {definitionExclusions, serveScopeLeftOut} from "./hana-closure-exclusions.mjs";
 import {runsAs} from "./osd-main.mjs";
 
 // The tree this file lives in, resolved on FIRST USE rather than at module
@@ -239,6 +239,10 @@ function main() {
   // kept from must be visible, with the reason
   for (const e of definitionExclusions(treeRoot())) {
     console.log(`  excluded: ${e.object}: ${e.file} -- definition-level finding(s), kept from the transpiler: ${(e.findings[0] ?? "").slice(0, 140)}`);
+  }
+  // the serve scope (tools/hana-serve-scope.mjs): code no named root reaches
+  for (const e of serveScopeLeftOut(treeRoot())) {
+    console.log(`  left out: ${e.object}: ${e.files[0]} -- no serve-scope root reaches it, kept from the transpiler`);
   }
 }
 

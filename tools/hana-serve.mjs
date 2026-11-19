@@ -4,6 +4,7 @@
 //   STG_DB=hana HANA_EXISTING_SCHEMA=1 HANA_OWN_SCHEMA=<own> OSD_CLIENT=<client> \
 //     HANA_HOST=... HANA_PORT=... HANA_USER=... HANA_PASSWORD=... HANA_SCHEMA=<tenant> \
 //     [OSD_SQL_TRACE=1] [OSD_BIND=0.0.0.0] node tools/hana-serve.mjs [--port 3040] [--stub-trace <file>]
+//     [--icf] [--w3mi] [--w3mi-check <OBJID>]...
 //   HANA_OWN_SCHEMA=<own> node tools/hana-serve.mjs --check-trace <trace.ndjson> [--own-schema <own>]
 //
 // --check-trace needs the own schema the host ran with: shadow DDL is
@@ -53,6 +54,19 @@
 //   - `--register <SERVICE>=<MPC>,<DPC>` registers a service the SEGW
 //     registry does not hold (the test's twin under test/hana-m2), said on
 //     startup.
+//
+// What it serves beyond OData, each only when asked for (docs/hana-serve-icf.md,
+// tools/hana-serve-icf.mjs) -- an OData-only boot reads neither, so a user
+// without SELECT on these tables and a schema without their shadow objects
+// boot as before: `--icf`, the tenant's own ICF nodes whose handler class
+// the generation holds, each path built from the tenant's ICFSERVICE rows,
+// active per ICFSERVLOC, GET and HEAD only, through the same shim and
+// dialog step; `--w3mi`, SMW0 MIME objects read out of the tenant's WWWDATA
+// when the ABAP's WWWDATA_IMPORT asks for one (abap.W3MI_LOADER).
+// `--w3mi-check <OBJID>` (implies --w3mi) reads one object through that
+// function module at boot and prints its size and SHA-256.
+// A build where a pack hides an object of the rescued island
+// (tools/hana-serve-scope.mjs) is refused before it is built.
 //
 // What it refuses: to start outside existing-schema mode (and with the
 // write guard lifted, OSD_HANA_WRITE=1), with an outbound RFC destination
@@ -401,7 +415,7 @@ export function parseApps(values = []) {
 
 /** Boot the generation and listen. Returns {server, url, close, stats, bindLog}. */
 export async function serve({root = process.cwd(), port = 3040, clientModule, env = process.env, log = console.log,
-  register = [], apps = [], stubTrace} = {}) {
+  register = [], apps = [], stubTrace, icf: serveIcf = false, w3mi: serveW3mi = false, w3miCheck = []} = {}) {
   const refused = refusal(env);
   if (refused !== undefined) throw new Error(refused);
   const {loadDestinations} = await import("./rfc-replay.mjs");
@@ -453,6 +467,11 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
 
   const output = env.OSD_OUTPUT ?? join(root, "output");
   if (env.OSD_OUTPUT === undefined) {
+    // a pack layered after the island would win its names: the tenant's
+    // code served out of our copy of it (tools/hana-serve-scope.mjs)
+    const {packsHidingTenant, describeHiding} = await import("./hana-serve-scope.mjs");
+    const hiding = await packsHidingTenant(root, env);
+    if (hiding.length > 0) throw new Error(`hana-serve refuses to build: ${describeHiding(hiding)}`);
     const {ensureSourceBuild} = await import("./osd-source-build-view.mjs");
     await ensureSourceBuild(root, env);
   }
@@ -493,6 +512,14 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
 
   // the positive control, through the ABAP's own connection
   const db = abap.context.databaseConnections.DEFAULT;
+  // the tenant's ICF tree and its SMW0 objects (tools/hana-serve-icf.mjs):
+  // reads, on that same connection, inside a step like every other
+  const icf = await import("./hana-serve-icf.mjs");
+  const tenant = serveIcf !== true ? undefined
+    : await dialogStep(() => icf.readTenantServices(db, {tenantSchema: env.HANA_SCHEMA}), "hana-serve: the tenant's ICF tree");
+  const icfServices = (tenant?.services ?? []).filter((s) => abap.Classes[s.handler] !== undefined);
+  const w3mi = serveW3mi !== true && w3miCheck.length === 0 ? undefined
+    : await dialogStep(() => icf.installW3mi(abap, db, {output, log}), "hana-serve: the tenant's MIME objects");
   const probe = await dialogStep(() => db.select({select: TRACE_PROBE_SQL}), "hana-serve: the trace probe");
   const answered = probe?.rows?.[0]?.probe ?? probe?.rows?.[0]?.PROBE;
   if (answered !== TRACE_PROBE_MARKER) throw new Error(`hana-serve: the probe SELECT answered ${JSON.stringify(probe?.rows?.[0])}, not ${TRACE_PROBE_MARKER}`);
@@ -502,6 +529,25 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     throw new Error(`hana-serve: the boot asked for ${stats.writes.length} write(s) (${stats.writes.map((w) => `${w.method} ${w.kind}${w.refused ? ` [refused: ${w.refused}]` : ""}`).join(", ")}); a read-only host does not start after that`);
   }
   log(`hana-serve: booted over client ${env.OSD_CLIENT}, ${stats.statements} statement(s), 0 writes${traceFile ? `; trace ${traceFile}` : "; trace off (OSD_SQL_TRACE=1)"}`);
+  if (tenant !== undefined) {
+    const c = tenant.counts;
+    log(`hana-serve: ICF: ${c.nodes} node(s) read, ${c.withHandler} with a handler, ${c.inactive} of them inactive, ${c.orphans} not under the host, `
+      + `${icfServices.length} servable with their handler class in the generation`);
+    if (c.activation === "unknown") console.error(`hana-serve: WARNING: ICF activation unknown (${tenant.activationError}): every node present with a handler counts as active`);
+    if (c.multiHandler.length > 0) log(`hana-serve: ICF: ${c.multiHandler.length} node(s) with a chain of several handlers not mounted (a system runs the chain in ICFORDER; this host does not): ${c.multiHandler.slice(0, 5).join(", ")}`);
+    if (c.duplicates.length > 0) log(`hana-serve: ICF: ${c.duplicates.length} node(s) on a path another node already serves, the first kept: ${c.duplicates.slice(0, 5).join(", ")}`);
+  } else log("hana-serve: ICF: the tenant's nodes are not served (--icf)");
+  if (w3mi !== undefined) log(`hana-serve: W3MI: ${w3mi.objects} MIME object(s) in the tenant's WWWPARAMS, read from WWWDATA when asked for`);
+  for (const objid of w3miCheck) {
+    const lines = await dialogStep(() => icf.importThroughAbap(abap, objid), `hana-serve: --w3mi-check ${objid}`);
+    const read = w3mi.served.at(-1);
+    if (read?.objid !== objid) throw new Error(`hana-serve: --w3mi-check ${objid}: WWWDATA_IMPORT did not read it from the tenant's WWWDATA`);
+    const {createHash} = await import("node:crypto");
+    const same = createHash("sha256").update(lines.subarray(0, read.bytes)).digest("hex") === read.sha256;
+    log(`hana-serve: --w3mi-check ${objid}: ${read.bytes} byte(s) from the tenant's WWWDATA, SHA-256 ${read.sha256}; `
+      + `WWWDATA_IMPORT handed the ABAP ${lines.length} byte(s) in 255-byte lines, ${same ? "the same bytes" : "NOT the same bytes"}`);
+    if (same === false) throw new Error(`hana-serve: --w3mi-check ${objid}: the ABAP got other bytes than the loader read`);
+  }
 
   // the stub hook's positive control: one synthetic raise through the
   // exception class the generation loaded; a trace asked for and a hook
@@ -589,8 +635,37 @@ export async function serve({root = process.cwd(), port = 3040, clientModule, en
     }
     if (/\/\$metadata\/?$/.test(req.path)) log(bindLog.line());
   }
+  // the tenant's ICF nodes (tools/hana-serve-icf.mjs): read-only like the
+  // OData front -- another client, a method override and anything but GET
+  // and HEAD are refused before a line of ABAP runs -- one record and one
+  // dialog step per request, the handler class the tenant's row names
+  const {mountServices} = await import("./osd-icf.mjs");
+  const icfMounted = mountServices(app, ({req, res, class: handler, base}) => record.request({method: req.method, path: req.path, res}, async () => {
+    let intact = false;
+    gate(req, res, () => { intact = true; });
+    if (intact === false) return;
+    const otherClient = clientRefusal({query: req.query, headers: req.headers}, String(env.OSD_CLIENT));
+    const override = METHOD_OVERRIDES.find((name) => req.headers[name] !== undefined);
+    if (otherClient !== undefined) return refuse(res, 400, "OSD/CLIENT", otherClient);
+    if (override !== undefined || (req.method !== "GET" && req.method !== "HEAD")) {
+      return refuse(res, 405, "OSD/READ_ONLY", `hana-serve is read-only and answers GET and HEAD on an ICF node, not ${override ?? req.method}`, {allow: "GET, HEAD"});
+    }
+    const asked = req.method === "HEAD" ? Object.create(req, {method: {value: "GET"}}) : req;
+    const before = stats.writes.length;
+    try {
+      await dialogStep(() => cl_express_icf_shim.run({req: asked, res, class: handler, base: new abap.types.String().set(base)}), `hana-serve: ICF ${base}`);
+    } catch (e) {
+      // as on the OData front: a refusal's target is the record's, never the response's
+      if (!res.headersSent) {
+        res.status(500).type("text/plain").send(isRefusal(e) ? "hana-serve: an outbound call was refused; the host's trace names it\n" : `${handler}: ${runtimeText(e)}\n`);
+      }
+      console.error(`hana-serve: ICF ${base} (${handler}): runtime error:`, e);
+    }
+    if (stats.writes.length > before) console.error(`hana-serve: a ${req.method} of ${req.path} asked for ${stats.writes.length - before} write(s)`);
+  }), {from: icfServices, claimed: ["/sap/opu/odata", "/app"], say: (m) => log(`hana-serve: ${m}`)});
+  for (const one of icfMounted) log(`hana-serve: ICF ${one.path}/ -> ${one.handler} (the tenant's node, GET and HEAD only)`);
   app.all("*", (req, res) => {
-    res.status(404).type("text/plain").send("hana-serve answers /sap/opu/odata/<namespace or sap>/<SERVICE>/... and the static files under /app/ only\n");
+    res.status(404).type("text/plain").send("hana-serve answers /sap/opu/odata/<namespace or sap>/<SERVICE>/..., the tenant's ICF nodes whose handler the generation holds, and the static files under /app/ only\n");
   });
 
   const server = guard.allowListener(createServer(app));
@@ -637,7 +712,8 @@ if (runsAs("hana-serve.mjs")) {
   try {
     const all = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]] : []));
     await serve({port: Number(portFlag ?? process.env.STG_PORT ?? 3040), clientModule: flag("client-module"),
-      register: parseRegistrations(all("register")), apps: parseApps(all("app")), stubTrace: flag("stub-trace")});
+      register: parseRegistrations(all("register")), apps: parseApps(all("app")), stubTrace: flag("stub-trace"),
+      icf: argv.includes("--icf"), w3mi: argv.includes("--w3mi"), w3miCheck: all("w3mi-check")});
   } catch (e) {
     console.error(e?.message ?? e);
     process.exit(1);

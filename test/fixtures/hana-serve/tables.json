@@ -6,5 +6,40 @@
   "zstg_status": [
     {"mandt": "100", "status": "A", "status_text": "Accepted"},
     {"mandt": "100", "status": "X", "status_text": "Cancelled"}
+  ],
+  "icfservice": [
+    {"icf_name": "ZB3OFF", "icfparguid": "B000000000000000000000003", "icfnodguid": "B000000000000000000000007", "icfaltnme": ""},
+    {"icf_name": "ZB3MULTI", "icfparguid": "B000000000000000000000003", "icfnodguid": "B000000000000000000000008", "icfaltnme": ""},
+    {"icf_name":"DEFAULT_HOST","icfparguid":"FFFFFFFFFFFFFFFFFFFFFFFFF","icfnodguid":"B000000000000000000000001","icfaltnme":""},
+    {"icf_name":"SAP","icfparguid":"B000000000000000000000001","icfnodguid":"B000000000000000000000002","icfaltnme":""},
+    {"icf_name":"BC","icfparguid":"B000000000000000000000002","icfnodguid":"B000000000000000000000003","icfaltnme":""},
+    {"icf_name":"ZB3ICF","icfparguid":"B000000000000000000000003","icfnodguid":"B000000000000000000000004","icfaltnme":""},
+    {"icf_name":"ZB3NOCLS","icfparguid":"B000000000000000000000003","icfnodguid":"B000000000000000000000005","icfaltnme":""},
+    {"icf_name":"ZB3ORPHAN","icfparguid":"B000000000000000000000099","icfnodguid":"B000000000000000000000006","icfaltnme":""}
+  ],
+  "icfhandler": [
+    {"icf_name": "ZB3OFF", "icfparguid": "B000000000000000000000003", "icforder": "01", "icftyp": "A", "icfhandler": "ZCL_STG_ICF_DEMO"},
+    {"icf_name": "ZB3MULTI", "icfparguid": "B000000000000000000000003", "icforder": "01", "icftyp": "A", "icfhandler": "ZCL_STG_ICF_DEMO"},
+    {"icf_name": "ZB3MULTI", "icfparguid": "B000000000000000000000003", "icforder": "02", "icftyp": "A", "icfhandler": "ZCL_STG_ICF_DEMO"},
+    {"icf_name":"ZB3ICF","icfparguid":"B000000000000000000000003","icforder":"01","icftyp":"A","icfhandler":"ZCL_STG_ICF_DEMO"},
+    {"icf_name":"ZB3NOCLS","icfparguid":"B000000000000000000000003","icforder":"01","icftyp":"A","icfhandler":"ZCL_B3_NOT_IN_THE_BUILD"},
+    {"icf_name":"ZB3ORPHAN","icfparguid":"B000000000000000000000099","icforder":"01","icftyp":"A","icfhandler":"ZCL_STG_ICF_DEMO"}
+  ],
+  "wwwparams": [
+    {"relid":"MI","objid":"ZB3_STORY","name":"filesize","value":"1000"},
+    {"relid":"MI","objid":"ZB3_STORY","name":"mimetype","value":"application/octet-stream"}
+  ],
+  "wwwdata": [
+    {"relid":"MI","objid":"ZB3_STORY","srtf2":0,"clustr":200,"clustd":"FF0600000200000034313033000000005C040000121F9D028C998F818181E13F886061C0027C193C197C195C19D642D4AD022BFABF0EC2DB07D5CAB207C4E03608AD9A7FE4259F7144EDA2E36F04CDA21B969E7A2F6219D7BCE2EC27719BC4B6D517BE4AD9A774AEBBFC43D629BD67E3B5DF0AAE59FD5B6EFE53F6C89DB4FD0EA39A77C1D45DF75934FD8A67EC7DC4AE135836FBC0532EFD90CA79875FF01A85D72C3CF65AC034AA7EC9C977C216B14DCBCF7C14B34E685D75FE8BA45D72C7DA4BDF651CD3BA375C"},
+    {"relid":"MI","objid":"ZB3_STORY","srtf2":1,"clustr":160,"clustd":"FD25EF92D9B7F9C65F25F79C89DB6E33A87AE54FD9798F59C3B768FA9E876CDA01A5B3F63FE1D40BAE987BE8398F6158F582A3AFF84D22EB169F782B641ED3B8ECF40751ABF89695E73E4BD826B5AFB9F84DDA21B56BFD959F72CE19BD9BAEFF5174CB9EB0F5D67F15CFBCC93BEE32A9FB144EDBFD8055CBBF64E6BEC71CBA41E5730EEE0507C2B3911D0A90403838B24301120873464E28602B38F6EE67010000000000000000000000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "icfservloc": [
+    {"icf_name": "DEFAULT_HOST", "icfparguid": "FFFFFFFFFFFFFFFFFFFFFFFFF", "icfactive": "X"},
+    {"icf_name": "SAP", "icfparguid": "B000000000000000000000001", "icfactive": "X"},
+    {"icf_name": "BC", "icfparguid": "B000000000000000000000002", "icfactive": "X"},
+    {"icf_name": "ZB3ICF", "icfparguid": "B000000000000000000000003", "icfactive": "X"},
+    {"icf_name": "ZB3NOCLS", "icfparguid": "B000000000000000000000003", "icfactive": "X"},
+    {"icf_name": "ZB3OFF", "icfparguid": "B000000000000000000000003", "icfactive": ""},
+    {"icf_name": "ZB3MULTI", "icfparguid": "B000000000000000000000003", "icfactive": "X"}
   ]
 }

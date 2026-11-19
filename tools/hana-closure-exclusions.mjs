@@ -33,7 +33,7 @@
 // array of records) still reads: its definition-level entries map into
 // roots/cascades, its method stubs into stubs.
 import {existsSync, readFileSync} from "node:fs";
-import {join} from "node:path";
+import {dirname, join} from "node:path";
 
 // the record's path: gen/hana-closure/closure-stubs.json by default, the
 // loop's --out when the walk ran with one -- OSD_HANA_CLOSURE_OUT is how the
@@ -121,9 +121,37 @@ export function excludedFiles(root, file = undefined) {
   return definitionExclusions(root, file).map((e) => e.file);
 }
 
+// the serve scope (tools/hana-serve-scope.mjs, docs/hana-serve-icf.md):
+// the island's code no named root reaches, kept from the build beside the
+// closure's own exclusions. Its record sits beside the closure's.
+export const serveScopeFile = (root) =>
+  join(process.env.OSD_HANA_CLOSURE_OUT ?? join(root, "gen", "hana-closure"), "serve-scope.json");
+
+/** the serve scope's left-out objects, [{object, files}]; none without a
+ *  record. A record that does not read is a refusal, never "nothing left
+ *  out": the whole island would build and the cut be silently gone. */
+export function serveScopeLeftOut(root, file = serveScopeFile(root)) {
+  if (existsSync(file) === false) return [];
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  if (Array.isArray(parsed?.leftOut) === false || parsed.leftOut.some((e) => Array.isArray(e?.files) === false)) {
+    throw new Error(`${file}: not a serve-scope record (no leftOut list of {object, files}); rerun tools/hana-serve-scope.mjs or --clear it`);
+  }
+  return parsed.leftOut;
+}
+
+/** the island tables the serve scope does not reach: out of the shadow
+ *  schema's eager set (tools/hana-shadow-schema.mjs ddicTables) */
+export function serveScopeUnreachedTables(root, file = serveScopeFile(root)) {
+  if (existsSync(file) === false) return [];
+  const parsed = JSON.parse(readFileSync(file, "utf8"));
+  if (parsed?.unreachedTables === undefined) return [];
+  if (Array.isArray(parsed.unreachedTables) === false) throw new Error(`${file}: unreachedTables is not a list; rerun tools/hana-serve-scope.mjs or --clear it`);
+  return parsed.unreachedTables.map((t) => String(t).toUpperCase());
+}
+
 /** every file of each excluded object, for the build's exclude_filter. */
 export function excludedObjectFiles(root, file = undefined) {
-  const out = [];
+  const out = serveScopeLeftOut(root, file === undefined ? undefined : join(dirname(file), "serve-scope.json")).flatMap((e) => e.files);
   for (const main of excludedFiles(root, file)) {
     const m = /^(.*)\.(clas|intf)\.[^/]*$/.exec(main);
     if (m === null) {
