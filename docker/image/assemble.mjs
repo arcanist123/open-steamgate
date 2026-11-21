@@ -2,9 +2,21 @@ import {cpSync, existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, 
 import {basename, join, resolve} from "node:path";
 import {approvedLicenseAssumption} from "./license-assumptions.mjs";
 import {imagePacks} from "./packs.mjs";
+import {generationHanaSrcProblem, privateGenFolder, segwPrivateGen} from "../../tools/osd-tmp.mjs";
+import {writePublicArtefact} from "../../tools/osd-public-tree.mjs";
 
 const out = resolve(process.argv[2] ?? "/image");
 if (existsSync(out)) throw new Error(`Output must not exist: ${out}`);
+// One serving generation; the checkout's build/ holds many older generations,
+// binaries, browser previews and temporary files.
+const live = readlinkSync("build/live");
+if (!/^by-input\/[a-f0-9]{16}$/.test(live)) throw new Error(`Unexpected live generation: ${live}`);
+// gen/hana-src (H4) is the tenant's sources: a generation built with it is
+// private, and is never assembled into an image (tools/osd-tmp.mjs). Guarded
+// here, before anything is copied: a refusal must not leave the layers
+// half-copied behind it.
+const hanaProblem = generationHanaSrcProblem(join("build", live));
+if (hanaProblem) throw new Error(hanaProblem);
 mkdirSync(out, {recursive: true});
 // Explicit roots: never copy .env, .git, local credentials, captures or databases.
 const roots = ["src", "gen", "data", "webapp", "test", "tools", "bin", "scripts", "docker/image",
@@ -29,6 +41,11 @@ function browserOnly(path) {
   const normalized = path.replaceAll("\\", "/");
   return [...browserOnlyPackages].some((name) => normalized === name || normalized.endsWith("/" + name));
 }
+// gen/hana-src and gen/hana-ddic (H4) are the tenant's content: never in the
+// image, manifest or not -- an older generation that predates the folders
+// must not drag them in. tools/osd-tmp.mjs holds the one list of the two
+// prefixes; these copies run against the checkout root, so cpSync's filter
+// paths are already relative.
 const selectedPacks = imagePacks(process.cwd(), process.env.OSD_IMAGE_PACKS ?? "");
 for (const pack of selectedPacks) {
   cpSync(pack.dir, join(out, "packs", pack.name), {recursive: true, verbatimSymlinks: true});
@@ -38,12 +55,12 @@ for (const entry of roots) {
   cpSync(entry, join(out, entry), {recursive: true,
     ...(entry === "node_modules" ? {dereference: true} : {verbatimSymlinks: true}),
     filter: path => ![".git", "e2e", "test-results", "playwright-report"].includes(basename(path)) &&
-      !testOnly.has(path.replaceAll("\\", "/")) && !browserOnly(path)});
+      !testOnly.has(path.replaceAll("\\", "/")) && !browserOnly(path) && !privateGenFolder(path) &&
+      // and gen/segw while its manifest names a dump (H5b, tools/osd-tmp.mjs):
+      // this copy runs against the checkout root, so the filter paths are
+      // already relative
+      !segwPrivateGen(path, process.cwd())});
 }
-// One serving generation; the checkout's build/ holds many older generations,
-// binaries, browser previews and temporary files.
-const live = readlinkSync("build/live");
-if (!/^by-input\/[a-f0-9]{16}$/.test(live)) throw new Error(`Unexpected live generation: ${live}`);
 mkdirSync(join(out, "build", "by-input"), {recursive: true});
 cpSync(join("build", live), join(out, "build", live), {recursive: true, verbatimSymlinks: true});
 symlinkSync(live, join(out, "build", "live"));
@@ -114,3 +131,4 @@ inventory(join(out, "node_modules"));
 writeFileSync(join(out, "image-licenses.json"), JSON.stringify(report, null, 2) + "\n");
 writeFileSync(join(out, "release.json"), JSON.stringify({commit: process.env.OSD_IMAGE_REVISION ?? "local", builtAt: new Date().toISOString()}, null, 2) + "\n");
 console.log(`Image tree assembled; ${report.blockers.length} license items need review; ${report.assumptions.length} declared assumption(s).`);
+writePublicArtefact(out, process.cwd());

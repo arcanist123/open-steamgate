@@ -1,0 +1,4 @@
+@EndUserText.label: 'RAP bill projection service (R6)'
+define service ZUI_RAP_BILLC {
+  expose ZC_RAP_BILL as Bill;
+}

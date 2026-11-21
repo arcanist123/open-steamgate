@@ -15,6 +15,9 @@ CLASS zcl_oao_action DEFINITION PUBLIC.
     DATA mv_input_structure TYPE string.
     DATA mv_text_symbol TYPE textpoolky.
     DATA mv_text_container TYPE string.
+* milestone 4: a disabled action leaves the model, a disabled parameter the
+* function import
+    DATA mv_disabled TYPE abap_bool.
 ENDCLASS.
 CLASS zcl_oao_action IMPLEMENTATION.
   METHOD /iwbep/if_mgw_odata_action~create_input_parameter.
@@ -49,6 +52,19 @@ CLASS zcl_oao_action IMPLEMENTATION.
   METHOD /iwbep/if_mgw_odata_item~set_label_from_text_element.
     mv_text_container = iv_text_element_container.
     mv_text_symbol = iv_text_element_symbol.
+  ENDMETHOD.
+  METHOD /iwbep/if_mgw_odata_item~set_disabled.
+    mv_disabled = iv_disabled.
+  ENDMETHOD.
+  METHOD /iwbep/if_mgw_odata_action~get_input_parameter.
+    DATA parameter TYPE REF TO zcl_oao_parameter.
+    LOOP AT mt_parameters INTO parameter.
+      IF parameter->mv_name = iv_name.
+        ro_parameter = parameter.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+    RAISE EXCEPTION TYPE /iwbep/cx_mgw_med_exception.
   ENDMETHOD.
   METHOD /iwbep/if_mgw_odata_annotatabl~create_annotation.
     CREATE OBJECT ro_annotation TYPE zcl_oao_annotation.

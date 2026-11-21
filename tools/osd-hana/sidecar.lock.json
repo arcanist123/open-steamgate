@@ -1,0 +1,40 @@
+{
+  "name": "osd-hana-dump",
+  "version": "v2.62.1",
+  "commit": "c10a25cae70a032b87daa7c96906d0ecd6b588a5",
+  "schema": 1,
+  "read_only": true,
+  "capabilities": [
+    "probe",
+    "list",
+    "dump",
+    "names",
+    "packages",
+    "local",
+    "closure",
+    "inactive",
+    "catalog",
+    "ddic",
+    "skip_test_includes",
+    "object_report",
+    "tls",
+    "msag"
+  ],
+  "release": {
+    "base_url": "https://github.com/oisee/vibing-steampunk/releases/download/v2.62.1",
+    "assets": {
+      "linux-x64": "osd-hana-dump-linux-amd64",
+      "linux-arm64": "osd-hana-dump-linux-arm64",
+      "darwin-x64": "osd-hana-dump-darwin-amd64",
+      "darwin-arm64": "osd-hana-dump-darwin-arm64",
+      "win32-x64": "osd-hana-dump-windows-amd64.exe"
+    }
+  },
+  "targets": {
+    "linux-x64": "a2ddcc018a049dabc20accce092b0ca5cb72e7a6651d5c9aa1eeb3702938c68d",
+    "linux-arm64": "8b1f26d9089c12248b7ab778ac0e793b1775c6f5b3515b09f627fcf078ddce8e",
+    "darwin-x64": "8e13deee2abe7778f3cb520b2a724ba51b1b681f62393fd6c9fb140a20a7b9d1",
+    "darwin-arm64": "d13e39d0c594b05a14a133e234362fab231a3b2b45c6cd1c2978d30ce20d4e1b",
+    "win32-x64": "c0967a0661541bd8fdf8c0e3a21f4eccda920efafe307cbe5cb2550410ed0074"
+  }
+}

@@ -1,0 +1,13 @@
+Apache-2.0 (upstream material) and MIT (this repository's own files).
+
+The fetched material under upstream/ and the files copied from it into src/
+(each carries a header naming origin and commit) are from
+SAP-samples/abap-platform-refscen-flight, which is Apache-2.0. The full
+licence text is that repository's LICENSE file and the copy this repository
+keeps at LICENSES/Apache-2.0.txt; the copyright line is in NOTICE beside
+this file. The copies in src/ are modified, every change marked "OSD
+overlay" in the source.
+
+Everything else in this pack -- the seed class, the service YAML, the DDIC
+stand-ins, the manifest -- is this repository's own material under the MIT
+licence at the repository root.

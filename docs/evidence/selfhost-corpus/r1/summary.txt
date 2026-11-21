@@ -1,0 +1,1 @@
+selfhost-corpus: FAIL objects=1340 equal=0 diff=0 crash=1340 bytes=differ@1:1 reached-functions=349/551 traps=92 reached 214 unreached ref=e935f509b3231c78 out=e3b0c44298fc1c14

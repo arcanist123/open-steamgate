@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_BDEF"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><BDEF><NAME>ZC_RAP_BILL</NAME><TYPE>BDEF/BDO</TYPE><DESCRIPTION>RAP bill projection behavior (R6)</DESCRIPTION><SOURCE_TYPE>ABAP_SOURCE</SOURCE_TYPE></BDEF></asx:values></asx:abap></abapGit>

@@ -26,8 +26,8 @@ type LintSnapshot struct {
 // order. hidden is the Node layer resolver's build-time answer. A caller must
 // compare Digest before AND after checking; Files retain bytes for incremental updates.
 func CaptureLint(hidden []string) (LintSnapshot, error) {
-	storeState.mu.Lock()
-	defer storeState.mu.Unlock()
+	storeState.mu.RLock()
+	defer storeState.mu.RUnlock()
 	out := LintSnapshot{Root: storeState.root}
 	if storeState.cfg == nil {
 		return out, fmt.Errorf("ABAP lint: no object store configured")

@@ -48,8 +48,10 @@ RUN_TESTS pins that same published generation even before comparison.
    and VSIX host. Both the full prime and subsequent warm builds run there;
    the launcher can answer HTTP and proxy requests throughout. The warm
    path becomes available only when the prime completes. An activation
-   during priming waits up to 30 seconds while other requests keep using
-   the serving generation. A silent compiler, exit, or IPC loss kills and
+   during priming waits for it at most 60 s times the host's measured
+   slowdown, then builds cold while the prime goes on; the prime's own
+   deadline is sized by the tree (`tools/warm-deadline/README.md`). Other
+   requests keep using the serving generation throughout. A silent compiler, exit, or IPC loss kills and
    awaits the compiler before building cold; later publications stay cold
    until restart. The inactive-source metadata is sent with each operation. The
    prime checks its premise rather than assuming it: a full run of the kept
@@ -478,8 +480,11 @@ constructor at the first access, and a swap runs it at once.
 OSD_WARM=1 STG_DEV=1 npm start          # or: OSD_WARM=1 STG_DEV=1 build/osd up
 ```
 
-For a local checkout, run `npm run transpiler:pin` after `npm ci` to build and
-link all four packages from `libs.lock.json`. The persistent default is
+For a local checkout, `npm run bootstrap` runs this pin step itself after
+`npm ci` — it verifies or builds the pin, links all four packages from
+`libs.lock.json`, and refuses to transpile on the published package at
+`node_modules/@abaplint/transpiler`. `npm run transpiler:pin` is the same
+step on its own. The persistent default is
 `$HOME/.cache/osd/transpiler-<ref>`; override it with `TRANSPILER` pointing at a
 persistent checkout. Temporary directories and session scratchpads are refused.
 A verified build is reused; an incomplete clean checkout at the pin is rebuilt.

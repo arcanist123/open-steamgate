@@ -11,7 +11,7 @@
   "bugs": {"url": "https://github.com/oisee/open-steamgate/issues"},
   "homepage": "https://github.com/oisee/open-steamgate#readme",
   "galleryBanner": {"color": "#15233b", "theme": "dark"},
-  "files": ["extension.js", "launcher.js", "lib.js", "system-sources.js", "abapgit-zip.js", "abapgit-zip-command.js", "http-lens.js", "system-overview.js", "osd/**", "resources/**", "examples/**", "walkthrough/**", "media/**", "web/**", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-NOTICES.md"],
+  "files": ["extension.js", "launcher.js", "osgo-engine.js", "lib.js", "system-sources.js", "abapgit-zip.js", "abapgit-zip-command.js", "http-lens.js", "system-overview.js", "hana-sidecar.js", "osd/**", "resources/**", "examples/**", "walkthrough/**", "media/**", "web/**", "README.md", "CHANGELOG.md", "LICENSE", "THIRD-PARTY-NOTICES.md"],
   "publisher": "oisee",
   "engines": {"vscode": "^1.101.0"},
   "extensionKind": ["workspace", "ui"],
@@ -31,6 +31,7 @@
     "onCommand:osd.newSqlNotebook",
     "onCommand:osd.start",
     "onCommand:osd.prepareAbapgitZip",
+    "onCommand:osd.hanaExtract",
     "onCommand:osd.quickStart",
     "onCommand:osd.gettingStarted",
     "onCommand:osd.webProbe",
@@ -74,6 +75,26 @@
           "enum": ["abap", "vscode"],
           "default": "abap",
           "description": "What an ABAP developer's fingers expect (SAP GUI / ADT: Ctrl+F2 Check, Ctrl+F3 Activate, F8 Run, the debug keys) over an .abap editor, or VS Code's own bindings unchanged (\"vscode\")."
+        },
+        "osd.engine": {
+          "type": "string",
+          "enum": ["node", "osgo"],
+          "enumDescriptions": [
+            "The Node host: builds the system (and the workspace's ABAP) and runs node test/run.mjs.",
+            "The Go executable of this extension's release (osgo): downloaded once into the extension's storage and checked against its .sha256, never part of the .vsix. It serves the services it was built with; workspace ABAP is not compiled into it, and an activation is published but runs only after a rebuild of osgo."
+          ],
+          "default": "node",
+          "description": "Which runtime osd: Start runs (docs/vscode-extension.md \"Engine\"). A change takes effect at the next start."
+        },
+        "osd.osgo.releaseTag": {
+          "type": "string",
+          "default": "",
+          "description": "osd.engine \"osgo\" only: the release tag to download the executable from (e.g. vscode-v0.7.2382). Empty uses this extension's own version, which is what a released .vsix wants; a development build has no release of its own and needs one."
+        },
+        "osd.osgo.binary": {
+          "type": "string",
+          "default": "",
+          "description": "osd.engine \"osgo\" only: a local osgo executable to run instead of the downloaded one (e.g. tools/gogen/.out/osgo of a checkout). It is run as it is, without a checksum."
         },
         "osd.warm": {
           "type": "string",
@@ -155,6 +176,23 @@
           "default": "",
           "description": "PostgreSQL database -- the isolation boundary (tools/postgres-client.mjs never drops or rewrites a pre-existing schema). Empty defaults to a dedicated osd_<hash> derived from osd.home, so this window never writes into somebody else's database by accident."
         },
+        "osd.hanaExtract.connections": {
+          "type": "array",
+          "scope": "application",
+          "default": [],
+          "items": {
+            "type": "object",
+            "properties": {
+              "host": {"type": "string"},
+              "port": {"type": "number"},
+              "database": {"type": "string"},
+              "user": {"type": "string"}
+            },
+            "required": ["host", "port", "user"],
+            "additionalProperties": false
+          },
+          "description": "Connections remembered by OSD: Extract my code from HANA (host, port, tenant database, user). Never a password: passwords live only in VS Code SecretStorage, or nowhere."
+        },
         "osd.database.hana.host": {
           "type": "string",
           "default": "",
@@ -209,6 +247,7 @@
       {"command": "osd.copyJobKey", "title": "Copy job key", "category": "OSD"},
 
       {"command": "osd.prepareAbapgitZip", "title": "osd: Prepare abapGit zip…"},
+      {"command": "osd.hanaExtract", "title": "Extract my code from HANA", "category": "OSD"},
       {"command": "osd.webProbe", "title": "osd: Web probe"},
       {"command": "osd.webReadProbe", "title": "osd: Web read probe"},
       {"command": "osd.webVerifyLastTravel", "title": "osd: Web verify last Travel"},
@@ -277,6 +316,7 @@
     "menus": {
       "commandPalette": [
         {"command": "osd.openJobsPanel", "when": "!isWeb && !osd.web"},
+        {"command": "osd.hanaExtract", "when": "!isWeb && !osd.web"},
         {"command": "osd.refreshJobs", "when": "!isWeb && !osd.web"},
         {"command": "osd.filterJobs", "when": "!isWeb && !osd.web"},
         {"command": "osd.openJobLog", "when": "!isWeb && !osd.web"},

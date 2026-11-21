@@ -1,0 +1,11 @@
+projection;
+strict ( 2 );
+
+// the internal action ReCalcTotal is the base's own: no projection uses it
+define behavior for ZC_RAP_BILL alias Bill
+{
+  use create;
+  use update;
+  use action copyBill;
+  use action check;
+}

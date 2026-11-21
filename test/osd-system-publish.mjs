@@ -78,6 +78,39 @@ describe('release system publication', function () {
     const own = build(layers[1].folder, layers[1]);
     expect(own.files.map(f => f.path)).to.include.members(['src/sample.abap', 'data/seed.txt', 'webapp/index.html']);
   });
+  it('refuses a private prepared layer at a public host spelling before release uploads', async () => {
+    const repository = 'ghcr.io:443/example/open-steamgate', tag = 'vscode-v1.2.1';
+    const plan = preparePublication(root, join(temp, 'private-prepared'), {tag, repository});
+    const layer = plan.layers[0];
+    const config = JSON.parse(readFileSync(join(layer.artifact, 'config.json'), 'utf8'));
+    const manifest = JSON.parse(readFileSync(join(layer.artifact, 'manifest.json'), 'utf8'));
+    config.private = true;
+    const configBytes = Buffer.from(JSON.stringify(config));
+    manifest.config = {...manifest.config, digest: sha256(configBytes), size: configBytes.length};
+    manifest.annotations['org.osd.layer.private'] = 'true';
+    const manifestBytes = Buffer.from(JSON.stringify(manifest));
+    writeFileSync(join(layer.artifact, 'config.json'), configBytes);
+    writeFileSync(join(layer.artifact, 'manifest.json'), manifestBytes);
+    layer.digest = sha256(manifestBytes);
+    const old = process.env.OSD_PRIVATE_REGISTRIES;
+    process.env.OSD_PRIVATE_REGISTRIES = 'GHCR.IO:443';
+    try {
+      let error;
+      try { await publishSystem(root, join(temp, 'private-prepared'), {tag, repository, plan}); } catch (e) { error = e; }
+      expect(error?.code).to.equal('PRIVATE_LAYER');
+    } finally {
+      if (old === undefined) delete process.env.OSD_PRIVATE_REGISTRIES;
+      else process.env.OSD_PRIVATE_REGISTRIES = old;
+    }
+  });
+  it('refuses an installed private system before staging a public release', () => {
+    const identity = {order: 0, name: 'smoke', kind: 'input', private: true,
+      digest: `sha256:${'1'.repeat(64)}`, treeDigest: `sha256:${'2'.repeat(64)}`, path: 'inputs/smoke'};
+    write(join(root, '.local/system/.osd-system.json'), JSON.stringify({digest: `sha256:${'3'.repeat(64)}`, layers: [identity]}));
+    write(join(root, '.local/system/inputs/smoke/.osd-layer.json'), JSON.stringify(identity));
+    expect(() => publishPlan(root, join(temp, 'private-plan'), {tag: 'vscode-v1.2.1', repository: 'ghcr.io/example/open-steamgate'}))
+      .to.throw(/private layer smoke/);
+  });
   it('publishes ordered named layers through real gates to loopback, records omissions, installs and verifies', async () => {
     const r = registry(), host = await listening(r);
     try {

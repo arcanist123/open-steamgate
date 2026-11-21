@@ -196,7 +196,7 @@ stack also reads):
 $ node --enable-source-maps script.mjs   # imports output/zcl_stg_url.clas.mjs,
                                           # calls parse() with a bad path
 Error: [object Object]
-    at zcl_stg_url.parse (/home/alice/dev/open-steamgate/src/gateway/zcl_stg_url.clas.abap:59:7)
+    at zcl_stg_url.parse (/home/<user>/dev/open-steamgate/src/gateway/zcl_stg_url.clas.abap:59:7)
     at file:///.../script.mjs:23:21
 ```
 

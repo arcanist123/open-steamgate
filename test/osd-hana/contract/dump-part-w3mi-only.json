@@ -1,0 +1,304 @@
+{
+ "exit": 0,
+ "files": [
+  "manifest.json",
+  "objects.jsonl",
+  "reposrc.jsonl"
+ ],
+ "reposrc_bytes": 0,
+ "manifest": {
+  "catalog": true,
+  "closure": {
+   "rounds": 0,
+   "resolved": {},
+   "unhandled": {
+    "W3MI": [
+     "ZOSD_MIME_01.BIN",
+     "ZOSD_MIME_02.BIN",
+     "ZOSD_MIME_03.BIN",
+     "ZOSD_MIME_04.BIN",
+     "ZOSD_MIME_05.BIN",
+     "ZOSD_MIME_06.BIN",
+     "ZOSD_MIME_07.BIN",
+     "ZOSD_MIME_08.BIN",
+     "ZOSD_MIME_09.BIN",
+     "ZOSD_MIME_10.BIN",
+     "ZOSD_MIME_11.BIN",
+     "ZOSD_MIME_12.BIN",
+     "ZOSD_MIME_13.BIN"
+    ]
+   }
+  },
+  "connection": {
+   "host": "hana.example.test",
+   "port": 39015,
+   "user": "TESTLOGIN",
+   "database": "TENANT"
+  },
+  "counts": {
+   "rows_ACMDCLSRC": 0,
+   "rows_CROSS": 0,
+   "rows_DD01L": 0,
+   "rows_DD01T": 0,
+   "rows_DD02L": 0,
+   "rows_DD02T": 0,
+   "rows_DD03L": 0,
+   "rows_DD04L": 0,
+   "rows_DD04T": 0,
+   "rows_DD07L": 0,
+   "rows_DD07T": 0,
+   "rows_DD09L": 0,
+   "rows_DD25L": 0,
+   "rows_DD25T": 0,
+   "rows_DD26S": 0,
+   "rows_DD27S": 0,
+   "rows_DD28S": 0,
+   "rows_DD30L": 0,
+   "rows_DD30T": 0,
+   "rows_DD31S": 0,
+   "rows_DD32S": 0,
+   "rows_DD33S": 0,
+   "rows_DD40L": 0,
+   "rows_DD40T": 0,
+   "rows_DDDDLSRC": 0,
+   "rows_DDLXSRC_SRC": 0,
+   "rows_REPOTEXT": 0,
+   "rows_SEOCLASS": 0,
+   "rows_SEOCLASSDF": 0,
+   "rows_SEOCLASSTX": 0,
+   "rows_SRVDSRC_SRC": 0,
+   "rows_T100": 0,
+   "rows_T100A": 0,
+   "rows_T100T": 0,
+   "rows_TADIR": 0,
+   "rows_TFDIR": 0,
+   "rows_TLIBG": 0,
+   "rows_TLIBT": 0,
+   "rows_TMDIR": 0,
+   "rows_TRDIR": 0,
+   "rows_WBCROSSGT": 0,
+   "rows_WBCROSSI": 0
+  },
+  "ddic": true,
+  "finished": "2026-11-18T17:21:42.904145766Z",
+  "inactive": false,
+  "names": [],
+  "provenance": "osd hana extract",
+  "schema": "TESTSCHEMA",
+  "sidecar": {
+   "name": "osd-hana-dump",
+   "version": "v2.62.1",
+   "commit": "c10a25cae70a032b87daa7c96906d0ecd6b588a5",
+   "request": {
+    "schema": 1,
+    "requested": {
+     "W3MI": [
+      "ZOSD_MIME_01.BIN",
+      "ZOSD_MIME_02.BIN",
+      "ZOSD_MIME_03.BIN",
+      "ZOSD_MIME_04.BIN",
+      "ZOSD_MIME_05.BIN",
+      "ZOSD_MIME_06.BIN",
+      "ZOSD_MIME_07.BIN",
+      "ZOSD_MIME_08.BIN",
+      "ZOSD_MIME_09.BIN",
+      "ZOSD_MIME_10.BIN",
+      "ZOSD_MIME_11.BIN",
+      "ZOSD_MIME_12.BIN",
+      "ZOSD_MIME_13.BIN"
+     ]
+    },
+    "catalog": true,
+    "ddic": true,
+    "provenance": "osd hana extract"
+   },
+   "objects_report": "objects.jsonl",
+   "counts": {
+    "skipped": 13,
+    "skipped_unsupported": 13
+   },
+   "errors": []
+  },
+  "started": "2026-11-18T17:21:42.903956688Z",
+  "tables": [
+   {
+    "name": "TADIR",
+    "column": "OBJ_NAME"
+   },
+   {
+    "name": "TRDIR",
+    "column": "NAME"
+   },
+   {
+    "name": "TMDIR",
+    "column": "CLASSNAME"
+   },
+   {
+    "name": "TFDIR",
+    "column": "FUNCNAME"
+   },
+   {
+    "name": "SEOCLASS",
+    "column": "CLSNAME"
+   },
+   {
+    "name": "SEOCLASSDF",
+    "column": "CLSNAME"
+   },
+   {
+    "name": "SEOCLASSTX",
+    "column": "CLSNAME"
+   },
+   {
+    "name": "REPOTEXT",
+    "column": "PROGNAME"
+   },
+   {
+    "name": "TLIBG",
+    "column": "AREA"
+   },
+   {
+    "name": "TLIBT",
+    "column": "AREA"
+   },
+   {
+    "name": "T100A",
+    "column": "ARBGB"
+   },
+   {
+    "name": "T100T",
+    "column": "ARBGB"
+   },
+   {
+    "name": "T100",
+    "column": "ARBGB"
+   },
+   {
+    "name": "WBCROSSGT",
+    "column": "INCLUDE"
+   },
+   {
+    "name": "WBCROSSI",
+    "column": "INCLUDE"
+   },
+   {
+    "name": "CROSS",
+    "column": "INCLUDE"
+   },
+   {
+    "name": "DD02L",
+    "column": "TABNAME"
+   },
+   {
+    "name": "DD02T",
+    "column": "TABNAME"
+   },
+   {
+    "name": "DD03L",
+    "column": "TABNAME"
+   },
+   {
+    "name": "DD04L",
+    "column": "ROLLNAME"
+   },
+   {
+    "name": "DD04T",
+    "column": "ROLLNAME"
+   },
+   {
+    "name": "DD01L",
+    "column": "DOMNAME"
+   },
+   {
+    "name": "DD01T",
+    "column": "DOMNAME"
+   },
+   {
+    "name": "DD07L",
+    "column": "DOMNAME"
+   },
+   {
+    "name": "DD07T",
+    "column": "DOMNAME"
+   },
+   {
+    "name": "DD40L",
+    "column": "TYPENAME"
+   },
+   {
+    "name": "DD40T",
+    "column": "TYPENAME"
+   },
+   {
+    "name": "DD09L",
+    "column": "TABNAME"
+   },
+   {
+    "name": "DDDDLSRC",
+    "column": "DDLNAME"
+   },
+   {
+    "name": "DDLXSRC_SRC",
+    "column": "DDLXNAME"
+   },
+   {
+    "name": "SRVDSRC_SRC",
+    "column": "SRVDNAME"
+   },
+   {
+    "name": "ACMDCLSRC",
+    "column": "DCLNAME"
+   },
+   {
+    "name": "DD30L",
+    "column": "SHLPNAME"
+   },
+   {
+    "name": "DD30T",
+    "column": "SHLPNAME"
+   },
+   {
+    "name": "DD31S",
+    "column": "SHLPNAME"
+   },
+   {
+    "name": "DD32S",
+    "column": "SHLPNAME"
+   },
+   {
+    "name": "DD33S",
+    "column": "SHLPNAME"
+   },
+   {
+    "name": "DD25L",
+    "column": "VIEWNAME"
+   },
+   {
+    "name": "DD25T",
+    "column": "VIEWNAME"
+   },
+   {
+    "name": "DD26S",
+    "column": "VIEWNAME"
+   },
+   {
+    "name": "DD27S",
+    "column": "VIEWNAME"
+   },
+   {
+    "name": "DD28S",
+    "column": "CONDNAME"
+   }
+  ],
+  "tool": "osd-hana-dump v2.62.1"
+ },
+ "objects_row": {
+  "type": "W3MI",
+  "name": "ZOSD_MIME_01.BIN",
+  "package": "$OSD_X",
+  "author": "DEVUSER",
+  "class": "customer",
+  "status": "skipped",
+  "reason": "unsupported"
+ }
+}

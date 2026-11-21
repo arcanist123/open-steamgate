@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The UI annotations of the draft trip app. On a system they would come
+     from the views' metadata extensions; the draft annotations
+     (Common.DraftRoot, DraftNode) and everything else are the service's
+     own $metadata (src/rap_r8, docs/rap-runtime.md R9). -->
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/UI.xml">
+    <edmx:Include Namespace="com.sap.vocabularies.UI.v1" Alias="UI"/>
+  </edmx:Reference>
+  <edmx:Reference Uri="https://sap.github.io/odata-vocabularies/vocabularies/Common.xml">
+    <edmx:Include Namespace="com.sap.vocabularies.Common.v1" Alias="Common"/>
+  </edmx:Reference>
+  <edmx:Reference Uri="../../../sap/opu/odata4/sap/ZUI_RAP_DTRIP/$metadata">
+    <edmx:Include Namespace="ZUI_RAP_DTRIP"/>
+  </edmx:Reference>
+  <edmx:DataServices>
+    <Schema Namespace="osd.trip4.annotations" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <Annotations Target="ZUI_RAP_DTRIP.TripType">
+        <!-- the field sap.fe shows the draft indicator beside (Draft, Locked by ...) -->
+        <Annotation Term="Common.SemanticKey">
+          <Collection><PropertyPath>trip_uuid</PropertyPath></Collection>
+        </Annotation>
+        <Annotation Term="UI.HeaderInfo">
+          <Record Type="UI.HeaderInfoType">
+            <PropertyValue Property="TypeName" String="Trip"/>
+            <PropertyValue Property="TypeNamePlural" String="Trips"/>
+            <PropertyValue Property="Title">
+              <Record Type="UI.DataField"><PropertyValue Property="Value" Path="description"/></Record>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+        <Annotation Term="UI.SelectionFields">
+          <Collection><PropertyPath>description</PropertyPath></Collection>
+        </Annotation>
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="trip_uuid"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="description"/></Record>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="status"/></Record>
+          </Collection>
+        </Annotation>
+        <Annotation Term="UI.Facets">
+          <Collection>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="General"/>
+              <PropertyValue Property="Label" String="General"/>
+              <PropertyValue Property="Target" AnnotationPath="@UI.FieldGroup#General"/>
+            </Record>
+            <Record Type="UI.ReferenceFacet">
+              <PropertyValue Property="ID" String="Legs"/>
+              <PropertyValue Property="Label" String="Legs"/>
+              <PropertyValue Property="Target" AnnotationPath="to_Legs/@UI.LineItem"/>
+            </Record>
+          </Collection>
+        </Annotation>
+        <Annotation Term="UI.FieldGroup" Qualifier="General">
+          <Record Type="UI.FieldGroupType">
+            <PropertyValue Property="Data">
+              <Collection>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="description"/></Record>
+                <Record Type="UI.DataField"><PropertyValue Property="Value" Path="status"/></Record>
+              </Collection>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+      </Annotations>
+      <Annotations Target="ZUI_RAP_DTRIP.TripType/trip_uuid">
+        <Annotation Term="Common.Label" String="Trip"/>
+      </Annotations>
+      <Annotations Target="ZUI_RAP_DTRIP.TripType/description">
+        <Annotation Term="Common.Label" String="Description"/>
+      </Annotations>
+      <Annotations Target="ZUI_RAP_DTRIP.TripType/status">
+        <Annotation Term="Common.Label" String="Status"/>
+      </Annotations>
+      <Annotations Target="ZUI_RAP_DTRIP.LegType">
+        <Annotation Term="UI.HeaderInfo">
+          <Record Type="UI.HeaderInfoType">
+            <PropertyValue Property="TypeName" String="Leg"/>
+            <PropertyValue Property="TypeNamePlural" String="Legs"/>
+            <PropertyValue Property="Title">
+              <Record Type="UI.DataField"><PropertyValue Property="Value" Path="destination"/></Record>
+            </PropertyValue>
+          </Record>
+        </Annotation>
+        <Annotation Term="UI.LineItem">
+          <Collection>
+            <Record Type="UI.DataField"><PropertyValue Property="Value" Path="destination"/></Record>
+          </Collection>
+        </Annotation>
+      </Annotations>
+      <Annotations Target="ZUI_RAP_DTRIP.LegType/destination">
+        <Annotation Term="Common.Label" String="Destination"/>
+      </Annotations>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

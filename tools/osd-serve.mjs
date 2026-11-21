@@ -22,6 +22,7 @@ import {HotLoader, applyRuntimeHotSwap, warmVerdict} from "./osd-hot.mjs";
 import {ensureDemoData} from "./osd-demo-data.mjs";
 import {inspectorRequest} from "./osd-inspector.mjs";
 import {databaseDescriptor} from "./osd-database-identity.mjs";
+import {amdpFacts} from "./amdp-status.mjs";
 import express from "express";
 import {join} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -251,7 +252,11 @@ const hostNodes = {};
 
 // how a supervisor knows this runtime is alive and which generation of the
 // code it carries; not part of any ADT or OData surface
-hostNodes.serving = (a, node) => a.get(node.path, function (req, res) {
+hostNodes.serving = (a, node) => a.get(node.path, async function (req, res) {
+  // where an AMDP body would run right now, off this process's destination
+  // (tools/amdp-status.mjs); the facade copies it into the status snapshot
+  let amdp;
+  try { amdp = await amdpFacts(); } catch { amdp = undefined; }
   res.json({
     ready: true,
     workProcess: workProcess(),
@@ -264,6 +269,7 @@ hostNodes.serving = (a, node) => a.get(node.path, function (req, res) {
     // the connection's own path, not the environment's guess about it
     database: globalThis.abap?.context?.databaseConnections?.DEFAULT?.path ?? process.env.STG_DB_PATH ?? ":memory:",
     databaseIdentity: databaseDescriptor(globalThis.abap?.context?.databaseConnections?.DEFAULT),
+    amdp,
   });
 });
 

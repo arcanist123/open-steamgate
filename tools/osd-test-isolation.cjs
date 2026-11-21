@@ -89,6 +89,34 @@ const inactiveViewSnapshot = async () => {
   const overlay = warmOverlay(root, 'build/inactive/active', entries);
   return {signature: digest.digest('hex'), overlay};
 };
+// The objects a file left saved but not activated. An ObjectStore Save keeps
+// the active copy under build/inactive/active and names the object in
+// inactive.json; the next host that builds a generation builds it over that
+// overlay, so a later file -- not the one that saved -- sees its live
+// generation move. Only a non-empty overlay counts: metadata naming nothing
+// changes no build.
+const inactiveOverlaySnapshot = () => {
+  const root = process.cwd();
+  const metadata = join(root, 'build/inactive/inactive.json');
+  let objects = [];
+  try { objects = existsSync(metadata) ? Object.keys(JSON.parse(readFileSync(metadata, 'utf8')).inactive ?? {}).sort() : []; }
+  catch (error) { return {error: error.message}; }
+  const folder = join(root, 'build/inactive/active');
+  const copies = [];
+  const walk = (dir) => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, {withFileTypes: true})) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path); else copies.push(path);
+    }
+  };
+  walk(folder);
+  copies.sort();
+  if (!objects.length && !copies.length) return null;
+  const digest = createHash('sha256').update(JSON.stringify(objects));
+  for (const path of copies) digest.update(relative(folder, path)).update('\0').update(readFileSync(path)).update('\0');
+  return {objects, copies: copies.map((path) => relative(root, path).replaceAll('\\', '/')), signature: digest.digest('hex')};
+};
 const changedInputs = (before, after) => [...new Set([...before.keys(), ...after.keys()])].filter((path) => before.get(path) !== after.get(path));
 // Called by an originating fixture while its known edited inputs are still
 // present. A hash proof ties that specific edit to the generation left live.
@@ -255,7 +283,7 @@ Mocha.Suite.prototype.emit = function (event, ...args) {
     resources.setOwner(file);
     await dialogReady;
     const {generationStateSnapshot} = await moduleOf('osd-build.mjs');
-    before = {manifests: manifestsSnapshot(), env: resources.environmentSnapshot(), generation: generationStateSnapshot()};
+    before = {manifests: manifestsSnapshot(), env: resources.environmentSnapshot(), generation: generationStateSnapshot(), inactive: inactiveOverlaySnapshot()};
     generationBaseline = allowances[file]?.generation && before.generation.live !== null ? await inputSnapshot() : undefined;
     if (generationBaseline) generationBaseline.beforeTree = before.generation.tree;
     if (allowances[file]?.generation?.drift.kind === 'restored-inputs' || lastGeneration?.inactive !== undefined) {
@@ -308,6 +336,13 @@ Mocha.Suite.prototype.emit = function (event, ...args) {
     for (const name of manifestNames) {
       const changes = [...importChanges[name], ...(executionChanges[name] ?? [])];
       if (changes.length) violations.push([name, changes]);
+    }
+    if (before) {
+      const inactive = inactiveOverlaySnapshot();
+      if (inactive?.error || before.inactive?.error || (inactive?.signature ?? null) !== (before.inactive?.signature ?? null)) {
+        const view = (state) => state && (state.error ? {error: state.error} : {objects: state.objects, copies: state.copies});
+        violations.push(['inactive', {before: view(before.inactive), after: view(inactive)}]);
+      }
     }
     if (after.dialog.held || after.dialog.waiting || after.dialog.open.length) violations.push(['dialog', {before: {held: false, waiting: 0, open: []}, after: after.dialog}]);
     const inherited = sameGeneration(lastGeneration, before?.generation ?? after.generation);

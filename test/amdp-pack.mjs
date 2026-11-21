@@ -160,6 +160,37 @@ ENDCLASS.`;
     expect(warnings[0].message).to.contain("CAST to INTEGER cannot raise");
   });
 
+  it("records the DuckDB refusal of a compiled body, so the status page cannot call it portable-duckdb", () => {
+    // FLOOR compiles into the IR but has no measured DuckDB rendering: the
+    // build keeps the IR (the call path is unchanged, and refuses at call
+    // time) and writes down the refusal the call will raise
+    const root = mkdtempSync(join(tmpdir(), "osd-amdp-duckdb-refusal-"));
+    try {
+      const src = join(root, "src");
+      mkdirSync(src);
+      const body = (expr) => `
+CLASS zcl_floor_amdp DEFINITION PUBLIC FINAL CREATE PUBLIC.
+  PUBLIC SECTION.
+    INTERFACES if_amdp_marker_hdb.
+    CLASS-METHODS run IMPORTING VALUE(iv) TYPE i EXPORTING VALUE(ev) TYPE i.
+ENDCLASS.
+CLASS zcl_floor_amdp IMPLEMENTATION.
+  METHOD run BY DATABASE PROCEDURE FOR HDB LANGUAGE SQLSCRIPT OPTIONS READ-ONLY.
+    ev = ${expr};
+  ENDMETHOD.
+ENDCLASS.\n`;
+      writeFileSync(join(src, "zcl_floor_amdp.clas.abap"), body("FLOOR(:iv / 2.0)"));
+      let made = generate([src], join(root, "gen"));
+      expect(made.procedures[0].portable, "the IR is still compiled").to.not.equal(undefined);
+      expect(made.procedures[0].portableDuckdbRefusal?.message).to.match(/FLOOR/);
+      writeFileSync(join(src, "zcl_floor_amdp.clas.abap"), body(":iv + 1"));
+      made = generate([src], join(root, "gen"));
+      expect(made.procedures[0].portableDuckdbRefusal).to.equal(undefined);
+    } finally {
+      rmSync(root, {recursive: true, force: true});
+    }
+  });
+
   it("a DDL source whose object name is not the entity still gives the method its RETURNS", async () => {
     const {ObjectStore} = await import("../tools/osd-store.mjs");
     const {rmSync} = await import("node:fs");

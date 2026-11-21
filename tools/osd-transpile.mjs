@@ -26,8 +26,10 @@ import {createRequire} from "node:module";
 import {tmpdir} from "node:os";
 import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {hostModules} from "./osd-host.mjs";
-import {isSourceIdentity, inputFoldersOf} from "./osd-packs.mjs";
+import {expandedFolders, isSourceIdentity, inputFoldersOf} from "./osd-packs.mjs";
 import {mapStatementStarts} from "./osd-source-map-starts.mjs";
+import {lowerDerived, readRapBindings} from "./rap/lower-derived.mjs";
+import {urlLibraryPath} from "./osd-url-lib.mjs";
 import {lowerNarrowSubmit} from "./osd-narrow-submit.mjs";
 import {installRfcMessage} from "./osd-rfc-message.mjs";
 import {libraryPath} from "./osd-lib-path.mjs";
@@ -118,8 +120,11 @@ export function isBinaryFilename(filename) {
 }
 
 // every file under a folder, absolute, forward slashes, sorted: the order
-// the registry sees is then a property of the tree and not of the disk
-export function walk(dir, out = []) {
+// the registry sees is then a property of the tree and not of the disk.
+// `skipDirs`: a folder that is an input of its own is walked as its own layer
+// (H3: gen/hana-ddic inside gen); the parent's walk must not pick it up again
+// -- the same rule as tools/osd-inputs.mjs filesIn, which decides hiding.
+export function walk(dir, out = [], skipDirs) {
   let entries;
   try {
     entries = readdirSync(dir).sort();
@@ -129,8 +134,9 @@ export function walk(dir, out = []) {
   for (const entry of entries) {
     if (entry === ".git") continue;
     const p = join(dir, entry);
+    if (skipDirs?.has(p)) continue;
     if (statSync(p).isDirectory()) {
-      walk(p, out);
+      walk(p, out, skipDirs);
     } else {
       out.push(p.split(sep).join("/"));
     }
@@ -174,8 +180,9 @@ export async function readAll(files, relativeTo, transform = (source) => source,
 // expressions of input_filter and exclude_filter over the absolute path
 export async function loadFiles(root, config, core, onRead = undefined) {
   const {wanted, skipped} = listFiles(root, config);
+  const rapBindings = readRapBindings(root, onRead);
   const files = await readAll(wanted, resolve(root, config.output_folder),
-    (source, filename) => lowerNarrowSubmit(source, filename, core), onRead);
+    (source, filename) => lowerDerived(lowerNarrowSubmit(source, filename, core), filename, rapBindings), onRead);
   const system = activeSystem(root) ?? null;
   if (system) for (const file of files) file.relative = relative(resolve(root, config.output_folder), dirname(logicalSystemPath(root, file.path, system)));
   return {files, skipped};
@@ -187,12 +194,18 @@ export function listFiles(root, config) {
   const include = regexps(config.input_filter);
   const exclude = regexps(config.exclude_filter);
   const system = activeSystem(root) ?? null;
-  const folders = system ? inputFoldersOf(root, config) : Array.isArray(config.input_folder) ? config.input_folder : [config.input_folder];
+  const folders = system ? inputFoldersOf(root, config)
+    : expandedFolders(Array.isArray(config.input_folder) ? config.input_folder : [config.input_folder], root);
   const wanted = [];
   let skipped = 0;
-  for (const folder of folders) {
-    for (const filename of walk(resolve(root, folder))) {
-      if (isSourceIdentity(filename) || system && [".osd-layer.json", ".abapgit.xml"].includes(basename(filename))) {
+  for (const folder of folders.filter((f) => typeof f === "string")) {
+    const skipDirs = new Set(folders.filter((f) => f !== folder).map((f) => resolve(root, f)));
+    for (const filename of walk(resolve(root, folder), [], skipDirs)) {
+      // a repository marker is not source in either mode (H4: the converter's
+      // layers are abapGit repositories; a system's layers carry .osd-layer.json)
+      // DSL navigation metadata (*.trace.meta.json) is volatile and no object:
+      // never read here, so it never names a generation (osd-build hashOf)
+      if (isSourceIdentity(filename) || /\.trace\.meta\.json$/i.test(filename) || [".osd-layer.json", ".abapgit.xml"].includes(basename(filename))) {
         skipped++;
       } else if (include.length > 0 && matchesSourcePath(root, filename, include, system) === false) {
         skipped++;
@@ -214,7 +227,12 @@ export async function loadLibs(root, config, log = () => {}, onRead = undefined)
   for (const lib of config.libs ?? []) {
     let dir;
     let cleanup = false;
-    if (system || existsSync(join(root, "libs.lock.json"))) {
+    const cached = urlLibraryPath(root, lib);
+    if (cached) {
+      if (!existsSync(cached)) throw new Error(`pinned URL library is not cached: ${lib.url}`);
+      dir = cached;
+      log(`lib from pinned URL cache: ${lib.url}`);
+    } else if (system || existsSync(join(root, "libs.lock.json"))) {
       dir = libraryPath(root, basename(lib.folder));
       log(`lib from locked folder: ${lib.folder}`);
     } else
@@ -226,6 +244,12 @@ export async function loadLibs(root, config, log = () => {}, onRead = undefined)
       log(`lib clone: ${lib.url}`);
       execFileSync("git", ["clone", "--quiet", "--depth", "1", "--", lib.url, "."], {cwd: dir, stdio: "pipe",
         env: {...process.env, GIT_CEILING_DIRECTORIES: dirname(dir)}});
+      if (lib.commit) {
+        if (!/^[0-9a-f]{40}$/.test(lib.commit)) throw new Error(`URL library commit must be a full SHA-1: ${lib.url}`);
+        execFileSync("git", ["checkout", "--quiet", "--detach", lib.commit], {cwd: dir, stdio: "pipe"});
+        const actual = execFileSync("git", ["rev-parse", "HEAD"], {cwd: dir, encoding: "utf8"}).trim();
+        if (actual !== lib.commit) throw new Error(`URL library checkout differs from configured commit: ${lib.url}`);
+      }
       cleanup = true;
     } else {
       throw new Error(`a lib needs a folder or a url: ${JSON.stringify(lib)}`);
@@ -289,6 +313,7 @@ export function outputFiles(output, config, outputFolder, files) {
 
 const QUIET = {set() {}, async tick() {}};
 
+
 // the whole of it: files in, objects on disk, a count back
 export async function transpile(options = {}) {
   const root = resolve(options.root ?? process.cwd());
@@ -316,7 +341,9 @@ export async function transpile(options = {}) {
   for (const l of libs) {
     reg.addDependency(new core.MemoryFile(l.filename, l.contents));
   }
-  orderRegistry(reg, core, files, libs);
+  // orderRegistry also drops help views (osd-warm-order.mjs dropHelpViews),
+  // for this run, the warm compiler's kept registry and its verifier alike
+  for (const name of orderRegistry(reg, core, files, libs)) log(`help view ${name}: no database object (VIEWCLASS H), read by its search helps' generated join`);
   const output = await phase("transpile", () => t.run(reg, options.progress ?? QUIET));
   const outputFolder = resolve(root, config.output_folder);
   mkdirSync(outputFolder, {recursive: true});

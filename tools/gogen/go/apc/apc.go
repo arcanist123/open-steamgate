@@ -18,7 +18,8 @@
 //     Origin is neither this host nor one of OriginPatterns, is answered
 //     426 / 400 / 405 / 403 before any ABAP runs: on a system such a request
 //     never reaches the extension;
-//   - one Session per socket (a stateful handler keeps its attributes);
+//   - one Session per socket (a stateful handler keeps its attributes),
+//     made by the host (NewSession) so it runs on the host's database;
 //   - every call into ABAP is one dialog step (Step), run one at a time in
 //     the process (abap.WorkProcess), inside abap.DialogStep, so a step that
 //     dumps rolls its database work back;
@@ -88,6 +89,11 @@ type Channel struct {
 	New func(s *abap.Session, r *http.Request) Host
 	// Step runs one dialog step; nil is abap.APCStep.
 	Step func(s *abap.Session, name string, work func()) error
+	// NewSession makes the Session of a socket: the host's
+	// (abap.Instance.NewSession), so the channel's sessions run on the
+	// host's database and share its statics. Nil is a private Session
+	// without a database.
+	NewSession func() *abap.Session
 	// OriginPatterns are the cross-origin pages allowed to connect, as
 	// github.com/coder/websocket's AcceptOptions.OriginPatterns (host
 	// patterns of path.Match, or scheme://host). Empty is same origin only:
@@ -117,7 +123,7 @@ func (ch *Channel) logf(format string, args ...any) {
 func (ch *Channel) step(s *abap.Session, name, text string, work func()) error {
 	run := ch.Step
 	if run == nil {
-		run = func(_ *abap.Session, name string, work func()) error { return abap.APCStep(name, work, s) }
+		run = func(s *abap.Session, name string, work func()) error { return abap.APCStep(s, name, work) }
 	} else {
 		// Custom Step hosts also hold the work process around the callback.
 		body := work
@@ -219,7 +225,10 @@ func (ch *Channel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "origin not allowed for this APC channel", http.StatusForbidden)
 		return
 	}
-	s := &abap.Session{Statics: abap.ProcessStatics}
+	s := &abap.Session{}
+	if ch.NewSession != nil {
+		s = ch.NewSession()
+	}
 	var host Host
 	// a dump while the handler starts: 503 and why, in text (Node's answer)
 	unavailable := func(err error) {

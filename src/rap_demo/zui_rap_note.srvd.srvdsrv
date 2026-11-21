@@ -1,0 +1,4 @@
+@EndUserText.label: 'Original RAP note demo service'
+define service ZUI_RAP_NOTE {
+  expose ZI_RAP_NOTE as Note;
+}

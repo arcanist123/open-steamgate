@@ -123,7 +123,11 @@ export function userLayersOf(root, env) {
     mounts.get(pkg).push(id);
     const metadata = join(root, 'local/overlays', id + '.meta.txt');
     if (!existsSync(metadata)) writeFileSync(metadata, JSON.stringify({key: pkg, archiveId: id}));
-    layers.push({path, writable: false, library: false, ...meta, archiveId: id, overlay});
+    // the archive's own path rides along unlisted: the generation hash and the
+    // manifest name the layer by archiveId, never by where the ZIP lies
+    const layer = {path, writable: false, library: false, ...meta, archiveId: id, overlay};
+    Object.defineProperty(layer, 'archiveFile', {value: archive, enumerable: false});
+    layers.push(layer);
     layers.push({path: overlay, writable: true, library: false, ...meta, overlayOf: path});
   }
   // Reconcile the complete configuration, dropping historical mounts.

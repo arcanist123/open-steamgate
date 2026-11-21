@@ -95,14 +95,20 @@ type storeEntry struct {
 }
 
 var storeState struct {
-	mu       sync.Mutex
-	revision uint64
-	root     string
-	cfg      *Config
-	excluded []*regexp.Regexp
-	written  map[string]bool
-	reason   string
-	identity *Identity
+	// shared by the commands that only read (READ, LIST, OBJECT, ...),
+	// exclusive for everything that changes the store or its answers'
+	// inputs and for the compiler's capture (runCompiler drops and retakes it)
+	mu            sync.RWMutex
+	revision      uint64
+	root          string
+	cfg           *Config
+	excluded      []*regexp.Regexp
+	written       map[string]bool
+	createdActive map[string][]byte
+	// files activation published: their immutable snapshot (activate.go)
+	publishedSnapshot map[string]string
+	reason            string
+	identity          *Identity
 }
 
 // SetStore points the store at a tree and the build's facts about it. An
@@ -114,6 +120,8 @@ func SetStore(root string, config []byte, reason string) error {
 	storeState.revision++
 	storeState.root, storeState.cfg, storeState.excluded = "", nil, nil
 	storeState.written = map[string]bool{}
+	storeState.createdActive = map[string][]byte{}
+	storeState.publishedSnapshot = map[string]string{}
 	storeState.reason = reason
 	if root == "" || len(config) == 0 {
 		if reason == "" {
@@ -214,14 +222,12 @@ var systemKinds = map[string]bool{
 	"LOCK_HOLDER": true, "BUILD": true, "CHANGED": true, "SERVICES": true,
 	"TRANSACTIONS": true, "XREF_WARM": true, "OBJECT_TYPES": true,
 	"TESTCLASSES": true, "SERVICE_ROWS": true, "SEGW_REGISTRATIONS": true,
+	"SQL": true, "SQLCHECK": true,
 }
 
 // Call answers one call of ZOSD_STORE. in holds the importing values
 // that were passed (IV_*), present or absent the way the caller passed them.
 func Call(in map[string]*string) Answer {
-	storeState.mu.Lock()
-	defer storeState.mu.Unlock()
-	a := storeEmpty()
 	text := func(k, fallback string) string {
 		if v, ok := in[k]; ok && v != nil {
 			return strings.TrimSpace(*v)
@@ -229,6 +235,15 @@ func Call(in map[string]*string) Answer {
 		return fallback
 	}
 	command := strings.ToUpper(text("IV_COMMAND", "LIST"))
+	switch command {
+	case "WRITE", "CHECK", "CHECKRUN", "PARSE":
+		storeState.mu.Lock()
+		defer storeState.mu.Unlock()
+	default:
+		storeState.mu.RLock()
+		defer storeState.mu.RUnlock()
+	}
+	a := storeEmpty()
 
 	switch command {
 	case "LIST", "READ", "WRITE", "CHECK", "CHECKRUN", "ACTIVATE", "TOKENS", "HISTORY", "REVISION", "OBJECT", "PACKAGE", "PACKAGES", "SEARCH", "PARSE":
@@ -536,6 +551,20 @@ func storeRead(ix *storeIndex, a *Answer, typ, name, include, version string) er
 		} else {
 			includePresent = false
 		}
+	} else if typ == "FUGR" && include != "main" {
+		// a function group's parts as abapGit writes them beside the group's
+		// XML (osd-store.mjs read): <group>.fugr.<part>.abap, the part named
+		// by its program name; an absent part does not exist
+		f := strings.TrimSuffix(e.File, ".fugr.xml") + ".fugr." + storeFileOf(include) + ".abap"
+		file = f
+		b, err := os.ReadFile(filepath.Join(storeState.root, f))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return storeNotFound(typ, name+" include "+include)
+			}
+			return storeRefusal(err.Error())
+		}
+		source = string(b)
 	} else {
 		b, err := os.ReadFile(filepath.Join(storeState.root, e.File))
 		if err != nil {
@@ -635,6 +664,9 @@ func storeWrite(ix *storeIndex, a *Answer, typ, name, include, source string) er
 	}
 	if !storeConfined(file) {
 		return storeRefusal(e.Type + " " + e.Name + ": " + file + " is outside the writable roots of this tree")
+	}
+	if err := safeMutationPath(file); err != nil {
+		return err
 	}
 	full := filepath.Join(storeState.root, file)
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {

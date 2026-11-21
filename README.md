@@ -6,6 +6,10 @@
 
 **An ABAP application server you can clone.**
 
+**Coming from the ABAP Cloud Developer Trial (A4H)?**
+[`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) is the first hour: run it,
+connect Eclipse, bring your own code, and the table of what A4H has that this does not.
+
 Part of the steampunk family:
 [vsp](https://github.com/oisee/vibing-steampunk) (ADT ↔ MCP),
 [abapiti](https://github.com/oisee/abapiti) (TypeScript and WASM to ABAP),
@@ -22,6 +26,7 @@ Part of the steampunk family:
 | **One binary (Bun)** | download `osd-linux-x64` / `osd-linux-arm64` / `osd-darwin-arm64` / `osd-darwin-x64` / `osd-windows-x64.exe` / `osd-windows-arm64.exe` from [Releases](https://github.com/oisee/open-steamgate/releases), then `mv osd-linux-x64 osd && chmod +x osd && ./osd up` | `http://localhost:3030/` |
 | **VS Code** | install [open-steamgate: local ABAP server](https://marketplace.visualstudio.com/items?itemName=oisee.open-steamgate), or the `.vsix` from [Releases](https://github.com/oisee/open-steamgate/releases) via *Extensions: Install from VSIX…*; then run **osd: Start** | the OSD tree in VS Code |
 | **Node, from source** | `npm ci && npm run bootstrap && npm start` (Node 22.18+ or 24) | `http://localhost:3030/` |
+| **Your abapGit repo** | `./osd up --layer my-repo.zip` (a zip or a folder with `.abapgit.xml`, repeatable; from a clone `node bin/osd.mjs up --layer …`) | its packages in the ADT tree and in VS Code ([`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) §3) |
 | **Your report as a CLI tool** | `node tools/gogen/osabap.mjs zmy_report.prog.abap`, then `tools/gogen/.out/osabap` (needs Go 1.26) | a native binary, no server ([below](#abap-as-a-language-for-command-line-tools)) |
 
 Each release also carries `sqlite.yml`, `duckdb.yml` and `postgres.yml`; start one with `docker compose -f sqlite.yml up -d`. `./osd doctor` checks a downloaded binary.
@@ -41,6 +46,8 @@ PASS: ZCL_GOGEN_T_RUNTIME/LTCL_RUNTIME/ELAPSED
 Measured on `0b925177` in `main` with abapiti `3115e569`. About twenty full
 runs, about fifteen fixes on each side, Node output unchanged by every one:
 [**the story and both SHAs**](docs/history/2026-10-20-self-hosting-step4.md).
+The [self-hosting index](docs/self-hosting.md) records steps 1–5 and the
+proposed whole-corpus generation milestone.
 The trap-by-trap log before it is in
 [`docs/self-hosting-step4-traps.md`](docs/self-hosting-step4-traps.md).
 
@@ -79,10 +86,12 @@ the `/IWBEP/` framework whose runtime this project reimplements.
 - **VS Code.** The OSD tree, F8 data preview, ABAP Unit in the Test Explorer,
   debugging, and a `.http` CodeLens that finds the DPC method behind a request.
 
-For warm local development (`OSD_WARM=1 STG_DEV=1 npm start`), run
-`npm run transpiler:pin` after `npm ci`. It builds the `libs.lock.json` pin in
-`$HOME/.cache/osd/transpiler-<ref>` and links transpiler, CLI, runtime and core;
-a verified build is reused. Override the persistent location with `TRANSPILER`;
+For warm local development (`OSD_WARM=1 STG_DEV=1 npm start`), the pinned
+transpiler must be linked: `npm run bootstrap` runs the pin step itself, and
+`npm run transpiler:pin` is its standalone form after `npm ci`. It builds the
+`libs.lock.json` pin in `$HOME/.cache/osd/transpiler-<ref>` and links
+transpiler, CLI, runtime and core; a verified build is reused. Override the
+persistent location with `TRANSPILER`;
 temporary directories and session scratchpads are refused. Startup and
 `osd doctor` print a prominent install hint if warm capabilities are missing.
 See [warm setup](docs/warm-compile.md#running-it).
@@ -116,24 +125,40 @@ loaded from SAP's CDN, unchanged.
 
 `node scripts/capture-docs-shots.mjs` takes these pictures while `npm start` is running.
 
-## Where it stands, 2026-09-30
+## Where it stands
 
-0.3 beta was released on 2026-09-29 (`vscode-v0.2.1307`); 0.4 is in progress.
+**2026-11-08.** The current stable release is `vscode-stable-v0.7.1696`
+(2026-10-07); newer `vscode-v0.7.*` tags are prereleases. Two things the
+table below does not list yet, with their limits: **RAP** — a managed
+behavior definition runs, handler-direct: the runtime calls the pool's
+determinations, validations, actions and the save sequence itself; there
+is no EML (`MODIFY/READ/COMMIT ENTITIES` do not transpile), no draft, no
+unmanaged save, and the managed BO is not served over OData yet
+([`docs/rap-runtime.md`](docs/rap-runtime.md)). **OData V4** — every
+service also answers on `/sap/opu/odata4/sap/<service>/`: reads, entity
+writes, ETags and JSON `$batch` over the existing V2 model; no
+actions/functions, no deep insert, no multipart `$batch`, no Fiori
+Elements V4 app yet ([`docs/odata-v4.md`](docs/odata-v4.md)). The syntax
+the transpiler takes is abaplint's `open-abap` dialect, measured in
+[`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) §6.
+
+**2026-09-30.** 0.3 beta was released on 2026-09-29 (`vscode-v0.2.1307`); 0.4 is in progress.
 [`AGENDA.md`](AGENDA.md) records every decision, [`docs/backlog/`](docs/backlog/README.md)
 is the open list, and [`ANORMALIES.md`](ANORMALIES.md) records every place the
 runtime differs from SAP, written down before any workaround.
 
 | area | what works | docs |
 | --- | --- | --- |
-| **Gateway, OData v2** | URL parser, `$filter` → SELECT-OPTIONS with every `io_tech_request_context` facet, `$batch` with changesets, navigation, `$expand`, deep insert, function imports, value helps, MERGE, create below a parent, media entities (`$value`), service-to-service calls. All of it is ABAP behind one `if_http_extension` | [`docs/prior-art.md`](docs/prior-art.md) |
+| **Gateway, OData v2** | URL parser, `$filter` → SELECT-OPTIONS with every `io_tech_request_context` facet, `$batch` with changesets, navigation, `$expand`, deep insert, function imports, value helps, MERGE, create below a parent, media entities (`$value`), service-to-service calls, ETags (`If-Match` on MERGE/PUT/DELETE of a type whose model declares one, the same tag the V4 facade answers). All of it is ABAP behind one `if_http_extension` | [`docs/prior-art.md`](docs/prior-art.md) |
 | **SEGW** | IWPR ↔ `_MPC`/`_DPC` generation with RFC/BOR and search-help mappings; one YAML → a whole project (`stg-compile`); the project tree in 53 SEGW-shaped tables with byte-identical export; the generator ported to ABAP; the Service Builder as a Fiori app | [`docs/stg-compile.md`](docs/stg-compile.md), [`docs/segw-editor.md`](docs/segw-editor.md) |
 | **SADL and CDS** | CDS projections, `@OData.publish`, writable projections (including through a chain of views), analytical cubes, virtual elements | [`docs/cds-publish.md`](docs/cds-publish.md), [`docs/cds-writes.md`](docs/cds-writes.md) |
-| **AMDP and SQLScript** | An AMDP body runs where it belongs, on HANA, or portably on DuckDB. The SQLScript front end lowers to three dialects and refuses a silently wrong translation | [`docs/amdp-in-hana.md`](docs/amdp-in-hana.md), [`docs/portable-amdp-report.html`](docs/portable-amdp-report.html) |
-| **ADT façade** | Eclipse ADT and vsp treat OSD as a system: package tree, edit, save, activate, ABAP Unit, F8 preview, create/delete. Every change lands on the git tree as abapGit files. It works over HTTPS (Cloud Project) and over **RFC** (Custom Application Server) through the built-in JavaScript bridge | [`docs/adt-facade.md`](docs/adt-facade.md), [`docs/adt-over-rfc.md`](docs/adt-over-rfc.md) |
+| **AMDP and SQLScript** | **pAMDP runs on DuckDB (`STG_DB=duckdb`); on SQLite an AMDP call goes to HANA through a destination (eAMDP), or fails without one; a SQLite lowering of the IR exists only in the parity instrument.** **eAMDP**: the body is deployed to a HANA and called over the destination's own session, whatever the system database. **pAMDP (portable AMDP, parked for new features)**: a SQLScript subset compiled to an IR at build time and executed on the system's DuckDB connection; supported: `DECLARE`, table and scalar assignments from `SELECT` (CTEs, joins, set operations, aggregates, windows, `TOP`), `IF`, `WHILE`, `FOR`, `CALL` of another AMDP with one output, `RETURN SELECT` in a table function, writes outside `READ-ONLY`; refused by name at build time: cursors, `EXEC`, most array functions, nested calls with several outputs; compiled, but refused by DuckDB when called: scalar functions without a measured rendering (`FLOOR`, `LEFT`, `TO_NCHAR`, `TO_NCLOB`, `ESCAPE_*`), which the build writes down beside the IR. Value parity vs HANA measured once over the corpus: 31 bodies on both sides, 16 equal, 1 differing cell, 14 errors. The status page shows per AMDP method the engine a call would use now (`portable-duckdb`, `portable-refused`, `hdb`, `hdb-stale`, `hdb-idle`, `unavailable` + reason), read off the destination's real session. An **eAMDP full-parity sprint** is planned from 2026-12-05 | [`docs/amdp-engine-status.md`](docs/amdp-engine-status.md), [`docs/pamdp-value-parity.md`](docs/pamdp-value-parity.md), [`docs/amdp-in-hana.md`](docs/amdp-in-hana.md), [`docs/portable-amdp-report.html`](docs/portable-amdp-report.html) |
+| **ADT façade** | Eclipse ADT and vsp treat OSD as a system: package tree, edit, save, activate, ABAP Unit, F8 preview, create/delete. Every change lands on the git tree as abapGit files. The stock Eclipse route is **RFC** (Custom Application Server, sysnr = instance on 33nn) through the built-in JavaScript bridge, in the Docker image by default; an ABAP Cloud Project works where HTTPS does, i.e. after `npm run osd:tls` in a clone or against the image's self-signed certificate, not against the binary | [`docs/adt-facade.md`](docs/adt-facade.md), [`docs/adt-over-rfc.md`](docs/adt-over-rfc.md), [`docs/coming-from-a4h.md`](docs/coming-from-a4h.md) |
 | **Classic screens** | SAP Easy Access, SE16, ST05 and an editor, served by ABAP on the paths the originals use | [`docs/webgui.md`](docs/webgui.md) |
 | **Jobs and daemons** | `JOB_OPEN`/`SUBMIT`/`CLOSE` with standard signatures, `SUBMIT … VIA JOB … WITH … IN`, multi-step jobs, durable keys, tail events, a doctor. ABAP daemons: dialog-step queue, PCP, timers, AMC | [`docs/abap-daemons.md`](docs/abap-daemons.md) |
 | **Files** | `OPEN / READ / TRANSFER / DELETE DATASET` behind a sandbox: deny by default, allowed roots, no escape through `..`, symlinks or a swapped directory. A streaming **zip reader in ABAP** (own inflate, bounded memory, CRC-checked) runs the same on a system | [`docs/dataset.md`](docs/dataset.md), [`docs/zip-stream.md`](docs/zip-stream.md) |
 | **OSGo: ABAP → Go** | `gogen` compiles the system to Go: the whole OSD as one Go binary (841 classes at #251, the demo answers), a report as a native command-line tool with its selection screen (`osabap`), ABAP Unit on Go compared method by method with Node, and sXML about 27× faster than on Node on a 10 MiB benchmark (#275) | [`tools/gogen/README.md`](tools/gogen/README.md) |
+| **HANA rescue** | `osd hana doctor` and `osd hana extract`: read your own ABAP code out of a HANA database whose ABAP server is gone, into an abapGit repository, read-only | [`docs/hana-rescue.md`](docs/hana-rescue.md) |
 | **Databases** | sql.js, SQLite file (WAL), DuckDB, PostgreSQL and HANA behind one seam; FOR ALL ENTRIES sent in blocks, similar to the kernel | [`docs/db-backends.md`](docs/db-backends.md) |
 | **Instruments** | Comparing two systems (responses, SQL at the seam, a branch of a whole system), `.http` regression cases with a frozen clock, and a frame-by-frame oracle against a real system | [`docs/regression-http-cases.md`](docs/regression-http-cases.md), [`docs/frame-comparison.md`](docs/frame-comparison.md) |
 | **Packs and delivery** | A pack is a directory (`osd-pack.json`: ABAP, tables, rows, pages, tiles) layered over the tree. There is one Bun binary (`build/osd`), a relocatable release directory, Docker for amd64 and arm64, the browser preview on GitHub Pages, and a CI that gates every publication on the tag's tests | [`docs/using-osd.md`](docs/using-osd.md), [`docs/preview-deployments.md`](docs/preview-deployments.md) |
@@ -467,7 +492,7 @@ Node 22.18+ (major 22) or Node 24. 22.18 is the first Node 22 that strips TypeSc
 ```sh
 git clone https://github.com/oisee/open-steamgate && cd open-steamgate
 npm ci
-npm run bootstrap            # pinned library clones + packs, then gen/
+npm run bootstrap            # pinned transpiler build + links, library clones + packs, then gen/
 npm start                    # http://localhost:3030/ is the launchpad
 npm run dev                  # the same, rebuilding as you edit ABAP
 npm test                     # abaplint + ABAP Unit + mocha over the wire
@@ -480,8 +505,12 @@ npm run vsix                 # the VS Code extension
 ```
 
 HANA Express: running its image accepts SAP's developer licence, see
-[`docs/amdp-in-hana.md`](docs/amdp-in-hana.md). `npm run bootstrap` reads `libs.lock.json`: it clones the pinned libraries into
-`.local/lars/`, fetches the packs and runs the first transpile.
+[`docs/amdp-in-hana.md`](docs/amdp-in-hana.md). `npm run bootstrap` reads `libs.lock.json`: it verifies or builds the pinned
+transpiler and links it (transpiler, CLI, runtime, core — the four links CI
+makes), refuses to transpile on the published packages `npm ci` left behind,
+clones the pinned libraries into `.local/lars/`, fetches the packs and runs
+the first transpile. `npm ci && npm run bootstrap` is the whole fresh-clone
+recipe; `npm run transpiler:pin` is the pin step on its own.
 
 ## Build on it
 

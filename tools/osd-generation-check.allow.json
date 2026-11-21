@@ -1,0 +1,10 @@
+{
+  "syntax": [
+    {
+      "module": "zl3_fleet2.prog.mjs",
+      "since": "2026-11-08",
+      "reason": "RETURN at program top level, transpiler writes a top-level JS return (upstream: needs an issue)",
+      "anomaly": "ANORMALIES.md, the rap-flight pack entry of 2026-11-08 (top-level RETURN)"
+    }
+  ]
+}

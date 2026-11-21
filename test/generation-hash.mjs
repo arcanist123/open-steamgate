@@ -5,6 +5,7 @@ import {execFileSync} from "node:child_process";
 import {dirname, join} from "node:path";
 import {createRequire} from "node:module";
 import {build, liveHash, hashOf, inputsOf, generatorClosure, generatorIdentity, genHash} from "../tools/osd-build.mjs";
+import {SEEDS_MARKER} from "../tools/osd-packs.mjs";
 
 import {WarmCompiler} from "../tools/osd-warm.mjs";
 import {modulesOf} from "../tools/osd-transpile.mjs";
@@ -131,6 +132,30 @@ describe("a pack that brings nothing does not name the generation", () => {
       expect(withPacks(storage, () => hashOf(process.cwd())), "empty: builds nothing, names nothing").to.equal(before);
       writeFileSync(join(scratch, "src", "zcl_cell.clas.abap"), "CLASS zcl_cell DEFINITION PUBLIC. ENDCLASS.\n");
       expect(withPacks(storage, () => hashOf(process.cwd())), "with a class it is an input").to.not.equal(before);
+    } finally {
+      rmSync(storage, {recursive: true, force: true});
+    }
+  });
+
+  // **Rows the build captures do not rename what it built.** The rap-flight
+  // pack's data/ is written after the generation is in place, by running it
+  // (tools/rap-flight/seed-capture.mjs). Hashed as an input, it renamed the
+  // tree the moment the build finished, and every host then started by
+  // building again (PR #880: e2e's web server, osgo's "no build of that
+  // exists", the bind and ICF hosts all timed out on it).
+  it("a data folder the build wrote (its seed marker) does not change the name; a hand-written one does", () => {
+    const storage = mkdtempSync(join(tmpdir(), "osd-seeded-pack-"));
+    try {
+      const pack = join(storage, "seeded");
+      mkdirSync(join(pack, "src"), {recursive: true});
+      writeFileSync(join(pack, "osd-pack.json"), JSON.stringify({name: "seeded", order: 10000}));
+      writeFileSync(join(pack, "src", "zcl_seeded.clas.abap"), "CLASS zcl_seeded DEFINITION PUBLIC. ENDCLASS.\n");
+      const before = withPacks(storage, () => hashOf(process.cwd()));
+      mkdirSync(join(pack, "data"));
+      writeFileSync(join(pack, "data", "zseeded.tabu.json"), "[]\n");
+      expect(withPacks(storage, () => hashOf(process.cwd())), "hand-written rows are an input").to.not.equal(before);
+      writeFileSync(join(pack, "data", SEEDS_MARKER), "{}\n");
+      expect(withPacks(storage, () => hashOf(process.cwd())), "rows the build made are its output").to.equal(before);
     } finally {
       rmSync(storage, {recursive: true, force: true});
     }

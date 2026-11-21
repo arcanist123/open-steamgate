@@ -2,6 +2,10 @@ import {execFileSync} from "node:child_process";
 import {readFileSync, mkdirSync, existsSync, chmodSync} from "node:fs";
 import {resolve} from "node:path";
 import {imagePacks} from "./packs.mjs";
+import {assertPublicSystem} from "../../tools/osd-system.mjs";
+import {verifyTreeArtefact} from "../../tools/osd-public-tree.mjs";
+
+assertPublicSystem(process.cwd());
 
 const selectedPacks = imagePacks(process.cwd(), process.env.OSD_IMAGE_PACKS ?? "");
 process.env.OSD_WEB_PACKS = selectedPacks.map((pack) => pack.name).join(",");
@@ -47,4 +51,6 @@ for (const source of sources.libraries) {
 if (selectedPacks.length) run("node", ["tools/osd-fetch.mjs"]);
 // a published image: $TMP is left out (tools/osd-tmp.mjs)
 run("node", ["tools/osd-build.mjs", "--publish"]);
+assertPublicSystem(process.cwd());
 run("node", ["docker/image/assemble.mjs", "/image"]);
+verifyTreeArtefact("/image", process.cwd());

@@ -113,6 +113,21 @@ export function inventoryThirdParties(seedRoot, sourceRoot) {
       note: "Source release by Microsoft, 2025; no trademark rights are granted; rebuilt from the MIT-licensed ZIL source, not the historical binary",
     });
   }
+  // SAP-samples/abap-platform-refscen-flight (packs/rap-flight), Apache-2.0
+  // like zork's fetch but with one difference that matters here: the pack
+  // also carries COPIES of upstream files in its src/ overlay, each with a
+  // header naming origin and commit, so the entry names both folders.
+  const rapFlightSources = JSON.parse(readFileSync(new URL("../packs/rap-flight/osd-pack.json", import.meta.url), "utf8")).sources;
+  const coveredRapFlight = rapFlightSources.map(({folder}) => `packs/rap-flight/${folder}`)
+    .filter((folder) => existsSync(join(seedRoot, folder)));
+  if (coveredRapFlight.length > 0) {
+    entries.push({
+      name: "SAP-samples/abap-platform-refscen-flight", path: coveredRapFlight[0], id: "Apache-2.0", declared: "",
+      licenseText: readFileSync(join(sourceRoot, "LICENSES/Apache-2.0.txt"), "utf8").trim(),
+      licenseFile: "LICENSES/Apache-2.0.txt", issues: [],
+      note: `Covers fetched folders: ${coveredRapFlight.join(", ")}, and the files copied from them into packs/rap-flight/src (origin and commit named in each file's header, every change marked OSD overlay; the copyright line is in packs/rap-flight/NOTICE). Repository: https://github.com/SAP-samples/abap-platform-refscen-flight, commit 5353cbeb013a3a2fbd7f1ba6be89e54f68cfe22c`,
+    });
+  }
   entries.sort((a, b) => a.path.localeCompare(b.path));
   const issues = entries.flatMap((entry) => entry.issues.map((issue) => `${entry.path}: ${issue}`));
   return {entries, issues};

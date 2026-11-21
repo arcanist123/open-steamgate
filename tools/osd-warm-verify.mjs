@@ -9,6 +9,7 @@ import {readCompileInputs, MissingCompileInputs} from "./osd-compile-snapshot.mj
 import {compareGenerations} from "./osd-generation-diff.mjs";
 import {assertToolchain} from "./osd-transpiler.mjs";
 import {mapStatementStarts} from "./osd-source-map-starts.mjs";
+import {lowerDerived} from "./rap/lower-derived.mjs";
 import {lowerNarrowSubmit} from "./osd-narrow-submit.mjs";
 import {orderRegistry} from "./osd-warm-order.mjs";
 
@@ -20,7 +21,7 @@ export async function verifyGeneration(hash, root = resolve(process.env.OSD_ROOT
   try {
     unpin = await pinVerification(root, hash, basename(tmp));
     const identity = generationIdentity(generation);
-    const {config, files, libs} = readCompileInputs(root, generation);
+    const {config, files, libs, rapBindings} = readCompileInputs(root, generation);
     const loaded = selectedModules(root);
     assertToolchain(root, loaded);
     if (JSON.parse(readFileSync(join(generation, "manifest.json"), "utf8")).toolchain !== loaded.identity) {
@@ -28,7 +29,7 @@ export async function verifyGeneration(hash, root = resolve(process.env.OSD_ROOT
     }
     const {Transpiler, Chunk, core, plugin} = loaded;
     if (config.write_source_map === true) mapStatementStarts(Chunk);
-    const sources = files.map(f => ({...f, contents: lowerNarrowSubmit(f.bytes.toString(isBinaryFilename(f.filename) ? "latin1" : "utf8"), f.filename, core)}));
+    const sources = files.map(f => ({...f, contents: lowerDerived(lowerNarrowSubmit(f.bytes.toString(isBinaryFilename(f.filename) ? "latin1" : "utf8"), f.filename, core), f.filename, rapBindings)}));
     const reg = new core.Registry();
     for (const f of sources) reg.addFile(new core.MemoryFile(f.filename, f.contents));
     const libraries = libs.map(f => ({...f, contents: f.bytes.toString(isBinaryFilename(f.filename) ? "latin1" : "utf8")}));

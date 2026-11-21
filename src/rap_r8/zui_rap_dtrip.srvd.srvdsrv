@@ -1,0 +1,5 @@
+@EndUserText.label: 'RAP draft trip demo service (R8)'
+define service ZUI_RAP_DTRIP {
+  expose ZI_RAP_DTRIP as Trip;
+  expose ZI_RAP_DLEG as Leg;
+}

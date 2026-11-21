@@ -62,8 +62,20 @@ export function markerOf(packDir) {
   }
 }
 
+// A data folder the BUILD writes carries this file (tools/rap-flight/
+// seed-capture.mjs, called by tools/osd-build.mjs after a generation is in
+// place): its rows are made by running that generation, so they are an
+// output of the inputs the generation is named by, like gen/, and never an
+// input to that name -- hashOf leaves such a folder out (inputsOf).
+export const SEEDS_MARKER = ".osd-seed.json";
+
+export const seedsBuilt = (dataDir) => dataDir !== undefined && existsSync(join(dataDir, SEEDS_MARKER));
+
 export function sourceMatches(source, entry) {
   if (!entry || entry.path !== source.path
+      // privacy: boolean, null (unknown, empty-config OCI) or absent (fetched
+      // before it was recorded) all build; publishing refuses the last two
+      || !(entry.private === undefined || entry.private === null || typeof entry.private === "boolean")
       || JSON.stringify(entry.exclude) !== JSON.stringify(source.exclude)) return false;
   return source.oci !== undefined
     ? entry.oci === source.oci && entry.repo === undefined && entry.ref === undefined
@@ -72,11 +84,41 @@ export function sourceMatches(source, entry) {
 
 const slash = (p) => p.split("\\").join("/");
 
-/** Select one copy of each object from folders in layer order. Later folders win. */
+/** Select one copy of each object from folders in layer order. Later folders win.
+ *
+ *  A folder that is not there yields nothing: a listed input may simply not
+ *  exist yet (H3: gen/hana-ddic before the first hana-ddic-gen run; a pack
+ *  without a ddic folder) and the generators reading content through here
+ *  must not crash on the absence -- the build, the transpiler and the store
+ *  already read a missing input folder as an empty one. The absence is the
+ *  read's own ENOENT and never a stat of the folder name: these folders walk
+ *  in more than one path space (binaryDdIC resolves them against a root of
+ *  its own and names a libraries layer that is not a path at all; the BSP
+ *  app derivation hands in source descriptors), so an existsSync from here
+ *  would answer about this process's cwd and silently drop a layer that is
+ *  there. Only ENOENT is swallowed; every other error still throws. */
 export function winningByLayer(folders, entriesIn, keyOf) {
   const winners = new Map();
   for (const folder of folders) {
-    for (const entry of entriesIn(folder)) {
+    let entries;
+    try {
+      entries = entriesIn(folder);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      // the FOLDER'S OWN absence yields nothing (H3: gen/hana-ddic before
+      // its first run). An ENOENT naming something INSIDE the folder -- one
+      // unreadable entry in the walk -- is not absence: read as absence it
+      // dropped every registration of the folder at once (the A10 live diff
+      // answered 404 for services that are there; segw-registry's walk stats
+      // each entry, fix round 4). fs errors carry .path; a walker that
+      // throws an ENOENT without one is answered as folder-absence, as
+      // before, because the caller's path space is its own.
+      const missing = String(error.path ?? "").split("\\").join("/");
+      const own = `/${slash(folder).replace(/^\/+|\/+$/g, "")}`;
+      if (missing !== "" && missing !== slash(folder) && missing.endsWith(own) === false) throw error;
+      continue;
+    }
+    for (const entry of entries) {
       winners.set(keyOf(entry), entry);
     }
   }
@@ -193,13 +235,16 @@ export function packAt(root, dir) {
   if (declared.ddic === undefined) {
     for (const candidate of [dir, ...abapCandidates]) directoryRequirements.push(join(candidate, "ddic"));
   }
+  directoryRequirements.push(...sources.map((s) => s.dir));
   return {
     root,
     sources,
     // absent folders and stale identities: an unfetched pack is a
     // different system, and it is said rather than built smaller
     directoryRequirements,
-    missing: sources.filter((s) => !packDirectory(s.dir) || !sourceMatches(s, sourceOf(s.dir))),
+    // read when asked (osd-fetch), so a pack a selection leaves out has its
+    // manifest read and nothing else: an identity carries a fetch time
+    get missing() { return sources.filter((s) => !isDir(s.dir) || !sourceMatches(s, sourceOf(s.dir))); },
     name,
     description: declared.description === undefined ? undefined : String(declared.description),
     dir,
@@ -325,10 +370,54 @@ export function packsOf(root, env) {
   return packs.sort((a, b) => a.order - b.order || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
+/** what finding the packs reads in the tree's own place, selected or not:
+ *  each manifest (packAt). A selection (OSD_WEB_PACKS) narrows what is
+ *  built, not what is read; identities are read only for selected packs. */
+export function packReadsOf(root, env) {
+  const place = placesOf(root, env)[0];
+  if (isDir(place) === false) return [];
+  const dirs = existsSync(join(place, MANIFEST)) ? [place] : readdirSync(place).sort().map((e) => join(place, e));
+  return dirs.flatMap((dir) => {
+    return packAt(root, dir) === undefined ? [] : [join(dir, MANIFEST)];
+  });
+}
+
 /** a pack's ABAP folder as the build and the store name it: root-relative */
 export function folderOf(root, dir) {
   const rel = slash(relative(root, dir));
   return rel === "" ? "." : rel;
+}
+
+/** one config entry, many folders on disk: "<parent>/*" expands to the
+ *  parent's immediate subdirectories, in their name order, and the entry
+ *  itself is not a layer. H4: "gen/hana-src/*" is the dump->layers
+ *  converter's output -- one folder per package layer, in the plan.json
+ *  order its zero-padded names already sort by. The children are expanded
+ *  here rather than listed in abap_transpile.json because the names are the
+ *  converter's <system>-<package> of private packages: the config stays
+ *  static and carries no dump-derived name. A parent that is not there
+ *  yields nothing, the same absence rule as a missing input folder
+ *  (winningByLayer): only the read's own ENOENT is swallowed. */
+export function expandedFolders(folders, root) {
+  const out = [];
+  for (const entry of folders ?? []) {
+    const parent = typeof entry === "string" && entry.endsWith("/*") ? entry.slice(0, -2) : undefined;
+    if (parent === undefined || parent === "" || parent.endsWith("/")) {
+      out.push(entry);
+      continue;
+    }
+    let children;
+    try {
+      children = readdirSync(join(root, parent), {withFileTypes: true});
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      continue;
+    }
+    for (const child of children.filter((c) => c.isDirectory()).map((c) => c.name).sort()) {
+      out.push(`${parent}/${child}`);
+    }
+  }
+  return out;
 }
 
 /** the layers: source, then every pack, then generated overlays.
@@ -349,7 +438,9 @@ export function inputFoldersOf(root, config, env, {extraPacks = true} = {}) {
     return [...folders, "gen"];
   }
   env ??= layerEnvironment(root);
-  const listed = config?.input_folder === undefined ? [] : [config.input_folder].flat();
+  // expanded before anything reads the list as paths (H4: "gen/hana-src/*"),
+  // so the pack slot below and every consumer see the same folders
+  const listed = expandedFolders(config?.input_folder === undefined ? [] : [config.input_folder].flat(), root);
   const packs = extraPacks ? packsOf(root, env).flatMap((p) => p.abap.map((f) => folderOf(root, f))) : [];
   const added = packs.filter((f) => listed.includes(f) === false);
   const generated = listed.lastIndexOf("gen");

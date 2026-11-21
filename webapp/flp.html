@@ -51,6 +51,28 @@
                       }
                     },
                     {
+                      id: "travels-v4",
+                      tileType: "sap.ushell.ui.tile.StaticTile",
+                      properties: {
+                        title: "OData V4 Travels",
+                        subtitle: "list report, sticky edit",
+                        info: "ZSTG_DEMO_SRV",
+                        icon: "sap-icon://travel-itinerary",
+                        targetURL: "#TravelV4-manage"
+                      }
+                    },
+                    {
+                      id: "draft-trips",
+                      tileType: "sap.ushell.ui.tile.StaticTile",
+                      properties: {
+                        title: "Draft Trips",
+                        subtitle: "RAP draft, OData V4",
+                        info: "ZUI_RAP_DTRIP",
+                        icon: "sap-icon://edit",
+                        targetURL: "#DraftTrip-manage"
+                      }
+                    },
+                    {
                       id: "analytics",
                       tileType: "sap.ushell.ui.tile.StaticTile",
                       properties: {
@@ -276,6 +298,22 @@
           additionalInformation: "SAPUI5.Component=stg.booking",
           applicationType: "URL",
           url: "../sap/bc/ui5_ui5/sap/zosd_booking_ap/",
+          navigationMode: "embedded"
+        },
+        "TravelV4-manage": {
+          title: "OData V4 Travels",
+          description: "open-steamgate demo",
+          additionalInformation: "SAPUI5.Component=osd.travel4",
+          applicationType: "URL",
+          url: "../sap/bc/ui5_ui5/sap/zosd_travel4/",
+          navigationMode: "embedded"
+        },
+        "DraftTrip-manage": {
+          title: "Draft Trips",
+          description: "open-steamgate RAP draft demo",
+          additionalInformation: "SAPUI5.Component=osd.trip4",
+          applicationType: "URL",
+          url: "../sap/bc/ui5_ui5/sap/zosd_trip4/",
           navigationMode: "embedded"
         },
         "Flight-analyze": {

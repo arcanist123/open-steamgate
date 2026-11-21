@@ -35,12 +35,41 @@ import { execFileSync } from "node:child_process";
 import { resolve, join, relative } from "node:path";
 
 export const MAX_SCAN_BYTES = 8 * 1024 * 1024;
+// --private-layer drops exactly these two identifier-list categories (the
+// owner's keys for SAP-derived names, never renamed). Every other category and
+// all structural checks stay active; a list with neither key is refused.
+export const SAP_CORPUS_CATEGORIES = new Set([
+  "корпус SAP (A4H, только локально)",
+  "SEGW-образцы SAP (только локально)",
+]);
 
 const PRIVATE_V4 =
   /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b/g;
 const UUID =
   /\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b/g;
 export const CAPTURE = /\.(pcap|pcapng|jsonl)$/i;
+
+// A home directory names its owner. `/home/<name>/`, `/Users/<name>/` and
+// `C:\Users\<name>\` carry a real user name into a tracked file, and nobody
+// has to list that name for it to be one: a stack trace pasted into a doc, an
+// absolute require into a sibling checkout. The identifier list never caught
+// it, because a user name is too short and too common to list (2026-11-10).
+// The generic names below are container users, CI users and doc placeholders;
+// anything else is somebody's account. A backslash may be written escaped, as
+// it is inside a JS or JSON string.
+export const HOME_PATH = /(?:\/home\/|\/Users\/|\b[A-Za-z]:\\{1,2}Users\\{1,2})([A-Za-z0-9._-]+)(?=[\/\\])/g;
+export const GENERIC_HOME_NAMES = new Set([
+  "coder", "runner", "user", "username", "x", "y", "z", "example", "someone", "somebody",
+  "node", "root", "me", "you", "name", "ubuntu", "vscode", "codespace", "codespaces",
+  "dev", "developer", "shared", "public", "default", "test", "linuxbrew",
+]);
+export function homePaths(text) {
+  const found = [];
+  for (const m of text.matchAll(HOME_PATH)) {
+    if (!GENERIC_HOME_NAMES.has(m[1].toLowerCase())) found.push(m[0]);
+  }
+  return found;
+}
 
 // Lock files are megabytes of base64 integrity hashes, nobody writes them by
 // hand, and no identifier reaches one except by chance. Scanning them produces
@@ -302,7 +331,9 @@ function blobsInRange(root, rangeArgs) {
   return out;
 }
 
-function scan(root, sources, names, publication = false) {
+function scan(root, sources, names, publication = false, privateLayer = false) {
+  if (privateLayer && !names?.some(({kind}) => SAP_CORPUS_CATEGORIES.has(kind)))
+    throw Object.assign(new Error("private-layer scan requires a SAP corpus category in the identifier list"), {code: "NO_SAP_CORPUS"});
   const hits = [];
   // A 64-hex value seen once after a canonical digest marker is that digest
   // wherever else it stands: abapiti's runtime descriptor names a shape by its
@@ -346,6 +377,11 @@ function scan(root, sources, names, publication = false) {
         note(view.how, "частный адрес", m);
       }
       for (const m of view.text.match(UUID) ?? []) note(view.how, "uuid", m);
+      // only views that are text: a decoded payload is bytes, and a path there
+      // would be a coincidence
+      if (view.how === "текст" || view.how === "utf-16le") {
+        for (const m of homePaths(view.text)) note(view.how, "домашний каталог", m, "home-path");
+      }
       if (view.digest && view.run64) knownDigests.add(view.run64);
       for (const { text: addr } of packedAddresses(view.packed)) {
         if (view.run64 && !view.digest) {
@@ -357,6 +393,7 @@ function scan(root, sources, names, publication = false) {
       if (names) {
         const hay = view.text.toLowerCase();
         for (const { kind, value } of names) {
+          if (privateLayer && SAP_CORPUS_CATEGORIES.has(kind)) continue;
           if (hay.includes(value.toLowerCase())) note(view.how, kind, value, "identifier");
         }
       }
@@ -369,10 +406,10 @@ function scan(root, sources, names, publication = false) {
 }
 
 // Returns no matched text: publication exceptions never identify a value.
-export function publicationFindings(root, sources, explicitList) {
+export function publicationFindings(root, sources, explicitList, privateLayer = false) {
   const names = identifiers(root, explicitList);
   if (!names) throw new Error("publication requires the identifier list");
-  return scan(root, sources, names, true).map(({file, category}) => ({file, category}));
+  return scan(root, sources, names, true, privateLayer).map(({file, category}) => ({file, category}));
 }
 
 function stagedFiles(root) {
@@ -464,7 +501,13 @@ if (runsAs("osd-leak-scan.mjs")) {
   const files = pathArgs
     ? namedFiles(root, pathArgs)
     : rangeArgs ? blobsInRange(root, rangeArgs) : all ? trackedFiles(root) : stagedFiles(root);
-  let hits = scan(root, files, names, args.includes("--publication-allow"));
+  let hits;
+  try { hits = scan(root, files, names, args.includes("--publication-allow"), args.includes("--private-layer")); }
+  catch (error) {
+    if (error.code !== "NO_SAP_CORPUS") throw error;
+    console.error(`osd-leak-scan: ${error.message}`);
+    process.exit(2);
+  }
   if (args.includes("--publication-allow")) {
     const entries = JSON.parse(readFileSync(join(root, ".leak-publication-allow.json"), "utf8")).allow;
     for (const [i, entry] of entries.entries()) {

@@ -148,6 +148,30 @@ export interface CompileOptions {
   tolerant?: boolean;
   skip?: (path: string) => boolean;
   includeTests?: boolean | Set<string>;
+  // The per-object cache of the osgo fast path (osgo-incr.mjs): hooks that
+  // record a full lowering per object (the recorder) and re-lower a subset
+  // of it over a partial registry (the reader). Every member is optional.
+  incr?: {
+    /** lowers only these object keys ("CLAS Z..." / "FUGR ..."); the rest
+     * stays in `wanted` with its IR answered by the cache */
+    compiles?: (key: string) => boolean;
+    enter?: (key: string) => void;
+    exit?: () => void;
+    /** the lowering starts: the global passes before it (function group
+     * signatures) and after it (interface methods, tables) write the shared
+     * state at fixed points the merged program must keep */
+    lowering?: () => void;
+    /** the lowering is done, the final analyses are next: the reader puts
+     * the merged classes and collections in place for them */
+    lowered?: (program: import("./frontend-types.ts").FrontendProgram) => void;
+    /** the shared program state is seeded here, before anything lowers */
+    prepare?: (program: import("./frontend-types.ts").FrontendProgram, reg: Registry) => void;
+    suppliedOf?: (owner: string, contributed: [string, string[]][]) => void;
+    /** the superclass chains of classes a partial registry does not hold */
+    caughtIndex?: (reg: Registry, wanted: ReadonlySet<string>, superOf: (name: string) => string | null | undefined) => import("./frontend-hierarchy.mjs").CaughtIndex;
+    rttiOf?: (owner: string, defs: [string, {name: string; kind: string}[] | undefined][] | undefined) => void;
+    ownershipOf?: (name: string, value: import("./frontend-types.ts").OwnershipSafety) => void;
+  };
   [key: string]: unknown;
   provenance?: boolean;
   cacheDir?: string;

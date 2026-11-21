@@ -1,0 +1,144 @@
+{
+  "_version": "1.59.0",
+  "sap.app": {
+    "id": "osd.trip4",
+    "type": "application",
+    "i18n": "i18n/i18n.properties",
+    "title": "Draft Trips",
+    "description": "open-steamgate RAP draft demo over ZUI_RAP_DTRIP, OData V4",
+    "applicationVersion": {
+      "version": "0.0.1"
+    },
+    "dataSources": {
+      "mainService": {
+        "uri": "../../sap/opu/odata4/sap/ZUI_RAP_DTRIP/",
+        "type": "OData",
+        "settings": {
+          "odataVersion": "4.0",
+          "annotations": ["localAnnotations"]
+        }
+      },
+      "localAnnotations": {
+        "uri": "annotations/annotations.xml",
+        "type": "ODataAnnotation",
+        "settings": {
+          "localUri": "annotations/annotations.xml"
+        }
+      }
+    },
+    "crossNavigation": {
+      "inbounds": {
+        "DraftTrip-manage": {
+          "semanticObject": "DraftTrip",
+          "action": "manage",
+          "signature": {
+            "parameters": {},
+            "additionalParameters": "allowed"
+          }
+        }
+      }
+    }
+  },
+  "sap.ui": {
+    "technology": "UI5",
+    "deviceTypes": {
+      "desktop": true,
+      "tablet": true,
+      "phone": true
+    }
+  },
+  "sap.ui5": {
+    "dependencies": {
+      "minUI5Version": "1.120.0",
+      "libs": {
+        "sap.m": {},
+        "sap.ui.core": {},
+        "sap.fe.templates": {}
+      }
+    },
+    "contentDensities": {
+      "compact": true,
+      "cozy": true
+    },
+    "models": {
+      "i18n": {
+        "type": "sap.ui.model.resource.ResourceModel",
+        "settings": {
+          "bundleName": "osd.trip4.i18n.i18n",
+          "supportedLocales": [""],
+          "fallbackLocale": ""
+        }
+      },
+      "": {
+        "dataSource": "mainService",
+        "preload": true,
+        "settings": {
+          "operationMode": "Server",
+          "autoExpandSelect": true,
+          "earlyRequests": true
+        }
+      }
+    },
+    "routing": {
+      "config": {},
+      "routes": [
+        {
+          "pattern": ":?query:",
+          "name": "TripList",
+          "target": "TripList"
+        },
+        {
+          "pattern": "Trip({key}):?query:",
+          "name": "TripObjectPage",
+          "target": "TripObjectPage"
+        }
+      ],
+      "targets": {
+        "TripList": {
+          "type": "Component",
+          "id": "TripList",
+          "name": "sap.fe.templates.ListReport",
+          "options": {
+            "settings": {
+              "contextPath": "/Trip",
+              "variantManagement": "None",
+              "initialLoad": "Enabled",
+              "navigation": {
+                "Trip": {
+                  "detail": {
+                    "route": "TripObjectPage"
+                  }
+                }
+              },
+              "controlConfiguration": {
+                "@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable",
+                    "creationMode": {
+                      "name": "NewPage"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "TripObjectPage": {
+          "type": "Component",
+          "id": "TripObjectPage",
+          "name": "sap.fe.templates.ObjectPage",
+          "options": {
+            "settings": {
+              "contextPath": "/Trip",
+              "editableHeaderContent": false
+            }
+          }
+        }
+      }
+    }
+  },
+  "sap.fiori": {
+    "registrationIds": [],
+    "archeType": "transactional"
+  }
+}

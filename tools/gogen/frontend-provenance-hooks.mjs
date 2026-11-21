@@ -82,7 +82,7 @@ export function installHooks(core, requireCore, r) {
         if (method) kind = `registry-${method}`;
       }
       else if (/FindGlobalDefinitions\.run .*\/find_global_definitions\.js:/.test(direct)) kind = "global-definitions";
-      else if (/CrossIncludeMacros\.findCandidates .*\/cross_include_macros\.js:|getABAPObjects .*\/include_graph\.js:/.test(direct)) kind = "include-macro-context";
+      else if (/CrossIncludeMacros\.(?:findCandidates|reparseCyclicPrograms) .*\/cross_include_macros\.js:|getABAPObjects .*\/include_graph\.js:/.test(direct)) kind = "include-macro-context";
       else if (/\/(_current_scope|_procedural|ddic)\.js:/.test(direct)) kind = context?.kind;
       const query = {kind: kind ?? "unknown-scan", scan: method,
         args: args.map(scalar), result: [], complete: false, phase,
@@ -117,13 +117,15 @@ export function installHooks(core, requireCore, r) {
   // gap checks, without opening a context which cannot contain resolution.
   const pureReads = new Set([coreClass("objects/_abap_object", "ABAPObject").prototype.getABAPFiles,
     core.Objects.Class.prototype.getDefinition, core.Objects.Interface.prototype.getDefinition]);
-  const methods = ["parse", "parseType", "getDefinition", "getClassDefinition", "getABAPFiles", "getMainABAPFile",
+  const methods = ["parse", "parseType", "parseDomainType", "getDefinition", "getClassDefinition", "getABAPFiles", "getMainABAPFile",
     "getInclude", "getIncludeFiles", "getIncludes", "getModule", "getModules", "getSequencedFiles", "getSQLViewName", "getDefinitionName", "listBadiDefinitions"];
+  // Core 2.120.94 renamed the DOMA entry point: DDIC.lookup calls parseDomainType
+  // directly, so the ddic-type frame must open there, not only on parseType.
   for (const cls of Object.values(core.Objects)) {
     for (let proto = cls?.prototype; proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
       for (const method of methods) patch(proto, method, (fn) => {
-        const recursive = ["parse", "parseType", "getInclude", "getModule"].includes(method);
-        const phase = method === "parse" ? "parse" : method === "parseType" ? "ddic-type" : "artifact-read";
+        const recursive = ["parse", "parseType", "parseDomainType", "getInclude", "getModule"].includes(method);
+        const phase = method === "parse" ? "parse" : method === "parseType" || method === "parseDomainType" ? "ddic-type" : "artifact-read";
         const pure = pureReads.has(fn);
         return function observedArtifact(...args) {
           const reg = owners.get(this) ?? (args.find((a) => a instanceof core.Registry));

@@ -85,10 +85,7 @@ CLASS zcl_osd_adt_ddic IMPLEMENTATION.
   ENDMETHOD.
   METHOD tag.
     zcl_osd_adt_scan=>first_tag_value( EXPORTING iv_xml = iv_xml iv_tag = iv_tag IMPORTING ev_value = rv_text ).
-    REPLACE ALL OCCURRENCES OF `&lt;` IN rv_text WITH `<`.
-    REPLACE ALL OCCURRENCES OF `&gt;` IN rv_text WITH `>`.
-    REPLACE ALL OCCURRENCES OF `&quot;` IN rv_text WITH `"`.
-    REPLACE ALL OCCURRENCES OF `&amp;` IN rv_text WITH `&`.
+    rv_text = zcl_osd_adt_xml=>unesc( rv_text ).
   ENDMETHOD.
   METHOD js_int.
     DATA lv_digits TYPE string.

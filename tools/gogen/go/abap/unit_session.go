@@ -7,7 +7,7 @@ import (
 
 // EndTestClass releases session-owned resources before the next test class.
 func EndTestClass(s *Session) {
-	CloseUnitDB()
+	CloseUnitDB(s)
 	for _, client := range s.httpc {
 		client.drop()
 	}

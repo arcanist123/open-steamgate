@@ -8,7 +8,8 @@ export function copyGoTestModule(destination) {
   // Ignore old test scratch directories before cpSync can descend into them.
   cpSync(source, destination, {recursive: true, filter: (path) => {
     const parts = relative(source, path).split(sep);
-    return !parts.includes(".out") && !(parts[0] === "cmd" && parts.length === 2 && /-[A-Za-z0-9]{6}$/.test(parts[1]));
+    // nor the osgo build's generated packages (osgo-layers.mjs), which no test imports
+    return !parts.includes(".out") && !(parts[0] === "generated" && parts[1] === "osgo") && !(parts[0] === "cmd" && parts.length === 2 && /-[A-Za-z0-9]{6}$/.test(parts[1]));
   }});
 }
 

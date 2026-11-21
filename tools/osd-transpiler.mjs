@@ -179,7 +179,11 @@ export function buildIdentity(root = process.cwd()) {
 }
 
 if (runsAs("osd-transpiler.mjs")) {
-  console.log(describeBuild());
+  // as a build's generator, the build's own description: describing it here
+  // runs `git status` over the transpiler checkout, outside the read record
+  let verified;
+  try { verified = JSON.parse(process.env.OSD_BUILD_VERIFIED ?? "{}").toolchain; } catch { verified = undefined; }
+  console.log(process.env.OSD_GENERATOR_READS && typeof verified === "string" ? verified : describeBuild());
   process.exit(0);
 }
 

@@ -13,17 +13,18 @@ esac
 # inactive fixture and its retained active copy must enter zz_store.json.
 stage_fixture() {
   node --input-type=module <<'JS'
-import {mkdirSync, writeFileSync, readFileSync} from "node:fs";
+import {mkdirSync, writeFileSync, readFileSync, existsSync} from "node:fs";
 import {join} from "node:path";
 import {files} from "./test/adt-conformance/fixtures/source.mjs";
-// The write cases' disposable package (run.mjs --write-package '$ADT_WRITES').
-const packageXml = `<abapGit><asx:abap xmlns:asx="http://www.sap.com/abapxml"><asx:values><DEVC><DEVCLASS>$ADT_WRITES</DEVCLASS><CTEXT>Disposable write cases</CTEXT></DEVC></asx:values></asx:abap></abapGit>`;
-for (const root of ["src/adt-writes", "build/live/source/adt-writes/src"]) {
+// The write cases' disposable package (run.mjs --write-package '$STG_ADT_WRITES').
+const packageXml = `<abapGit><asx:abap xmlns:asx="http://www.sap.com/abapxml"><asx:values><DEVC><DEVCLASS>$STG_ADT_WRITES</DEVCLASS><CTEXT>Disposable write cases</CTEXT></DEVC></asx:values></asx:abap></abapGit>`;
+const live = existsSync("build/live/manifest.json");
+for (const root of ["src/adt-writes", ...(live ? ["build/live/source/adt-writes/src"] : [])]) {
   mkdirSync(root, {recursive: true});
   writeFileSync(join(root, "package.devc.xml"), packageXml);
 }
 for (const [name, source] of Object.entries(files)) {
-  for (const root of ["src/conformance-fixture", "build/live/source/conformance-fixture/src"]) {
+  for (const root of ["src/conformance-fixture", ...(live ? ["build/live/source/conformance-fixture/src"] : [])]) {
     mkdirSync(root, {recursive: true});
     const path = join(root, name);
     writeFileSync(path, source);
@@ -55,6 +56,7 @@ curl -fsS "http://127.0.0.1:$STG_PORT/health" >/dev/null 2>&1 || {
   tail -20 "$log"
   exit 2
 }
+# The osgo expected file includes write: save/restore was verified before enabling it.
 node tools/abapfs-conformance.mjs --url "http://127.0.0.1:$STG_PORT" \
   --expected test/fixtures/abapfs-conformance/expected-osgo.json \
   --out .local/conformance/abapfs-osgo

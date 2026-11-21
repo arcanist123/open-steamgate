@@ -8,6 +8,7 @@ import {createRequire} from "node:module";
 import {resolve} from "node:path";
 import {execFileSync} from "node:child_process";
 import {writeFileSync} from "node:fs";
+import {writePublicArtefact} from "../tools/osd-public-tree.mjs";
 
 const require = createRequire(import.meta.url);
 const root = resolve(import.meta.dir, "..");
@@ -41,6 +42,7 @@ if (!result.success) {
   process.exit(1);
 }
 console.log(`bundled ${bundle}: ${((await Bun.file(bundle).size) / 1e6).toFixed(1)} MB`);
+writePublicArtefact(bundle, root);
 if (step === "sea") {
   // The bundle itself is the main script, as an ES module inside the
   // executable's virtual file system. That needs Node 26.9 or later: before
@@ -55,5 +57,6 @@ if (step === "sea") {
   const config = resolve(root, "build", "osd-node", "sea-config.json");
   writeFileSync(config, JSON.stringify({main: bundle, output: exe, mainFormat: "module", useVfs: true, disableExperimentalSEAWarning: true}, null, 2));
   execFileSync(node, ["--build-sea", config], {encoding: "utf8", cwd: root});
+  writePublicArtefact(exe, root);
   console.log(`built ${exe}: ${((await Bun.file(exe).size) / 1e6).toFixed(1)} MB, carrying ${execFileSync(node, ["--version"], {encoding: "utf8"}).trim()}`);
 }

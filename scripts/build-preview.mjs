@@ -1,4 +1,5 @@
-import {rootWebappOf} from "../tools/osd-system.mjs";
+import {assertPublicSystem, rootWebappOf} from "../tools/osd-system.mjs";
+import {assertPublicTree, writePublicArtefact} from "../tools/osd-public-tree.mjs";
 // Builds the static preview deployment into build/:
 //   sw.js        the transpiled gateway + sql.js in a service worker
 //   index.html   installs the worker, then goes to app/
@@ -21,7 +22,7 @@ import {packsInfo, servicesOf} from "../tools/osd-status.mjs";
 import {identity} from "../tools/osd-identity.mjs";
 import {SANDBOX_CONFIG_PATH, SANDBOX_CONFIG_BODY} from "../tools/osd-sandbox-config.mjs";
 import {ObjectStore} from "../tools/osd-store.mjs";
-import {forPublishing, generationTmpProblem, tmpModulesIn} from "../tools/osd-tmp.mjs";
+import {forPublishing, generationHanaSrcProblem, generationTmpProblem, tmpModulesIn} from "../tools/osd-tmp.mjs";
 import {realpathSync} from "node:fs";
 import {localObjectKeys} from "../tools/osd-deploy-manifest.mjs";
 import {tableFieldsOf} from "../tools/adt-documents.mjs";
@@ -44,6 +45,10 @@ process.env.OSD_ROOT = root;
 // leave it out, and a generation that was built with it in is refused rather
 // than bundled -- fail closed, checked by the modules output/ actually holds.
 forPublishing(process.env);
+// a preview bundles the tree: it must be the public live generation now, as
+// the publishing build named it ($TMP off, above). OSD_PREVIEW_GENERATE_ONLY
+// writes web/generated/ for tests and makes no artefact.
+if (process.env.OSD_PREVIEW_GENERATE_ONLY !== "1") assertPublicTree(root);
 {
   // by provenance: what the build read, whatever the tree holds now
   let generation;
@@ -54,6 +59,13 @@ forPublishing(process.env);
   }
   const problem = generationTmpProblem(generation);
   if (problem !== undefined) throw new Error(problem);
+  // and the twin for gen/hana-src (H4): the tenant's sources are private
+  // exactly like $TMP, and a generation built with them is never bundled
+  const hanaProblem = generationHanaSrcProblem(generation);
+  if (hanaProblem !== undefined) throw new Error(hanaProblem);
+  // a private or unrecorded live generation never reaches a public preview;
+  // after the two checks above, so their refusals name their own cause
+  assertPublicSystem(root);
   // and by content, for a generation whose record is right and output is not
   const localModules = tmpModulesIn(resolve(root, "output"), localObjectKeys(root));
   if (localModules.length > 0) {
@@ -433,3 +445,4 @@ for (const entry of await readdir(resolve(root, "output"))) {
 console.log(`Media: ${carried} W3MI objects, ${(bytes / 1048576).toFixed(1)} MB in media/`);
 
 console.log(`Preview build is in ${build}`);
+writePublicArtefact(build, root);

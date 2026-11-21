@@ -4,9 +4,36 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {spawnSync} from "node:child_process";
 
-import {publicationFindings} from '../tools/osd-leak-scan.mjs';
+import {publicationFindings, homePaths} from '../tools/osd-leak-scan.mjs';
 
 describe("leak scanner", () => {
+  it("private-layer mode drops only the two SAP corpus categories", () => {
+    const root = mkdtempSync(join(tmpdir(), "leak-private-"));
+    try {
+      const list = join(root, "identifiers.json"), file = join(root, "content.txt");
+      writeFileSync(list, JSON.stringify({
+        "корпус SAP (A4H, только локально)": ["Z_SYNTHETIC_CORPUS_OBJECT"],
+        "SEGW-образцы SAP (только локально)": ["Z_SYNTHETIC_SEGW_OBJECT"],
+        "тема скрининга (политика 2026-10-01, только приватно)": ["synthetic-topic-value-one"],
+        "закрытый корпус и смежное (политика 2026-10-01, заполнено osg-research по поручению Alice)": ["synthetic-closed-project"],
+        host: ["local-test-host"], user: ["synthetic-logon-user"], credential: ["test-token-secret"],
+      }));
+      const run = content => {
+        writeFileSync(file, content);
+        return spawnSync(process.execPath, ["tools/osd-leak-scan.mjs", root, "--identifiers", list, "--private-layer", "--redact", "--paths", file], {encoding: "utf8"});
+      };
+      assert.equal(run("Z_SYNTHETIC_CORPUS_OBJECT").status, 0);
+      assert.equal(run("Z_SYNTHETIC_SEGW_OBJECT").status, 0);
+      for (const content of ["synthetic-topic-value-one", "synthetic-closed-project", "local-test-host", "synthetic-logon-user", "test-token-secret", [192, 168, 1, 42].join("."), ["c0", "a8", "01", "2a", "112233445566778899aabbcc"].join("")]) {
+        assert.equal(run(content).status, 1, content);
+      }
+      writeFileSync(list, JSON.stringify({host: ["local-test-host"]}));
+      const missing = run("clean");
+      assert.equal(missing.status, 2);
+      assert.match(missing.stderr, /requires a SAP corpus category/);
+      assert.throws(() => publicationFindings(root, [file], list, true), /requires a SAP corpus category/);
+    } finally { rmSync(root, {recursive: true, force: true}); }
+  });
   it('supports publicationFindings as a library with explicit or discovered identifiers', () => {
     const root = mkdtempSync(join(tmpdir(), 'leak-library-'));
     try {
@@ -48,6 +75,37 @@ describe("leak scanner", () => {
       assert.equal(invalid.status, 2);
       assert.match(invalid.stderr, /needs one list path/);
     }
+  });
+
+  // A real-looking user path is assembled at run time, so this file does not
+  // itself carry one for the tree-wide scan to find.
+  const realHome = (lead, sep) => lead + ["jdoe", "dev", "repo", "x.mjs"].join(sep);
+  it("flags a home directory whose owner is not a generic name", () => {
+    assert.deepEqual(homePaths("at f (" + realHome("/home/", "/") + ":1:1)"), ["/home/jdoe"]);
+    assert.deepEqual(homePaths(realHome("/Users/", "/")), ["/Users/jdoe"]);
+    assert.deepEqual(homePaths(realHome("C:\\Users\\", "\\")), ["C:\\Users\\jdoe"]);
+    // escaped, as inside a JS or JSON string literal
+    assert.deepEqual(homePaths(realHome("C:\\\\Users\\\\", "\\\\")), ["C:\\\\Users\\\\jdoe"]);
+  });
+  it("lets generic and placeholder home directories through", () => {
+    for (const text of [
+      "/home/coder/project", "/home/runner/work/a", "/home/x/y", "/home/example/a",
+      "/home/someone/a", "/home/node/app", "/Users/example/Library", "C:\\Users\\example\\AppData",
+      "/home/<user>/dev", "/home/$USER/dev", "/home/some user/a tree", "~/dev/repo",
+    ]) assert.deepEqual(homePaths(text), [], text);
+  });
+  it("reports a home path through the command line, also in UTF-16LE", () => {
+    const plain = join(folder, "home-plain.txt"), wide = join(folder, "home-wide.bin");
+    writeFileSync(plain, "see " + realHome("/home/", "/") + "\n");
+    writeFileSync(wide, Buffer.from(realHome("/Users/", "/"), "utf16le"));
+    for (const file of [plain, wide]) {
+      const result = scan(file);
+      assert.equal(result.status, 1, result.stderr);
+      assert.match(result.stderr, /домашний каталог/);
+    }
+    const generic = join(folder, "home-generic.txt");
+    writeFileSync(generic, "/home/coder/project and /home/runner/work\n");
+    assert.ok([0, 2].includes(scan(generic).status));
   });
 
   it("treats only declared embedding vector fields as opaque bytes", () => {

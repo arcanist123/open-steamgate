@@ -83,7 +83,9 @@ func storeNameOf(file string) string {
 }
 
 // the chain of packages a file sits in (osd-store.mjs #packagesOf)
-func storePackagesOf(file string, root Root) []string {
+func storePackagesOf(file string, root Root) []string { return storePackagesOfRec(file, root, nil) }
+
+func storePackagesOfRec(file string, root Root, rec *indexRecorder) []string {
 	if root.Tmp {
 		chain := []string{root.Package}
 		inside := strings.Split(strings.TrimPrefix(file, root.Path+"/"), "/")
@@ -112,7 +114,7 @@ func storePackagesOf(file string, root Root) []string {
 				continue
 			}
 			at += "/" + folder
-			declared := storeDeclaredPackage(at)
+			declared := storeDeclaredPackageRec(at, rec)
 			if declared != "" {
 				chain = append(chain, declared)
 			} else if root.Abapgit.FolderLogic == "FULL" {
@@ -176,8 +178,12 @@ func storePackagesOf(file string, root Root) []string {
 var storeTmpChildName = regexp.MustCompile(`^\$[A-Z0-9_]+$`)
 var storePackageTag = regexp.MustCompile(`(?i)<(?:DEVCLASS|PACKAGE)>([^<]*)</(?:DEVCLASS|PACKAGE)>`)
 
-func storeDeclaredPackage(dir string) string {
-	b, err := os.ReadFile(filepath.Join(storeState.root, dir, "package.devc.xml"))
+func storeDeclaredPackage(dir string) string { return storeDeclaredPackageRec(dir, nil) }
+
+func storeDeclaredPackageRec(dir string, rec *indexRecorder) string {
+	full := filepath.Join(storeState.root, dir, "package.devc.xml")
+	rec.path(full)
+	b, err := os.ReadFile(full)
 	if err != nil {
 		return ""
 	}
@@ -190,14 +196,20 @@ func storeDeclaredPackage(dir string) string {
 
 // the files under one root, sorted, the build's exclusions left out
 // (osd-store.mjs #walk)
-func storeWalk(base, dir string, out []string) []string {
+// A recorder stamps every directory before it is read and every symlink's
+// target (indexcache.go); nil records nothing.
+func storeWalk(base, dir string, out []string, rec *indexRecorder) []string {
 	entries, err := os.ReadDir(filepath.Join(base, dir))
 	if err != nil {
 		return out
 	}
 	names := make([]string, 0, len(entries))
+	links := map[string]bool{}
 	for _, e := range entries {
 		names = append(names, e.Name())
+		if e.Type()&os.ModeSymlink != 0 {
+			links[e.Name()] = true
+		}
 	}
 	sort.Strings(names)
 	for _, name := range names {
@@ -205,13 +217,21 @@ func storeWalk(base, dir string, out []string) []string {
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(dir, name))
-		st, err := os.Stat(filepath.Join(base, rel))
+		full := filepath.Join(base, rel)
+		st, err := os.Stat(full)
 		if err != nil {
+			if links[name] {
+				rec.stat(full, nil, err) // a dangling link that may come back
+			}
 			continue
 		}
 		if st.IsDir() {
-			out = storeWalk(base, rel, out)
+			rec.stat(full, st, nil)
+			out = storeWalk(base, rel, out, rec)
 			continue
+		}
+		if links[name] {
+			rec.stat(full, st, nil)
 		}
 		skip := false
 		for _, re := range storeState.excluded {
@@ -239,20 +259,37 @@ func (ix *storeIndex) set(key string, e *storeEntry) {
 	ix.by[key] = e
 }
 
-// every object of every root, by type and name (osd-store.mjs build). Built
-// again for every call: the walk is milliseconds, and a file an editor or a
-// git pull changed is then never answered from a stale index.
-func storeBuild() *storeIndex { return storeBuildFor("") }
+// every object of every root, by type and name (osd-store.mjs build). The
+// full index is cached and checked against the stamps of what it was built
+// from on every call (indexcache.go), so a file an editor or a git pull
+// added, removed or renamed is never answered from a stale index.
+// storeState.mu held (shared or exclusive).
+func storeBuild() *storeIndex {
+	if storeIndexBuilt != nil {
+		storeIndexBuilt("")
+	}
+	return storeCachedIndex()
+}
 
-// storeIndexBuilt is a test observer, installed only while holding the store mutex.
-// It must not call back into the store.
+// storeIndexBuilt is a test observer of every index resolution (the cached
+// full index as "", a targeted walk by its target), installed only while
+// holding the store mutex exclusively. It must not call back into the store.
 var storeIndexBuilt func(target string)
 
-// A nonempty target filters enumeration before per-object stat/package work.
+// A nonempty target filters enumeration before per-object stat/package work
+// and is never cached; an empty one is the full index.
 func storeBuildFor(target string) *storeIndex {
+	if target == "" {
+		return storeBuild()
+	}
 	if storeIndexBuilt != nil {
 		storeIndexBuilt(target)
 	}
+	return storeWalkIndex(target, nil)
+}
+
+// storeWalkIndex walks the tree; rec (full index only) stamps its inputs.
+func storeWalkIndex(target string, rec *indexRecorder) *storeIndex {
 	ix := &storeIndex{by: map[string]*storeEntry{}}
 	cfg := storeState.cfg
 	roots := append(append([]Root{}, cfg.Roots...), cfg.Libs...)
@@ -260,7 +297,8 @@ func storeBuildFor(target string) *storeIndex {
 		files := root.Files
 		if !root.Library {
 			if target == "" {
-				files = storeWalk(storeState.root, root.Path, nil)
+				rec.path(filepath.Join(storeState.root, root.Path))
+				files = storeWalk(storeState.root, root.Path, nil, rec)
 			} else {
 				files = storeTargetWalk(storeState.root, root.Path, target, nil)
 			}
@@ -276,12 +314,18 @@ func storeBuildFor(target string) *storeIndex {
 				}
 				if root.Library {
 					// a library file the build listed and this tree does not
-					// have (a copied tree without the clones) is no object
-					if _, err := os.Stat(filepath.Join(storeState.root, file)); err != nil {
+					// have (a copied tree without the clones) is no object;
+					// its folder's stamp sees it come or go
+					full := filepath.Join(storeState.root, file)
+					rec.path(filepath.Dir(full))
+					if li, err := os.Lstat(full); err == nil && li.Mode()&os.ModeSymlink != 0 {
+						rec.path(full) // a link's target changes unseen by its folder
+					}
+					if _, err := os.Stat(full); err != nil {
 						break
 					}
 				}
-				chain := storePackagesOf(file, root)
+				chain := storePackagesOfRec(file, root, rec)
 				objectName := storeNameOf(name[:len(name)-len(t.Ext)])
 				if t.Type == "DEVC" && name == "package.devc.xml" {
 					objectName = chain[len(chain)-1]
@@ -301,11 +345,11 @@ func storeBuildFor(target string) *storeIndex {
 			}
 		}
 	}
-	storeIndexTmp(ix)
+	storeIndexTmp(ix, rec)
 	return ix
 }
 
-func storeIndexTmp(ix *storeIndex) {
+func storeIndexTmp(ix *storeIndex, rec *indexRecorder) {
 	if ix.by["DEVC $TMP"] == nil {
 		ix.set("DEVC $TMP", &storeEntry{Type: "DEVC", Name: "$TMP", File: "local/tmp/package.devc.xml",
 			Root: "local/tmp", Writable: true, Package: "$TMP", Packages: []string{"$TMP"}, Synthetic: true})
@@ -313,7 +357,9 @@ func storeIndexTmp(ix *storeIndex) {
 	var authors map[string]struct {
 		Author string `json:"author"`
 	}
-	if b, err := os.ReadFile(filepath.Join(storeState.root, "local", "tmp", "tadir.json")); err == nil {
+	tadir := filepath.Join(storeState.root, "local", "tmp", "tadir.json")
+	rec.path(tadir)
+	if b, err := os.ReadFile(tadir); err == nil {
 		_ = json.Unmarshal(b, &authors)
 	}
 	for _, key := range ix.keys {
@@ -448,6 +494,9 @@ func storeDigest(file string) string {
 }
 
 func storeActiveBytes(file string) ([]byte, bool) {
+	if b, ok := storeState.createdActive[file]; ok {
+		return b, true
+	}
 	if storeState.cfg == nil || storeState.cfg.Active == nil {
 		return nil, false
 	}

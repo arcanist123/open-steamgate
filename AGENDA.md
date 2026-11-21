@@ -7,6 +7,37 @@ in `docs/` as `YYYY-MM-DD-topic.md`.
 > [`docs/backlog/README.md`](docs/backlog/README.md). This file stays the narrative: what
 > was decided and why.
 
+## HANA track: milestone 3 closed, milestone 4 = funnel (2026-11-15)
+
+Milestone 3 is closed (last PR #959): the sample service's whole read side and
+a Fiori Elements app, 98 of 115 oracle requests equal, none silently wrong.
+What does not work is written down in `docs/hana-milestones.md` ("Known, not
+done"): exit value helps, labels in a second language, the speed of the largest
+list, and one commit that was not re-measured. Next, decided 2026-11-14:
+milestone 4 is a funnel over all registered services (64 registered, 37
+answering, 19 code-based, one at the last stage); host safety is PR #960.
+
+## Serving a rescued push channel over HANA: what the member cut leaves open (2026-11-18)
+
+Zork's push channel plays over its own HANA tenant (`docs/hana-serve-icf.md`,
+"APC"); the scope's `--cut-members-typed-by` is what lets its class build
+without the AI library. Open, and not Zork's to fix:
+
+- **A stubbed method skips the side effects after it.** The cut replaces a
+  whole method body with the loud raise, so a caller that does more after
+  the call never gets there: the channel's `on_close` saves the AI session
+  (stubbed) before it unregisters the connection, so the unregister never
+  runs and the connection count keeps gone connections until the class's
+  own expiry. The raise is loud (log line, stub trace); the effect on the
+  caller is not said anywhere but here. Candidates: list each stubbed
+  method's callers in the scope's output, or a cut that turns a call to a
+  stubbed method whose result nobody reads into a logged no-op -- which
+  would no longer be "never guess", so it needs a decision first.
+- **gogen: `EXPORT`/`IMPORT` are refused** (`NOT_COMPILED`, "statement
+  Export"), so `test/unit/zcl_osd_shared_memory_test` stays in the Go
+  inventory's gap list (advisory) until the Go runtime has the two shared
+  media; the JS runtime has them in the pin `local/osd-build-4l`.
+
 ## CI isolation for ADT pull requests, temporary (2026-10-03)
 
 Decided by Alice (through dell) after three ADT pull requests with green tests

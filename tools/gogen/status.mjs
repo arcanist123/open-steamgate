@@ -14,7 +14,6 @@
 //     the number of its objects in this program (none are, today).
 // The texts and pack names are the ones osd-status.mjs gives the same
 // rows, read from the same functions.
-import {createHash} from "node:crypto";
 import {existsSync, readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {home} from "./home.mjs";
@@ -33,7 +32,7 @@ export function freshPrefixes(root = home) {
   return [...new Set(found)].sort();
 }
 
-export async function statusFacts({program, services, webapps, generated}) {
+export async function statusFacts({program, services, webapps, generation}) {
   const {servicesOf, packsInfo} = await import(`${home}/tools/osd-status.mjs`);
   const {packsOf} = await import(`${home}/tools/osd-packs.mjs`);
   const compiled = new Set(program.classes.map((c) => c.name));
@@ -43,11 +42,13 @@ export async function statusFacts({program, services, webapps, generated}) {
   // a row per path, as REFRESH keeps them (its READ ... WITH KEY path)
   const seen = new Set();
   const svc = rows.filter((s) => (seen.has(s.path) ? false : (seen.add(s.path), true)));
-  // the files of the compiled global classes and interfaces, for a pack's count
+  // the files of the compiled global classes and interfaces, for a pack's
+  // count. The incremental front end (osgo-incr.mjs) answers for the classes
+  // its partial registry does not hold out of the cache it assembled from
   const files = [];
   for (const c of program.classes) {
-    const obj = program.reg.getObject("CLAS", c.name) ?? program.reg.getObject("INTF", c.name);
-    const f = obj?.getFiles?.()[0]?.getFilename?.();
+    const f = program.filesOf?.get(c.name) ?? program.reg.getObject("CLAS", c.name)?.getFiles?.()[0]?.getFilename?.()
+      ?? program.reg.getObject("INTF", c.name)?.getFiles?.()[0]?.getFilename?.();
     if (f) files.push(resolve(f));
   }
   const served = new Set(webapps.map((w) => resolve(w.dir)));
@@ -60,7 +61,7 @@ export async function statusFacts({program, services, webapps, generated}) {
     return p.objects > 0 || (page !== undefined && served.has(page)) || webapps.some((w) => w.path === `/app/${p.name}`);
   });
   // the generation this process serves: the program itself, by content
-  const generation = "go:" + createHash("sha256").update(generated).digest("hex").slice(0, 16);
+  // (program-digest.mjs, computed by the caller over the whole program)
   return {services: svc, packs, generation, fresh: freshPrefixes(home)};
 }
 

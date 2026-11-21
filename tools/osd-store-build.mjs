@@ -1,11 +1,12 @@
 import {transpileIssues, withoutHostPaths} from "./osd-build-issues.mjs";
 import {acceptView, captureView} from "./osd-store-compile-view.mjs";
-import {genHash, liveHash} from "./osd-build.mjs";
+import {genHash, layout, liveHash} from "./osd-build.mjs";
+import {whenLockFree} from "./osd-build-lock-wait.mjs";
 import {forgetRegistry} from "./osd-store-registry.mjs";
 import {relative, sep} from "node:path";
 import {warmOperation} from "./osd-store-warm.mjs";
+import {describe, measureSpeed, saveWait} from "./warm-deadline/warm-deadline.mjs";
 const WARM_REPRIME_MS = Number(process.env.OSD_WARM_REPRIME_MS ?? 5000);
-
 export async function transpileStore(store, options, activating, built) {
   const started = Date.now();
   const w = store.warm();
@@ -13,9 +14,12 @@ export async function transpileStore(store, options, activating, built) {
   // taking a build snapshot; saves remain available throughout.
   if (w.on === true && !w.disabled && options.force !== true && w.primeDue === true && w.priming === undefined &&
       (store.served?.recycling ?? store.served?.starting) === undefined) {
-    await store.warmUp();
+    // started here, awaited below within the save's bound
+    store.warmUp();
   }
-  await w.priming;
+  // true: the prime is still running, so the compiler is busy with it and
+  // this build is cold (a warm call would queue behind the prime)
+  const past = await waitForPrime(store, w);
   let superseded = 0;
   for (;;) {
     clearTimeout(w.reprime);
@@ -23,10 +27,10 @@ export async function transpileStore(store, options, activating, built) {
     try { view = await captureView(store, activating); }
     catch (error) { return failedBuild(store, error, started); }
     const overlay = view.overlay;
-    if (w.on === true && !w.disabled && options.force !== true) {
+    if (w.on === true && !w.disabled && options.force !== true && !past) {
       if (w.compiler?.primed === true) {
         try {
-          const r = await warmOperation(store, () => w.compiler.build(activating, view));
+          const r = await warmOperation(store, () => whenLockFree(store, () => w.compiler.build(activating, view)));
           await acceptView(store, view, activating, r);
           if (w.compiler.recycleDue) w.primeDue = true;
           return {ok: true, ms: Date.now() - started, objects: r.objects, hash: r.hash, cached: r.cached, warm: true,
@@ -56,7 +60,8 @@ export async function transpileStore(store, options, activating, built) {
     let generatedRefreshed = false;
     try {
       const {build} = await import("./osd-build.mjs");
-      const r = await build({...store.buildOptions, root: store.root, force: options.force === true, replace: options.replace === true, overlay, switch: false, expectedHash: view.hash});
+      const r = await whenLockFree(store, held => build({...store.buildOptions, root: store.root, force: options.force === true, replace: options.replace === true, overlay, switch: false, expectedHash: view.hash, ...held}),
+        {paths: layout(store.root)});
       let updated;
       if (genHash(store.root) !== view.gen || w.on === true && !w.disabled && w.compiler?.primed) {
         updated = await captureView(store, activating);
@@ -74,11 +79,13 @@ export async function transpileStore(store, options, activating, built) {
       // only a build that made a generation live is one to prime on: after
       // a failed one the tree is not the live generation, and a prime on
       // demand would parse it to be told so
-      if (w.on === true && !w.disabled && w.compiler?.primed) {
+      if (w.on === true && !w.disabled && w.compiler?.primed && !past) {
         try {
           // Generators may have rewritten gen/ during cold compilation.
           if (updated.hash !== r.hash) throw new Error("inputs moved after cold publication");
-          await warmOperation(store, () => w.compiler.update(activating, updated));
+          // sized like a prime, and a timeout drops the registry to be primed
+          // again rather than turning warm off (osd-store-warm.mjs)
+          await warmOperation(store, () => w.compiler.update(activating, updated), {kind: "update", files: updated.digests?.length ?? 0});
         } catch (error) {
           if (error.code !== "NOT_WARM") console.log(`warm: re-prime: ${error.message}`);
           await w.compiler.drop();
@@ -103,6 +110,30 @@ export async function transpileStore(store, options, activating, built) {
       }
     }
   }
+}
+
+// A save waits for a running prime only so long: a prime of a large tree on
+// a slow host may take minutes, and a hung one is caught only by its own,
+// longer deadline. After the bound this save builds cold (the compiler is
+// not primed, so the warm path is skipped) while the prime goes on; a prime
+// whose view a cold publication changed rebuilds its baseline (warmUp).
+async function waitForPrime(store, w) {
+  const priming = w.priming;
+  if (priming === undefined) return false;
+  // one save has waited its bound for this prime; the next ones do not
+  if (w.outwaited === priming) return true;
+  await measureSpeed();
+  const bound = saveWait({store});
+  let timer;
+  const expired = Symbol("expired");
+  const r = await Promise.race([priming.then(() => undefined, () => undefined), new Promise(resolve => {
+    timer = setTimeout(() => resolve(expired), bound.ms);
+  })]);
+  clearTimeout(timer);
+  if (r !== expired) return false;
+  w.outwaited = priming;
+  console.log(`warm: a save stopped waiting for the prime after ${describe(bound)}; it builds cold`);
+  return true;
 }
 
 function failedBuild(store, error, started) {

@@ -46,6 +46,29 @@ export function toolCommandIn(env, script, args = []) {
   return me !== undefined ? [...me, "gen", basename(script), ...args] : [process.execPath, script, ...args];
 }
 
+// An external Node script is not a tool of this tree, so `gen` cannot
+// dispatch it (the dump->layers converter of tools/hana-src-gen.mjs
+// --from-dump: OSD_HANA_CONVERTER names a path outside). The same
+// [command, ...args] shape as toolCommand, but the interpreter is resolved
+// for real: in a checkout and in a bundle under node process.execPath is
+// node, as for a tool; inside a compiled binary or a SEA build
+// process.execPath is the executable itself, so the interpreter is OSD_NODE
+// when set, else "node" off the PATH (Bun.which, where Bun exists), and a
+// named refusal when neither is there.
+export function scriptCommandIn(env, script, args = []) {
+  const value = env.OSD_SELF;
+  const me = value === undefined || value === "" ? undefined : JSON.parse(value);
+  if (me === undefined || me.length > 1) return [process.execPath, script, ...args];
+  const node = env.OSD_NODE;
+  if (node !== undefined && node !== "") {
+    if (existsSync(node) === false) throw new Error(`osd-host: OSD_NODE=${node} is not there -- set it to a node executable that can run ${script}`);
+    return [node, script, ...args];
+  }
+  const which = typeof Bun !== "undefined" && typeof Bun.which === "function" ? Bun.which("node") : undefined;
+  if (which !== undefined && which !== "") return [which, script, ...args];
+  throw new Error(`osd-host: ${script} is an external script and process.execPath is this binary -- set OSD_NODE to a node executable (or put node on the PATH)`);
+}
+
 // the serving runtime (tools/osd-serve.mjs) as a child of the supervisor
 export function serveCommand(child) {
   const me = self();

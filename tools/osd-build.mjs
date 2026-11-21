@@ -1,6 +1,6 @@
 import {missingLibraries, describeMissingLibraries} from "./osd-build-libraries.mjs";
 export {missingLibraries, describeMissingLibraries};
-import {activeSystem, systemFile, rootWebappOf} from "./osd-system.mjs";
+import {activeSystem, assertPublicSystem, generationSystem, unrecordedGeneration, systemFile, rootWebappOf} from "./osd-system.mjs";
 import {verifySystem} from "./osd-system-verify.mjs";
 import {warnSystemToolchain} from "./osd-system-toolchain.mjs";
 import {userLayersOf} from "./osd-source-layers.mjs";
@@ -32,22 +32,27 @@ export {normalPath};
 export {gc};
 import {createHash} from "node:crypto";
 import {libraryPath} from "./osd-lib-path.mjs";
+import {ensureUrlLibrary, urlLibraryPath} from "./osd-url-lib.mjs";
 import {checkLayerVersions} from "./layer-version/index.mjs";
 import {compareGenerations} from "./osd-generation-diff.mjs";
 import {execFileSync} from "node:child_process";
-import {run} from "./osd-build-command.mjs";
+import {buildVerified, generatorClosureOf, generatorIdentityOf, recordedRun, runGeneratorsOf} from "./osd-build-generators.mjs";
 import {existsSync, lstatSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync} from "node:fs";
-import {basename, dirname, join, relative, resolve, resolve as resolvePath, sep} from "node:path";
-import {fileURLToPath} from "node:url";
+import {basename, dirname, join, relative, resolve, sep} from "node:path";
+import {fileURLToPath, pathToFileURL} from "node:url";
 import {buildIdentity, assertToolchain, describeBuild} from "./osd-transpiler.mjs";
 import {describeDuplicates, excludePatterns, layers} from "./osd-inputs.mjs";
-import {transpile, selectedModules} from "./osd-transpile.mjs";
-import {inputFoldersOf, packsOf, userFoldersOf, webappsOf} from "./osd-packs.mjs";
+import {excludedObjectFiles} from "./hana-closure-exclusions.mjs";
+import {assertNoDeliveredSplice} from "./hana-closure-intake.mjs";
+import {transpile, selectedModules, isBinaryFilename, listFiles} from "./osd-transpile.mjs";
+import {makeReadRecord, markIncomplete, readEntry, readGeneratorLog, READS, sha256, withSeedReads} from "./osd-read-record.mjs";
+import {inputFoldersOf, packReadsOf, packsOf, seedsBuilt, userFoldersOf, webappsOf} from "./osd-packs.mjs";
 import {describeUnfetched, unfetched} from "./osd-fetch.mjs";
 import {toolCommand, hosted} from "./osd-host.mjs";
 import {runsAs} from "./osd-main.mjs";
 import {forPublishing} from "./osd-tmp.mjs";
 import {sourceBuildOverlay} from "./osd-source-build-view.mjs";
+import {assertLoadable} from "./osd-generation-check.mjs";
 
 // the tools this build runs before the transpiler, in the order the old npm
 // script ran them; each writes its part of gen/ and says so
@@ -56,6 +61,7 @@ export const GENERATORS = [
   ["osd-inputs.mjs"],
   ["osd-ddic-binary.mjs"],
   ["cds2ddic.mjs"],
+  ["rap/bdef-gen.mjs"],
   ["stg-compile.mjs", "--all"],
   ["segw-registry.mjs"],
   ["segw-shlp.mjs"],
@@ -79,6 +85,8 @@ export const GENERATORS = [
   // picks up the *.tran.xml this writes
   ["osd-gui-convert.mjs"],
   ["osd-tran-registry.mjs"],
+  ["osd-textpool-registry.mjs"],
+  ["osd-ddic-info-registry.mjs"],
 ];
 
 const TOOLS = fileURLToPath(new URL(".", import.meta.url));
@@ -131,7 +139,7 @@ function walk(dir, out = [], seen = new Set()) {
     return out;
   }
   for (const e of entries) {
-    if (e.name === ".git" || e.name === "node_modules" || [".osd-source.json", ".osd-layer.json", ".osd-system.json"].includes(e.name)) {
+    if (e.name === ".git" || e.name === "node_modules" || e.name === ".osd-system.json") {
       continue;
     }
     const p = join(dir, e.name);
@@ -156,11 +164,24 @@ function walk(dir, out = [], seen = new Set()) {
   return out;
 }
 
-// what a generation is made of, and the hash that names it
+// what a generation is made of, and the hash that names it. A listed folder
+// is an input only while it holds a file the hash would count (the
+// NOT_AN_INPUT rule folder() applies): the base leaves gen/hana-ddic empty
+// on every build, and an empty folder was never read
 export function inputsOf(root, config = loadConfig(root)) {
-  const folders = inputFoldersOf(root, config).map((f) => join(root, f)).filter(existsSync);
-  const libs = (config.libs ?? []).map((l) => l.folder).filter((f) => f !== undefined && f !== "")
-    .map((f) => (activeSystem(root) || existsSync(join(root, "libs.lock.json"))) ? libraryPath(root, basename(f)) : join(root, f));
+  // a listed folder is an input while it holds any file: an empty one
+  // (gen/hana-ddic before hana-ddic-gen writes it) was never read, and a
+  // folder of media alone is still read by the transpiler
+  const folders = inputFoldersOf(root, config).map((f) => join(root, f)).filter((f) => existsSync(f) && walk(f).length > 0);
+  const libs = (config.libs ?? []).map((l) => {
+    const cached = urlLibraryPath(root, l);
+    if (cached) {
+      if (!existsSync(cached)) throw Object.assign(new Error(`pinned URL library is not cached: ${l.url}; run the build first`), {code: "MISSING_URL_LIB"});
+      return cached;
+    }
+    if (l.folder === undefined || l.folder === "") return undefined;
+    return (activeSystem(root) || existsSync(join(root, "libs.lock.json"))) ? libraryPath(root, basename(l.folder)) : join(root, l.folder);
+  }).filter(Boolean);
   // BSP pages are generator inputs too. In particular, Component.js lives
   // outside the ABAP input folders and the ABAP-only filter below excludes
   // JavaScript. Omitting it reused a generation whose registry named a page
@@ -174,13 +195,16 @@ export function inputsOf(root, config = loadConfig(root)) {
   // nothing, so it names nothing; the moment it holds an input file (the same
   // rule hashOf applies to a folder: NOT_AN_INPUT files do not count) it is
   // an input. A data, ddic or webapp folder, or a tile, keeps it one anyway.
-  const packs = packsOf(root).filter((pack) => pack.data !== undefined || pack.ddic !== undefined ||
+  // Rows the build captured (seedsBuilt, makePackSeeds) are output, not input.
+  const data = (pack) => seedsBuilt(pack.data) ? undefined : pack.data;
+  const packs = packsOf(root).filter((pack) => data(pack) !== undefined || pack.ddic !== undefined ||
     pack.webapp !== undefined || pack.tiles.length > 0 ||
-    pack.abap.some((dir) => existsSync(dir) && walk(dir).some((f) => !NOT_AN_INPUT.test(f))));
+    pack.abap.some((dir) => existsSync(dir) && walk(dir).some((f) => !NOT_AN_INPUT.test(f) || isBinaryFilename(f))));
   const packFiles = packs.map((pack) => join(pack.dir, "osd-pack.json"));
-  const packFolders = packs.flatMap((pack) => [pack.data, pack.ddic].filter(Boolean));
+  const packFolders = packs.flatMap((pack) => [data(pack), pack.ddic].filter(Boolean));
   const sourceLayers = userLayersOf(root);
-  return {folders, libs, bspFolders, packFiles, packFolders, sourceLayers, config: layout(root).config};
+  const rootInputs = ["data", "abaplint.jsonc"].map((name) => join(root, name)).filter(existsSync);
+  return {folders, libs, bspFolders, packFiles, packFolders, packReads: packReadsOf(root), sourceLayers, rootInputs, config: layout(root).config};
 }
 
 // What the transpiler and the generators read, and nothing else: a mocha
@@ -193,101 +217,14 @@ export function inputsOf(root, config = loadConfig(root)) {
 const TRACE_METADATA = /\.trace\.meta\.json$/i;
 const NOT_AN_INPUT = /\.(mjs|cjs|js|ts|py|md|txt|log|lock|snap|trace\.meta\.json)$/i;
 
-/**
- * The modules that decide what `gen/` will contain: the generators and
- * everything they import, transitively.
- *
- * **`gen/` used to be in the hash as a stand-in for these, and a stand-in
- * written by the build is a self-reference.** `NOT_AN_INPUT` excludes
- * `.mjs`, so a generator's own code was not an input while its output was --
- * the hash watched the representative and not the thing represented. The
- * cost was visible: two builds of a fresh tree, with no edit between them,
- * produced two different generation names, because the first wrote `gen/`
- * and the second hashed it (measured 2026-09-19, and osg-osd-i7 measured the
- * same from the other side).
- *
- * So the representative goes and the thing represented arrives. 27 of the 92
- * modules in `tools/` are in the closure, which is why it is computed rather
- * than approximated by "all of them": editing a tool that no generator
- * reaches should not rename every generation.
- */
-export function generatorClosure(toolsDir = TOOLS, generators = GENERATORS) {
-  const seen = new Set();
-  const walk = (file) => {
-    const abs = resolvePath(file);
-    if (seen.has(abs) || !existsSync(abs)) return;
-    seen.add(abs);
-    const text = readFileSync(abs, "utf8");
-    for (const m of text.matchAll(/from\s+"(\.[^"]+)"/g)) walk(join(dirname(abs), m[1]));
-    for (const m of text.matchAll(/import\("(\.[^"]+)"\)/g)) walk(join(dirname(abs), m[1]));
-  };
-  for (const [script] of generators) walk(join(toolsDir, script));
-  walk(join(toolsDir, "osd-generator-view.mjs"));
-  return [...seen].sort();
-}
-
-/** the generators, in order, writing into the working `gen/` as they always do */
-export function runGenerators(root, log = () => {}, overlay = undefined) {
-  let output = "";
-  for (const [script, ...args] of GENERATORS) {
-    log(`${script} ${args.join(" ")}`.trim());
-    const [cmd, ...argv] = toolCommand(join(TOOLS, script), args);
-    const view = activeOverlay(overlay);
-    const env = {...process.env, OSD_ROOT: root};
-    delete env.OSD_ACTIVE_BUILD_OVERLAY;
-    if (view) {
-      env.OSD_ACTIVE_BUILD_OVERLAY = JSON.stringify({...view, exclude: [...view.exclude]});
-      // Hosted executables install this view in their gen dispatch.
-      if (!hosted()) argv.unshift("--import", join(TOOLS, "osd-generator-view.mjs"));
-    }
-    output += run(cmd, argv, root, env);
-  }
-  return output;
-}
-
-/**
- * What identifies the generators that will actually RUN.
- *
- * Hashing the files under `tools/` is right under node and wrong in the
- * binary, and the difference is not cosmetic: `toolCommand()` turns a
- * generator into `osd gen <name>`, so a compiled binary executes its **own
- * embedded copies** and never reads `tools/*.mjs`. Hashing the tree's files
- * there would hash code that will not run -- the representative instead of
- * the thing represented, which is the mistake this hash was just repaired
- * for (osg-osd-i7 measured it: edit a generator and node's hash moves while
- * the binary's does not, because `TOOLS` is `/$bunfs/root/` inside the
- * bundle).
- *
- * So each host names what it will run: node the contents of the closure, the
- * binary itself. **And that means the two hosts legitimately name different
- * generations**, unless the binary was compiled from the very generators the
- * tree holds. That is a true statement about the system rather than a defect
- * to paper over, and the test that asserted equality now asserts what is
- * actually required -- that the two produce the same objects.
- *
- * The binary is 85 MB and hashes in 159 ms, so the answer is kept for the
- * life of the process: a cache check must not pay it twice.
- */
-let binaryIdentity;
-export function generatorIdentity(root = process.cwd()) {
-  // Source dispatch hashes tools; embedded dispatch (including Node bundles) hashes its entry.
-  const dispatch = hosted() ? JSON.parse(process.env.OSD_SELF) : undefined;
-  const embedded = typeof __OSD_TOOLCHAIN_IDENTITY__ !== "undefined";
-  if (dispatch && (embedded || dispatch.length === 1)) {
-    if (binaryIdentity === undefined) {
-      const executable = dispatch.length === 1 ? dispatch[0] : dispatch[1];
-      binaryIdentity = "binary:" + createHash("sha256").update(readFileSync(executable)).digest("hex").slice(0, 16);
-    }
-    return binaryIdentity;
-  }
-  const h = createHash("sha256");
-  const closure = generatorClosure();
-  h.update(`generators ${closure.length}\0`);
-  for (const f of closure) {
-    h.update(relative(TOOLS, f).split(sep).join("/")).update("\0").update(readFileSync(f)).update("\0");
-  }
-  return "tools:" + h.digest("hex").slice(0, 16);
-}
+export const generatorClosure = (toolsDir = TOOLS, generators = GENERATORS) => generatorClosureOf(toolsDir, generators);
+export const runGenerators = (root, log = () => {}, overlay, readsLog, external) => {
+  // the generated-input folder the config lists (H3: gen/hana-ddic) exists
+  // from the first build on, empty until hana-ddic-gen --from-build writes it
+  mkdirSync(join(root, "gen", "hana-ddic"), {recursive: true});
+  return runGeneratorsOf(TOOLS, GENERATORS, activeOverlay, root, log, overlay, readsLog, external);
+};
+export const generatorIdentity = () => generatorIdentityOf(TOOLS, GENERATORS);
 
 /** what `gen/` holds right now, by content: 196 files, milliseconds */
 export function genHash(root) {
@@ -340,6 +277,8 @@ export function hashOf(root, inputs = inputsOf(root), options = {}) {
   // a folder walk cached for a tree without an overlay is not this list
   const folders = options instanceof Map || overlay !== undefined || options.substitute !== undefined ? undefined : options.folders;
   const kept = overlay === undefined ? () => true : (f) => !overlay.exclude.has(resolve(f));
+  const transpilerReads = new Set(listFiles(root, loadConfig(root)).wanted.map(file => resolve(file)));
+  const sourceInput = file => (!NOT_AN_INPUT.test(file) || isBinaryFilename(file) || transpilerReads.has(resolve(file))) && kept(file);
   // a proof, not a build: these files counted with these digests (a warm
   // prime asking whether its view is the live generation with saves since
   // put back to the bytes they replaced, tools/osd-warm.mjs)
@@ -351,16 +290,29 @@ export function hashOf(root, inputs = inputsOf(root), options = {}) {
     hash.update(value);
     return this;
   }, digest: (...args) => hash.digest(...args)};
+  for (const entry of ((options instanceof Map ? undefined : options.exclusions) ?? []).slice().sort()) h.update("excluded\0").update(entry).update("\0");
   h.update("transpiler\0").update(String(options.transpiler ?? buildIdentity(root))).update("\0");
-  // the rule that decides a name held by two inputs is part of what the
-  // output is: a generation built under another rule is another generation
   h.update("layers\0later-wins\0");
   const system = activeSystem(root);
   if (system) h.update("system\0").update(system.digest).update("\0");
+  for (const name of generationSystem(root, inputs).provenance.filter(input => input.private !== false).map(input => `${input.kind}:${input.path}${input.private === null ? ":unknown" : ""}`).sort()) h.update("private-input\0").update(name).update("\0"); // unknown privacy names a generation too
   for (const layer of inputs.sourceLayers ?? []) {
     h.update("source-layer\0").update(JSON.stringify(layer)).update("\0");
+    // the ZIP is named by archiveId (its sha256) above; listing its digest
+    // lets the read record count the build's read of it as hashed
+    if (layer.archiveFile && existsSync(layer.archiveFile)) digests?.set(layer.archiveFile, digestOf(layer.archiveFile));
   }
+  // written by inputsOf from the source layers just hashed, so its bytes are a
+  // function of them: listed for the read record, not hashed again
+  const mounts = join(root, "local/overlays/.osd-mounts.txt");
+  if (existsSync(mounts)) digests?.set(mounts, digestOf(mounts));
   h.update("config\0").update(readFileSync(inputs.config)).update("\0");
+  const lockFile = join(root, "libs.lock.json");
+  if (existsSync(lockFile)) {
+    const lockDigest = digestOf(lockFile);
+    digests?.set(lockFile, lockDigest);
+    h.update("libraries-lock\0").update(lockDigest).update("\0");
+  }
   const folder = (label, dir, list) => {
     let entries = folders?.get(dir);
     if (entries === undefined) {
@@ -375,19 +327,27 @@ export function hashOf(root, inputs = inputsOf(root), options = {}) {
       h.update(relative(root, f)).update("\0").update(digest).update("\0");
     }
   };
-  for (const dir of [...inputs.folders, ...inputs.libs]) {
+  for (const dir of inputs.folders) {
     // **`gen/` is an OUTPUT and is left out.** It is written by this build
     // from the folders above and the generators below, so hashing it made
     // the name a function of the tree AND of how many times the tree had
     // been built. What decides its content is hashed instead.
     if (relative(root, dir) === "gen") continue;
-    folder("dir", dir, () => (existsSync(dir) ? walk(dir).filter((f) => !NOT_AN_INPUT.test(f) && kept(f)).sort() : []));
+    folder("dir", dir, () => (existsSync(dir) ? walk(dir).filter(sourceInput).sort() : []));
+  }
+  // a locked library is read whole, by the generators too (open-abap-gui's
+  // converter is code that decides gen/); the lock pins every byte of it
+  for (const dir of inputs.libs) folder("dir", dir, () => (existsSync(dir) ? walk(dir).filter((f) => !TRACE_METADATA.test(f) && kept(f)).sort() : []));
+  // tracked root files the generators read: table rows, the lint config
+  for (const path of inputs.rootInputs ?? []) {
+    if (statSync(path).isDirectory()) folder("root", path, () => walk(path).filter((f) => !TRACE_METADATA.test(f)).sort());
+    else { digests?.set(path, digestOf(path)); h.update(`root ${relative(root, path)}\0`).update(digestOf(path)).update("\0"); }
   }
   // the last active versions of the objects whose saved version is kept
   // out: a generation built from them is another generation
   if (overlay?.folder !== undefined) {
     const dir = join(root, overlay.folder);
-    folder("active", dir, () => (existsSync(dir) ? walk(dir).filter((f) => !NOT_AN_INPUT.test(f) && kept(f)).sort() : []));
+    folder("active", dir, () => (existsSync(dir) ? walk(dir).filter(sourceInput).sort() : []));
   }
   for (const dir of inputs.bspFolders ?? []) {
     folder("bsp", dir, () => walk(dir).filter((f) => !TRACE_METADATA.test(f)).sort());
@@ -397,12 +357,34 @@ export function hashOf(root, inputs = inputsOf(root), options = {}) {
   }
   for (const file of inputs.packFiles ?? []) {
     h.update(`manifest ${relative(root, file)}\0`).update(digestOf(file)).update("\0");
+    digests?.set(file, digestOf(file));
+    const fetched = join(dirname(file), ".osd-fetched.json");
+    if (existsSync(fetched)) {
+      const fetchedDigest = digestOf(fetched);
+      digests?.set(fetched, fetchedDigest);
+      h.update(`fetched ${relative(root, fetched)}\0`).update(fetchedDigest).update("\0");
+      // and the identity each fetched folder carries, read even when it brought no files
+      let names = [];
+      try { names = Object.keys(JSON.parse(readFileSync(fetched, "utf8"))).sort(); } catch { /* digested above; inputsOf refuses it */ }
+      for (const marker of names.map((name) => join(dirname(file), name, ".osd-source.json")).filter(existsSync)) {
+        digests?.set(marker, digestOf(marker));
+        h.update(`identity ${relative(root, marker)}\0`).update(digestOf(marker)).update("\0");
+      }
+    }
+  }
+  // what finding the packs reads, an unselected pack's manifest too
+  for (const file of (inputs.packReads ?? []).filter((f) => !(inputs.packFiles ?? []).includes(f))) {
+    digests?.set(file, digestOf(file));
+    h.update(`pack-read ${relative(root, file)}\0`).update(digestOf(file)).update("\0");
   }
   // the generators that will actually run -- the files under node, the
   // binary itself when it is the binary, because it executes its own copies
   h.update("generators\0").update(generatorIdentity(root)).update("\0");
   return h.digest("hex").slice(0, 16);
 }
+
+// an empty build lock younger than this is still being written by its owner
+export const LOCK_WRITE_GRACE_MS = 5000;
 
 // one build at a time: the generators write gen/ at the root, and two of
 // them at once would race over it. A stale lock from a process that died is
@@ -427,11 +409,22 @@ export function lock(paths) {
       }
       const pid = Number(readFileSync(paths.lock, "utf8"));
       let alive = false;
-      try {
-        process.kill(pid, 0);
-        alive = true;
-      } catch {
-        alive = false;
+      if (Number.isInteger(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          alive = true;
+        } catch {
+          alive = false;
+        }
+      } else {
+        // No pid: the owner was killed between openSync and writeFileSync
+        // above. Number("") is 0, and kill(0, 0) asks the caller's own process
+        // group, so this used to read as "a build is already running (pid 0)",
+        // for good. A lock that is being written right now is only
+        // microseconds old: refuse it for a short grace, then take it over.
+        let age = Infinity;
+        try { age = Date.now() - statSync(paths.lock).mtimeMs; } catch { /* gone: retry */ }
+        alive = age < LOCK_WRITE_GRACE_MS;
       }
       if (alive) {
         const e = new Error(`a build is already running (pid ${pid})`);
@@ -624,6 +617,7 @@ export function prepare(root, log = () => {}) {
   const system = activeSystem(root);
   verifySystem(root, system, log);
   const config = loadConfig(root);
+  for (const lib of config.libs ?? []) ensureUrlLibrary(root, lib);
   warnSystemToolchain(root, system, log);
   checkLayerVersions(root, packsOf(root), userFoldersOf(root), log);
   const missingLibs = missingLibraries(root, config);
@@ -634,7 +628,7 @@ export function prepare(root, log = () => {}) {
     throw e;
   }
   if (existsSync(join(root, "libs.lock.json"))) {
-    for (const lib of config.libs ?? []) libraryPath(root, basename(lib.folder));
+    for (const lib of config.libs ?? []) if (lib.folder) libraryPath(root, basename(lib.folder));
   }
   // the layers, resolved before anything else (tools/osd-inputs.mjs): the
   // same file name twice inside one folder is a refusal naming both files,
@@ -677,6 +671,11 @@ export function ownConfig(root, config, stack, outputFolder, overlay = undefined
     input_folder: [...inputFoldersOf(root, config), ...(kept?.folder === undefined ? [] : [kept.folder])],
     output_folder: relative(root, outputFolder),
     exclude_filter: [...(config.exclude_filter ?? []), ...excludePatterns(stack.hidden),
+      // the closure walk's definition-level exclusions (H5x-1): objects the
+      // walk found unresolvable at the definition level, recorded in
+      // gen/hana-closure/closure-stubs.json -- the file stays in its layer
+      // on disk, the build is kept from it here, through the same seam
+      ...excludePatterns(excludedObjectFiles(root)),
       ...[...(kept?.exclude ?? [])].sort().map((file) => `^${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`)],
   };
 }
@@ -703,6 +702,7 @@ export function activeOverlay(overlay) {
 
 export async function build(options = {}) {
   const root = resolve(options.root ?? process.env.OSD_ROOT ?? process.cwd());
+  assertNoDeliveredSplice(root); // M4: a delivered layer (gen/hana-src) with a kernel splice is never transpiled
   options = {...options, overlay: await sourceBuildOverlay(root, options)};
   const log = options.log ?? (() => {});
   const paths = layout(root);
@@ -715,7 +715,8 @@ export async function build(options = {}) {
   const loaded = selectedModules(root);
   const identity = assertToolchain(root, loaded);
   const named = new Map();
-  const hash = hashOf(root, inputs, {overlay: options.overlay, digests: named, transpiler: identity});
+  const hash = hashOf(root, inputs, {overlay: options.overlay, digests: named, transpiler: identity, exclusions: excludedObjectFiles(root)});
+  named.set(inputs.config, sha256(readFileSync(inputs.config)));
   // one spelling of a path for every comparison: a native one from the walk,
   // a forward-slash one from the transpiler's reads on Windows
   const digests = new Map([...named].map(([file, digest]) => [normalPath(file), digest]));
@@ -744,9 +745,9 @@ export async function build(options = {}) {
   } catch (error) {
     warmUnchecked = error.code !== "ENOENT";
   }
-  if (warmUnchecked) {
+  if (warmUnchecked || options.force !== true && unrecordedGeneration(target)) { // publishers refuse one without its system record
     options = {...options, force: true, replace: true};
-    log(`generation ${hash} was made warm and nobody has compared it yet: building it cold`);
+    log(warmUnchecked ? `generation ${hash} was made warm and nobody has compared it yet: building it cold` : `generation ${hash} does not record its system: building it again`);
   }
 
   if (options.force !== true && existsSync(join(target, "manifest.json"))) {
@@ -758,7 +759,7 @@ export async function build(options = {}) {
     // again -- the transpile still does not.
     if (manifest.gen !== undefined && manifest.gen !== genHash(root)) {
       log(`generation ${hash} is already built, but gen/ has drifted from it -- regenerating`);
-      const unlockAgain = lock(paths);
+      const unlockAgain = options.lockHeld === true ? () => {} : lock(paths);
       try {
         runGenerators(root, log, options.overlay);
       } finally {
@@ -771,19 +772,24 @@ export async function build(options = {}) {
     if (options.switch !== false && liveHash(root) !== hash) {
       switchTo(root, hash, log);
     }
+    await makePackSeeds(root, inputs, hash, log, named);
     return {ok: true, hash, cached: true, live: liveHash(root) === hash, ms: Date.now() - started, objects: manifest.objects, digests};
   }
 
-  const unlock = lock(paths);
+  const unlock = options.lockHeld === true ? () => {} : lock(paths); // lockHeld: the caller holds it (osd-build-lock-wait.mjs)
   const tmp = join(paths.tmp, `${hash}.${process.pid}`);
+  const readsLog = join(tmp, "generator-reads.jsonl");
+  const readEntries = [];
   let output = "";
+  let built;
   try {
     rmSync(tmp, {recursive: true, force: true});
     mkdirSync(join(tmp, "output"), {recursive: true});
     // generators: false is for a tree with nothing to generate (a test's
     // tree of a few classes); every real build runs them
     if (options.generators !== false) {
-      output += runGenerators(root, log, options.overlay);
+      output += runGenerators(root, log, options.overlay, readsLog,
+        [...inputs.folders, ...inputs.libs, ...inputs.bspFolders, ...inputs.packFolders].filter(path => !normalPath(path).startsWith(normalPath(root) + "/")));
     }
     await options.onStep?.("generated");
     // **The layers are read again once gen/ is written.** gen/ is a layer, and
@@ -821,9 +827,10 @@ export async function build(options = {}) {
     const made = await transpile({root, modules: loaded, config: own, log: (m) => { output += m + "\n"; },
       onInputs: (files, libs) => keepCompileInputs(root, tmp, own, files, libs, options.overlay),
       onRead: (file, bytes) => {
-        if (normalPath(file).startsWith(normalPath(join(root, "gen")) + "/")) {
-          generatedDigests.set(normalPath(file), createHash("sha256").update(bytes).digest("hex"));
-        }
+        const generated = normalPath(file).startsWith(normalPath(join(root, "gen")) + "/");
+        if (generated) generatedDigests.set(normalPath(file), createHash("sha256").update(bytes).digest("hex"));
+        // a link in gen/ to elsewhere is read from elsewhere, and judged there
+        if (!generated || !normalPath(realpathSync(file)).startsWith(normalPath(realpathSync(join(root, "gen"))) + "/")) readEntries.push(readEntry(root, file, bytes));
         const known = digests.get(normalPath(file));
         if (known !== undefined && createHash("sha256").update(bytes).digest("hex") !== known) throw changedError(root, [file]);
       }});
@@ -837,9 +844,19 @@ export async function build(options = {}) {
     materializeSourceSnapshot(root, tmp); // Include compiler-only inputs such as $TMP's tadir.json on every build.
     completeSourceSnapshot(tmp);
     const objects = made.objects;
+    assertLoadable(join(tmp, "output"), {log}); // exit 0 is not a generation that loads: never named unless it parses, no import cycle
+
+    const generated = readGeneratorLog(readsLog);
+    readEntries.push(...generated.entries);
+    rmSync(readsLog, {force: true});
+    // The config is read by hashOf and controls the transpiler's own input
+    // list. Keep it in the same record as the source bytes.
+    readEntries.push(readEntry(root, inputs.config, readFileSync(inputs.config)));
+    const readRecord = markIncomplete(makeReadRecord(root, named, readEntries), generated.incomplete);
+    writeFileSync(join(tmp, READS), `${JSON.stringify(readRecord, null, 2)}\n`);
 
     const manifest = {
-      sourceLayers: inputs.sourceLayers ?? [],
+      sourceLayers: inputs.sourceLayers ?? [], ...generationSystem(root, inputs, readRecord.reads, readRecord),
       hash,
       builtAt: new Date().toISOString(),
       ms: Date.now() - started,
@@ -847,6 +864,7 @@ export async function build(options = {}) {
       transpiler: describeBuild(root),
       toolchain: identity,
       inputs: {folders: inputs.folders.map((f) => relative(root, f)), libs: inputs.libs.map((f) => relative(root, f)),
+        bspFolders: inputs.bspFolders.map(f => relative(root, f)), packFiles: inputs.packFiles.map(f => relative(root, f)), packFolders: inputs.packFolders.map(f => relative(root, f)),
         // the active copies an overlay added: a publisher reads them too (osd-tmp.mjs)
         overlay: overlayFilesOf(root, options.overlay)},
       // What `gen/` held when this generation was made. `gen/` is an OUTPUT
@@ -929,7 +947,7 @@ export async function build(options = {}) {
     if (options.switch !== false) {
       switchTo(root, hash, log);
     }
-    return {ok: true, hash, cached: false, live: liveHash(root) === hash, ms: manifest.ms, objects, output: options.verbose ? output : undefined, digests};
+    built = {ok: true, hash, cached: false, live: liveHash(root) === hash, ms: manifest.ms, objects, output: options.verbose ? output : undefined, digests};
   } catch (error) {
     rmSync(tmp, {recursive: true, force: true});
     error.output = (error.output ?? "") || output;
@@ -937,12 +955,74 @@ export async function build(options = {}) {
   } finally {
     unlock();
   }
+  // the pack's seed rows are made with the lock given back: the generation
+  // is in place, and the capture is a child process
+  await makePackSeeds(root, inputs, hash, log, named);
+  return built;
+}
+
+// Packs whose seed rows are generator output make them here, as part of the
+// build itself rather than of one caller of it: the command line is only one
+// of the paths that end in a generation (a first start's ensureSourceBuild
+// and a store's activation build are two more), and every one of them hands
+// the runtime a pack whose rows the start then reads from data/ -- so the
+// build makes them, a cache hit included (the rows are not tracked, and a
+// reused generation is not a seeded one). Not tracked; the licence decision
+// of 2026-11-09.
+//
+// Two things the call site owes the capture:
+//   - the pack has to be one of THIS build's inputs, not a directory that
+//     happens to sit beside them. OSD_WEB_PACKS builds a smaller system on
+//     purpose (the VS Code web build's core+zork), and a pack the selection
+//     left out has no generator in the output: it neither needs nor could
+//     make its rows.
+//   - the capture runs as a child, through osd-host the way every tool a
+//     tool starts does. It boots the runtime of the generation it is handed
+//     (--output, the one this build just made, so a --no-switch build and a
+//     store's non-live one capture their own bytes and not the live
+//     pointer's), and no process that is already serving or fronting a
+//     system has a second runtime installed over it
+//     (tools/adt-abap-kernel.mjs). Synchronous, as the generators above are.
+//   - the child works on a database of its own. The environment it inherits
+//     is the caller's, and the caller may be serving a persistent DuckDB
+//     file that a second process cannot open at all -- seed-capture.mjs
+//     clears STG_DB/STG_DB_PATH before it boots, so a capture is always the
+//     runtime's throwaway in-memory SQLite and never the host's database,
+//     whichever of the three roads started it.
+async function makePackSeeds(root, inputs, hash, log, named) {
+  if (inputs.packFiles.includes(join(root, "packs", "rap-flight", "osd-pack.json")) === false) return;
+  // the tree's copy (its bytes are in the seed digest); a root that is only
+  // sources (a test's scratch tree) has none, and then this checkout's is it
+  const own = join(root, "tools", "rap-flight", "seed-capture.mjs");
+  const script = existsSync(own) ? own : join(TOOLS, "rap-flight", "seed-capture.mjs");
+  const {seedsDue} = await import(pathToFileURL(script).href);
+  if (seedsDue(root) === false) return;
+  const [cmd, ...argv] = toolCommand(script, ["--ensure", "--output", join(layout(root).byInput, hash, "output")]);
+  const generation = join(layout(root).byInput, hash);
+  const readsLog = join(generation, "seed-reads.jsonl");
+  // the capture boots a runtime: its activation lock owner's pid and the
+  // database image cache (.local/db/base, keyed by the digest of what made
+  // it) are its own state, never source bytes of the rows it writes
+  const env = {...process.env, OSD_ROOT: root, OSD_READ_EXCLUDE_PREFIXES: JSON.stringify([join(root, "packs/rap-flight/data"), join(root, ".local/activation"), join(root, ".local/db/base")]), OSD_BUILD_VERIFIED: buildVerified(root)};
+  if (!hosted()) argv.unshift("--import", join(TOOLS, "osd-generator-reads.mjs"));
+  for (const line of recordedRun(cmd, argv, root, env, readsLog, "seed-capture.mjs").split("\n")) {
+    if (line.trim() !== "") log(line);
+  }
+  const seed = readGeneratorLog(readsLog);
+  rmSync(readsLog, {force: true});
+  const old = JSON.parse(readFileSync(join(generation, READS), "utf8"));
+  const record = withSeedReads(root, named, old, seed);
+  writeFileSync(join(generation, READS), `${JSON.stringify(record, null, 2)}\n`);
+  const file = join(generation, "manifest.json");
+  const manifest = JSON.parse(readFileSync(file, "utf8"));
+  Object.assign(manifest, generationSystem(root, inputs, record.reads, record));
+  writeFileSync(file, JSON.stringify(manifest, null, 2));
 }
 
 export async function main(args) {
-  // a build for publishing leaves $TMP out (tools/osd-tmp.mjs)
-  if (args.includes("--publish")) forPublishing(process.env);
   const root = process.env.OSD_ROOT ?? process.cwd();
+  // a build for publishing leaves $TMP out (tools/osd-tmp.mjs)
+  if (args.includes("--publish")) { assertPublicSystem(root); forPublishing(process.env); }
   const say = (m) => console.log(`osd-build: ${m}`);
   const cmd = args.find((a) => !a.startsWith("--")) ?? "build";
   if (cmd === "list") {

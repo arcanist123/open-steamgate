@@ -25,8 +25,9 @@ import {activeSystem, layerDir, logicalSystemPath, matchesSourcePath} from "./os
 // Neither is an error; both are said out loud, here and in the builder's
 // log.
 import {readFileSync, readdirSync, statSync, existsSync} from "node:fs";
-import {basename, resolve} from "node:path";
-import {inputFoldersOf} from "./osd-packs.mjs";
+import {basename, join, resolve} from "node:path";
+import {expandedFolders, inputFoldersOf} from "./osd-packs.mjs";
+import {definitionExclusions, serveScopeLeftOut} from "./hana-closure-exclusions.mjs";
 import {runsAs} from "./osd-main.mjs";
 
 // The tree this file lives in, resolved on FIRST USE rather than at module
@@ -77,20 +78,28 @@ export function objectOf(filename) {
 // every file of a folder that belongs to an object, the paths relative to
 // the base and written with forward slashes, the way the transpiler globs
 // them. A package file (package.devc.xml) belongs to its folder rather than
-// to a name, so it is no object here and never a duplicate.
+// to a name, so it is no object here and never a duplicate. A repository's
+// .abapgit.xml names the repository, not an object (H4: every gen/hana-src
+// layer is an abapGit repository); objectOf would read it as an object with
+// an empty name.
 // the trace sidecar of a web page (Component.js.trace.json, manifest.json.trace.json):
 // the name has three parts and reads like an object, and two generated apps in one
 // input both have one (a set's run cockpit and its Set app, DSL L3 slice 6a); a page
 // is no ABAP object, and neither is its sidecar
 const WEB_SIDECAR = /\.(js|html?|json|properties|css)\.trace(?:\.meta)?\.json$/i;
-export function filesIn(base, folder) {
+export function filesIn(base, folder, nested = []) {
   const out = [];
+  // a folder that is an input of its own is walked as its own layer (H3:
+  // gen/hana-ddic inside gen); the parent's walk must not pick it up again,
+  // or the later parent listing would hide the file from the build entirely
+  const skip = new Set(nested);
   const walk = (dir) => {
     for (const entry of readdirSync(resolve(base, dir)).sort()) {
       const path = `${dir}/${entry}`;
       if (statSync(resolve(base, path)).isDirectory()) {
+        if (skip.has(path)) continue;
         walk(path);
-      } else if (/\.devc\.xml$/i.test(entry) === false && WEB_SIDECAR.test(entry) === false) {
+      } else if (/\.devc\.xml$/i.test(entry) === false && /\.abapgit\.xml$/i.test(entry) === false && WEB_SIDECAR.test(entry) === false) {
         const object = objectOf(entry);
         if (object !== undefined) {
           out.push({file: path, name: entry, object});
@@ -104,6 +113,30 @@ export function filesIn(base, folder) {
   return out;
 }
 
+/** every file of a folder, absolute, in the disk's own readdir order (the
+ *  walkers over the layer list keep the order the tree gives them): a listed
+ *  folder that is not on disk reads as EMPTY, never as an error -- H3 lists
+ *  gen/hana-ddic in abap_transpile.json before the first build that writes
+ *  it, and a fresh clone runs the osgo host before any transpile (FIX-4).
+ *  One helper, because the walkers that walk the list by hand are the ones
+ *  that crashed on the absence (tools/gogen/osg-build.mjs walk, at import).
+ *  Only the read's own ENOENT is swallowed; anything else still throws. */
+export function walkListed(d, out = []) {
+  let entries;
+  try {
+    entries = readdirSync(d, {withFileTypes: true});
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return out;
+  }
+  for (const e of entries) {
+    const p = join(d, e.name);
+    if (e.isDirectory()) walkListed(p, out);
+    else out.push(p);
+  }
+  return out;
+}
+
 // the layers as the config lists them, resolved: which folder owns each
 // object, which files an earlier layer hides, and where nothing decides
 export function layers(base, config = JSON.parse(readFileSync(resolve(base, "abap_transpile.json"), "utf8")), env = process.env, {discoveryOnly = false} = {}) {
@@ -112,9 +145,10 @@ export function layers(base, config = JSON.parse(readFileSync(resolve(base, "aba
   // The store already resolved its roots. Validate user settings, then use
   // exactly those roots without rediscovering packs, overlays or $TMP.
   if (discoveryOnly) activeSystem(base, env);
-  const folders = discoveryOnly ? [config.input_folder ?? config.input_folders ?? []].flat()
+  const folders = discoveryOnly
+    ? expandedFolders([config.input_folder ?? config.input_folders ?? []].flat(), base)
     : inputFoldersOf(base, config.input_folder === undefined ? {input_folder: config.input_folders} : config, env);
-  const byFolder = folders.map((folder) => ({folder, files: filesIn(base, folder)}));
+  const byFolder = folders.map((folder) => ({folder, files: filesIn(base, folder, folders.filter((f) => f !== folder))}));
   // the same file name twice inside one folder: no order decides, so nothing does
   const duplicates = [];
   for (const {folder, files} of byFolder) {
@@ -199,6 +233,16 @@ function main() {
   for (const {folder, total: count, shared} of shadows) {
     const also = shared.length === 0 ? "none of them in the build" : `${shared.length} of them also in the build`;
     console.log(`  not an input: ${folder} holds ${count} objects, ${also}. Edits there change nothing`);
+  }
+  // the closure walk's definition-level exclusions (H5x-1): said here for
+  // the same reason an override is -- a file on disk that the build is
+  // kept from must be visible, with the reason
+  for (const e of definitionExclusions(treeRoot())) {
+    console.log(`  excluded: ${e.object}: ${e.file} -- definition-level finding(s), kept from the transpiler: ${(e.findings[0] ?? "").slice(0, 140)}`);
+  }
+  // the serve scope (tools/hana-serve-scope.mjs): code no named root reaches
+  for (const e of serveScopeLeftOut(treeRoot())) {
+    console.log(`  left out: ${e.object}: ${e.files[0]} -- no serve-scope root reaches it, kept from the transpiler`);
   }
 }
 

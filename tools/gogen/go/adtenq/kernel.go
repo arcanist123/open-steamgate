@@ -15,7 +15,7 @@ const endedKeep = 10000
 // callers keep request-local handles rather than a global current session.
 type Kernel struct {
 	mu       sync.Mutex
-	server   *enq.Server
+	server   enq.Locks
 	owner    Owner
 	sessions map[string]int64
 	pins     map[int64]int
@@ -25,7 +25,7 @@ type Kernel struct {
 }
 
 // New uses the process's shared owner, like Node's adtEnqOwner singleton.
-func New(server *enq.Server) *Kernel {
+func New(server enq.Locks) *Kernel {
 	return &Kernel{server: server, owner: processOwner, sessions: make(map[string]int64),
 		pins: make(map[int64]int), retired: make(map[int64]string),
 		ended: make(map[string]*list.Element), order: list.New()}

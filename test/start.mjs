@@ -25,7 +25,7 @@ import {closeWarm} from "../tools/osd-store-warm.mjs";
 import {ObjectStore} from "../tools/osd-store.mjs";
 import {Data} from "../tools/osd-data.mjs";
 import {DEFAULT_DATABASE} from "../tools/sqlite-file-client.mjs";
-import {credentials as tlsCredentials, fingerprint as tlsFingerprint, dirOf as tlsDirOf} from "../tools/osd-tls.mjs";
+import {credentials as tlsCredentials, fingerprint as tlsFingerprint, dirOf as tlsDirOf, noTlsHint} from "../tools/osd-tls.mjs";
 import {odataProxy, upgradeProxy} from "../tools/osd-proxy.mjs";
 import {inspectPortOf} from "../tools/osd-inspector.mjs";
 import {devLoop} from "../tools/osd-dev.mjs";
@@ -131,6 +131,12 @@ const adtKernel = MODE === "child" && process.env.OSD_ADT !== "js" && process.en
 export function readinessAnswer(mode, store) {
   const ready = mode === "inline" || store.served?.running === true;
   return {status: ready ? 200 : 503, body: {ready}};
+}
+
+/** the front's keep-alive, the serving child's (tools/osd-serve.mjs) */
+function keepIdleSockets(server) {
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
 }
 
 export function startServer(quiet) {
@@ -391,6 +397,7 @@ export function startServer(quiet) {
         ? next()
         : odataProxy(runtime)(req, res, next));
     app.all("/sap/bc/*", forwarded);
+    app.all("/sap/opu/odata4/sap/*", forwarded);
     // what the files say, for the startup line only: the parent no longer
     // decides with it, and a difference from the child is now a thing the
     // registry screen shows rather than a route that is missing
@@ -594,6 +601,12 @@ export function startServer(quiet) {
   // the ADT facade takes any credentials, which is only fine while nothing
   // but this machine reaches it. A container sets OSD_BIND=0.0.0.0.
   const server = listenBound(createHttpServer(app), PORT);
+  // Clients pool keep-alive sockets (fetch does). Node closes an idle one
+  // after 5 s, and a client that blocked longer than that between two
+  // requests (a spawnSync) sends the second into the closed socket: "fetch
+  // failed", other side closed. The serving child waits 65 s for the same
+  // reason (tools/osd-serve.mjs); the front a client talks to waits as long.
+  keepIdleSockets(server);
   server.on("error", (error) => {
     if (error?.code !== "EADDRINUSE" || closing === undefined) throw error;
     void closing.then(() => relisten(server, PORT));
@@ -639,6 +652,7 @@ export function startServer(quiet) {
   let secure;
   if (tls !== undefined) {
     secure = listenBound(createHttpsServer(tls, app), TLS_PORT);
+    keepIdleSockets(secure);
   }
 
   // Open the sockets first. Discovery waits for this same warm-up on both
@@ -670,7 +684,7 @@ export function startServer(quiet) {
     }
     console.log("ADT façade   on http://localhost:" + PORT + "/sap/bc/adt/core/discovery");
     if (secure === undefined) {
-      console.log("No TLS: run `npm run osd:tls` to make a certificate, for a client that refuses plain HTTP");
+      console.log(noTlsHint());
     } else {
       console.log("HTTPS        on https://localhost:" + TLS_PORT + "  (self-signed, sha256 " + tlsFingerprint() + ")");
       console.log("             the certificate is " + tlsDirOf(process.cwd()) + "/osd.crt; a client will ask once whether to trust it");

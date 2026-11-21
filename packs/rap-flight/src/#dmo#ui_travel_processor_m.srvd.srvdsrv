@@ -1,0 +1,12 @@
+// OSD overlay: upstream's service definition (managed/, commit 5353cbeb, Apache-2.0) with the value-help views
+// left out (/DMO/I_*_StdVH, I_CurrencyStdVH, I_CountryVH): the pack does not
+// fetch the released ones and the service generator refuses an unresolved
+// view (docs/rap-flight-pack.md). The business object's three entities are
+// upstream's lines, unchanged.
+@EndUserText.label: 'Service definition for managing travels'
+@ObjectModel.leadingEntity.name: '/DMO/C_Travel_Processor_M'
+define service /DMO/UI_TRAVEL_Processor_M {
+  expose /DMO/C_Travel_Processor_M as Travel;
+  expose /DMO/C_Booking_Processor_M as Booking;
+  expose /DMO/C_BookSuppl_Processor_M as BookingSupplement;
+}

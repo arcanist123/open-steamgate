@@ -2,7 +2,7 @@ import {expect} from "chai";
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {describeDuplicates, excludePatterns, objectOf, report} from "../tools/osd-inputs.mjs";
+import {describeDuplicates, excludePatterns, filesIn, objectOf, report, walkListed} from "../tools/osd-inputs.mjs";
 
 describe("osd-inputs", () => {
   it("reads the object out of an abapGit file name", () => {
@@ -97,6 +97,26 @@ describe("osd-inputs", () => {
       expect(r.shadows[0].folder).to.equal("local/shadow");
       expect(r.shadows[0].total).to.equal(2);
       expect(r.shadows[0].shared).to.deep.equal(["CLAS ZCL_ONE"]);
+    });
+
+    // H5b fix round 2, the reader side of the same case: a config that lists
+    // a folder that does not exist (a name no reader has ever heard of -- the
+    // tolerance is keyed on "listed", never on gen/hana-ddic or its siblings)
+    // lists exactly what the same tree lists with the folder present empty.
+    it("a listed folder that is not on disk reads as empty, any name", () => {
+      const writeConfig = (folders) => writeFileSync(join(root, "abap_transpile.json"),
+        JSON.stringify({input_folder: folders}));
+      writeConfig(["gen/hana-next", "src"]);
+      const missing = report(join(root, "abap_transpile.json"), {root});
+      mkdirSync(join(root, "gen/hana-next"), {recursive: true});
+      const empty = report(join(root, "abap_transpile.json"), {root});
+      expect(missing.total).to.equal(empty.total);
+      expect(missing.folders).to.deep.equal(empty.folders);
+      expect(missing.hidden).to.deep.equal(empty.hidden);
+      // the one walker the layer list shares agrees with filesIn
+      expect(walkListed(join(root, "gen/hana-next"))).to.deep.equal([]);
+      expect(walkListed(join(root, "src")).map((f) => f.split("/").pop())).to.deep.equal(["zcl_one.clas.abap"]);
+      expect(walkListed(join(root, "gen/hana-next"))).to.deep.equal(filesIn(root, "gen/hana-next"));
     });
   });
 });

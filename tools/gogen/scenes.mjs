@@ -148,7 +148,7 @@ func main() {
 ${ctxs}
 	}
 	obj := &${sc.cls}{}
-	s := &abap.Session{Statics: abap.ProcessStatics}
+	s := &abap.Session{}
 	${sc.init ?? ""}
 	frames := make([]map[string]any, 0, len(ctxs))
 	for _, c := range ctxs {

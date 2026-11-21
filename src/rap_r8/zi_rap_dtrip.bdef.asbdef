@@ -1,0 +1,47 @@
+managed implementation in class zbp_rap_dtrip unique;
+strict ( 2 );
+with draft;
+
+define behavior for ZI_RAP_DTRIP alias trip
+persistent table zrap_dtrip
+draft table zrap_dtrip_d
+lock master
+total etag last_changed_at
+etag master local_changed_at
+{
+  create;
+  update;
+  delete;
+  field ( numbering : managed, readonly ) trip_uuid;
+  field ( readonly ) status, last_changed_at, local_changed_at;
+  field ( mandatory ) description;
+  association _Legs { create; with draft; }
+  determination SetStatus on modify { create; }
+  validation CheckDescription on save { create; field description; }
+
+  draft action Edit;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Resume;
+  draft determine action Prepare
+  {
+    validation CheckDescription;
+  }
+
+  mapping for zrap_dtrip corresponding;
+}
+
+define behavior for ZI_RAP_DLEG alias leg
+persistent table zrap_dleg
+draft table zrap_dleg_d
+lock dependent by _Trip
+etag master leg_changed_at
+{
+  update;
+  delete;
+  field ( numbering : managed, readonly ) leg_uuid;
+  field ( readonly ) trip_uuid, leg_changed_at;
+  association _Trip { with draft; }
+
+  mapping for zrap_dleg corresponding;
+}

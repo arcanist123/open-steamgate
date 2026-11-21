@@ -1,0 +1,45 @@
+{
+  "name": "rap-flight",
+  "description": "The RAP flight reference scenario (abap-platform-refscen-flight, Apache-2.0): the managed travel business object with the reuse views, the status tables and the legacy base tables it reads, fetched from the scenario's public sample repository at a pinned commit and run as far as the RAP runtime goes. The overlay in src/ is the diff; what the manifest excludes is what the runtime cannot take yet (docs/rap-flight-pack.md).",
+  "order": 48,
+  "abap": [
+    "upstream",
+    "src"
+  ],
+  "sources": [
+    {
+      "folder": "upstream",
+      "repo": "https://github.com/SAP-samples/abap-platform-refscen-flight",
+      "ref": "5353cbeb013a3a2fbd7f1ba6be89e54f68cfe22c",
+      "path": "src",
+      "exclude": [
+        "^(draft|colldraft|hierarchy|unmanaged)/",
+        "^reuse/agency/(cntry|datgn|rev)/",
+        "^reuse/agency/slogn/.*\\.(clas|ddls|devc)\\.",
+        "^(?!managed/#dmo#(i_travel_m|c_travel_processor_m|c_travel_approver_m)\\.bdef\\.|reuse/supplement/#dmo#(i|c)_supplement\\.bdef\\.|reuse/agency/#dmo#(r|c|i)_agencytp\\.bdef\\.|reuse/carrier/#dmo#(i|c)_carrierslocksingleton_s\\.bdef\\.).*\\.bdef\\.",
+        "^(?!reuse/supplement/#dmo#ui_supplement\\.srvd\\.|reuse/agency/#dmo#ui_agency\\.srvd\\.|reuse/carrier/#dmo#ui_carriers_s\\.srvd\\.).*\\.srvd\\.",
+        "\\.clas\\.testclasses\\.abap$",
+        "/#dmo#bp_",
+        "/#dmo#tc_",
+        "/#dmo#cl_flight_amdp\\.",
+        "/#dmo#cl_flight_legacy\\.",
+        "/#dmo#flight_travel_api\\.fugr\\.",
+        "^legacy/#dmo#currency_helper\\.ddls\\."
+      ]
+    }
+  ],
+  "_exclude_why": {
+    "^(draft|colldraft|hierarchy|unmanaged)/": "the other scenarios of the repository; this pack is the managed one with what it reads",
+    "^reuse/agency/(cntry|datgn|rev)/": "the extensibility chapter: BDEF extensions, RAISE ENTITY EVENT, WITH INDICATORS -- out of scope",
+    "^reuse/agency/slogn/.*\\.(clas|ddls|devc)\\.": "the slogan extension: its append structure and data element stay because /dmo/agency includes them; its views, test class and package go with the chapter",
+    "^(?!managed/#dmo#(i_travel_m|c_travel_processor_m|c_travel_approver_m)\\.bdef\\.|reuse/supplement/#dmo#(i|c)_supplement\\.bdef\\.|reuse/agency/#dmo#(r|c|i)_agencytp\\.bdef\\.|reuse/carrier/#dmo#(i|c)_carrierslocksingleton_s\\.bdef\\.).*\\.bdef\\.": "tools/rap/bdef-gen.mjs refuses every BDEF of the other scenarios and a refusal is a failed build; measured per file by tools/rap-flight/constructs.mjs. The managed travel BO and its two projections run since R7, the draft supplement and agency BOs and their projections since R10, the agency's interface BDEF and the carrier singleton with its projection since R11 (docs/rap-runtime.md): all ten BDEFs of this pack's scenario run",
+    "^(?!reuse/supplement/#dmo#ui_supplement\\.srvd\\.|reuse/agency/#dmo#ui_agency\\.srvd\\.|reuse/carrier/#dmo#ui_carriers_s\\.srvd\\.).*\\.srvd\\.": "main's R3 (#892) serves every service definition it finds, and a refusal is a failed build; measured per file in docs/rap-flight-pack.md: the managed scenario's two come from the overlay without their value helps, the readonly root's does not resolve, and the legacy base view is not this pack's service to publish. /DMO/UI_SUPPLEMENT and /DMO/UI_AGENCY are fetched as they are since R10, /DMO/UI_CARRIERS_S since R11",
+    "\\.clas\\.testclasses\\.abap$": "ABAP Unit over cl_abap_behv_test_environment, cl_cds_test_environment, cl_osql_test_environment: none of the three exists here",
+    "/#dmo#bp_": "behavior pools: the ones of the BOs that do not run (the carrier singleton, the other scenarios) are refused; the managed travel's three pools (R7) and the supplement's two and the agency's (R10) come whole from the overlay (src/), their locals_imp changed where this runtime differs (marked OSD overlay), because an object the overlay names hides every file of it upstream",
+    "/#dmo#tc_": "test consumer classes: EML against the business objects above",
+    "/#dmo#cl_flight_amdp\\.": "the AMDP currency conversion: tools/amdp-gen.mjs has no HANA type for its /dmo/ data-element parameters and a refusal fails the build",
+    "/#dmo#cl_flight_legacy\\.": "the legacy business object: calls the AMDP class above and selects from I_Currency; the data generator needed only its price formula, inlined in the overlay",
+    "/#dmo#flight_travel_api\\.fugr\\.": "the legacy API function group: every module calls /dmo/cl_flight_legacy, excluded above",
+    "^legacy/#dmo#currency_helper\\.ddls\\.": "the legacy currency helper: a view with parameters whose one element is currency_conversion( ), which the generator has no reading of (it resolved no field)"
+  }
+}

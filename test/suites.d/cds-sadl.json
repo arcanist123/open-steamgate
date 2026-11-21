@@ -4,9 +4,11 @@
     "test/cds-cast.mjs",
     "test/cds-check.mjs",
     "test/cds-projection.mjs",
+    "test/cds-path.mjs",
     "test/cds-where.mjs",
     "test/cds-client.mjs",
     "test/cds-write-chain.mjs",
+    "test/rap-flight-wire.mjs",
     "test/ddic-corpus.mjs"
   ]
 }

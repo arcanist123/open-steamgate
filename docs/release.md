@@ -80,11 +80,46 @@ timeout leaves the release in draft. The Marketplace job then checks package ver
 channel-appropriate manifest, browser entry, and licence review, and publishes the
 Marketplace profile with the same version. A failed Marketplace publication
 leaves the GitHub release public and the Marketplace job red; rerun the
-tagged workflow after fixing the cause without moving the tag, provided the
-version has not reached Marketplace. Once it exists there, a stable tag's rerun
-stops at the early version check; a prerelease rerun can still repair its GitHub
-release and assets, and the Marketplace job then reports the duplicate. Use a
-new commit for another Marketplace release.
+tagged workflow after fixing the cause without moving the tag.
+
+The Marketplace job publishes six packages of one version
+(`scripts/publish-marketplace.mjs`): the five platform packages
+(`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win32-x64`), each
+carrying its pinned `osd-hana-dump`, and then the universal package. It
+derives the five from the Marketplace universal package it just built, with
+`scripts/package-vsix-platforms.mjs` and the same pin as `vsix_platforms`,
+and reads each back. These are **not** the bytes on the GitHub release: the
+Marketplace job builds its own five from the Marketplace-profile universal
+package, and only the `linux-x64` one is smoked, on that job's Linux runner.
+The three-OS smoke (`vsix_platform_smoke`, which the job needs) covers the
+GitHub release packages and the shared packaging script, not the Marketplace
+bytes for macOS and Windows. Each goes out as `vsce publish --packagePath <file>`
+(the package's own `TargetPlatform` names its target), with `--pre-release`
+on every package exactly when the channel is prerelease. VS Code 1.61 and
+newer install the package for their platform; the universal package, which
+carries the browser entry, is the fallback "for all platforms that have no
+platform-specific package" (web, `win32-arm64`, Alpine, `linux-armhf`;
+[VS Code publishing documentation](https://code.visualstudio.com/api/working-with-extensions/publishing-extension#platformspecific-extensions)).
+vsce 4.0.0 treats a version as a duplicate only for the same target, so a
+universal and five targeted packages of one version coexist.
+
+Reruns on the same tag are safe. The universal package goes last, so its
+presence means the version is complete. Before publishing, the job reads
+the Marketplace's entries and skips every (version, target) already there
+on this run's channel with a notice. The universal package is skipped the same
+way: a rerun does not rebuild over it. An entry of the same version and target
+on the other channel, or with unreadable properties, fails the job before
+anything is published. A stable publish repeats the "version is new" check
+on those entries right before publishing. The rest are published without
+`--skip-duplicate`, so a duplicate that appears meanwhile still fails.
+`VSCE_PAT` is passed to `vsce publish` only; `vsce show` runs without it. The Marketplace does not give
+vsce a package's bytes to compare, so a skipped target keeps the bytes of
+the run that published it: a rerun completes a version, it does not replace
+one. A failed publish stops the job red before the universal package. For
+stable, the early version check refuses a version that exists as a
+prerelease in any target, or whose universal package exists; stable platform
+entries alone are an interrupted publish, which a rerun completes. Use a new
+commit for another Marketplace release.
 To prepare a draft without pushing a tag, run **VS Code release** from the intended branch.
 Select `channel`, leave `tag` blank to derive the stamped version from that
 ref, and leave `draft` true. You may enter a tag, but it must match the version of the
@@ -150,6 +185,7 @@ by hand after a local `npm run leak`. A match (exit 1) always stops the release.
 | Asset | Build or source |
 | --- | --- |
 | `open-steamgate-<version>.vsix` and `.sha256` | Universal VS Code extension, version checked against the tag |
+| `open-steamgate-<target>-<version>.vsix` and `.sha256` for `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win32-x64` | `vsix_platforms`: the universal package plus that target's pinned `osd-hana-dump` and `TargetPlatform`; uploaded by `vsix_platforms_release` only after `vsix_platform_smoke` passed, with provenance read back |
 | `osd-linux-x64`, `osd-linux-arm64`, `osd-darwin-arm64`, `osd-darwin-x64`, `osd-windows-x64.exe`, `osd-windows-arm64.exe`, each with `.sha256` | `npm run bootstrap`, then `npm run binary -- --seed <output> <bun-target>` with Bun 1.4.2 (`bun-darwin-x64-baseline` and `bun-windows-arm64` for the two added 2026-10-02) |
 | `osgo-linux-x64`, `osgo-linux-arm64`, `osgo-darwin-arm64`, `osgo-darwin-x64`, `osgo-windows-x64.exe`, `osgo-windows-arm64.exe`, each with `.sha256` | `go build` with `CGO_ENABLED=0` per `GOOS`/`GOARCH` ([docs/osgo-release.md](osgo-release.md)) |
 | `sqlite.yml`, `duckdb.yml`, `postgres.yml`, `hana.yml` | [Tracked Compose sources](../docker/compose/), validated with `docker compose config` |
@@ -157,23 +193,27 @@ by hand after a local `npm run leak`. A match (exit 1) always stops the release.
 | `CHANGELOG.md` | Merged PR titles since the previous release; the release body points to it |
 | `FILE_ID.DIZ` | Classic BBS description generated from the version, with printable ASCII and CRLF lines |
 
-The binary and Compose jobs start after the VSIX job creates the draft.
-The final publish job needs all three upload jobs and the tagged test gate,
+The binary and Compose jobs start after the VSIX job creates the draft; the
+platform VSIX upload starts once the smoke of the platform packages passed.
+The final publish job needs all four upload jobs and the tagged test gate,
 so a failed upload or test leaves the draft unpublished. A draft-only dispatch
 skips the tagged test wait. Rerun the workflow to fill or replace assets. An
 already published release is updated in place on reruns. Each checksum is
 `sha256sum` output with the corresponding asset basename.
 
-On a rerun against an already public release, the VSIX, binary, and Compose
-jobs require a successful `tests.yml` push run for the tag's exact commit
+On a rerun against an already public release, the VSIX, platform VSIX, binary,
+and Compose jobs require a successful `tests.yml` push run for the tag's exact commit
 before editing the release or replacing an asset. A draft-only dispatch can
 still build and upload to a draft without waiting for tagged tests.
 
 `npm run binary` defaults to checkout mode: it builds from a fresh checkout
 after `npm ci`, without `.local/lars` or an embedded system seed. Run that
-binary from an open-steamgate checkout. `--seed` (or `OSD_BINARY_SEED=1`)
-requires the bootstrapped libraries and packs and embeds the seed. Run
-`osd doctor` to see which mode a binary contains.
+binary from a bootstrapped open-steamgate checkout (`npm run bootstrap`):
+the gui converter is loaded from the checkout's `.local/lars/open-abap-gui`
+at run time, with its `@abaplint/core` answered by the binary's own copy.
+`--seed` (or `OSD_BINARY_SEED=1`) requires the bootstrapped libraries and
+packs and embeds the seed. Run `osd doctor` to see which mode a binary
+contains and whether the converter loads.
 
 **Every binary is checked by its content before it is uploaded**
 (`scripts/release-verify.mjs`, 2026-09-30): the header must name the target
@@ -189,7 +229,7 @@ version inside `extension/package.json`, the Docker image by
 preview by `release-verify.mjs pages` in `pages.yml`: its `build.json` must
 name the commit and its `sw.js` must carry the stamp `build.json` names.
 
-The measured seeded Linux x64 binary is 316.4 MB (decimal, 2026-09-30; it was 109.5 MB on 2026-09-16). All four requested Bun targets cross-compiled on Linux x64 with Bun 1.4.2
+The measured seeded Linux x64 binary is 116.0 MB (decimal, 2026-11-08, main `af7a91f0`; 316.4 MB was written here on 2026-09-30, and it was 109.5 MB on 2026-09-16). All four requested Bun targets cross-compiled on Linux x64 with Bun 1.4.2
 in the local release check. No target failed to build. Only Linux x64 was
 built on its native host; cross-compilation does not prove that Linux arm64,
 macOS arm64, or Windows x64 starts successfully. macOS x64 and Windows arm64

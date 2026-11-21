@@ -1,5 +1,6 @@
 const path = require("node:path");
-const webpack = require("/home/alice/dev/open-steamgate-shlp/node_modules/webpack");
+const {nodeModules, apcRoot, need} = require("./paths.cjs");
+const webpack = require(need("webpack"));
 
 // The transpiled ABAP of oisee/vivid-vibes, for a page with no server: after
 // open-steamgate's webpack.config.cjs, which is after larshp/hithub's (MIT).
@@ -14,23 +15,24 @@ module.exports = {
   optimization: {minimize: false},
   resolve: {
     extensions: [".mjs", ".js"],
-    modules: [path.resolve("/home/alice/dev/open-steamgate-shlp/node_modules"), "node_modules"],
+    modules: [nodeModules, "node_modules"],
+    alias: {"open-abap-apc": apcRoot},
     fallback: {
-      assert: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/assert/"),
-      buffer: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/buffer/"),
-      crypto: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/crypto-browserify"),
-      events: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/events/"),
-      http: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/stream-http"),
-      https: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/https-browserify"),
-      os: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/os-browserify/browser"),
-      path: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/path-browserify"),
-      process: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/process/browser"),
-      stream: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/stream-browserify"),
-      string_decoder: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/string_decoder/"),
-      url: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/url/"),
-      util: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/util/"),
-      vm: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/vm-browserify"),
-      zlib: require.resolve("/home/alice/dev/open-steamgate-shlp/node_modules/browserify-zlib"),
+      assert: need("assert/"),
+      buffer: need("buffer/"),
+      crypto: need("crypto-browserify"),
+      events: need("events/"),
+      http: need("stream-http"),
+      https: need("https-browserify"),
+      os: need("os-browserify/browser"),
+      path: need("path-browserify"),
+      process: need("process/browser"),
+      stream: need("stream-browserify"),
+      string_decoder: need("string_decoder/"),
+      url: need("url/"),
+      util: need("util/"),
+      vm: need("vm-browserify"),
+      zlib: need("browserify-zlib"),
       fs: false, net: false, tls: false, constants: false,
     },
   },

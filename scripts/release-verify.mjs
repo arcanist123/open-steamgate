@@ -25,6 +25,8 @@ import {execFileSync, spawn} from "node:child_process";
 import {createHash} from "node:crypto";
 import {existsSync, mkdtempSync, openSync, readSync, closeSync, readFileSync, rmSync, statSync, mkdirSync} from "node:fs";
 import {report} from "../tools/osd-inputs.mjs";
+import {assertPublicSystem} from "../tools/osd-system.mjs";
+import {verifyPublicArtefact} from "../tools/osd-provenance.mjs";
 import {createServer} from "node:net";
 import {tmpdir} from "node:os";
 import {dirname, join, resolve} from "node:path";
@@ -78,6 +80,15 @@ export function executableOf(bytes) {
   return {format: "unknown", machine: 0};
 }
 
+// What the release workflow runs on every binary before uploading it: the
+// checkout it was built from must hold no private layer, installed or in the
+// live generation (the OSGo binary compiles both in).
+export function checkReleaseBinary(file, target, sourceRoot = root) {
+  assertPublicSystem(sourceRoot);
+  verifyPublicArtefact(file);
+  return checkBinary(file, target);
+}
+
 export function checkBinary(file, target) {
   const want = TARGETS[target];
   if (want === undefined) throw new Error(`unknown release target ${target}`);
@@ -125,6 +136,20 @@ function newestAbap() {
   throw new Error("no ABAP class or program in this checkout's recent history is served as it is on disk");
 }
 
+// The ADT URL that serves an ABAP source file. abapGit names a file after
+// its object with each "/" of a namespace written "#"
+// (src/gateway/compat/#iwbep#cx_mgw_base_exception.clas.abap is
+// /IWBEP/CX_MGW_BASE_EXCEPTION), so the name in the URL is the object's, "/"
+// back in place, and the whole of it is one percent-encoded segment: the
+// router splits the path before it decodes a segment.
+export function adtSourcePath(file) {
+  const match = /([^/]+)\.(clas|prog)\.abap$/.exec(file);
+  if (!match) throw new Error(`${file} is not an ABAP class or program source`);
+  const name = match[1].replaceAll("#", "/");
+  const collection = match[2] === "clas" ? "oo/classes" : "programs/programs";
+  return `/sap/bc/adt/${collection}/${encodeURIComponent(name)}/source/main`;
+}
+
 export async function checkServe(file, {timeoutSeconds = 600} = {}) {
   const port = await freePort();
   const scratch = mkdtempSync(join(tmpdir(), "osd-release-serve-"));
@@ -169,8 +194,7 @@ export async function checkServe(file, {timeoutSeconds = 600} = {}) {
       throw new Error(`no generation named in X-OSD-Generation (${metadata.generation})`);
     }
     const newest = newestAbap();
-    const collection = newest.kind === "clas" ? "oo/classes" : "programs/programs";
-    const served = await fetch(`${base}/sap/bc/adt/${collection}/${encodeURIComponent(newest.name)}/source/main`);
+    const served = await fetch(`${base}${adtSourcePath(newest.file)}`);
     const text = await served.text();
     const expected = readFileSync(join(root, newest.file), "utf8");
     if (served.status !== 200 || text !== expected) {
@@ -228,7 +252,7 @@ if (isMain) {
   };
   try {
     let result;
-    if (command === "binary" && args.length >= 2) result = checkBinary(args[0], args[1]);
+    if (command === "binary" && args.length >= 2) result = checkReleaseBinary(args[0], args[1]);
     else if (command === "serve" && args.length >= 1) result = await checkServe(args[0], {timeoutSeconds: option("--timeout", 600)});
     else if (command === "pages" && args.length >= 2) result = await checkPages(args[0], args[1], {waitSeconds: option("--wait", 600)});
     else {
@@ -238,6 +262,6 @@ if (isMain) {
     console.log(`release-verify ${command}: ok ${JSON.stringify(result)}`);
   } catch (error) {
     console.error(`release-verify ${command}: ${error.message}`);
-    process.exit(1);
+    process.exit(["PRIVATE_LAYER", "BAD_PROVENANCE"].includes(error.code) ? 2 : 1);
   }
 }

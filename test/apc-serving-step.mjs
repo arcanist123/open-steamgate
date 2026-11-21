@@ -18,7 +18,14 @@ import {frame, unframe} from '../tools/osd-apc.mjs';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(predicate) {
-  const deadline = Date.now() + 60000;
+  // 150 s, not 60: the recycle waits cover a publish whose cold build is a
+  // full transpile, and CI runners measured 68.9 s for the whole test while
+  // GREEN (H5a's run of 2026-11-12) -- one slow runner over 60 s and the
+  // journal's pending entry is read as a hang (the suites (5) reds of this
+  // round's run, serving stack byte-identical to main). until() returns as
+  // soon as the predicate holds, so the wider deadline costs nothing but the
+  // wait of a genuine hang; mocha's own 180 s bound still ends the test.
+  const deadline = Date.now() + 150000;
   while (!predicate() && Date.now() < deadline) await pause(5);
   expect(predicate(), 'condition did not complete').to.equal(true);
 }

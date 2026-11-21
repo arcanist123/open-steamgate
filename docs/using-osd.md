@@ -471,7 +471,12 @@ Three things worth knowing before you write one.
 **Without HANA the call fails, and that is on purpose.** There is nowhere else
 to run an AMDP body, and a test that wants to work on SQLite too should ask
 `IF sy-dbsys <> 'HDB'. RETURN. ENDIF.` rather than expect a silent empty
-result.
+result. The one exception is **DuckDB** (`STG_DB=duckdb`): a body in the
+portable SQLScript subset runs there as compiled IR on the system connection
+(pAMDP, parked for new features; what the subset is and what it is worth is
+in [`amdp-engine-status.md`](amdp-engine-status.md)). The status app's
+**AMDP methods** facet says, per method, which engine a call would use right
+now and why not when none would.
 
 **A body that reads a table needs that table in HANA.** The worked example
 computes from `DUMMY` and reads nothing, which is why it runs against an empty

@@ -30,6 +30,8 @@
     "test/undo-on-exit.mjs",
     "test/zosd-test.mjs",
     "test/osd-suites.mjs",
+    "test/rap-flight-pack.mjs",
+    "test/rap-flight-seed.mjs",
     "test/osd-test-isolation.mjs",
     "test/ci-wait-tests.mjs",
     "test/ci-lifecycle-gate.mjs",
@@ -62,6 +64,11 @@
     "test/prove-on-system.mjs",
     "test/prove-inplace.mjs",
     "test/sxml-contract.mjs",
-    "test/adt-lifecycle-report.mjs"
+    "test/adt-lifecycle-report.mjs",
+    "test/warm-update-timeout.mjs",
+    "test/build-lock-wait.mjs",
+    "test/rap-bdef-parse.mjs",
+    "test/rap-derived-types.mjs",
+    "test/rap-runtime-gen.mjs"
   ]
 }

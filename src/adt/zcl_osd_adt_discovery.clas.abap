@@ -21,7 +21,11 @@ CLASS zcl_osd_adt_discovery DEFINITION PUBLIC FINAL CREATE PUBLIC.
            END OF ty_collection.
     TYPES tt_collection TYPE STANDARD TABLE OF ty_collection WITH DEFAULT KEY.
     CLASS-METHODS collections RETURNING VALUE(rt_collections) TYPE tt_collection.
-    CLASS-METHODS document RETURNING VALUE(rv_xml) TYPE string.
+    "! iv_core: the core/discovery form, one collection per workspace. The
+    "! same collections, but a client's reader of core discovery (abap-adt-api
+    "! adtCoreDiscovery, which DebugService.create calls first) takes
+    "! app:collection as one element per workspace and fails on a list.
+    CLASS-METHODS document IMPORTING iv_core TYPE abap_bool DEFAULT abap_false RETURNING VALUE(rv_xml) TYPE string.
   PRIVATE SECTION.
     CLASS-METHODS source_collections CHANGING ct_collections TYPE tt_collection.
     CLASS-METHODS loop_collections CHANGING ct_collections TYPE tt_collection.
@@ -35,13 +39,21 @@ ENDCLASS.
 
 CLASS zcl_osd_adt_discovery IMPLEMENTATION.
   METHOD zif_osd_adt_route~handle.
+*   The form follows the row that matched (the pattern dispatch sets), not
+*   the raw path: a HEAD falling back to a GET row is that GET, so HEAD
+*   core/discovery keeps the core form's headers, as a system's HEAD does.
+    DATA lv_route TYPE string.
+    lv_route = is_request-pattern.
+    IF lv_route IS INITIAL.
+      lv_route = is_request-path.
+    ENDIF.
     rs_response-status = 200.
     IF is_request-method = `HEAD`.
       rs_response-content_type = `application/atomsvc+xml`.
       RETURN.
     ENDIF.
     rs_response-content_type = `application/atomsvc+xml; charset=utf-8`.
-    rs_response-body = document( ).
+    rs_response-body = document( boolc( to_lower( lv_route ) CS `/core/discovery` ) ).
   ENDMETHOD.
 
   METHOD collections.
@@ -481,12 +493,22 @@ CLASS zcl_osd_adt_discovery IMPLEMENTATION.
       && `             xmlns:atom="http://www.w3.org/2005/Atom"` && lv_nl
       && `             xmlns:adtcomp="http://www.sap.com/adt/compatibility">` && lv_nl.
     LOOP AT lt_workspaces INTO lv_workspace.
-      rv_xml = rv_xml && `  <app:workspace>` && lv_nl
-        && `    <atom:title>` && zcl_osd_adt_xml=>esc( lv_workspace ) && `</atom:title>` && lv_nl.
+      IF iv_core = abap_false.
+        rv_xml = rv_xml && `  <app:workspace>` && lv_nl
+          && `    <atom:title>` && zcl_osd_adt_xml=>esc( lv_workspace ) && `</atom:title>` && lv_nl.
+      ENDIF.
       LOOP AT lt_collections INTO ls_collection WHERE workspace = lv_workspace.
-        rv_xml = rv_xml && collection_xml( ls_collection ).
+        IF iv_core = abap_true.
+          rv_xml = rv_xml && `  <app:workspace>` && lv_nl
+            && `    <atom:title>` && zcl_osd_adt_xml=>esc( lv_workspace ) && `</atom:title>` && lv_nl
+            && collection_xml( ls_collection ) && `  </app:workspace>` && lv_nl.
+        ELSE.
+          rv_xml = rv_xml && collection_xml( ls_collection ).
+        ENDIF.
       ENDLOOP.
-      rv_xml = rv_xml && `  </app:workspace>` && lv_nl.
+      IF iv_core = abap_false.
+        rv_xml = rv_xml && `  </app:workspace>` && lv_nl.
+      ENDIF.
     ENDLOOP.
     rv_xml = rv_xml && `</app:service>` && lv_nl.
   ENDMETHOD.

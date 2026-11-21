@@ -17,10 +17,17 @@
 // the object type); abaplint lints them.
 import * as abaplint from "@abaplint/core";
 import {contentFoldersOf, winningByLayer} from "./osd-packs.mjs";
+import {fileOf, wordOf, classNameOf} from "./cds-names.mjs";
 import {readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync, statSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {basename, join} from "node:path";
 import {libraryPath} from "./osd-lib-path.mjs";
+import {compositionsOf, namespaced, projectedAssociations, projectionBase, redirectOf, resolveTree} from "./cds-tree.mjs";
+import {castType, edmOf} from "./cds-types.mjs";
+import {pathClass, pathElement} from "./cds-path.mjs";
+import {computedElement, computedSourceClass, constantRead, singletonOf, structureXml} from "./cds-computed.mjs";
+import {parseTABL, tableSourceClass} from "./cds-table.mjs";
+export {tableSourceClass} from "./cds-table.mjs";
 
 const OUT = "gen/cds";
 // **The libraries this generator resolves types against, and they have to be
@@ -56,55 +63,26 @@ function find(node, name) { const out = []; const rec = (n) => { if (nodeName(n)
 function firstDirect(node, name) { return children(node).find((c) => nodeName(c) === name); }
 function normAnno(text) { return text.replace(/\s*\.\s*/g, ".").replace(/\s*:\s*/g, ": ").replace(/@\s+/g, "@").trim(); }
 
-// cast( '' as abap.char( 20 ) ) -> the ABAP type of the virtual element and
-// what it is in OData; the handful of types a calculated element uses
-function castType(text) {
-  const m = /as\s+abap\s*\.\s*(\w+)\s*(?:\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\))?/i.exec(String(text));
-  if (!m) return undefined;
-  const kind = m[1].toLowerCase();
-  const a = Number(m[2] ?? 0);
-  const b = Number(m[3] ?? 0);
-  switch (kind) {
-    case "char": return {abap: `c LENGTH ${a || 1}`, edm: {edm: "Edm.String", maxlength: a || 1}};
-    case "numc": return {abap: `n LENGTH ${a || 1}`, edm: {edm: "Edm.String", maxlength: a || 1}};
-    case "sstring": case "string": return {abap: "string", edm: {edm: "Edm.String", maxlength: a || 0}};
-    case "int1": case "int2": case "int4": return {abap: "i", edm: {edm: "Edm.Int32"}};
-    case "int8": return {abap: "int8", edm: {edm: "Edm.Int64"}};
-    case "dats": return {abap: "d", edm: {edm: "Edm.DateTime", precision: 0}};
-    case "tims": return {abap: "t", edm: {edm: "Edm.Time"}};
-    case "dec": case "curr": case "quan":
-      return {abap: `p LENGTH ${Math.floor((a || 15) / 2) + 1} DECIMALS ${b}`, edm: {edm: "Edm.Decimal", precision: a || 15, scale: b}};
-    default: return undefined;
-  }
-}
-
-function edmOf(type) {
-  const n = type?.constructor?.name ?? "VoidType";
-  const len = type?.getLength?.() ?? 0;
-  switch (n) {
-    case "CharacterType": return {edm: "Edm.String", maxlength: len};
-    case "NumericType": return {edm: "Edm.String", maxlength: len};
-    case "StringType": return {edm: "Edm.String", maxlength: 0};
-    case "IntegerType": case "Integer8Type": return {edm: "Edm.Int32", maxlength: 0};
-    case "PackedType": return {edm: "Edm.Decimal", precision: len * 2 - 1, scale: type.getDecimals?.() ?? 0};
-    case "FloatType": case "DecFloat16Type": case "DecFloat34Type": return {edm: "Edm.Decimal", precision: 34, scale: 0};
-    case "DateType": return {edm: "Edm.DateTime", precision: 0};
-    case "TimeType": return {edm: "Edm.Time", precision: 0};
-    default: return {edm: "Edm.String", maxlength: len};
-  }
-}
-
-export function parseDDLS(obj, reg) {
+export function parseDDLS(obj, reg, depth = 0) {
   const p = obj.getParsedData();
   const tree = p?.tree;
   if (!tree) return undefined;
   const name = obj.getName();
   const sqlView = (p.sqlViewName ?? name).toUpperCase();
   const viewAnnotations = children(tree).filter((c) => nodeName(c) === "CDSAnnotation").map((c) => normAnno(tokensOf(c)));
-  const select = firstDirect(tree, "CDSSelect");
+  // R5: `as projection on` reads the base view's table (tools/cds-tree.mjs)
+  const isProjection = nodeName(tree) === "CDSDefineProjection";
+  const projected = isProjection ? projectionBase(tree, reg, name, depth, parseDDLS) : undefined;
+  if (projected?.skip) return projected;
+  const select = isProjection ? tree : firstDirect(tree, "CDSSelect");
   if (!select) return {name, skip: "no select"};
-  const sources = find(select, "CDSSource").map((s) => tokensOf(s).replace(/\s+as\s+\w+$/i, "").trim().toUpperCase());
-  if (find(select, "CDSJoin").length > 0 || sources.length !== 1) return {name, skip: "joins are not supported yet"};
+  const sources = isProjection ? [projected.source]
+    : find(select, "CDSSource").map((s) => tokensOf(s).replace(/\s+as\s+\w+$/i, "").trim().toUpperCase());
+  // R11: the singleton root (a left outer join on 0 = 0 with aggregates and
+  // literals, one row) is computed by its source class (tools/cds-computed.mjs)
+  const computed = isProjection ? projected.computed : singletonOf(select, {find, children, nodeName, tokensOf, firstDirect, reg, name});
+  if (computed?.skip) return computed;
+  if (!computed && (find(select, "CDSJoin").length > 0 || sources.length !== 1)) return {name, skip: "joins are not supported yet"};
   // **A WHERE was read and thrown away, and that was wrong in both
   // directions.** The generated DDIC view carries `DD26V` (the table) and
   // `DD27P` (the fields) and no selection condition at all, so a filtered
@@ -116,11 +94,11 @@ export function parseDDLS(obj, reg) {
   //
   // Refused at generation rather than at runtime, because the author is here
   // and the reader of a wrong row is not (2026-09-19, B.1).
-  if (find(select, "CDSWhere").length > 0) {
+  if (!computed && find(select, "CDSWhere").length > 0) {
     return {name, skip: "a WHERE in the view is not carried yet: the DDIC view would return every row, " +
       "and a write through it could insert a row the view cannot show"};
   }
-  const source = sources[0].replace(/\s+/g, "");
+  const source = computed && !isProjection ? computed.table : sources[0].replace(/\s+/g, "");
   const table = reg.getObject("TABL", source) ?? reg.getObject("VIEW", source);
   const comps = new Map();
   for (const c of table?.parseType(reg)?.getComponents?.() ?? []) comps.set(c.name.toUpperCase(), c.type);
@@ -128,6 +106,7 @@ export function parseDDLS(obj, reg) {
   const fields = [];
   const exposedAssociations = [];
   const associationAnnotations = new Map();
+  const redirects = new Map();
   for (const el of find(select, "CDSElement")) {
     const annos = children(el).filter((c) => nodeName(c) === "CDSAnnotation").map((c) => normAnno(tokensOf(c)));
     const isKey = children(el).some((c) => nodeName(c) === "Identifier" && tokensOf(c).toLowerCase() === "key");
@@ -185,26 +164,62 @@ export function parseDDLS(obj, reg) {
       }
       const fieldName = (alias ?? inner).toUpperCase();
       const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
-      fields.push({name: fieldName, base: inner.split(".").pop().toUpperCase(), key: isKey,
+      fields.push({name: fieldName, element: alias ?? inner.split(".").pop(), base: inner.split(".").pop().toUpperCase(), key: isKey,
         ...t.edm, abapType: t.abap, casted: true, label: label ?? fieldName, annotations: annos});
       continue;
     }
-    if (!srcName) continue;
-    if (srcName.startsWith("_")) { exposedAssociations.push(srcName); associationAnnotations.set(srcName, annos); continue; }
+    // R11: a literal (`key 1 as CarrierSingletonID`) is a constant element,
+    // an aggregate of the singleton root a computed one (cds-computed.mjs)
+    if (!srcName) {
+      const f = computedElement(el, {children, nodeName, tokensOf, firstDirect, annos, isKey, alias, comps, edmOf,
+        computed: isProjection ? undefined : computed});
+      if (f?.skip) return {name, skip: f.skip};
+      if (f) fields.push(f);
+      continue;
+    }
+    // R10: `_Assoc._Next.Element as X [: localized]`, a calculated element
+    // (tools/cds-path.mjs)
+    if (srcName.startsWith("_") && srcName.includes(".")) {
+      fields.push(pathElement(srcName, alias, annos, tokensOf(el), sqlView));
+      continue;
+    }
+    if (srcName.startsWith("_")) {
+      exposedAssociations.push(srcName); associationAnnotations.set(srcName, annos);
+      if (redirectOf(tokensOf(el))) redirects.set(srcName, redirectOf(tokensOf(el)));
+      continue;
+    }
     if (/[()+\-*\/]/.test(srcName) || /^'/.test(srcName)) continue; // expressions: not yet
     const fieldName = (alias ?? srcName.split(".").pop()).toUpperCase();
-    const baseField = srcName.split(".").pop().toUpperCase();
+    let baseField = srcName.split(".").pop().toUpperCase();
+    // R11: a constant of the view below stays a constant
+    const constant = isProjection ? projected.fields.find((f) => f.name === baseField && f.constant !== undefined) : undefined;
+    if (constant) {
+      fields.push({...constant, name: fieldName, element: alias ?? srcName.split(".").pop(), key: isKey || constant.key,
+        annotations: [...annos, ...(constant.annotations ?? [])], fromElement: constant.name});
+      continue;
+    }
+    const below = isProjection ? projected.fields.find((f) => f.name === baseField && !f.virtual && f.base) : undefined;
+    if (isProjection && below === undefined) return {name, skip: `${fieldName}: ${baseField} is no column element of ${projected.name}`};
+    if (below) baseField = below.base;
     const t = edmOf(comps.get(baseField));
-    const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
-    fields.push({name: fieldName, base: baseField, key: isKey, ...t, label: label ?? fieldName, annotations: annos});
+    // R10: the ABAP type of the column, for a path element that ends here
+    const column = comps.get(baseField);
+    const typeABAP = below?.typeABAP ?? (column && !/Void|Unknown/.test(column.constructor.name) && !column.containsVoid?.() ? column.toABAP?.() : undefined);
+    const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean) ?? (below && below.label !== below.name ? below.label : undefined);
+    fields.push({name: fieldName, element: alias ?? srcName.split(".").pop(), base: baseField, key: isKey, ...t, typeABAP, label: label ?? fieldName,
+      annotations: below ? [...annos, ...(below.annotations ?? [])] : annos, ...(below ? {fromElement: below.name} : {}),
+      ...(below?.aggregate ? {aggregate: below.aggregate} : {})});
   }
 
   const associations = [];
+  associations.push(...compositionsOf(find(select, "CDSComposition").map(tokensOf), exposedAssociations));
   for (const a of find(select, "CDSAssociation")) {
     const card = tokensOf(firstDirect(a, "CDSCardinality")).replace(/\s+/g, "");
-    const m = /\[(\d+)\.\.(\d+|\*)\]/.exec(card);
-    const toks = tokensOf(a);
-    const target = /\bto\s+(\S+)/i.exec(toks)?.[1]?.toUpperCase();
+    // `[1]` is `[0..1]` (R10: a path over it is to-one)
+    const m = /\[(\d+)\.\.(\d+|\*)\]/.exec(card) ?? /\[()(\d+|\*)\]/.exec(card)?.map((x, i) => (i === 1 ? "0" : x));
+    const toks = namespaced(tokensOf(a));
+    const toParent = /\bto\s+parent\s+/i.test(toks); // R5: `parent` is not the target
+    const target = /\bto\s+(?:parent\s+)?(\S+)/i.exec(toks)?.[1]?.toUpperCase();
     const alias = /\bas\s+(\S+)\s+on\b/i.exec(toks)?.[1] ?? target;
     const cond = tokensOf(firstDirect(a, "CDSCondition")) ?? "";
     const pairs = [];
@@ -217,10 +232,11 @@ export function parseDDLS(obj, reg) {
     // target a part of this entity rather than a thing it points at, which
     // is what lets a delete take the children with it.
     const assocAnnos = associationAnnotations.get(alias) ?? [];
-    const kind = assocAnnos.map((a) => /@ObjectModel\.association\.type:\s*\[?\s*#TO_COMPOSITION_(CHILD|PARENT|ROOT)/i.exec(a)?.[1]).find(Boolean);
-    associations.push({alias, target, min: m?.[1] ?? "0", max: m?.[2] ?? "*", pairs, exposed: exposedAssociations.includes(alias),
+    const kind = toParent ? "PARENT" : assocAnnos.map((a) => /@ObjectModel\.association\.type:\s*\[?\s*#TO_COMPOSITION_(CHILD|PARENT|ROOT)/i.exec(a)?.[1]).find(Boolean);
+    associations.push({alias, target, min: toParent ? "1" : m?.[1] ?? "0", max: toParent ? "1" : m?.[2] ?? "*", pairs, exposed: exposedAssociations.includes(alias),
       composition: kind === undefined ? undefined : kind.toUpperCase()});
   }
+  if (isProjection) associations.push(...projectedAssociations(projected, exposedAssociations, redirects, associations));
   const label = viewAnnotations.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean) ?? name;
 
   // a writable projection: the view says so (@ObjectModel.writeEnabled, or
@@ -251,8 +267,9 @@ export function parseDDLS(obj, reg) {
     keyColumns: keyColumns.filter((k) => k !== "MANDT"),
     mandt,
   };
+  if (fields.length === 0) return {name, skip: `no field of ${source} could be resolved (is the source a view or table of this tree?)`};
   return {name, sqlView, source, fields, associations, exposedAssociations,
-    viewAnnotations, label, write};
+    viewAnnotations, label, write, ...(isProjection ? {projectionOf: projected.name} : {}), ...(computed ? {computed} : {})};
 }
 
 /** The fields of the generated SQL view, in order. A CDS SQL view over a
@@ -496,7 +513,7 @@ function compositionChildren(e, byName) {
 }
 
 function sourceClass(e, byName) {
-  const cls = "zcl_stg_cds_" + e.sqlView.toLowerCase();
+  const cls = classNameOf("zcl_stg_cds_", e.sqlView).toLowerCase();
   const view = e.sqlView.toLowerCase();
   const virtual = e.fields.filter((f) => f.virtual);
   // the row the SADL runtime hands out: the columns of the SQL view plus the
@@ -509,11 +526,13 @@ ${virtual.length === 0 ? "    TYPES: " : `    TYPES: ${virtual.map((f) => `${f.n
 `;
   const writable = e.write?.writable === true;
   const parts = childrenMethod(e, byName);
+  // R11: constant elements (cds-computed.mjs)
+  const k = constantRead(e);
   return `CLASS ${cls} DEFINITION PUBLIC CREATE PUBLIC.
 * generated by tools/cds2ddic.mjs from ${e.name} - do not edit
   PUBLIC SECTION.
 ${rowDecl}    INTERFACES zif_stg_cds_source.
-${parts.declare}${writable ? `  PRIVATE SECTION.
+${parts.declare}${k.declare}${writable ? `  PRIVATE SECTION.
     METHODS to_base
       IMPORTING
         is_line       TYPE any
@@ -525,7 +544,7 @@ CLASS ${cls} IMPLEMENTATION.
 
   METHOD zif_stg_cds_source~read.
     DATA lv_where TYPE string.
-    FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
+${k.data}    FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
 
     CREATE DATA rr_data TYPE tt_row.
     ASSIGN rr_data->* TO <lt_data>.
@@ -533,21 +552,21 @@ CLASS ${cls} IMPLEMENTATION.
 * an empty condition is every row on a system; '1 = 1' in its place is
 * CX_SY_DYNAMIC_OSQL_SEMANTICS there (measured on A4H, docs/osql-where.md)
     lv_where = iv_where.
-
-    IF it_fields IS INITIAL.
+${k.decide}
+    IF ${k.fields} IS INITIAL.
       SELECT * FROM ${view}
         INTO CORRESPONDING FIELDS OF TABLE <lt_data>
         WHERE (lv_where)
         ORDER BY (it_orderby).
     ELSE.
-      SELECT (it_fields) FROM ${view}
+      SELECT (${k.fields}) FROM ${view}
         INTO CORRESPONDING FIELDS OF TABLE <lt_data>
         WHERE (lv_where)
         GROUP BY (it_groupby)
         ORDER BY (it_orderby).
     ENDIF.
-  ENDMETHOD.
-
+${k.fill}  ENDMETHOD.
+${k.method}
   METHOD zif_stg_cds_source~create_line.
     CREATE DATA rr_line TYPE ty_row.
   ENDMETHOD.
@@ -622,96 +641,6 @@ ${body("DELETE", `${cascadeDeletes(e, byName)}    DELETE FROM ${tab}
       WHERE ${w.keyColumns.map((k) => `${k.toLowerCase()} = ls_row-${k.toLowerCase()}`).join("\n        AND ")}.`)}`;
 }
 
-// A DDIC table as a source: what a SEGW project maps an entity to with
-// "DDIC~<table>" (DS_TYPE 4). Same interface, static table name, and the
-// writes are real: the row type is the table, the keys are inside it.
-function tableSourceClass(t) {
-  const cls = "zcl_stg_tab_" + t.name.toLowerCase();
-  const tab = t.name.toLowerCase();
-  return `CLASS ${cls} DEFINITION PUBLIC CREATE PUBLIC.
-* generated by tools/cds2ddic.mjs from table ${t.name} - do not edit
-  PUBLIC SECTION.
-    INTERFACES zif_stg_cds_source.
-ENDCLASS.
-
-CLASS ${cls} IMPLEMENTATION.
-
-  METHOD zif_stg_cds_source~read.
-    DATA lv_where TYPE string.
-    FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
-
-    CREATE DATA rr_data TYPE STANDARD TABLE OF ${tab}.
-    ASSIGN rr_data->* TO <lt_data>.
-
-* an empty condition is every row on a system; '1 = 1' in its place is
-* CX_SY_DYNAMIC_OSQL_SEMANTICS there (measured on A4H, docs/osql-where.md)
-    lv_where = iv_where.
-
-    IF it_fields IS INITIAL.
-      SELECT * FROM ${tab}
-        INTO TABLE <lt_data>
-        WHERE (lv_where)
-        ORDER BY (it_orderby).
-    ELSE.
-      SELECT (it_fields) FROM ${tab}
-        INTO CORRESPONDING FIELDS OF TABLE <lt_data>
-        WHERE (lv_where)
-        GROUP BY (it_groupby)
-        ORDER BY (it_orderby).
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD zif_stg_cds_source~create_line.
-    CREATE DATA rr_line TYPE ${tab}.
-  ENDMETHOD.
-
-  METHOD zif_stg_cds_source~insert.
-    DATA ls_row TYPE ${tab}.
-
-    MOVE-CORRESPONDING is_line TO ls_row.
-    INSERT ${tab} FROM ls_row.
-    rv_subrc = sy-subrc.
-  ENDMETHOD.
-
-  METHOD zif_stg_cds_source~update.
-    DATA ls_row TYPE ${tab}.
-
-    MOVE-CORRESPONDING is_line TO ls_row.
-    UPDATE ${tab} FROM ls_row.
-    rv_subrc = sy-subrc.
-  ENDMETHOD.
-
-  METHOD zif_stg_cds_source~delete.
-* by the primary key, spelled out: DELETE dbtab FROM wa reads as an internal
-* table statement to the transpiler
-    DATA ls_row TYPE ${tab}.
-
-    MOVE-CORRESPONDING is_line TO ls_row.
-    DELETE FROM ${tab}
-      WHERE ${t.keyColumns.map((k) => `${k} = ls_row-${k}`).join("\n        AND ")}.
-    rv_subrc = sy-subrc.
-  ENDMETHOD.
-
-ENDCLASS.
-`;
-}
-
-// the registry entity of a table: fields and keys from its DDIC definition
-function parseTABL(obj, reg) {
-  const type = obj.parseType(reg);
-  if (!type || type.constructor?.name !== "StructureType") return undefined;
-  const keys = new Set((obj.listKeys?.(reg) ?? []).map((k) => k.toUpperCase()));
-  const keyColumns = type.getComponents().filter((c) => keys.has(c.name.toUpperCase())).map((c) => c.name.toLowerCase());
-  const fields = [];
-  for (const c of type.getComponents()) {
-    const name = c.name.toUpperCase();
-    if (name === "MANDT" || name === "CLIENT") continue;
-    if (c.type?.constructor?.name === "StructureType") continue;
-    fields.push({name, key: keys.has(name), ...edmOf(c.type), label: name, annotations: []});
-  }
-  return {name: obj.getName().toUpperCase(), sqlView: obj.getName().toUpperCase(), label: obj.getDescription?.() ?? obj.getName(),
-    viewAnnotations: [], fields, associations: [], table: true, keyColumns};
-}
 
 function q(s) { return "'" + String(s ?? "").replaceAll("'", "''") + "'"; }
 function bt(s) { return "`" + String(s ?? "").replaceAll("`", "``") + "`"; }
@@ -750,7 +679,7 @@ function publishedYaml(e, byName) {
   // the SQL view name is at most 16 by DDIC rule, so the classes are named
   // after it. The class names are ours: nothing measured says what SAP
   // calls them, and the entity names above are what a client sees.
-  lines.push(`classes: {mpc: ZCL_${e.sqlView}_MPC, mpc_ext: ZCL_${e.sqlView}_MPC_EXT, dpc: ZCL_${e.sqlView}_DPC, dpc_ext: ZCL_${e.sqlView}_DPC_EXT}`);
+  lines.push(`classes: {mpc: ${classNameOf("ZCL_", e.sqlView, "_MPC")}, mpc_ext: ${classNameOf("ZCL_", e.sqlView, "_MPC_EXT")}, dpc: ${classNameOf("ZCL_", e.sqlView, "_DPC")}, dpc_ext: ${classNameOf("ZCL_", e.sqlView, "_DPC_EXT")}}`);
   lines.push(`entities:`);
   for (const x of reached) lines.push(...entityLines(x));
   const assocs = reached.flatMap((x) => (x.associations ?? [])
@@ -785,7 +714,7 @@ function entityLines(e) {
   lines.push(`    set: ${setName(e)}`);
   // the model binds to the row of the generated source class, so the virtual
   // elements are part of the structure the DPC hands back
-  lines.push(`    source: {cds: ${e.name}, struct: "ZCL_STG_CDS_${e.sqlView}=>TY_ROW"}`);
+  lines.push(`    source: {cds: ${e.name}, struct: "${classNameOf("ZCL_STG_CDS_", e.sqlView)}=>TY_ROW"}`);
   lines.push(`    keys: [${e.fields.filter((f) => f.key).map((f) => propertyName(f.name)).join(", ")}]`);
   const w = e.write ?? {};
   lines.push(`    creatable: ${w.creatable === true}`);
@@ -846,7 +775,7 @@ function registryClass(entities) {
     CLEAR ls_entity.
     ls_entity-name         = ${q(e.name)}.
     ls_entity-sql_view     = ${q(e.sqlView)}.
-    ls_entity-source_class = ${q((e.table ? "ZCL_STG_TAB_" : "ZCL_STG_CDS_") + e.sqlView)}.
+    ls_entity-source_class = ${q(classNameOf(e.table ? "ZCL_STG_TAB_" : "ZCL_STG_CDS_", e.sqlView))}.
     ls_entity-label        = ${bt(e.label)}.
     ls_entity-creatable    = ${e.write?.creatable && e.write?.writable ? "abap_true" : "abap_false"}.
     ls_entity-updatable    = ${e.write?.updatable && e.write?.writable ? "abap_true" : "abap_false"}.
@@ -1026,6 +955,10 @@ export function main() {
     views.push(e);
   }
   const byName = new Map(views.map((v) => [v.name.toUpperCase(), v]));
+  resolveTree(views, byName);
+  // R10: a path element that does not resolve is not served (resolvePaths
+  // took it out), and the build says which hop broke
+  for (const e of views) for (const d of e.droppedPaths ?? []) console.log(`cds2ddic: ${e.name}: path element ${d.name} not served (${d.why})`);
   inheritAssociations(views, byName);
   resolveWriteChain(views, byName);
   // A view that still reads another CDS view (not composed down to a table
@@ -1049,14 +982,22 @@ export function main() {
   }
   for (const e of views) {
     entities.push(e);
-    write(e.sqlView.toLowerCase() + ".view.xml", viewXml(e));
+    // R11: a singleton root has no SQL view; its source class computes it
+    if (e.computed) {
+      write(classNameOf("zcl_stg_cds_", e.sqlView).toLowerCase() + ".clas.abap", computedSourceClass(e));
+      write(fileOf(e.name) + ".tabl.xml", structureXml(e));
+      console.log(`cds2ddic: ${e.name} -> computed (${e.fields.length} fields: ${e.computed.aggregates.map((a) => `${a.fn}( ${a.column} )`).join(", ")} over ${e.computed.table})`);
+      continue;
+    }
+    write(fileOf(e.sqlView) + ".view.xml", viewXml(e));
     // on a system the CDS entity name is a type and a select source of its own
     // (SELECT FROM zc_stg_travel, TYPES x TYPE zc_stg_travel); the SQL view is
     // the technical twin. Both exist here, over the same columns.
     if (e.name.toUpperCase() !== e.sqlView.toUpperCase()) {
-      write(e.name.toLowerCase() + ".view.xml", viewXml({...e, sqlView: e.name.toUpperCase()}, {client: false}));
+      write(fileOf(e.name) + ".view.xml", viewXml({...e, sqlView: e.name.toUpperCase()}, {client: false}));
     }
-    write("zcl_stg_cds_" + e.sqlView.toLowerCase() + ".clas.abap", sourceClass(e, byName));
+    write(classNameOf("zcl_stg_cds_", e.sqlView).toLowerCase() + ".clas.abap", sourceClass(e, byName));
+    if (e.fields.some((f) => f.path)) write(classNameOf("zcl_stg_cds_", e.sqlView, "_p").toLowerCase() + ".clas.abap", pathClass(e));
     let published = "";
     if (e.viewAnnotations.some((a) => /@OData\.publish:\s*true/i.test(a))) {
       // the whole set of views is needed: an exposed association pulls its
@@ -1088,7 +1029,7 @@ export function main() {
     const t = parseTABL(obj, reg);
     if (!t) continue;
     entities.push(t);
-    write("zcl_stg_tab_" + t.name.toLowerCase() + ".clas.abap", tableSourceClass(t));
+    write(classNameOf("zcl_stg_tab_", t.name).toLowerCase() + ".clas.abap", tableSourceClass(t));
     console.log(`cds2ddic: table ${t.name} (${t.fields.length} fields, keys ${t.fields.filter((f) => f.key).map((f) => f.name).join(",")})`);
   }
   write("zcl_stg_cds_registry.clas.abap", registryClass(entities));

@@ -2,11 +2,21 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
+// The registry (loadSuites) allows suites at any depth under test/, so the
+// artifacts may name a nested suite (test/adt-conformance/suite.mjs does, and
+// its timing crashed every weekly refresh since 2026-10-05). Accept exactly
+// that shape: under test/, ending .mjs, no empty or dot-dot segment.
+export const isSuitePath = (file) => {
+  const parts = file.split('/');
+  return parts[0] === 'test' && file.endsWith('.mjs') &&
+    parts.slice(1).every((part) => part !== '' && part !== '.' && part !== '..');
+};
+
 export function mergeTimings(previous, artifacts) {
   const samples = new Map();
   for (const artifact of artifacts) {
     for (const [file, seconds] of Object.entries(artifact.seconds ?? artifact)) {
-      if (!/^test\/[^/]+\.mjs$/.test(file) || !Number.isFinite(seconds) || seconds <= 0) {
+      if (!isSuitePath(file) || !Number.isFinite(seconds) || seconds <= 0) {
         throw new Error(`invalid timing: ${file} = ${seconds}`);
       }
       if (!samples.has(file)) samples.set(file, []);

@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_DDLS"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DDLS><DDLNAME>ZI_RAP_NOTE_SF</DDLNAME><DDLANGUAGE>E</DDLANGUAGE><DDTEXT>RAP note demo, handlers in the system form</DDTEXT></DDLS></asx:values></asx:abap></abapGit>

@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_BDEF"><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><BDEF><NAME>ZI_RAP_TRIP</NAME><TYPE>BDEF/BDO</TYPE><DESCRIPTION>RAP trip behavior (R4)</DESCRIPTION><SOURCE_TYPE>ABAP_SOURCE</SOURCE_TYPE></BDEF></asx:values></asx:abap></abapGit>

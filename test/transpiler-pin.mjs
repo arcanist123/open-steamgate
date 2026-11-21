@@ -1,9 +1,9 @@
 import {strict as assert} from "node:assert";
 import {execFileSync} from "node:child_process";
-import {chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
+import {chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {join, resolve} from "node:path";
 import {tmpdir} from "node:os";
-import {installPin, pinPath} from "../tools/osd-transpiler-pin.mjs";
+import {ensurePinned, installPin, pinPath} from "../tools/osd-transpiler-pin.mjs";
 import {doctorWarmPin, probe, WARM_PIN_WARNING} from "../tools/osd-warm-capabilities.mjs";
 import {hashOf, inputsOf} from "../tools/osd-build.mjs";
 import {warmUp} from "../tools/osd-store-warm.mjs";
@@ -55,7 +55,10 @@ function fixture() {
   return {root, clone, ref};
 }
 
-describe("local transpiler pin", () => {
+describe("local transpiler pin", function () {
+  // These run git and fake npm synchronously; on a loaded CI runner one case
+  // took over mocha's default 2 s three times on 2026-11-08 (#859, #861, #865).
+  this.timeout(30000);
   it("refuses temporary paths, scratchpads and symlinks into temporary storage", () => {
     assert.throws(() => pinPath("ref", {TRANSPILER: "/tmp/transpiler"}), /persistent/);
     assert.throws(() => pinPath("ref", {TRANSPILER: resolve("scratchpad/transpiler")}), /persistent/);
@@ -146,6 +149,109 @@ describe("local transpiler pin", () => {
       } finally { rmSync(f.root, {recursive: true, force: true}); }
     });
   }
+});
+
+describe("the link decision bootstrap calls", function () {
+  this.timeout(30000);
+  // CI's four links (tests.yml "Verify and link the pinned transpiler").
+  const LINKS = [["transpiler", "packages/transpiler"], ["transpiler-cli", "packages/cli"],
+    ["runtime", "packages/runtime"], ["core", "packages/transpiler/node_modules/@abaplint/core"]];
+  // the tree `npm ci` leaves behind: published packages as real directories
+  const published = (root, name) => {
+    mkdirSync(join(root, "node_modules/@abaplint", name), {recursive: true});
+    writeFileSync(join(root, "node_modules/@abaplint", name, "package.json"),
+      JSON.stringify({name: `@abaplint/${name}`, version: "2.14.19"}));
+  };
+  // a checkout the links can point at that is NOT the pin
+  const otherCheckout = (root) => {
+    const at = join(root, "other-checkout");
+    for (const [, path] of LINKS) {
+      mkdirSync(join(at, path), {recursive: true});
+      writeFileSync(join(at, path, "package.json"), JSON.stringify({name: "other", version: "0.0.0"}));
+    }
+    writeFileSync(join(at, "marker"), "another build");
+    const git = (...args) => execFileSync("git", args, {cwd: at, encoding: "utf8"});
+    git("init", "-q"); git("add", ".");
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "another build");
+    return at;
+  };
+  const linkId = (root, name) => {
+    const st = lstatSync(join(root, "node_modules/@abaplint", name));
+    return `${st.dev}:${st.ino}`;
+  };
+
+  it("links a tree that npm ci left on the published packages", () => {
+    const f = fixture();
+    try {
+      published(f.root, "transpiler");
+      const said = [];
+      assert.equal(ensurePinned(f.root, {...process.env, TRANSPILER: f.clone}, (line) => said.push(line)), f.clone);
+      assert.equal(realpathSync(join(f.root, "node_modules/@abaplint/transpiler")), join(f.clone, "packages/transpiler"));
+      assert(said.some((line) => line.includes("reusing verified build")), said.join("\n"));
+      assert(said.some((line) => line.includes("replaced")), said.join("\n"));
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
+
+  it("leaves links that already point at the verified pin untouched", () => {
+    const f = fixture();
+    try {
+      installPin(f.root, {...process.env, TRANSPILER: f.clone});
+      const before = Object.fromEntries(LINKS.map(([name]) => [name, linkId(f.root, name)]));
+      const said = [];
+      assert.equal(ensurePinned(f.root, {...process.env, TRANSPILER: f.clone}, (line) => said.push(line)), f.clone);
+      for (const [name] of LINKS) assert.equal(linkId(f.root, name), before[name], name);
+      assert(said.some((line) => line.includes("already") && line.includes("leaving")), said.join("\n"));
+      assert(!said.some((line) => line.includes("replaced")), said.join("\n"));
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
+
+  it("replaces links that point at another commit and reports the replacement", () => {
+    const f = fixture();
+    try {
+      const other = otherCheckout(f.root);
+      mkdirSync(join(f.root, "node_modules/@abaplint"), {recursive: true});
+      for (const [name, path] of LINKS) symlinkSync(join(other, path), join(f.root, "node_modules/@abaplint", name), "dir");
+      const said = [];
+      ensurePinned(f.root, {...process.env, TRANSPILER: f.clone}, (line) => said.push(line));
+      assert.equal(realpathSync(join(f.root, "node_modules/@abaplint/transpiler")), join(f.clone, "packages/transpiler"));
+      assert(said.some((line) => line.includes("replaced")), said.join("\n"));
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
+
+  it("repairs only the links that are not at the pin", () => {
+    const f = fixture();
+    try {
+      installPin(f.root, {...process.env, TRANSPILER: f.clone});
+      const other = otherCheckout(f.root);
+      rmSync(join(f.root, "node_modules/@abaplint/transpiler"));
+      symlinkSync(join(other, "packages/transpiler"), join(f.root, "node_modules/@abaplint/transpiler"), "dir");
+      rmSync(join(f.root, "node_modules/@abaplint/runtime"));
+      const untouched = {["transpiler-cli"]: linkId(f.root, "transpiler-cli"), ["core"]: linkId(f.root, "core")};
+      const said = [];
+      ensurePinned(f.root, {...process.env, TRANSPILER: f.clone}, (line) => said.push(line));
+      assert.equal(realpathSync(join(f.root, "node_modules/@abaplint/transpiler")), join(f.clone, "packages/transpiler"));
+      assert(lstatSync(join(f.root, "node_modules/@abaplint/runtime")).isSymbolicLink());
+      for (const [name, id] of Object.entries(untouched)) assert.equal(linkId(f.root, name), id, name);
+      assert(said.some((line) => line.includes("2 of 4 links replaced") && line.includes("2 already at the pin")), said.join("\n"));
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
+
+  it("refuses loudly when the pinned build is absent, and links nothing", () => {
+    const f = fixture();
+    try {
+      published(f.root, "transpiler");
+      const commands = join(f.root, "commands");
+      mkdirSync(commands);
+      writeFileSync(join(commands, "git"), "#!/bin/sh\nexit 1\n");
+      chmodSync(join(commands, "git"), 0o755);
+      const said = [];
+      assert.throws(
+        () => ensurePinned(f.root, {...process.env, TRANSPILER: join(f.root, "absent-cache"), PATH: `${commands}:${process.env.PATH}`}, (line) => said.push(line)),
+        /Pinned transpiler build failed/);
+      assert(!lstatSync(join(f.root, "node_modules/@abaplint/transpiler")).isSymbolicLink());
+      assert(!said.some((line) => line.includes("replaced")), said.join("\n"));
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
 });
 
 // A small behavioral fake distinguishes only, registry reuse and config invalidation.

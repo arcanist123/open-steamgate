@@ -70,7 +70,7 @@ To add another group, add its test file under `groups.<name>` in `test/suites.d/
 
 The `tests` build job and `preview` job share an `actions/cache` entry for `../transpiler`. Its `transpiler-v1` key includes runner OS and architecture, Node major 22, the hash of `libs.lock.json` (which contains the pinned transpiler repository and commit), and the hash of `tools/osd-ci-transpiler-build.sh` (the clone, install and compile commands). On a miss the script builds the checkout. On every run, including a hit, it verifies the exact commit, installed dependencies, compiled JavaScript in runtime, transpiler and CLI, parser versions matching OSG, and the executable CLI before the package and core links and `tools/osd-transpiler.mjs` run. The `tests` job still relocates that checkout into its per-run artifact; the cache never replaces the artifact consumed by the shards. A changed pin or build command creates a new key. To force a rebuild without changing either, increment `transpiler-v1` in both workflows.
 
-The `tests` and `preview` browser jobs share `~/.cache/ms-playwright` through a `chromium-v1` key containing the runner OS and the installed `@playwright/test` version read from `package-lock.json`. A hit runs `npx playwright install-deps chromium` for uncached system packages; a miss runs `npx playwright install --with-deps chromium`. A Playwright version change creates a new key. To force a browser download, increment `chromium-v1` in both workflows. `release.yml` does not install Playwright, so it has no browser cache.
+The `tests` and `preview` browser jobs share `~/.cache/ms-playwright` through a `chromium-v1` key containing the runner OS and the installed `@playwright/test` version read from `package-lock.json`. Both jobs then run `scripts/ci-chromium.sh`: a miss downloads the browser with `npx playwright install chromium` (Playwright's CDN, no apt), then a smoke launch opens a page. The ubuntu-latest image already has Chromium's shared libraries, so apt is normally not called at all; only if the launch fails does the script run `npx playwright install-deps chromium`, retried four times with backoff (the archive mirrors' DNS failed for hours in November 2026), and a second launch decides the step, not apt's exit code. A genuinely missing library still fails it. A Playwright version change creates a new key. To force a browser download, increment `chromium-v1` in both workflows. `release.yml` does not install Playwright, so it has no browser cache.
 
 ## Balanced shards and visible retries (2026-10-03)
 
@@ -180,8 +180,8 @@ Six separate steps run the fleet slice on SQLite and DuckDB, the Go CLI,
 jobs, DSL L3 and C in ABAP. All six are attempted after earlier failures.
 Node 24, Go 1.26 (CLI only) and Ubuntu's `cc` are used; browser checks are
 disabled with `SLICE_SKIP_UI=1`. Setup needs network for checkouts, `npm ci`
-and bootstrap's pinned library/pack fetches; the tests use local services,
-with Go dependency downloads disabled. The initial consumer pin has no
+and bootstrap's pinned transpiler build/link and library/pack fetches; the
+tests use local services, with Go dependency downloads disabled. The initial consumer pin has no
 `package.json` or npm lockfile, so its install step reports no dependencies;
 a later pin with a package manifest must support `npm ci`.
 

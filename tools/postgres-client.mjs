@@ -6,6 +6,8 @@ import {fingerprintOf} from "./osd-persist.mjs";
 import {abapTypeLetter, bindValue} from "./abap-types.mjs";
 import {randomBytes} from "node:crypto";
 import {migrateAdtHandle} from "./osd-adt-handle-migrate.mjs";
+import {abapSelectToSql, outsideLiterals} from "./osd-sql-literals.mjs";
+import {osqlSemanticsError} from "./osql-error.mjs";
 
 export function bindNativeValue(parameter) {
   if (parameter.isNull === true) return null;
@@ -54,9 +56,49 @@ export class OsdPostgresClient extends PostgresDatabaseClient {
     finally { this.connected = false; }
   }
 
+  // The published client rewrites the whole statement, literals included
+  // ('a~b' was sent as 'a.b', 'x UP TO 9 ROWS' as 'x' plus a LIMIT 9), and
+  // rewrites and runs in one method, so the rewrite cannot be wrapped: the
+  // SELECT is rewritten here, on its code only, and run directly.
+  async select(options) {
+    this.checkFatal?.();
+    if (this.lazy === true && this.pool === undefined) await this.connect();
+    const sql = abapSelectToSql(options.select, {primaryKey: options.primaryKey});
+    if (this.trace === true) console.log(sql);
+    let result;
+    try {
+      result = await this.query(sql);
+    } catch (error) {
+      throw await osqlSemanticsError(error);
+    }
+    return {rows: this.convert(result)};
+  }
+
+  // The published openCursor rewrites UP TO only, over the whole text. It is
+  // handed a text whose UP TO is already rewritten, so its own rewrite can
+  // only find one inside a value; when a value holds one, the rows are read
+  // here instead, all at once, as the client does inside a transaction.
+  // That branch is a memory trade, not an optimisation: such a cursor holds
+  // its whole result instead of one package at a time.
+  async openCursor(options) {
+    const select = outsideLiterals(options.select, (s) => s.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1"));
+    if (!/ UP TO (\d+) ROWS/i.test(select)) return super.openCursor({...options, select});
+    this.checkFatal?.();
+    if (this.lazy === true && this.pool === undefined) await this.connect();
+    const rows = this.convert(await this.query(select));
+    let offset = 0;
+    return {
+      fetchNextCursor: async (packageSize) => {
+        const batch = rows.slice(offset, offset + packageSize);
+        offset += batch.length;
+        return {rows: batch};
+      },
+      closeCursor: async () => undefined,
+    };
+  }
+
   async selectOne(sql) {
-    const text = sql.replace(/ ORDER BY PRIMARY KEY/i, '').replace(/ ASCENDING/ig, ' ASC')
-      .replace(/ DESCENDING/ig, ' DESC').replace(/~/g, '.');
+    const text = abapSelectToSql(sql, {upTo: false, limitZero: false});
     // Empty values alone use simple protocol in node-postgres; queryMode
     // forces extended protocol even for a SELECT without parameters.
     const request = {text, values: [], queryMode: 'extended'};
@@ -75,12 +117,7 @@ export class OsdPostgresClient extends PostgresDatabaseClient {
   }
 
   async checkSelect(sql) {
-    const text = sql.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1")
-      .replace(/ ORDER BY PRIMARY KEY/i, "")
-      .replace(/ ASCENDING/ig, " ASC")
-      .replace(/ DESCENDING/ig, " DESC")
-      .replace(/ LIMIT 0/g, "")
-      .replace(/~/g, ".");
+    const text = abapSelectToSql(sql);
     // PREPARE parses and resolves the SELECT without running it. Always use
     // a separate physical session: a bad editor query must not abort an ABAP
     // LUW that happens to be open on this.client at the same time.

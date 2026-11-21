@@ -8,7 +8,7 @@ import (
 
 // ENQHolders reads the same dictionary argument as ENQUEUE_EZOSD_ADT_OBJ.
 type ENQHolders struct {
-	Server *enq.Server
+	Server enq.Locks
 	Kernel *adtenq.Kernel
 	Client string
 }

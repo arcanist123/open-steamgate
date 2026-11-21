@@ -653,9 +653,9 @@ describe("editors/vscode/launcher.js: databases", function () {
   });
 
   it("defaultDedicatedName is stable per osdHome and differs across osdHome", () => {
-    const a = defaultDedicatedName("/home/alice/dev/open-steamgate");
-    const b = defaultDedicatedName("/home/alice/dev/open-steamgate");
-    const c = defaultDedicatedName("/home/alice/dev/another-checkout");
+    const a = defaultDedicatedName("/work/open-steamgate");
+    const b = defaultDedicatedName("/work/open-steamgate");
+    const c = defaultDedicatedName("/work/another-checkout");
     expect(a).to.equal(b);
     expect(a).to.not.equal(c);
     expect(a).to.match(/^[0-9a-f]{8}$/);
@@ -1767,5 +1767,270 @@ describe("editors/vscode/launcher.js: the inspector on demand", function () {
     } finally {
       rmSync(storageDir, {recursive: true, force: true});
     }
+  });
+});
+
+// ---- osd.engine "osgo" (ADR 0010 slice 8, editors/vscode/osgo-engine.js) --
+// A local HTTP server stands in for the GitHub release (a 404 for one tag,
+// a 302 to the asset like the real download), and a stub executable stands
+// in for osgo: it records its arguments and answers /osd/serving the way
+// the real binary does (launcherPid = its own pid, launcherIdentity from
+// OSD_LAUNCHER_IDENTITY), so the launcher's readiness poll runs unchanged.
+const osgoEngine = createRequire(import.meta.url)("../editors/vscode/osgo-engine.js");
+const {createHash: osgoHash} = await import("node:crypto");
+const osgoHttp = await import("node:http");
+
+const OSGO_STUB = `#!/usr/bin/env node
+const http = require("node:http");
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.writeFileSync("stub-args.json", JSON.stringify({args, cwd: process.cwd()}));
+const port = Number(args[args.indexOf("-port") + 1]);
+const root = args[args.indexOf("-root") + 1];
+const server = http.createServer((req, res) => {
+  if (req.url === "/osd/serving") {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ready: true, generation: "go:stub", pid: process.pid, launcherPid: process.pid,
+      launcherIdentity: process.env.OSD_LAUNCHER_IDENTITY, root, database: "stub.sqlite"}));
+    return;
+  }
+  res.statusCode = 404;
+  res.end();
+});
+server.listen(port, "127.0.0.1");
+process.on("SIGTERM", () => server.close(() => process.exit(0)));
+`;
+const OSGO_ASSET = "osgo-linux-x64";
+const osgoSum = (body) => osgoHash("sha256").update(body).digest("hex");
+
+/** The release, as far as a download sees it: `assets` maps
+ *  "<tag>/<file>" to a body; anything else is a 404. */
+async function osgoReleaseServer(assets) {
+  const hits = [];
+  const server = osgoHttp.createServer((req, res) => {
+    hits.push(req.url);
+    const key = decodeURIComponent(req.url.replace(/^\/dl\//, ""));
+    if (req.url.startsWith("/dl/") && assets[key] !== undefined) {
+      // the asset itself goes through a redirect, as GitHub's does
+      if (!key.endsWith(".sha256") && !req.url.includes("?cdn")) {
+        res.writeHead(302, {location: `${req.url}?cdn`});
+        res.end();
+        return;
+      }
+      res.end(assets[key]);
+      return;
+    }
+    if (req.url.startsWith("/dl/") && req.url.endsWith("?cdn") && assets[key.replace(/\?cdn$/, "")] !== undefined) {
+      res.end(assets[key.replace(/\?cdn$/, "")]);
+      return;
+    }
+    res.statusCode = 404;
+    res.end("Not Found");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return {server, hits, baseUrl: `http://127.0.0.1:${server.address().port}/dl`,
+    close: () => new Promise((resolve) => server.close(resolve))};
+}
+
+describe("editors/vscode/osgo-engine.js: which asset, which tag", function () {
+  it("maps the six release platforms and refuses any other with OSGO_NO_ASSET", () => {
+    expect(osgoEngine.osgoAssetFor("linux", "x64")).to.equal("osgo-linux-x64");
+    expect(osgoEngine.osgoAssetFor("linux", "arm64")).to.equal("osgo-linux-arm64");
+    expect(osgoEngine.osgoAssetFor("darwin", "arm64")).to.equal("osgo-darwin-arm64");
+    expect(osgoEngine.osgoAssetFor("darwin", "x64")).to.equal("osgo-darwin-x64");
+    expect(osgoEngine.osgoAssetFor("win32", "x64")).to.equal("osgo-windows-x64.exe");
+    expect(osgoEngine.osgoAssetFor("win32", "arm64")).to.equal("osgo-windows-arm64.exe");
+    let error;
+    try { osgoEngine.osgoAssetFor("freebsd", "x64"); } catch (e) { error = e; }
+    expect(error.code).to.equal("OSGO_NO_ASSET");
+    expect(error.message).to.contain("freebsd-x64").and.contain('osd.engine to "node"');
+  });
+
+  it("looks in the prerelease tag of its own version, then the stable one; a setting wins", () => {
+    expect(osgoEngine.releaseTagsFor("0.7.2382")).to.deep.equal(["vscode-v0.7.2382", "vscode-stable-v0.7.2382"]);
+    expect(osgoEngine.releaseTagsFor("0.7.0", " vscode-v0.7.2382 ")).to.deep.equal(["vscode-v0.7.2382"]);
+    let error;
+    try { osgoEngine.releaseTagsFor("0.7.0-dev"); } catch (e) { error = e; }
+    expect(error.code).to.equal("OSGO_NOT_RELEASED");
+    expect(error.message).to.contain("osd.osgo.releaseTag");
+  });
+
+  it("reads sha256sum's line and refuses one naming another file", () => {
+    const hex = "a".repeat(64);
+    expect(osgoEngine.parseSha256(`${hex}  osgo-linux-x64\n`, "osgo-linux-x64")).to.equal(hex);
+    expect(osgoEngine.parseSha256(`${hex.toUpperCase()} *build/release/osgo-linux-x64`, "osgo-linux-x64")).to.equal(hex);
+    expect(osgoEngine.parseSha256(hex, "osgo-linux-x64")).to.equal(hex);
+    expect(() => osgoEngine.parseSha256(`${hex}  osgo-darwin-x64`, "osgo-linux-x64")).to.throw(/names osgo-darwin-x64/);
+    expect(() => osgoEngine.parseSha256("<html>", "osgo-linux-x64")).to.throw(/not a sha256sum line/);
+  });
+
+  it("starts the binary with -port, -root, -home and -adt", () => {
+    expect(osgoEngine.osgoArgs({port: 3531, root: "/r", home: "/h"}))
+      .to.deep.equal(["-port", "3531", "-root", "/r", "-home", "/h", "-adt"]);
+  });
+
+  it("classify() turns every OSGO_ code into the osgo issue with the Node fallback", () => {
+    for (const code of ["OSGO_NO_ASSET", "OSGO_CHECKSUM", "OSGO_NETWORK", "OSGO_NOT_RELEASED", "OSGO_DATABASE"]) {
+      const issue = classify("", new osgoEngine.OsgoEngineError(code, `message for ${code}`));
+      expect(issue.kind, code).to.equal("osgo");
+      expect(issue.message).to.equal(`message for ${code}`);
+      expect(issue.actions).to.deep.equal(["Open log", "Use the Node engine"]);
+    }
+  });
+});
+
+describe("editors/vscode/osgo-engine.js: download, verify, keep", function () {
+  let release;
+  let storageDir;
+  afterEach(async () => {
+    await release?.close();
+    release = undefined;
+    if (storageDir) rmSync(storageDir, {recursive: true, force: true});
+  });
+
+  it("downloads from the stable tag when the prerelease has none, verifies it, and re-uses the kept copy", async () => {
+    release = await osgoReleaseServer({
+      [`vscode-stable-v1.2.3/${OSGO_ASSET}`]: OSGO_STUB,
+      [`vscode-stable-v1.2.3/${OSGO_ASSET}.sha256`]: `${osgoSum(OSGO_STUB)}  ${OSGO_ASSET}\n`,
+    });
+    storageDir = mkdtempSync(join(tmpdir(), "osd-osgo-dl-"));
+    const options = {storageDir, version: "1.2.3", baseUrl: release.baseUrl, platform: "linux", arch: "x64"};
+    const first = await osgoEngine.ensureOsgoBinary(options);
+    expect(first).to.include({tag: "vscode-stable-v1.2.3", asset: OSGO_ASSET, sha256: osgoSum(OSGO_STUB), downloaded: true});
+    expect(first.binary).to.equal(join(storageDir, "osgo", "vscode-stable-v1.2.3", OSGO_ASSET));
+    expect(readFileSync(first.binary, "utf8")).to.equal(OSGO_STUB);
+    expect(statSync(first.binary).mode & 0o111, "executable").to.not.equal(0);
+    expect(release.hits).to.include(`/dl/vscode-v1.2.3/${OSGO_ASSET}.sha256`);
+    expect(release.hits).to.include(`/dl/vscode-stable-v1.2.3/${OSGO_ASSET}?cdn`);
+    expect(readdirSync(join(storageDir, "osgo", "vscode-stable-v1.2.3")).sort()).to.deep.equal([OSGO_ASSET, `${OSGO_ASSET}.sha256`]);
+
+    const hits = release.hits.length;
+    const second = await osgoEngine.ensureOsgoBinary(options);
+    expect(second).to.include({binary: first.binary, downloaded: false});
+    expect(release.hits.length, "a verified copy needs no network").to.equal(hits);
+
+    // a kept copy that no longer matches is fetched again, not run
+    writeFileSync(first.binary, "tampered");
+    const third = await osgoEngine.ensureOsgoBinary(options);
+    expect(third.downloaded).to.equal(true);
+    expect(readFileSync(first.binary, "utf8")).to.equal(OSGO_STUB);
+  });
+
+  it("refuses a download that does not match its .sha256 and keeps nothing", async () => {
+    release = await osgoReleaseServer({
+      [`vscode-v1.2.3/${OSGO_ASSET}`]: OSGO_STUB,
+      [`vscode-v1.2.3/${OSGO_ASSET}.sha256`]: `${"0".repeat(64)}  ${OSGO_ASSET}\n`,
+    });
+    storageDir = mkdtempSync(join(tmpdir(), "osd-osgo-dl-"));
+    const error = await rejects(osgoEngine.ensureOsgoBinary({storageDir, version: "1.2.3", baseUrl: release.baseUrl,
+      platform: "linux", arch: "x64"}), /does not match its \.sha256/);
+    expect(error.code).to.equal("OSGO_CHECKSUM");
+    expect(readdirSync(join(storageDir, "osgo", "vscode-v1.2.3")), "no binary, no .part").to.deep.equal([]);
+  });
+
+  it("says OSGO_NOT_RELEASED when neither tag has the asset", async () => {
+    release = await osgoReleaseServer({});
+    storageDir = mkdtempSync(join(tmpdir(), "osd-osgo-dl-"));
+    const error = await rejects(osgoEngine.ensureOsgoBinary({storageDir, version: "1.2.3", baseUrl: release.baseUrl,
+      platform: "linux", arch: "x64"}), /no release vscode-v1\.2\.3 or vscode-stable-v1\.2\.3 with osgo-linux-x64/);
+    expect(error.code).to.equal("OSGO_NOT_RELEASED");
+  });
+
+  it("says OSGO_NETWORK when nothing answers", async () => {
+    storageDir = mkdtempSync(join(tmpdir(), "osd-osgo-dl-"));
+    const closed = await pickInspectorPort();
+    const error = await rejects(osgoEngine.ensureOsgoBinary({storageDir, version: "1.2.3",
+      baseUrl: `http://127.0.0.1:${closed}/dl`, platform: "linux", arch: "x64"}), /no network\?/);
+    expect(error.code).to.equal("OSGO_NETWORK");
+    expect(error.message).to.contain('osd.engine "node" needs no download');
+  });
+});
+
+describe("editors/vscode/launcher.js: osd.engine \"osgo\"", function () {
+  let release;
+  const dirs = [];
+  const tempDir = (prefix) => {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    dirs.push(dir);
+    return dir;
+  };
+  afterEach(async () => {
+    await release?.close();
+    release = undefined;
+    for (const dir of dirs.splice(0)) rmSync(dir, {recursive: true, force: true});
+  });
+
+  it("downloads the stub, spawns it with -port -root -home -adt, waits on /osd/serving and stops it", async function () {
+    if (process.platform === "win32") this.skip(); // the stub is a #! script
+    this.timeout(30000);
+    release = await osgoReleaseServer({
+      [`vscode-v1.2.3/${OSGO_ASSET}`]: OSGO_STUB,
+      [`vscode-v1.2.3/${OSGO_ASSET}.sha256`]: `${osgoSum(OSGO_STUB)}  ${OSGO_ASSET}\n`,
+    });
+    // no tools/osd-build.mjs and no test/run.mjs: osgo needs neither
+    const osdHome = tempDir("osd-osgo-root-");
+    const storageDir = tempDir("osd-osgo-instance-");
+    const globalStorage = tempDir("osd-osgo-global-");
+    const home = join(globalStorage, "osgo-home", "abc");
+    const launcher = createLauncher({osdHome, storageDir, workspaceFolders: [], timeoutMs: 15000, jobsWorker: "on",
+      engine: "osgo", osgo: {storageDir: globalStorage, version: "1.2.3", baseUrl: release.baseUrl,
+        platform: "linux", arch: "x64", home}});
+    const states = [];
+    launcher.on("state", (state) => states.push(state));
+    try {
+      const result = await launcher.start();
+      expect(result.generation).to.equal("go:stub");
+      expect(result.port).to.equal(testPort);
+      expect(launcher.state).to.equal("running");
+      expect(states).to.deep.equal(["building", "starting", "running"]);
+      expect(launcher.jobWorker, "no Node job worker beside osgo").to.equal(undefined);
+      const recorded = JSON.parse(readFileSync(join(home, "stub-args.json"), "utf8"));
+      expect(recorded.args).to.deep.equal(["-port", String(testPort), "-root", osdHome, "-home", home, "-adt"]);
+      expect(launcher.osgoBinary.binary).to.equal(join(globalStorage, "osgo", "vscode-v1.2.3", OSGO_ASSET));
+      expect(launcher.lastLog).to.contain("downloaded and verified");
+      await launcher.stop();
+      expect(launcher.state).to.equal("stopped");
+      expect(await servingOnce(testPort, 500), "the stub is gone").to.equal(undefined);
+
+      // the second start re-uses the verified copy
+      const hits = release.hits.length;
+      await launcher.start();
+      expect(release.hits.length).to.equal(hits);
+      expect(launcher.lastLog).to.contain("verified)");
+      await launcher.stop();
+    } finally {
+      await launcher.stop();
+    }
+  });
+
+  it("refuses a checksum mismatch before anything is spawned", async function () {
+    release = await osgoReleaseServer({
+      [`vscode-v1.2.3/${OSGO_ASSET}`]: OSGO_STUB,
+      [`vscode-v1.2.3/${OSGO_ASSET}.sha256`]: `${osgoSum("something else")}  ${OSGO_ASSET}\n`,
+    });
+    const globalStorage = tempDir("osd-osgo-global-");
+    const home = join(globalStorage, "osgo-home", "abc");
+    const launcher = createLauncher({osdHome: tempDir("osd-osgo-root-"), storageDir: tempDir("osd-osgo-instance-"),
+      workspaceFolders: [], engine: "osgo", osgo: {storageDir: globalStorage, version: "1.2.3",
+        baseUrl: release.baseUrl, platform: "linux", arch: "x64", home}});
+    const error = await rejects(launcher.start(), /does not match its \.sha256/);
+    expect(classify(error.logText, error).kind).to.equal("osgo");
+    expect(launcher.state).to.equal("stopped");
+    expect(existsSync(home), "never spawned").to.equal(false);
+  });
+
+  it("refuses a database other than SQLite with OSGO_DATABASE", async () => {
+    const launcher = createLauncher({osdHome: tempDir("osd-osgo-root-"), storageDir: tempDir("osd-osgo-instance-"),
+      workspaceFolders: [], engine: "osgo", database: {kind: "postgres", host: "localhost"},
+      osgo: {binary: "/nonexistent/osgo"}});
+    const error = await rejects(launcher.start(), /own SQLite file/);
+    expect(error.code).to.equal("OSGO_DATABASE");
+    expect(launcher.state).to.equal("stopped");
+  });
+
+  it("an unknown osd.engine value is the Node engine", () => {
+    expect(osgoEngine.engineOf("osgo")).to.equal("osgo");
+    expect(osgoEngine.engineOf("rust")).to.equal("node");
+    expect(osgoEngine.engineOf(undefined)).to.equal("node");
   });
 });

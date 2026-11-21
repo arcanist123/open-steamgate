@@ -6,6 +6,8 @@ import {builtinModules} from "node:module";
 import {tmpdir} from "node:os";
 import {createServer} from "node:net";
 import {runtimeRootFixture} from "./helpers/runtime-root.mjs";
+import {guiConverterPath} from "../tools/osd-gui-convert.mjs";
+import {scriptCommandIn} from "../tools/osd-host.mjs";
 
 const runtimeFixture = runtimeRootFixture();
 
@@ -49,12 +51,17 @@ describe("binary build modes from a clean checkout", function () {
 
   it("builds checkout mode without .local/lars and reports its mode", () => {
     const output = join(checkout, "osd-test");
-    const build = spawnSync("bun", ["scripts/build-binary.mjs", output], {cwd: checkout, encoding: "utf8"});
+    // a clean checkout has no generation to stamp from: test-only, unstamped
+    const build = spawnSync("bun", ["scripts/build-binary.mjs", "--unstamped", output], {cwd: checkout, encoding: "utf8"});
     expect(build.status, build.stderr).to.equal(0);
     expect(build.stdout).to.contain("checkout mode: no embedded system seed");
     const doctor = spawnSync(output, ["doctor"], {cwd: checkout, encoding: "utf8"});
     expect(doctor.status, doctor.stderr).to.equal(0);
     expect(doctor.stdout).to.contain("binary mode: checkout (no embedded system seed)");
+    // no .local/lars here: the converter is a library not bootstrapped yet,
+    // which doctor says and does not count as a defect of the binary
+    expect(doctor.stdout).to.match(/^gui converter: (not available -- |.* is missing; run npm run bootstrap$)/m);
+    expect(doctor.stdout).not.to.contain("gui converter: FAILED");
     // the one system id (tools/osd-identity.mjs) and where it came from
     const clean = {...process.env};
     delete clean.OSD_SID;
@@ -79,7 +86,7 @@ describe("binary build modes from a clean checkout", function () {
 
   it("refuses a checkout toolchain changed after the binary was built", () => {
     const output = join(checkout, "osd-identity-test");
-    const compiled = spawnSync("bun", ["scripts/build-binary.mjs", output], {cwd: checkout, encoding: "utf8"});
+    const compiled = spawnSync("bun", ["scripts/build-binary.mjs", "--unstamped", output], {cwd: checkout, encoding: "utf8"});
     expect(compiled.status, compiled.stderr).to.equal(0);
     const view = join(checkout, "changed-toolchain");
     mkdirSync(join(view, "src"), {recursive: true});
@@ -112,6 +119,26 @@ describe("the binary: the same system, one file", function () {
       }
     }
     expect(offenders, "route these through tools/osd-host.mjs").to.deep.equal([]);
+  });
+
+  it("an external script starts with node in a checkout, and with OSD_NODE or a named refusal in a binary", () => {
+    // scriptCommandIn with the process's environment is how a tool runs a
+    // script that is not a tool of this tree (the converter of hana-src-gen
+    // --from-dump): the positive side of the scan above
+    const checkout = scriptCommandIn({}, "dump-to-layers.mjs", ["--out", "x"]);
+    expect(checkout[0], "the plain checkout runs it with this node").to.equal(process.execPath);
+    expect(checkout.slice(1), "the script and its arguments, unchanged").to.deep.equal(["dump-to-layers.mjs", "--out", "x"]);
+    // hosted: OSD_SELF is one command (a binary), so process.execPath is
+    // that binary and a real interpreter is resolved instead
+    const binaryEnv = {OSD_SELF: JSON.stringify([process.execPath])};
+    expect(scriptCommandIn({...binaryEnv, OSD_NODE: process.execPath}, "c.mjs"), "OSD_NODE answers")
+      .to.deep.equal([process.execPath, "c.mjs"]);
+    expect(() => scriptCommandIn({...binaryEnv, OSD_NODE: join(root, "no-such-node")}, "c.mjs"), "a missing OSD_NODE names it")
+      .to.throw(/OSD_NODE/);
+    if (typeof Bun === "undefined") {
+      expect(() => scriptCommandIn(binaryEnv, "c.mjs"), "no interpreter to resolve says where to set one")
+        .to.throw(/external script/);
+    }
   });
 
   // `osd build` inside the binary runs each generator as `<binary> gen
@@ -157,6 +184,72 @@ describe("the binary: the same system, one file", function () {
     }
     expect(seen.size, "the generators and what they import").to.be.greaterThan(5);
     expect(offenders, "import these statically; the binary has no node_modules to require them from").to.deep.equal([]);
+  });
+
+  // A checkout-mode binary does not bundle the gui converter (a checkout
+  // build must succeed without .local/lars, see above), so osd-gui-convert
+  // loads it from the tree's open-abap-gui at run time -- and the converter
+  // imports @abaplint/core by name, which inside a binary only a
+  // build.module of bin/osd.mjs can answer (wall 1 of docs/bun-spike.md
+  // part three). Measured 2026-11-08: `build/osd up` from a bootstrapped
+  // checkout died in osd-gui-convert with "Cannot find module
+  // '@abaplint/core'". The static half below reads what the converter
+  // imports against what bin/osd.mjs answers, so a library bump that adds
+  // an import fails here; the runtime half runs the generator in the binary.
+  const converter = (() => {
+    try {
+      return guiConverterPath(root);
+    } catch {
+      return undefined;
+    }
+  })();
+  const hostPackages = () => {
+    const text = readFileSync(join(root, "bin", "osd.mjs"), "utf8");
+    const block = /const HOST_PACKAGES = \{([\s\S]*?)\n\};/.exec(text);
+    expect(block, "a HOST_PACKAGES map in bin/osd.mjs").not.to.equal(null);
+    return [...block[1].matchAll(/^\s*"([^"]+)":/gm)].map((m) => m[1]);
+  };
+
+  it("every package the gui converter imports by name is one the binary answers", function () {
+    if (converter === undefined || !existsSync(converter)) this.skip();
+    const builtin = new Set(builtinModules);
+    const seen = new Set();
+    const queue = [converter];
+    const imported = new Set();
+    while (queue.length > 0) {
+      const file = queue.pop();
+      if (seen.has(file) || !existsSync(file)) continue;
+      seen.add(file);
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/(?:from\s+|import\(\s*)["']([^"']+)["']/g)) {
+        const spec = m[1];
+        if (spec.startsWith(".") || spec.startsWith("/")) {
+          queue.push(resolve(dirname(file), spec));
+        } else if (!spec.startsWith("node:") && !builtin.has(spec)) {
+          imported.add(spec);
+        }
+      }
+    }
+    expect(seen.size, "the converter and what it imports").to.be.greaterThan(3);
+    expect(imported.size, "the converter imports at least the core by name").to.be.greaterThan(0);
+    const answered = hostPackages();
+    expect([...imported].filter((spec) => !answered.includes(spec)),
+      "add these to HOST_PACKAGES in bin/osd.mjs; a binary resolves no package by name").to.deep.equal([]);
+  });
+
+  it("runs the gui converter from the checkout's library inside the binary", function () {
+    if (!built || converter === undefined || !existsSync(converter)) this.skip();
+    const out = mkdtempSync(join(tmpdir(), "osd-binary-gui-"));
+    try {
+      const result = spawnSync(binary, [...prefix, "gen", "osd-gui-convert.mjs", "--out", out], {cwd: root, encoding: "utf8"});
+      expect(result.status, result.stdout + result.stderr).to.equal(0);
+      expect(result.stderr, "no module the binary could not find").not.to.contain("Cannot find module");
+      expect(readdirSync(out).filter((f) => f.endsWith(".clas.abap")), "converted classes").not.to.have.length(0);
+      const doctor = execFileSync(binary, [...prefix, "doctor"], {cwd: root, encoding: "utf8"});
+      expect(doctor).to.match(/^gui converter: (bundled|loaded from )/m);
+    } finally {
+      rmSync(out, {recursive: true, force: true});
+    }
   });
 
   it("runs CDS generation even when layer discovery already imported its parser", function () {

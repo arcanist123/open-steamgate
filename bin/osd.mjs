@@ -17,31 +17,35 @@
 // generated after the binary was built imports "@abaplint/runtime" by name
 // and "../test/setup.mjs" by path, and neither is on disk beside it: a Bun
 // runtime plugin answers both with the binary's own copies, so the
-// generated code and the host run one runtime. Second, every bundled
+// generated code and the host run one runtime. The gui converter of a
+// checkout-mode binary is the other module loaded from disk at run time
+// (.local/lars/open-abap-gui, which a checkout build must not depend on),
+// and it imports @abaplint/core by name: answered the same way, from the
+// binary's one copy (HOST_PACKAGES below). Second, every bundled
 // module shares one import.meta.url, so the "am I the script being run"
 // guards of the tools would all fire on import: argv[1] is set to a name
 // no module ends with, and the modes are dispatched here.
 import * as runtime from "@abaplint/runtime";
 import * as core from "@abaplint/core";
+import * as coreSyntax from "@abaplint/core/build/src/abap/5_syntax/syntax.js";
+import * as coreParser from "@abaplint/core/build/src/abap/abap_parser.js";
 import {Transpiler, Chunk} from "@abaplint/transpiler";
 import {config as validationConfig} from "@abaplint/transpiler/build/src/validation.js";
 import {CallFunctionTranspiler} from "@abaplint/transpiler/build/src/statements/call_function.js";
 import * as guiConverter from "../.local/lars/open-abap-gui/converter/src/api.mjs";
 import * as setup from "../test/setup.mjs";
 import {pathToFileURL} from "node:url";
+import {existsSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import {createRequire} from "node:module";
 import {buildIdentity} from "../tools/osd-transpiler.mjs";
 import {systemId} from "../tools/osd-identity.mjs";
-import {spawnSync} from "node:child_process";
-import {toolCommand, setHostedLeakScanner, compiled, setHostModules, dataDirOf, ensureBinaryHome, homesIn, isCheckout, layerList} from "../tools/osd-host.mjs";
+import {compiled, setHostModules, dataDirOf, ensureBinaryHome, homesIn, isCheckout, layerList} from "../tools/osd-host.mjs";
+import {installHostedLeakScanner} from "../tools/osd-hosted-leak-scanner.mjs";
 
 // The binary owns hosted subprocess dispatch; the plain Node publisher has
 // no dependency on this entry point and always runs its fixed scanner script.
-setHostedLeakScanner((cwd, paths) => {
-  const [command, ...args] = toolCommand("tools/osd-leak-scan.mjs", ["--redact", "--publication-allow", "--paths", ...paths]);
-  return spawnSync(command, args, {cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024});
-});
+installHostedLeakScanner();
 
 // Bundles retain the identity of the packages actually embedded at build
 // time. Reading a later checkout here would falsely describe old code.
@@ -49,6 +53,8 @@ const toolchainIdentity = typeof __OSD_TOOLCHAIN_IDENTITY__ !== "undefined"
   ? __OSD_TOOLCHAIN_IDENTITY__ : buildIdentity(process.cwd());
 const embeddedSeed = typeof __OSD_BINARY_SEEDED__ !== "undefined" && __OSD_BINARY_SEEDED__;
 const [, , mode = "up", ...rawArgs] = process.argv;
+// `osd hana` (tools/osd-hana/) is the rescue path off a HANA database and
+// needs no system: it runs from any folder, checkout or seed or neither.
 // Usage is not startup: do this before validating/mounting layers or
 // materializing a standalone system home, let alone building/listening.
 if (mode === "up" && rawArgs.includes("--help")) {
@@ -65,7 +71,8 @@ Environment: OSD_WARM=1 enables warm activation; STG_PORT sets the HTTP port.`);
 const {folders: userLayers, rest} = mode === "run" ? {folders: [], rest: rawArgs} : layerList(rawArgs);
 if (userLayers.length > 0) process.env.OSD_LAYERS = userLayers.join(process.platform === "win32" ? ";" : ":");
 if (compiled && !isCheckout(process.cwd()) && process.env.OSD_BINARY_HOME !== process.cwd()
-    && mode !== "ready" && mode !== "doctor" && mode !== "compiler" && mode !== "replay-promote" && !(mode === "unit" && rest.includes("--go"))) {
+    && mode !== "ready" && mode !== "doctor" && mode !== "compiler" && mode !== "replay-promote" && mode !== "hana"
+    && !(mode === "unit" && rest.includes("--go"))) {
   if (!embeddedSeed) throw new Error("checkout-mode binary requires an open-steamgate checkout; build with --seed for standalone use");
   const home = await ensureBinaryHome(resolve(import.meta.dir, "osd-seed.tar.gz"), dataDirOf());
   process.chdir(home);
@@ -87,6 +94,24 @@ const sea = (() => {
 })();
 process.env.OSD_SELF = JSON.stringify(compiled || sea ? [process.execPath] : [process.execPath, resolve(process.argv[1])]);
 
+// Every package a module loaded from disk at run time imports by name, and
+// the binary's own copy that answers it: a compiled binary resolves no bare
+// specifier from any node_modules and onResolve never sees one
+// (docs/bun-spike.md part three, wall 1), so each one is a build.module.
+// Generated code imports the runtime; the gui converter, loaded from
+// .local/lars/open-abap-gui in checkout mode, imports the core and two of
+// its files by their paths. test/osd-binary.mjs reads this list and checks
+// it against what the converter actually imports, so a lib bump that adds
+// one fails there and not in `osd up`. It stays above the name restoration:
+// test/vscode-abap-debug-view.mjs bundles that loop alone, sliced from it to
+// the plugin below.
+const HOST_PACKAGES = {
+  "@abaplint/runtime": runtime,
+  "@abaplint/core": core,
+  "@abaplint/core/build/src/abap/5_syntax/syntax.js": coreSyntax,
+  "@abaplint/core/build/src/abap/abap_parser.js": coreParser,
+};
+
 // The bundle renames a top-level class whose name collides with another
 // (types.Date became Date2, types.String String2, measured with `osd
 // doctor`), and the runtime tells types apart by constructor.name in some
@@ -103,7 +128,9 @@ if (typeof Bun !== "undefined") {
   Bun.plugin({
     name: "osd-host",
     setup(build) {
-      build.module("@abaplint/runtime", () => ({exports: runtime, loader: "object"}));
+      for (const [name, exports] of Object.entries(HOST_PACKAGES)) {
+        build.module(name, () => ({exports, loader: "object"}));
+      }
       build.onResolve({filter: /\/test\/setup\.mjs$/}, () => ({path: "osd:setup", namespace: "osd-host"}));
       // the transpiler writes a namespace as %23 in an import and as # in
       // the file name (a URL against a path), and Bun's resolver takes the
@@ -121,9 +148,11 @@ const GENERATORS = {
   "gogen-unit.mjs": () => import(pathToFileURL(resolve(process.cwd(), "tools/gogen/unit.mjs")).href),
   "osd-transpiler.mjs": () => import("../tools/osd-transpiler.mjs"),
   "osd-inputs.mjs": () => import("../tools/osd-inputs.mjs"),
+  "bdef-gen.mjs": () => import("../tools/rap/bdef-gen.mjs"),
   "cds2ddic.mjs": () => import("../tools/cds2ddic.mjs"),
   "stg-compile.mjs": () => import("../tools/stg-compile.mjs"),
   "segw-registry.mjs": () => import("../tools/segw-registry.mjs"),
+  "hana-segw-gen.mjs": () => import("../tools/hana-segw-gen.mjs"),
   "segw-shlp.mjs": () => import("../tools/segw-shlp.mjs"),
   "amdp-gen.mjs": () => import("../tools/amdp-gen.mjs"),
   "amdp-tablefunc.mjs": () => import("../tools/amdp-tablefunc.mjs"),
@@ -132,13 +161,25 @@ const GENERATORS = {
   "osd-bsp-registry.mjs": () => import("../tools/osd-bsp-registry.mjs"),
   "osd-tran-registry.mjs": () => import("../tools/osd-tran-registry.mjs"),
   "osd-gui-convert.mjs": () => import("../tools/osd-gui-convert.mjs"),
+  "osd-textpool-registry.mjs": () => import("../tools/osd-textpool-registry.mjs"),
+  "osd-ddic-info-registry.mjs": () => import("../tools/osd-ddic-info-registry.mjs"),
   // not a generator: the warm build's comparison with a cold transpile
   "osd-warm.mjs": () => import("../tools/osd-warm.mjs"),
   "osd-warm-worker.mjs": () => import("../tools/osd-warm-worker.mjs"),
   // not a generator: osabap, for `osd run`; a checkout's tool, so imported
   // by a computed URL the bundler leaves alone rather than carried in it
   "osabap.mjs": () => import(new URL("../tools/gogen/osabap.mjs", import.meta.url).href),
+  // not a generator: a pack's seed capture, started by the build as a child
+  // (tools/osd-build.mjs makePackSeeds). A checkout's tool like osabap, and
+  // doubly so: it hashes its own bytes into the seed digest, so it must be
+  // the tree's copy even inside a binary
+  "seed-capture.mjs": () => import(pathToFileURL(resolve(process.env.OSD_ROOT ?? process.cwd(),
+    "tools", "rap-flight", "seed-capture.mjs")).href),
 };
+
+// A child of a recorded generator (the seed capture's runtime, say) records
+// in every mode, so it owes its parent the same handshake as `gen` does.
+if (process.env.OSD_GENERATOR_READS) await import("../tools/osd-generator-reads.mjs");
 
 switch (mode) {
   case "compiler": {
@@ -172,6 +213,7 @@ switch (mode) {
   case "gen": {
     const {installGeneratorView} = await import("../tools/osd-generator-view.mjs");
     installGeneratorView();
+    await import("../tools/osd-generator-reads.mjs");
     const [name, ...args] = rest;
     if (GENERATORS[name] === undefined) {
       console.error(`osd gen: not a generator: ${name}`);
@@ -268,6 +310,35 @@ switch (mode) {
     }
     const {doctorWarmPin} = await import("../tools/osd-warm-capabilities.mjs");
     await doctorWarmPin(Transpiler, core);
+    // the gui converter: bundled into a seeded binary, loaded from the
+    // checkout's .local/lars by a checkout-mode one -- where its imports by
+    // name are answered by HOST_PACKAGES, which is what is checked here by
+    // loading it. A library not bootstrapped yet is a state, not a defect.
+    if (embeddedSeed) {
+      console.log("gui converter: bundled (seeded binary)");
+    } else if (!isCheckout(process.cwd())) {
+      console.log("gui converter: not in a checkout, nothing to load");
+    } else {
+      const {guiConverterPath} = await import("../tools/osd-gui-convert.mjs");
+      let path;
+      try {
+        path = guiConverterPath(process.cwd());
+      } catch (error) {
+        console.log(`gui converter: not available -- ${error.message}`);
+      }
+      if (path !== undefined && !existsSync(path)) {
+        console.log(`gui converter: ${path} is missing; run npm run bootstrap`);
+      } else if (path !== undefined) {
+        try {
+          const {convertProgram} = await import(path);
+          if (typeof convertProgram !== "function") throw new Error("the module exports no convertProgram");
+          console.log(`gui converter: loaded from ${path}`);
+        } catch (error) {
+          console.log(`gui converter: FAILED to load ${path}: ${error.message}`);
+          process.exitCode = 1;
+        }
+      }
+    }
     // what the bundle did to the runtime: a class the runtime looks up by
     // its name must still carry that name after bundling
     const renamed = [];
@@ -284,7 +355,16 @@ switch (mode) {
     }
     break;
   }
+  case "hana": {
+    // the osd-hana product line (tools/osd-hana/); the verbs dispatch inside
+    // the osd binary is a caller: it hands in the sidecar beside its own
+    // executable (OSD_HANA_DUMP still wins; the pin still verifies it)
+    const {main} = await import("../tools/osd-hana/osd-hana.mjs");
+    const {sidecarBesideExecutable} = await import("../tools/osd-hana/sidecar.mjs");
+    process.exit(await main(rest, {callerPath: compiled ? sidecarBesideExecutable() : undefined}));
+    break;
+  }
   default:
-    console.error(`osd: unknown mode ${mode}; one of up, serve, build, fetch, gen, unit, run, protocols, compiler, ready, doctor`);
+    console.error(`osd: unknown mode ${mode}; one of up, serve, build, fetch, gen, unit, run, protocols, compiler, ready, doctor, hana`);
     process.exit(2);
 }

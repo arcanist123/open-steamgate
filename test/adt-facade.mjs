@@ -572,8 +572,17 @@ describe("tools/adt-facade: OSD answers ADT", () => {
     it("it answers at both of its names, because a client uses both", async () => {
       const core = await call("/core/discovery");
       const plain = await call("/discovery");
+      expect(core.status).to.equal(200);
       expect(plain.status).to.equal(200);
-      expect(await plain.text()).to.equal(await core.text());
+      const coreXml = await core.text();
+      const plainXml = await plain.text();
+      // the same collections at both names; core/discovery holds one per
+      // workspace (abap-adt-api's core reader), discovery groups them
+      const hrefs = (xml) => [...xml.matchAll(/<app:collection href="([^"]*)"/g)].map((m) => m[1]);
+      expect(hrefs(coreXml)).to.deep.equal(hrefs(plainXml));
+      const count = (xml, tag) => xml.split(tag).length - 1;
+      expect(count(coreXml, "<app:workspace>")).to.equal(hrefs(coreXml).length);
+      expect(count(plainXml, "<app:workspace>")).to.be.below(hrefs(plainXml).length);
     });
 
     it("discovery advertises what is mounted and nothing else", async () => {

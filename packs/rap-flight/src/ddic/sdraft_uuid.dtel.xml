@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_DTEL" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <DD04V>
+    <ROLLNAME>SDRAFT_UUID</ROLLNAME>
+    <DDLANGUAGE>E</DDLANGUAGE>
+    <DATATYPE>RAW</DATATYPE>
+    <HEADLEN>55</HEADLEN>
+    <SCRLEN1>04</SCRLEN1>
+    <SCRLEN2>04</SCRLEN2>
+    <SCRLEN3>04</SCRLEN3>
+    <DDTEXT>Stand-in: released draft UUID data element (the draft tables compile; no draft runtime)</DDTEXT>
+    <REPTEXT>Draft UUID</REPTEXT>
+    <SCRTEXT_S>UUID</SCRTEXT_S>
+    <SCRTEXT_M>Draft UUID</SCRTEXT_M>
+    <SCRTEXT_L>Draft UUID</SCRTEXT_L>
+    <DTELMASTER>E</DTELMASTER>
+    <LENG>000016</LENG>
+    <DECIMALS>000000</DECIMALS>
+    <OUTPUTLEN>000032</OUTPUTLEN>
+   </DD04V>
+  </asx:values>
+ </asx:abap>
+</abapGit>

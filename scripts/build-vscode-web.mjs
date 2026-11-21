@@ -26,6 +26,9 @@ const missing = selected.flatMap((pack) => pack.missing.map((source) => ({
 })));
 if (missing.length) throw new Error(describeUnfetched(missing));
 const env = {...process.env, OSD_WEB_PACKS: selection};
+// and in this process too: the stamp at the end names the generation the
+// transpile below builds, and the selection is one of its inputs
+process.env.OSD_WEB_PACKS = selection;
 console.log(`VS Code web packs: ${selection === "" ? "core (none)" : selection === "zork" ? "core+zork" : selection}`);
 async function run(command, args) {
   const child = spawn(command, args, {cwd: root, env, stdio: "inherit"});
@@ -119,3 +122,5 @@ async function measure(dir) {
 }
 await measure(app);
 console.log(`VS Code web apps: ${appFiles} files, ${appBytes} bytes (${(appBytes / 1048576).toFixed(2)} MiB), ${Object.keys(components).length} UI5 components`);
+const {writePublicArtefact} = await import("../tools/osd-public-tree.mjs");
+writePublicArtefact(resolve(root, "editors/vscode/dist/web"), root);

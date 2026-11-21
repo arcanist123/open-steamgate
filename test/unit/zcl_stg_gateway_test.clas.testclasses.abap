@@ -9,6 +9,7 @@ CLASS ltcl_url DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FINAL.
     METHODS quoted_key FOR TESTING RAISING cx_static_check.
     METHODS typed_keys_and_bad_quote FOR TESTING RAISING cx_static_check.
     METHODS not_odata FOR TESTING RAISING cx_static_check.
+    METHODS namespace_route FOR TESTING RAISING cx_static_check.
 ENDCLASS.
 
 CLASS ltcl_url IMPLEMENTATION.
@@ -160,6 +161,38 @@ CLASS ltcl_url IMPLEMENTATION.
                                         exp = abap_true ).
   ENDMETHOD.
 
+  METHOD namespace_route.
+    DATA ls_request TYPE zcl_stg_url=>ty_request.
+
+* /sap/opu/odata/<NS>/<Service>: the namespace takes the place of "sap", the
+* service is still the external name
+    ls_request = zcl_stg_url=>parse( '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/TravelSet/$count' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-service
+                                        exp = 'ZSTG_DEMO_SRV' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-namespace
+                                        exp = 'OSDNS' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-prefix
+                                        exp = '/sap/opu/odata/OSDNS' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-entity_set
+                                        exp = 'TravelSet' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-is_count
+                                        exp = abap_true ).
+    ls_request = zcl_stg_url=>parse( '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/$metadata' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-is_metadata
+                                        exp = abap_true ).
+* the /sap/ prefix is no namespace
+    ls_request = zcl_stg_url=>parse( '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet' ).
+    cl_abap_unit_assert=>assert_initial( ls_request-namespace ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-prefix
+                                        exp = '/sap/opu/odata/sap' ).
+* and SAP in another case is the same /sap/: one spelling of the prefix, so
+* a service does not live under two addresses in the answers
+    ls_request = zcl_stg_url=>parse( '/sap/opu/odata/SAP/ZSTG_DEMO_SRV/TravelSet' ).
+    cl_abap_unit_assert=>assert_initial( ls_request-namespace ).
+    cl_abap_unit_assert=>assert_equals( act = ls_request-prefix
+                                        exp = '/sap/opu/odata/sap' ).
+  ENDMETHOD.
+
   METHOD not_odata.
     DATA lx_error TYPE REF TO zcx_stg_error.
 
@@ -281,6 +314,7 @@ CLASS ltcl_dispatch DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FI
     METHODS unknown_key FOR TESTING RAISING cx_static_check.
     METHODS unknown_service FOR TESTING RAISING cx_static_check.
     METHODS post_not_implemented FOR TESTING RAISING cx_static_check.
+    METHODS namespace_prefix FOR TESTING RAISING cx_static_check.
 
     METHODS get
       IMPORTING
@@ -291,6 +325,23 @@ CLASS ltcl_dispatch DEFINITION FOR TESTING DURATION SHORT RISK LEVEL HARMLESS FI
 ENDCLASS.
 
 CLASS ltcl_dispatch IMPLEMENTATION.
+
+  METHOD namespace_prefix.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+
+* a service addressed in a namespace answers there, and its entries name
+* the address they were read under rather than /sap/
+    ls_response = get( '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/$metadata' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200 ).
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<EntitySet Name="TravelSet" EntityType="ZSTG_DEMO_SRV.Travel"' ) ).
+    ls_response = get( iv_path  = '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/TravelSet'
+                       iv_query = `$top=1&$select=TravelId` ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 200 ).
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/TravelSet(' ) ).
+    cl_abap_unit_assert=>assert_false( boolc( ls_response-body CS '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet(' ) ).
+  ENDMETHOD.
 
   METHOD setup.
 * the value help of the demo is a search help, its provider comes from the
@@ -643,10 +694,13 @@ CLASS ltcl_filter IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_option-low
                                         exp = '*3' ).
 
+* tolower( ) keeps its folding since M3 B3 (security review of #951,
+* finding 2): a range cannot hold it, so a folded comparison has no
+* select-options at all and the OSQL condition carries LOWER( STATUS ).
+* Before, it was the range Status = 'a' -- the folding silently dropped,
+* and `ne` answered the row the request excluded
     lt_filter = parse( `tolower(Status) eq 'a'` ).
-    ls_option = option( it_filter = lt_filter iv_property = 'Status' ).
-    cl_abap_unit_assert=>assert_equals( act = ls_option-low
-                                        exp = 'a' ).
+    cl_abap_unit_assert=>assert_initial( lt_filter ).
   ENDMETHOD.
 
   METHOD ne_and_not.
@@ -762,6 +816,7 @@ CLASS ltcl_writes DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FIN
         iv_method          TYPE string
         iv_path            TYPE string
         iv_body            TYPE string OPTIONAL
+        iv_if_match        TYPE string OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
 ENDCLASS.
@@ -776,9 +831,20 @@ CLASS ltcl_writes IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD call.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method = iv_method
-                                                iv_path   = iv_path
-                                                iv_body   = iv_body ).
+    DATA lt_headers TYPE tihttpnvp.
+    DATA ls_header  TYPE ihttpnvp.
+
+* Travel declares an ETag, so its MERGE/PUT/DELETE take If-Match (the tests
+* send * : nothing here races with another writer)
+    IF iv_if_match IS NOT INITIAL.
+      ls_header-name  = 'if-match'.
+      ls_header-value = iv_if_match.
+      APPEND ls_header TO lt_headers.
+    ENDIF.
+    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = iv_method
+                                                iv_path    = iv_path
+                                                iv_body    = iv_body
+                                                it_headers = lt_headers ).
   ENDMETHOD.
 
   METHOD parse_body.
@@ -824,9 +890,10 @@ CLASS ltcl_writes IMPLEMENTATION.
                                         exp = 200 ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS `"Description":"Odense to Berlin"` ) ).
 
-    ls_response = call( iv_method = 'PUT'
-                        iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
-                        iv_body   = `{"d":{"TravelId":"T0100","Description":"Odense to Berlin, updated","Status":"X","Seats":"5"}}` ).
+    ls_response = call( iv_method   = 'PUT'
+                        iv_path     = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
+                        iv_body     = `{"d":{"TravelId":"T0100","Description":"Odense to Berlin, updated","Status":"X","Seats":"5"}}`
+                        iv_if_match = '*' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
     cl_abap_unit_assert=>assert_initial( ls_response-body ).
@@ -837,17 +904,19 @@ CLASS ltcl_writes IMPLEMENTATION.
 
 * MERGE (what Fiori Elements sends on Save) changes only the properties it
 * carries; the Gateway reads the entity first and lays the request over it
-    ls_response = call( iv_method = 'MERGE'
-                        iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
-                        iv_body   = `{"Seats":"7"}` ).
+    ls_response = call( iv_method   = 'MERGE'
+                        iv_path     = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
+                        iv_body     = `{"Seats":"7"}`
+                        iv_if_match = '*' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
     ls_response = call( iv_method = 'GET'
                         iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')` ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS `"Description":"Odense to Berlin, updated","Status":"X","Seats":7` ) ).
 
-    ls_response = call( iv_method = 'DELETE'
-                        iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')` ).
+    ls_response = call( iv_method   = 'DELETE'
+                        iv_path     = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0100')`
+                        iv_if_match = '*' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
 
@@ -911,6 +980,7 @@ CLASS ltcl_batch DEFINITION FOR TESTING DURATION SHORT RISK LEVEL DANGEROUS FINA
     METHODS binary_and_boundary_text FOR TESTING RAISING cx_static_check.
     METHODS closing_boundary_at_end FOR TESTING RAISING cx_static_check.
     METHODS retrieve_parts FOR TESTING RAISING cx_static_check.
+    METHODS retrieve_under_namespace FOR TESTING RAISING cx_static_check.
     METHODS changeset_ok FOR TESTING RAISING cx_static_check.
     METHODS changeset_fails_as_a_whole FOR TESTING RAISING cx_static_check.
     METHODS boundary_missing_is_400 FOR TESTING RAISING cx_static_check.
@@ -1053,19 +1123,41 @@ CLASS ltcl_batch IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'DataServiceVersion: 2.0' ) ).
   ENDMETHOD.
 
+  METHOD retrieve_under_namespace.
+    DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lv_body     TYPE string.
+
+* a batch posted under a namespace prefix: its relative inner requests are
+* joined onto that prefix, and the entries they answer name it too
+    lv_body = crlf( `--b|Content-Type: application/http|Content-Transfer-Encoding: binary||GET TravelSet('T0003') HTTP/1.1||--b--|` ).
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+                                                iv_path         = '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/$batch'
+                                                iv_body         = lv_body
+                                                iv_content_type = 'multipart/mixed; boundary=b' ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-status
+                                        exp = 202 ).
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'HTTP/1.1 200 OK' ) ).
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '"Description":"Aarhus to Odense"' ) ).
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/TravelSet(' ) ).
+    cl_abap_unit_assert=>assert_false( boolc( ls_response-body CS '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet(' ) ).
+  ENDMETHOD.
+
   METHOD changeset_ok.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lv_body     TYPE string.
 
     lv_body = crlf( `--b|Content-Type: multipart/mixed; boundary=cs||--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||` &&
                     `POST TravelSet HTTP/1.1|Content-Type: application/json||{"TravelId":"T0301","Description":"batch","Seats":1}|` &&
-                    `--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||DELETE TravelSet('T0301') HTTP/1.1||--cs--||--b--|` ).
+* a part with request headers needs the blank line that ends them, and the
+* empty body line, before the boundary closes it (three line breaks in all)
+                    `--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||DELETE TravelSet('T0301') HTTP/1.1|If-Match: *|||--cs--||--b--|` ).
     ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
-                                        exp = 202 ).
+                                        exp = 202
+                                        msg  = ls_response-body ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'Content-Type: multipart/mixed; boundary=changesetresponse_stg_' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'HTTP/1.1 201 Created' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'HTTP/1.1 204 No Content' ) ).
@@ -1323,13 +1415,19 @@ CLASS ltcl_navigation IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Annotation Term="com.sap.vocabularies.Common.v1.Text" Path="StatusText">' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<PropertyValue Property="CollectionPath" String="StatusVHSet"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Annotation Term="com.sap.vocabularies.UI.v1.SelectionFields">' ) ).
-    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Property Name="TravelId" Type="Edm.String" Nullable="false" MaxLength="8" sap:unicode="false" sap:label="Travel"' ) ).
+* no sap:unicode: the demo's model adds no unicode annotation, and a system
+* writes sap:unicode only where the model does (milestone 3 B4, measured;
+* the writer used to hard-code "false")
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Property Name="TravelId" Type="Edm.String" Nullable="false" MaxLength="8" sap:label="Travel"' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<NavigationProperty Name="to_Bookings" Relationship="ZSTG_DEMO_SRV.TravelToBookings" FromRole="FromRole_TravelToBookings" ToRole="ToRole_TravelToBookings"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<NavigationProperty Name="to_Travel" Relationship="ZSTG_DEMO_SRV.TravelToBookings" FromRole="ToRole_TravelToBookings" ToRole="FromRole_TravelToBookings"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Association Name="TravelToBookings"' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<End Type="ZSTG_DEMO_SRV.Booking" Multiplicity="*" Role="ToRole_TravelToBookings"/>' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<AssociationSet Name="TravelToBookingsSet" Association="ZSTG_DEMO_SRV.TravelToBookings"' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Property Name="FlightDate" Type="Edm.DateTime" Nullable="true" Precision="0"' ) ).
+* the date keeps its display format by the model's own annotation (the
+* Gateway no longer derives one from a DATS component, milestone 3 B4)
+    cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'sap:label="Flight date" sap:creatable="true" sap:updatable="true" sap:sortable="true" sap:filterable="true" sap:display-format="Date"' ) ).
   ENDMETHOD.
 
   METHOD to_many_navigation.
@@ -1517,6 +1615,8 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
 
   METHOD travel_with_bookings.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_header   TYPE ihttpnvp.
 
     ls_response = zcl_stg_dispatcher=>dispatch(
       iv_method = 'POST'
@@ -1536,8 +1636,13 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_response-body
                                         exp = '2' ).
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'DELETE'
-                                                iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0600')` ).
+    CLEAR ls_header.
+    ls_header-name  = 'if-match'.
+    ls_header-value = '*'.
+    APPEND ls_header TO lt_headers.
+    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'DELETE'
+                                                iv_path    = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0600')`
+                                                it_headers = lt_headers ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
   ENDMETHOD.
@@ -1576,6 +1681,8 @@ CLASS ltcl_function_import IMPLEMENTATION.
   METHOD entity_returning_action.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lt_options  TYPE tihttpnvp.
+    DATA lt_headers  TYPE tihttpnvp.
+    DATA ls_header   TYPE ihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `TravelId='T0002'` ).
     ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'POST'
@@ -1588,9 +1695,13 @@ CLASS ltcl_function_import IMPLEMENTATION.
 
 * undo for the other tests
     lt_options = cl_http_utility=>string_to_fields( `x=1` ).
-    zcl_stg_dispatcher=>dispatch( iv_method = 'PUT'
-                                  iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0002')`
-                                  iv_body   = '{"Description":"Copenhagen to Aarhus","Status":"A","Seats":1}' ).
+    ls_header-name  = 'if-match'.
+    ls_header-value = '*'.
+    APPEND ls_header TO lt_headers.
+    zcl_stg_dispatcher=>dispatch( iv_method  = 'PUT'
+                                  iv_path    = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0002')`
+                                  iv_body    = '{"Description":"Copenhagen to Aarhus","Status":"A","Seats":1}'
+                                  it_headers = lt_headers ).
   ENDMETHOD.
 
   METHOD primitive_returning_action.

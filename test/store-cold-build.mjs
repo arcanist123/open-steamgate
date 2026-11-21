@@ -13,6 +13,7 @@ import {closeWarm} from "../tools/osd-store-warm.mjs";
 import {cpSync} from "node:fs";
 import {once} from "node:events";
 import {ServingRuntime} from "../tools/osd-runtime.mjs";
+import {scaled, speed} from "../tools/warm-deadline/warm-deadline.mjs";
 
 const repo = resolve(".");
 const source = value => `CLASS zcl_cold_draft DEFINITION PUBLIC. PUBLIC SECTION.
@@ -182,14 +183,17 @@ describe("STORE cold builds after a source-host restart", function () {
 });
 
 describe("cold source view in real server hosts", function () {
-  this.timeout(240000);
+  // A host start plus its warm prime: on a slower runner both take longer,
+  // and by the factor the prime's own deadline is scaled with.
+  console.log(`runner speed factor ${speed().factor.toFixed(2)} (${speed().source})`);
+  this.timeout(scaled(240000));
   let root, store, runtime, child, hostLog = "";
   const draft = "CLASS zcl_cold_host DEFINITION PUBLIC. PUBLIC SECTION.\n" +
     "INTERFACES if_oo_adt_classrun. ENDCLASS.\n" +
     "CLASS zcl_cold_host IMPLEMENTATION. METHOD if_oo_adt_classrun~main.\n" +
     "out->write( lv_undefined ). ENDMETHOD. ENDCLASS.\n";
   const waitFor = async work => {
-    const deadline = Date.now() + 180000;
+    const deadline = Date.now() + scaled(180000);
     while (Date.now() < deadline) {
       if (child && (child.exitCode !== null || child.signalCode !== null)) throw new Error(hostLog);
       try { if (await work()) return; } catch (error) { if (child && (child.exitCode !== null || child.signalCode !== null)) throw error; }

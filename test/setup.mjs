@@ -447,6 +447,16 @@ async function setupDatabase(abap, schemas, insert) {
     // been failing with a 500 for as long as it batched; found while
     // testing that reset re-seeds the cross-reference.
     preview.insert = given;
+    // Import-time initialization and the worker's "reset" both call setup;
+    // the Node path below has always released the predecessor before
+    // replacing DEFAULT, the preview path never did. sql.js in the preview
+    // is the asm.js build (dist/sql-asm.js, webpack's alias) with ONE fixed
+    // ArrayBuffer of 22151168 bytes and no growth, and a Database that is
+    // not closed keeps its page cache in that heap: reset rebuilt the
+    // database beside the old connection until the reseed aborted with
+    // "Aborted(OOM)" -- first at adabd1d0, where the tree had grown past
+    // what one leaked connection still left room for.
+    await abap.context.databaseConnections["DEFAULT"]?.disconnect();
     if (preview.database === "duckdb") {
       const {DuckDBWasmClient, duckdbSchema, duckdbInserts} = await import("../tools/duckdb-wasm-client.mjs");
       db = installTrim(new DuckDBWasmClient({wasmURL: preview.wasmURL}));
@@ -564,9 +574,41 @@ async function setupDatabase(abap, schemas, insert) {
     // held then; the specifier is a variable so no bundler resolves it.
     const ddicBinaryModule = "../gen/osd-ddic-binary.mjs";
     const {ddicBinary} = await import(/* webpackIgnore: true */ ddicBinaryModule);
-    db = new HanaDatabaseClient({trace: process.env.STG_DB_TRACE === "1", ddicBinary});
+    // H3: with HANA_OWN_SCHEMA the existing-schema session sits in our own
+    // shadow schema (docs/db-backends.md); the tables the build knows are
+    // the eager set, the 259 fallback covers the rest.
+    let shadowTables;
+    if (process.env.HANA_EXISTING_SCHEMA === "1" && process.env.HANA_OWN_SCHEMA) {
+      const {ddicTables} = await import("../tools/hana-shadow-schema.mjs");
+      shadowTables = ddicTables(process.env.OSD_ROOT ?? process.cwd());
+    }
+    // STG_SQL_TRACE: beside the interface (traced, below), what the HANA
+    // client hands the driver -- the folded text, and connect()'s own SET
+    // SCHEMA and shadow DDL, which no wrapper of the eleven members sees
+    const traceFile = process.env.STG_SQL_TRACE;
+    let driverTrace;
+    if (traceFile !== undefined && traceFile !== "") {
+      const sink = fileSink(traceFile);
+      let n = 0;
+      driverTrace = (sql) => sink({n: n++, op: "driver", sql});
+    }
+    const options = {trace: process.env.STG_DB_TRACE === "1", ddicBinary,
+      ...(shadowTables === undefined ? {} : {shadowTables}),
+      ...(driverTrace === undefined ? {} : {sqlTrace: driverTrace})};
+    // the one seam a host may take the client through: tools/hana-serve.mjs
+    // counts its writes there, and its test hands over a fake
+    const factory = globalThis.__osdHanaClientFactory;
+    db = typeof factory === "function" ? await factory(options) : new HanaDatabaseClient(options);
     abap.context.databaseConnections["DEFAULT"] = traced(db);
     await db.connect();
+    // HANA_EXISTING_SCHEMA=1: a schema an SAP system already holds, read-only
+    // at first (docs/db-backends.md, "Existing schema, read-only"). The mode
+    // only skips -- everything below, the DDL, the seed, the drift checks and
+    // the pack reseed, assumes our tables are ours to make, which is exactly
+    // what the mode says is not so. connect() has refused fresh-and-existing
+    // and pointed the session at the schema; the client's guard refuses any
+    // write a caller still tries to send (tools/hana-client.mjs).
+    if (process.env.HANA_EXISTING_SCHEMA === "1") return;
     // Seed once per run, not once per connection. A run opens more than one
     // (the database client, and the AMDP destination holds its own), and both
     // used to build the whole schema. The connection that made the schema
@@ -748,7 +790,12 @@ async function setupDatabase(abap, schemas, insert) {
   // a runtime that gets recycled needs: it is read here and written when
   // this process is asked to go away (tools/osd-persist.mjs). Without it
   // the database is in memory and the seed runs every time, as before.
-  const {loadInto, saveWhenAsked, stamp} = await import("../tools/osd-persist.mjs");
+  const {loadInto, saveWhenAsked, stamp, databaseFile} = await import("../tools/osd-persist.mjs");
+  // no file: the memory database starts from a base image of exactly the
+  // rows below when one was made for them (tools/osd-seed-image.mjs)
+  const image = databaseFile() === undefined
+    ? (await import("../tools/osd-seed-image.mjs")).seedImage(schemas.sqlite, insert) : undefined;
+  if (await image?.load(db)) return;
   // a file made for a different DDIC is not this instance's data, so it is
   // said out loud and built again rather than served as if it fitted
   const restored = await loadInto(db, schemas.sqlite);
@@ -760,6 +807,7 @@ async function setupDatabase(abap, schemas, insert) {
   await db.execute(schemas.sqlite);
   await db.execute(insert);
   await db.execute(seedStatements());
+  image?.save(db);
   await loadScaledData(db, "sqlite");
   await stamp(db, schemas.sqlite);
 }

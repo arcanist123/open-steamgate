@@ -137,7 +137,197 @@ describe("wire", () => {
     expect(body.d.to_Bookings.results[0].Customer).to.equal("Barbara Liskov");
     res = await fetch(BASE + "/TravelSet('T0700')/to_Bookings");
     expect((await res.json()).d.results).to.have.length(1);
-    await fetch(BASE + "/TravelSet('T0700')", {method: "DELETE", headers});
+    // Travel declares an ETag, so its DELETE takes If-Match (here: any)
+    await fetch(BASE + "/TravelSet('T0700')", {method: "DELETE", headers: {...headers, "if-match": "*"}});
+  });
+
+  // A key is data in the response too. The V2 entry built its __deferred
+  // links from the key before the key was escaped for JSON, so a key with a
+  // quote or a backslash (POST makes one) broke GET by key and every list
+  // that held the row; the Location of a created row with a key outside
+  // Latin-1 was a 500 after the row was committed; a NUL in a key was a 500.
+  it("a quote or a backslash in a key stays data in the response: GET by key, the list, the deferred links", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate", "if-match": "*"};
+    const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key.replace(/'/g, "''") + "'")})`;
+    // a lone CR, a backspace, a form feed and the other controls below
+    // U+0020 must be escaped too, or the stored row breaks the whole list;
+    // a quote (OData's own '') must round-trip as well
+    for (const key of ['a"b', "a\\b", 'q","x":"', "a\rb", "a\u0001b", "a\bb", "a\fb", "a\u001fb", "a'b"]) {
+      let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "odd", Status: "A", Seats: 1})});
+      expect(res.status, key).to.equal(201);
+      res = await fetch(keyUrl(key) + "?$format=json");
+      expect(res.status, key).to.equal(200);
+      const one = JSON.parse(await res.text()).d;
+      expect(one.TravelId, key).to.equal(key);
+      expect(Object.keys(one), key).to.not.include("x");
+      expect(one.to_Bookings.__deferred.uri, key).to.equal(one.__metadata.uri + "/to_Bookings");
+      const all = JSON.parse(await (await fetch(BASE + "/TravelSet?$format=json")).text());
+      expect(all.d.results.map((t) => t.TravelId), key).to.include(key);
+      expect((await fetch(keyUrl(key), {method: "DELETE", headers})).status, key).to.equal(204);
+    }
+  });
+
+  // a character outside the BMP is one code point in the URI, not two
+  // lone surrogates (which came out as two U+FFFD and a 404)
+  it("the Location of a created row with a key outside Latin-1 or outside the BMP is a URI", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate", "if-match": "*"};
+    const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key + "'")})`;
+    for (const key of ["Жук", "\u{1F600}", "a\u{1F600}b"]) {
+      let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "odd", Status: "A", Seats: 1})});
+      expect(res.status, key).to.equal(201);
+      const location = res.headers.get("location");
+      expect(location, key).to.match(/^[\x20-\x7e]+$/);
+      res = await fetch(location + "?$format=json");
+      expect(res.status, key).to.equal(200);
+      expect((await res.json()).d.TravelId, key).to.equal(key);
+      expect((await fetch(keyUrl(key), {method: "DELETE", headers})).status, key).to.equal(204);
+    }
+  });
+
+  // the uri an entry carries is the system's percent-encoded form (letters,
+  // digits, -._~ and the quote raw, the rest %XX): reading it back over HTTP
+  // must find the entry, for every character the encoding touches
+  it("an entry's own __metadata uri and its Location read it back over HTTP", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate", "if-match": "*"};
+    const keyUrl = (key) => `${BASE}/TravelSet(${encodeURIComponent("'" + key.replace(/'/g, "''") + "'")})`;
+    for (const key of ["a b/c'd", "a%e&f", "a#1?2+3", "\u0416\u0443\u043a", "a\u{1F600}b"]) {
+      let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: key, Description: "link", Status: "A", Seats: 1})});
+      expect(res.status, key).to.equal(201);
+      const location = res.headers.get("location");
+      const uri = (await res.json()).d.__metadata.uri;
+      expect(location, key).to.equal(uri);
+      expect(uri, key).to.match(/^[A-Za-z0-9:/._~%'()-]+$/);
+      res = await fetch(uri + "?$format=json");
+      expect(res.status, key).to.equal(200);
+      expect((await res.json()).d.TravelId, key).to.equal(key);
+      expect((await fetch(keyUrl(key), {method: "DELETE", headers})).status, key).to.equal(204);
+    }
+  });
+
+  it("a NUL in a key or a $filter literal is a 400 in V2 and V4, in the URL and in a POST body", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    expect((await fetch(`${BASE}/TravelSet('a%00b')?$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet('a%00b')`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/TravelSet?$filter=TravelId%20eq%20'a%00b'&$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet?$filter=TravelId%20eq%20'a%00b'`)).status).to.equal(400);
+    let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "a\u0000b", Description: "nul", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(400);
+    res = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet`, {method: "POST", headers, body: JSON.stringify({TravelId: "a\u0000c", Description: "nul", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(400);
+    const all = await (await fetch(BASE + "/TravelSet?$format=json")).json();
+    expect(all.d.results.map((t) => t.TravelId).filter((id) => id.startsWith("a"))).to.deep.equal([]);
+  });
+
+  // CHAR semantics: trailing blanks of a CHAR key are not part of it, so
+  // 'T0001 ' is T0001 in V2 and V4 alike.
+  it("a trailing blank in a CHAR key: V2 and V4 find the same row", async () => {
+    const v2 = await fetch(`${BASE}/TravelSet('T0001%20')?$format=json`);
+    expect(v2.status).to.equal(200);
+    expect((await v2.json()).d.TravelId).to.equal("T0001");
+    const v4 = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet('T0001%20')`);
+    expect(v4.status).to.equal(200);
+    expect((await v4.json()).TravelId).to.equal("T0001");
+  });
+
+  // A key or a function import parameter longer than the MaxLength of its
+  // property is a 400, as the Gateway's URI parser answers it. Before, the
+  // DPC's CHAR(8) field cut it: TravelSet('T0002    X') read, merged, put
+  // and deleted T0002, and TravelCount(Status='A''') counted the 'A' rows.
+  // The $filter half below is the demo DPC's behaviour, not the gateway's:
+  // its ranges are strings (src/demo/zcl_zstg_demo_dpc_ext.clas.abap:37-42),
+  // so the literal stays whole and matches no row; a DDIC-typed CHAR range
+  // on a system would cut it to T0001 (docs/key-length.md).
+  it("a key or a parameter longer than its MaxLength is a 400; a long $filter literal matches nothing in the demo DPC", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const long = encodeURIComponent("'T0002    X'");
+    const before = (await (await fetch(`${BASE}/TravelSet('T0002')?$format=json`)).json()).d;
+    let res = await fetch(`${BASE}/TravelSet(${long})?$format=json`);
+    expect(res.status).to.equal(400);
+    const error = (await res.json()).error;
+    expect(error.code).to.equal("STG/VALUE_TOO_LONG");
+    expect(JSON.stringify(error.message)).to.contain("TravelId").and.contain("MaxLength 8");
+    expect((await fetch(`${BASE}/TravelSet(TravelId=${long})?$format=json`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/TravelSet(${long})/to_Bookings?$format=json`)).status).to.equal(400);
+    for (const [method, body] of [["MERGE", {Description: "wrong row"}], ["PUT", {Description: "wrong row", Status: "X", Seats: 1}], ["DELETE", undefined]]) {
+      res = await fetch(`${BASE}/TravelSet(${long})`, {method, headers, body: body && JSON.stringify(body)});
+      expect(res.status, method).to.equal(400);
+    }
+    res = await fetch(`${BASE}/TravelSet(${long})/to_Bookings`, {method: "POST", headers, body: JSON.stringify({BookingId: "B990", Customer: "wrong"})});
+    expect(res.status, "POST through navigation").to.equal(400);
+    const after = await fetch(`${BASE}/TravelSet('T0002')?$format=json`);
+    expect(after.status).to.equal(200);
+    expect((await after.json()).d).to.deep.equal(before);
+    // exactly MaxLength is still a key
+    expect((await fetch(`${BASE}/TravelSet('T0002%20%20%20')?$format=json`)).status).to.equal(200);
+
+    // the demo DPC's string ranges keep the literal whole, so no row matches
+    const filtered = await (await fetch(`${BASE}/TravelSet?$format=json&$filter=` + encodeURIComponent("TravelId eq 'T0001    X'"))).json();
+    expect(filtered.d.results).to.deep.equal([]);
+    const v4 = await (await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet?$filter=` + encodeURIComponent("TravelId eq 'T0001    X'"))).json();
+    expect(v4.value).to.deep.equal([]);
+
+    res = await fetch(`${BASE}/TravelCount?Status=${encodeURIComponent("'A'''")}`);
+    expect(res.status).to.equal(400);
+    expect((await res.json()).error.code).to.equal("STG/VALUE_TOO_LONG");
+    expect((await fetch(`${BASE}/TravelCount?Status='AX'`)).status).to.equal(400);
+    res = await fetch(`${BASE}/CancelTravel?TravelId=${long}`, {method: "POST", headers: {"x-csrf-token": "open-steamgate"}});
+    expect(res.status).to.equal(400);
+    expect((await (await fetch(`${BASE}/TravelSet('T0002')?$format=json`)).json()).d.Status).to.equal(before.Status);
+  });
+
+  // The MaxLength check measures the value the way a CHAR field holds it:
+  // at its last non-blank character. Trailing blanks can never address
+  // another entity (the DPC's field drops or pads them), so a key of
+  // MaxLength characters plus blanks is accepted, and only a non-blank
+  // character beyond the MaxLength is a 400.
+  it("trailing blanks never make a key or a parameter too long; a non-blank beyond the MaxLength does", async () => {
+    // T0001 + 4 blanks: 9 characters, 5 significant, MaxLength 8
+    const padded = encodeURIComponent("'T0001    '");
+    const v2 = await fetch(`${BASE}/TravelSet(${padded})?$format=json`);
+    expect(v2.status).to.equal(200);
+    expect((await v2.json()).d.TravelId).to.equal("T0001");
+    const v4 = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet(${padded})`);
+    expect(v4.status).to.equal(200);
+    expect((await v4.json()).TravelId).to.equal("T0001");
+    const beyond = encodeURIComponent("'T0001   X'");
+    expect((await fetch(`${BASE}/TravelSet(${beyond})?$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet(${beyond})`)).status).to.equal(400);
+    // Status has MaxLength 1: 'A ' (a trailing blank) counts the A rows
+    const withBlank = await fetch(`${BASE}/TravelCount?Status=${encodeURIComponent("'A '")}`);
+    expect(withBlank.status).to.equal(200);
+    expect((await withBlank.json()).d.TravelCount).to.equal((await (await fetch(`${BASE}/TravelCount?Status='A'`)).json()).d.TravelCount);
+  });
+
+  // ANOMALY-2026-11-08-sql-host-variable-inlined: the transpiler inlined a
+  // host variable into the SQL text unescaped, so a quote in a key ended the
+  // literal. Measured before the pinned fix: GET of this key answered T0001,
+  // MERGE of it changed every travel's Description, and a'b was a 500.
+  it("a quote in a key stays in the key: nothing else is read or written", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate", "if-match": "*"};
+    const injected = encodeURIComponent("'x'' OR ''1''=''1'");
+    // longer than TravelId's MaxLength 8, it is refused before the DPC; a
+    // quoted key that fits reaches the SELECT and finds nothing
+    expect((await fetch(`${BASE}/TravelSet(${injected})?$format=json`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/TravelSet(${encodeURIComponent("'x''OR''1'")})?$format=json`)).status).to.equal(404);
+    const merged = await fetch(`${BASE}/TravelSet(${injected})`, {method: "MERGE", headers, body: JSON.stringify({Description: "oracle"})});
+    expect(merged.status).to.equal(400);
+    const all = await (await fetch(`${BASE}/TravelSet?$format=json`)).json();
+    expect(all.d.results.map((t) => t.Description)).to.not.include("oracle");
+    expect(all.d.results.find((t) => t.TravelId === "T0001").Description).to.equal("Berlin to Copenhagen");
+    const filtered = await (await fetch(`${BASE}/TravelSet?$format=json&$filter=` + encodeURIComponent("TravelId eq 'x'' OR ''1''=''1'"))).json();
+    expect(filtered.d.results).to.deep.equal([]);
+    // and a key with a quote round-trips
+    let res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "a'b", Description: "quoted", Status: "A", Seats: 1})});
+    expect(res.status).to.equal(201);
+    res = await fetch(`${BASE}/TravelSet('a''b')?$format=json`);
+    expect(res.status).to.equal(200);
+    expect((await res.json()).d).to.include({TravelId: "a'b", Description: "quoted"});
+    res = await fetch(`${BASE}/TravelSet('a''b')`, {method: "MERGE", headers, body: JSON.stringify({Description: "it's"})});
+    expect(res.status).to.equal(204);
+    expect((await (await fetch(`${BASE}/TravelSet('a''b')?$format=json`)).json()).d.Description).to.equal("it's");
+    res = await fetch(`${BASE}/TravelSet('a''b')`, {method: "DELETE", headers});
+    expect(res.status).to.equal(204);
+    expect((await fetch(`${BASE}/TravelSet('a''b')?$format=json`)).status).to.equal(404);
   });
 
   it("media entity: the picture of a travel over the wire", async () => {
@@ -170,7 +360,7 @@ describe("wire", () => {
     expect(res.status).to.equal(200);
     expect((await res.json()).d.Status).to.equal("X");
     // put the seed row back for the tests that follow
-    res = await fetch(BASE + "/TravelSet('T0009')", {method: "PUT", headers: {"content-type": "application/json", "x-csrf-token": "open-steamgate"}, body: JSON.stringify({Description: "Other client, must not leak", Status: "A", Seats: 9})});
+    res = await fetch(BASE + "/TravelSet('T0009')", {method: "PUT", headers: {"content-type": "application/json", "x-csrf-token": "open-steamgate", "if-match": "*"}, body: JSON.stringify({Description: "Other client, must not leak", Status: "A", Seats: 9})});
     expect(res.status).to.equal(204);
   });
 
@@ -381,7 +571,7 @@ describe("wire", () => {
       "--cs", "Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
       "POST TravelSet HTTP/1.1", "Content-Type: application/json", "", JSON.stringify({TravelId: "T0400", Description: "via batch", Seats: 1}),
       "--cs", "Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
-      "DELETE TravelSet('T0400') HTTP/1.1", "", "",
+      "DELETE TravelSet('T0400') HTTP/1.1", "If-Match: *", "", "",
       "--cs--", "", "--b--", "",
     ].join(crlf);
     const res = await fetch(BASE + "/$batch", {method: "POST", headers: {"content-type": "multipart/mixed; boundary=b", "x-csrf-token": "open-steamgate"}, body});
@@ -461,7 +651,7 @@ describe("wire", () => {
     expect((await fetch(`${BASE}/TravelSet('T0920')`)).status, "the row written before the dump is gone").to.equal(404);
     expect((await fetch(`${BASE}/TravelSet('T0921')`)).status, "and the one that dumped never existed").to.equal(404);
 
-    await fetch(`${BASE}/TravelSet('T0930')`, {method: "DELETE", headers});
+    await fetch(`${BASE}/TravelSet('T0930')`, {method: "DELETE", headers: {...headers, "if-match": "*"}});
   });
 
   it("CSRF token fetch is answered", async () => {
@@ -477,7 +667,11 @@ describe("wire", () => {
     expect(res.headers.get("location")).to.equal(`http://localhost:${PORT}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0200')`);
     expect((await res.json()).d.Description).to.equal("Wire created");
 
-    res = await fetch(BASE + "/TravelSet('T0200')", {method: "PUT", headers, body: JSON.stringify({d: {Description: "Wire updated", Status: "X", Seats: 2}})});
+    // the created entity's tag comes back on the create, as on a read
+    const etag = res.headers.get("etag");
+    expect(etag).to.match(/^W\/"/);
+
+    res = await fetch(BASE + "/TravelSet('T0200')", {method: "PUT", headers: {...headers, "if-match": etag}, body: JSON.stringify({d: {Description: "Wire updated", Status: "X", Seats: 2}})});
     expect(res.status).to.equal(204);
 
     res = await fetch(BASE + "/TravelSet('T0200')");
@@ -485,7 +679,7 @@ describe("wire", () => {
     expect(body.d.Description).to.equal("Wire updated");
     expect(body.d.Seats).to.equal(2);
 
-    res = await fetch(BASE + "/TravelSet('T0200')", {method: "DELETE", headers});
+    res = await fetch(BASE + "/TravelSet('T0200')", {method: "DELETE", headers: {...headers, "if-match": "*"}});
     expect(res.status).to.equal(204);
     res = await fetch(BASE + "/TravelSet('T0200')");
     expect(res.status).to.equal(404);
@@ -493,5 +687,198 @@ describe("wire", () => {
     res = await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0001"})});
     expect(res.status).to.equal(400);
     expect((await res.json()).error.code).to.equal("STG/BUSINESS");
+  });
+
+  it("a business exception carries the DPC's message-container messages in innererror", async () => {
+    // the demo DPC adds the message through the container the runtime
+    // context serves (get_message_container + add_message, the /IWBEP/
+    // members the SEGW sample calls); the dispatcher resets the container
+    // per request and reads it into the error response
+    const res = await fetch(`${BASE}/CancelTravel?TravelId='ZZZZZZ9Z'`, {method: "POST", headers: {"x-csrf-token": "open-steamgate"}});
+    expect(res.status).to.equal(400);
+    const body = await res.json();
+    expect(body.error.code).to.equal("STG/BUSINESS");
+    expect(body.error.innererror.errordetails).to.be.an("array").with.lengthOf(1);
+    expect(body.error.innererror.errordetails[0].message.value).to.contain("ZZZZZZ9Z");
+    expect(body.error.innererror.errordetails[0].severity).to.equal("error");
+    expect(body.error.innererror.errordetails[0].code).to.equal("ZSTG_DEMO004");
+  });
+
+  // The demo's Travel carries etag: true on Description/Status/Seats, and
+  // the V2 $metadata answers ConcurrencyMode="Fixed" for them: a client that
+  // trusts the metadata must get lost-update protection, as it gets it from
+  // the V4 facade. The tag itself is the V4 computation (one implementation,
+  // both protocols), the check is the V4 write path's own: 428 without
+  // If-Match, 412 with a tag that is no longer the entity's, * always passes.
+  it("V2 honours the ETags its metadata declares: If-Match on MERGE/PUT/DELETE", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/TravelSet('T0001')`;
+
+    // the metadata promises concurrency control on those properties
+    const meta = await (await fetch(BASE + "/$metadata")).text();
+    expect(meta).to.contain('Name="Description" Type="Edm.String" Nullable="true" MaxLength="40" ConcurrencyMode="Fixed"');
+
+    // a read carries the tag twice: as the header and in __metadata
+    const read = await fetch(url);
+    const etag = read.headers.get("etag");
+    expect(etag).to.match(/^W\/"/);
+    const entry = await read.json();
+    expect(entry.d.__metadata.etag).to.equal(etag);
+
+    // and it is the same bytes the V4 facade answers for the same row
+    const v4 = await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet('T0001')`);
+    expect(v4.headers.get("etag")).to.equal(etag);
+
+    // the feed's entries carry it too: a UI5 v2 list keeps __metadata.etag
+    // per entry and sends it back as If-Match when the row is written
+    const feed = await (await fetch(BASE + "/TravelSet?$format=json")).json();
+    expect(feed.d.results[0].__metadata.etag).to.match(/^W\/"/);
+
+    // a write without If-Match is refused, before anything is written
+    for (const method of ["MERGE", "PUT"]) {
+      const res = await fetch(url, {method, headers, body: JSON.stringify({Seats: 9})});
+      expect(res.status, method).to.equal(428);
+      expect((await res.json()).error.code, method).to.equal("STG/PRECONDITION_REQUIRED");
+    }
+    expect((await fetch(url, {method: "DELETE", headers})).status).to.equal(428);
+
+    // the current tag writes: 204, and the row moved with it
+    let res = await fetch(url, {method: "MERGE", headers: {...headers, "if-match": etag}, body: JSON.stringify({Seats: 4})});
+    expect(res.status).to.equal(204);
+    const afterWrite = await (await fetch(url)).json();
+    expect(afterWrite.d.Seats).to.equal(4);
+    expect(afterWrite.d.__metadata.etag).to.not.equal(etag);
+
+    // a tag that is no longer the entity's is refused with 412, writing nothing
+    res = await fetch(url, {method: "MERGE", headers: {...headers, "if-match": etag}, body: JSON.stringify({Seats: 7})});
+    expect(res.status).to.equal(412);
+    expect((await res.json()).error.code).to.equal("STG/ETAG_MISMATCH");
+    expect((await (await fetch(url)).json()).d.Seats).to.equal(4);
+
+    // * passes without naming the tag
+    res = await fetch(url, {method: "MERGE", headers: {...headers, "if-match": "*"}, body: JSON.stringify({Seats: 2})});
+    expect(res.status).to.equal(204);
+    expect((await (await fetch(url)).json()).d.Seats).to.equal(2);
+
+    // DELETE is guarded the same way, on a scratch row
+    await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0500", Description: "etag scratch", Status: "A", Seats: 1})});
+    const scratch = (await (await fetch(`${BASE}/TravelSet('T0500')`)).json()).d.__metadata.etag;
+    expect((await fetch(`${BASE}/TravelSet('T0500')`, {method: "DELETE", headers: {...headers, "if-match": "W/\"stale\""}})).status).to.equal(412);
+    expect((await fetch(`${BASE}/TravelSet('T0500')`)).status).to.equal(200);
+    expect((await fetch(`${BASE}/TravelSet('T0500')`, {method: "DELETE", headers: {...headers, "if-match": scratch}})).status).to.equal(204);
+    expect((await fetch(`${BASE}/TravelSet('T0500')`)).status).to.equal(404);
+
+    // a type without ETag properties keeps writing without If-Match (Booking
+    // has none), so the requirement follows the model and nothing else
+    let booking = await fetch(BASE + "/BookingSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B500", Customer: "No ETag"})});
+    expect(booking.status).to.equal(201);
+    booking = await fetch(`${BASE}/BookingSet(TravelId='T0002',BookingId='B500')`, {method: "DELETE", headers});
+    expect(booking.status).to.equal(204);
+
+    // inside a $batch changeset the part's own If-Match is judged: a part
+    // without one fails its changeset (and only its changeset)
+    const crlf = "\r\n";
+    const body = [
+      "--b", "Content-Type: multipart/mixed; boundary=ok", "",
+      "--ok", "Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
+      `MERGE TravelSet('T0001') HTTP/1.1`, "If-Match: *", "Content-Type: application/json", "",
+      JSON.stringify({Seats: 5}), "",
+      "--ok--", "",
+      "--b", "Content-Type: multipart/mixed; boundary=stale", "",
+      "--stale", "Content-Type: application/http", "Content-Transfer-Encoding: binary", "",
+      `MERGE TravelSet('T0001') HTTP/1.1`, "Content-Type: application/json", "",
+      JSON.stringify({Seats: 6}), "",
+      "--stale--", "",
+      "--b--", "",
+    ].join(crlf);
+    const batch = await fetch(BASE + "/$batch", {method: "POST", headers: {"content-type": "multipart/mixed; boundary=b", "x-csrf-token": "open-steamgate"}, body});
+    expect(batch.status).to.equal(202);
+    const text = await batch.text();
+    expect(text).to.contain("HTTP/1.1 204 No Content");
+    expect(text).to.contain("HTTP/1.1 428 Precondition Required");
+    // the guarded changeset wrote nothing
+    expect((await (await fetch(url)).json()).d.Seats).to.equal(5);
+    // put the seed row back the way the earlier tests left it
+    await fetch(url, {method: "MERGE", headers: {...headers, "if-match": "*"}, body: JSON.stringify({Seats: 2})});
+  });
+
+  // A function import that returns an entity returns an ordinary entry, and
+  // the entry carries its tag like any read does. The serializer's model is
+  // registered per request; it used to be registered only after the function
+  // imports had branched off, so an import answered with whatever the
+  // previous request had left there: nothing after a request to a service
+  // without ETags, and the client's next write then came back 428.
+  it("V2 function import results carry the entity's ETag, whatever ran before", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/TravelSet('T0501')`;
+    expect((await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0501", Description: "fi scratch", Status: "A", Seats: 1})})).status).to.equal(201);
+    try {
+      // the previous request is one to a service whose types declare no ETag
+      expect((await fetch(`http://localhost:${PORT}/sap/opu/odata/sap/ZSTG_SADL_SRV/Zc_Stg_TravelSet?$top=1`)).status).to.equal(200);
+      const action = await fetch(`${BASE}/CancelTravel?TravelId='T0501'`, {method: "POST", headers});
+      expect(action.status).to.equal(200);
+      const tag = (await action.json()).d.__metadata.etag;
+      expect(tag).to.match(/^W\/"/);
+      // it is the entity's current tag: a read answers the same, and a write
+      // that sends it back passes
+      expect((await fetch(url)).headers.get("etag")).to.equal(tag);
+      const res = await fetch(url, {method: "MERGE", headers: {...headers, "if-match": tag}, body: JSON.stringify({Seats: 3})});
+      expect(res.status).to.equal(204);
+    } finally {
+      await fetch(url, {method: "DELETE", headers: {...headers, "if-match": "*"}});
+    }
+  });
+
+  // The model is service-wide, the guard is per type: a type without ETag
+  // properties in a service where another type has them writes as before,
+  // with no read in front of its PUT or DELETE. A provider may implement
+  // update and delete without the single read; here Booking's GET_ENTITY is
+  // put back to the generated Not Implemented stub for the duration.
+  it("V2 PUT/DELETE of a type without ETags reads nothing first, even beside a type with one", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/BookingSet(TravelId='T0002',BookingId='B901')`;
+    expect((await fetch(BASE + "/BookingSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B901", Customer: "Write only"})})).status).to.equal(201);
+    const {zcl_zstg_demo_dpc_ext: Ext} = await import("../output/zcl_zstg_demo_dpc_ext.clas.mjs");
+    const {zcl_zstg_demo_dpc: Base} = await import("../output/zcl_zstg_demo_dpc.clas.mjs");
+    const original = Ext.prototype.bookingset_get_entity;
+    Ext.prototype.bookingset_get_entity = Base.prototype.bookingset_get_entity;
+    try {
+      // the stub is in place: a read of the booking is Not Implemented
+      const probe = await fetch(url);
+      expect(probe.status, await probe.clone().text()).to.equal(501);
+      let res = await fetch(url, {method: "PUT", headers, body: JSON.stringify({TravelId: "T0002", BookingId: "B901", Customer: "Written"})});
+      expect(res.status, await res.clone().text()).to.equal(204);
+      res = await fetch(url, {method: "DELETE", headers});
+      expect(res.status, await res.clone().text()).to.equal(204);
+    } finally {
+      Ext.prototype.bookingset_get_entity = original;
+      await fetch(url, {method: "DELETE", headers});
+    }
+  });
+
+  // A guarded write answers the entity's new tag with its 204, so the next
+  // conditional write needs no GET in between.
+  it("V2 answers the new ETag after a guarded update", async () => {
+    const headers = {"content-type": "application/json", "x-csrf-token": "open-steamgate"};
+    const url = `${BASE}/TravelSet('T0502')`;
+    expect((await fetch(BASE + "/TravelSet", {method: "POST", headers, body: JSON.stringify({TravelId: "T0502", Description: "tag scratch", Status: "A", Seats: 1})})).status).to.equal(201);
+    try {
+      let tag = (await fetch(url)).headers.get("etag");
+      for (const [method, body] of [["MERGE", {Seats: 4}], ["PUT", {TravelId: "T0502", Description: "tag scratch", Status: "B", Seats: 5}], ["PATCH", {Seats: 6}]]) {
+        const res = await fetch(url, {method, headers: {...headers, "if-match": tag}, body: JSON.stringify(body)});
+        expect(res.status, method).to.equal(204);
+        const next = res.headers.get("etag");
+        expect(next, method).to.match(/^W\/"/);
+        expect(next, method).to.not.equal(tag);
+        expect((await fetch(url)).headers.get("etag"), method).to.equal(next);
+        tag = next;
+      }
+      // a type without ETags answers its 204 without one, as before
+      const booking = await fetch(`${BASE}/BookingSet(TravelId='T0001',BookingId='B001')`, {method: "MERGE", headers, body: JSON.stringify({})});
+      expect(booking.status).to.equal(204);
+      expect(booking.headers.get("etag")).to.equal(null);
+    } finally {
+      await fetch(url, {method: "DELETE", headers: {...headers, "if-match": "*"}});
+    }
   });
 });

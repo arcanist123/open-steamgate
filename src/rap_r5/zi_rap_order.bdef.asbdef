@@ -1,0 +1,33 @@
+managed implementation in class zbp_rap_order unique;
+strict ( 2 );
+
+define behavior for ZI_RAP_ORDER alias order
+persistent table zrap_order
+lock master
+etag master last_changed_at
+early numbering
+{
+  create;
+  update;
+  delete;
+  field ( readonly ) order_id, status, created_by, last_changed_at;
+  field ( mandatory ) description;
+  association _Items { create; }
+  determination SetStatus on modify { create; }
+  mapping for zrap_order corresponding;
+}
+
+define behavior for ZI_RAP_ORDITEM alias item
+persistent table zrap_orditem
+lock dependent by _Order
+etag master item_changed_at
+early numbering
+{
+  update;
+  delete;
+  field ( readonly ) order_id, item_no, item_changed_at;
+  field ( mandatory ) product;
+  association _Order;
+  validation CheckQuantity on save { create; field quantity; }
+  mapping for zrap_orditem corresponding;
+}

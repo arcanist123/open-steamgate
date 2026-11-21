@@ -345,6 +345,28 @@ function storageDirFor(context, osdHome) {
   return path.join(context.globalStorageUri.fsPath, "osd-instance", hash);
 }
 
+/** `osd.engine` and what the osgo engine needs (ADR 0010 slice 8,
+ *  docs/vscode-extension.md "Engine"): the executable is downloaded into
+ *  global storage from the release tag of this extension's own version
+ *  (or osd.osgo.releaseTag), and its data lives under
+ *  `<globalStorage>/osgo-home/<the same hash as storageDirFor>`. */
+function osdEngineOf(context, osdHome) {
+  const config = vscode.workspace.getConfiguration("osd");
+  const engine = config.get("engine", "node") === "osgo" ? "osgo" : "node";
+  const hash = crypto.createHash("sha1").update(osdHome).digest("hex").slice(0, 16);
+  const binary = String(config.get("osgo.binary", "") ?? "").trim();
+  return {
+    engine,
+    osgo: {
+      storageDir: context.globalStorageUri.fsPath,
+      version: context.extension?.packageJSON?.version,
+      releaseTag: String(config.get("osgo.releaseTag", "") ?? "").trim() || undefined,
+      home: path.join(context.globalStorageUri.fsPath, "osgo-home", hash),
+      binary: binary === "" ? undefined : binary,
+    },
+  };
+}
+
 /** `osd.warm`'s own setting (T7, docs/vscode-extension.md "Warm"): "auto",
  *  "on" or "off", read fresh on every launch the way osd.home is. */
 function osdWarmModeOf() {
@@ -579,6 +601,7 @@ class SystemController {
       if (this.launcher !== undefined) closePageTabs();
       const launcher = new Launcher({
         osdHome,
+        ...osdEngineOf(this.context, osdHome),
         storageDir: storageDirFor(this.context, osdHome),
         workspaceFolders: workspaceFoldersFor(osdHome),
         database,
@@ -611,6 +634,9 @@ class SystemController {
       this.launcher.warmMode = osdWarmModeOf();
       this.launcher.homeKind = choice.kind;
       this.launcher.debug = osdDebugEnabled() || forceDebug;
+      const {engine, osgo} = osdEngineOf(this.context, osdHome);
+      this.launcher.engine = engine;
+      this.launcher.osgo = osgo;
     }
     this.homeKind = choice.kind;
     return this.launcher;
@@ -1192,6 +1218,13 @@ class SystemController {
       await vscode.commands.executeCommand("extension.open", "oisee.open-steamgate");
     } else if (action === "Open log") {
       this.output.show(true);
+    } else if (action === "Use the Node engine") {
+      const config = vscode.workspace.getConfiguration("osd");
+      const inspected = config.inspect("engine");
+      await config.update("engine", "node", inspected?.workspaceValue !== undefined
+        ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+      launcher.engine = "node";
+      await this.#launch(launcher, {}, "osd start");
     } else if (action === "Full rebuild") {
       await this.rebuild({forceBuild: true});
     } else if (action === "Fetch packs") {
@@ -2729,6 +2762,7 @@ function desktopOutputs(context) {
 function activate(context) {
   const [output, classrunOutput, systemOutput] = desktopOutputs(context);
   require("./abapgit-zip-command.js").registerAbapgitZipCommand(vscode, context, output, osdHomeOf, isOpenSteamgatePath);
+  require("./hana-extract-command.js").registerHanaExtractCommand(vscode, context, output, () => [activeController?.launcher?.osdHome, osdHomeOf(), (() => { try { const seed = bundledSeedDir(context); return seed && bundledHomeDir(context, seed); } catch { return undefined; } })()]);
   // The cleanup is synchronous and precedes this window's own launcher.
   // A live lock from another window protects its home.
   try {

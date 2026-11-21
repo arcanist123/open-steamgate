@@ -336,7 +336,7 @@ func SelectDyn(s *Session, q DynSelect, target Data) {
 		}
 	}
 
-	rows, err := conn().Query(text, values(params)...)
+	rows, err := s.conn().Query(text, values(params)...)
 	if err != nil {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}

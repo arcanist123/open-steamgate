@@ -1,0 +1,18 @@
+This pack carries material of SAP-samples/abap-platform-refscen-flight
+(Apache-2.0), fetched at commit
+5353cbeb013a3a2fbd7f1ba6be89e54f68cfe22c of its ABAP-platform-2025 branch
+into upstream/, and copied from there into src/ with modifications (each
+copied file names its origin and commit in a header).
+
+Copyright: 2018-2020 SAP SE or an SAP affiliate company and
+abap-platform-refscen-flight
+(the SPDX-FileCopyrightText of the upstream repository's REUSE.toml, which
+applies to every file of that repository)
+
+Licence: Apache-2.0 (SPDX-License-Identifier of the same REUSE.toml); the
+full text is the upstream LICENSE file and this repository's
+LICENSES/Apache-2.0.txt.
+
+The seed rows in data/ (not tracked; made at build by
+tools/rap-flight/seed-capture.mjs) are the output of the upstream data
+generator run in this runtime.

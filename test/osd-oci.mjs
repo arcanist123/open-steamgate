@@ -27,6 +27,8 @@ describe("osd-oci: pulling a layer by digest", function () {
     const d = "sha256:" + "a".repeat(64);
     expect(parseRef(`ghcr.io/oisee/osd/pack@${d}`)).to.deep.equal({registry: "ghcr.io", repository: "oisee/osd/pack", tag: undefined, digest: d});
     expect(parseRef("localhost:5000/osd/pack:v1").tag).to.equal("v1");
+    expect(parseRef("LOCALHOST:5000/osd/pack:v1").registry).to.equal("localhost:5000");
+    expect(() => parseRef("localhost:5000/OSD/pack:v1")).to.throw(/repository path must be lowercase/);
     expect(() => parseRef("osd/pack@" + d)).to.throw(/expected host/);
     expect(() => parseRef("ghcr.io/osd/pack")).to.throw(/expected host/);
     const r = registry();

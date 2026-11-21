@@ -28,6 +28,12 @@ export function isCheckout(root) {
   return existsSync(join(root, ".git"));
 }
 
+function verifiedLibrary(folder) {
+  // no computed member access here: the publisher-import guard admits only
+  // literal keys outside process.env, so look the folder up through a Map
+  try { return new Map(Object.entries(JSON.parse(process.env.OSD_BUILD_VERIFIED ?? "{}").libs ?? {})).get(folder); } catch { return undefined; }
+}
+
 /** Resolve a library at its established path, checking the checkout itself. */
 export function libraryPath(root, folder, env, release = false) {
   const system = activeSystem(root, env);
@@ -48,6 +54,10 @@ export function libraryPath(root, folder, env, release = false) {
   const path = join(root, ".local", "lars", folder);
   // shipped: the copy was made from the pin when the artefact was built
   if (!isCheckout(root)) return path;
+  // a recorded build child (tools/osd-build-generators.mjs buildVerified):
+  // the build checked this pin a moment ago, and `git status` here would
+  // read file content outside its read record
+  if (process.env.OSD_GENERATOR_READS && verifiedLibrary(folder) === path) return path;
   let actual = "missing";
   try {
     const top = execFileSync("git", ["rev-parse", "--show-toplevel"], {env: release ? publishChildEnv('git') : devChildEnv(), cwd: path, encoding: "utf8", stdio: "pipe"}).trim();

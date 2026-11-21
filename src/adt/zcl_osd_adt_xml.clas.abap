@@ -13,6 +13,10 @@ CLASS zcl_osd_adt_xml DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CLASS-METHODS esc
       IMPORTING iv_text        TYPE string
       RETURNING VALUE(rv_text) TYPE string.
+    "! the four entities esc writes, read back (abapGit XML text values)
+    CLASS-METHODS unesc
+      IMPORTING iv_text        TYPE string
+      RETURNING VALUE(rv_text) TYPE string.
 ENDCLASS.
 
 CLASS zcl_osd_adt_xml IMPLEMENTATION.
@@ -23,6 +27,14 @@ CLASS zcl_osd_adt_xml IMPLEMENTATION.
     REPLACE ALL OCCURRENCES OF `<` IN rv_text WITH `&lt;`.
     REPLACE ALL OCCURRENCES OF `>` IN rv_text WITH `&gt;`.
     REPLACE ALL OCCURRENCES OF `"` IN rv_text WITH `&quot;`.
+  ENDMETHOD.
+
+  METHOD unesc.
+    rv_text = iv_text.
+    REPLACE ALL OCCURRENCES OF `&lt;` IN rv_text WITH `<`.
+    REPLACE ALL OCCURRENCES OF `&gt;` IN rv_text WITH `>`.
+    REPLACE ALL OCCURRENCES OF `&quot;` IN rv_text WITH `"`.
+    REPLACE ALL OCCURRENCES OF `&amp;` IN rv_text WITH `&`.
   ENDMETHOD.
 
   METHOD as_xml_type.

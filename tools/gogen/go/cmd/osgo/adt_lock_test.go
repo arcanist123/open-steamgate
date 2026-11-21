@@ -63,7 +63,7 @@ func TestOsgoAPCStepsReleaseHolderSessions(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			step := &abap.Session{Statics: abap.ProcessStatics}
+			step := &abap.Session{}
 			err := runAPCStep(step, test.name, func() {
 				if _, err := hostclass.KERNEL_LOCK.Enqueue(step, lockRequest("APC-"+test.name), nil); err != nil {
 					t.Error(err)
@@ -89,7 +89,7 @@ func TestOsgoAPCStepsReleaseHolderSessions(t *testing.T) {
 func TestOsgoRetryUsesInjectedSleep(t *testing.T) {
 	other := adtLocks.Open("OTHER")
 	defer adtLocks.End(other)
-	if result := adtLocks.Enqueue(other, lockRequest("WAIT"), false); result.Subrc != 0 {
+	if result := adtLocks.EnqueueWith(other, lockRequest("WAIT"), false, nil); result.Subrc != 0 {
 		t.Fatalf("other: %+v", result)
 	}
 	step := &abap.Session{}
@@ -116,7 +116,7 @@ func TestOsgoEndedKeyDuringSleepIsError(t *testing.T) {
 	}
 	other := adtLocks.Open("OTHER")
 	defer adtLocks.End(other)
-	adtLocks.Enqueue(other, lockRequest("ENDED"), false)
+	adtLocks.EnqueueWith(other, lockRequest("ENDED"), false, nil)
 	_, err := adtHost.EnqueueWithSleep(step, lockRequest("ENDED"), true, func(time.Duration) {
 		if err := hostclass.ZCL_OSD_ENQ_KERNEL.End(step, id); err != nil {
 			t.Fatal(err)

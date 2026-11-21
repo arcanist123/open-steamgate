@@ -1,0 +1,4 @@
+@EndUserText.label: 'RAP bill demo service (R6)'
+define service ZUI_RAP_BILL {
+  expose ZI_RAP_BILL as Bill;
+}

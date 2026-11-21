@@ -16,6 +16,7 @@ const OPERAND = /^(?:[A-Z_][A-Z0-9_]*(?:(?:-|->|=>)[A-Z_][A-Z0-9_]*)*|'(?:[^']|'
 // number after it; before a name it makes `-x`, which OPERAND refuses.
 const JOINERS = new Set(["Dash", "WDash", "InstanceArrow", "StaticArrow"]);
 
+/** @param {string} source @param {import("@abaplint/core").Position} position @returns {number} */
 function offsetAt(source, position) {
   let offset = 0;
   for (let row = 1; row < position.getRow(); row++) {
@@ -29,9 +30,10 @@ function offsetAt(source, position) {
 // abaplint splits `ls_x-field` and `lo_job->name` into three tokens each. A
 // SUBMIT operand is one data object, so tokens joined by `-`, `->` or `=>`
 // with no space between them become one word again.
+/** @param {import("@abaplint/core").Nodes.StatementNode} statement @returns {string[]} */
 function wordsOf(statement) {
-  const words = [];
-  let last;
+  /** @type {string[]} */ const words = [];
+  /** @type {import("@abaplint/core").Token | undefined} */ let last;
   for (const token of statement.getTokens()) {
     const kind = token.constructor.name;
     const touches = last !== undefined && token.getStart().getRow() === last.getStart().getRow()
@@ -46,19 +48,20 @@ function wordsOf(statement) {
   return words;
 }
 
+/** @param {import("@abaplint/core").Nodes.StatementNode} statement @param {string} filename @returns {string} */
 function replacement(statement, filename) {
   const words = wordsOf(statement);
   const line = statement.getStart().getRow();
-  const unsupported = (why) => {
+  /** @param {string} [why] @returns {never} */ const unsupported = (why) => {
     throw new Error(`${filename}:${line}: supported SUBMIT forms are a static program with, in any order, `
       + `[VIA JOB job NUMBER count] and [WITH sel = value | WITH sel IN range ...], then AND RETURN`
       + `${why ? ` (${why})` : ""}; got ${statement.concatTokens()}`);
   };
-  const upper = (at) => words[at]?.toUpperCase();
+  /** @param {number} at @returns {string | undefined} */ const upper = (at) => words[at]?.toUpperCase();
   if (upper(0) !== "SUBMIT" || !PROGRAM.test(words[1] ?? "") || words[1].length > PROGRAM_MAX || words.at(-1) !== ".") unsupported();
   const program = words[1].toUpperCase();
-  const values = [];
-  let job;
+  /** @type {{name: string, value: string, range: boolean}[]} */ const values = [];
+  /** @type {{name: string, count: string} | undefined} */ let job;
   let at = 2;
   while (!(upper(at) === "AND" && upper(at + 1) === "RETURN" && at + 2 === words.length - 1)) {
     if (upper(at) === "VIA") {
@@ -95,8 +98,10 @@ function replacement(statement, filename) {
 // The lowered call takes the statement's first line. A comment the developer
 // wrote inside the statement stays on the line it was on, so neither the
 // comment nor the line count is lost.
+/** @param {string} lowered @param {readonly import("@abaplint/core").Token[]} comments @param {number} startRow @param {number} lineCount @param {string} indent @returns {string} */
 function withComments(lowered, comments, startRow, lineCount, indent) {
-  const lines = [lowered, ...Array(lineCount - 1).fill("")];
+  /** @type {string[]} */ const lines = [lowered];
+  for (let i = 1; i < lineCount; i++) lines.push("");
   for (const token of comments) {
     const index = token.getStart().getRow() - startRow;
     const text = token.getStr();
@@ -116,7 +121,7 @@ export function lowerNarrowSubmit(source, filename, core) {
   /** @type {readonly import("@abaplint/core").ABAPFile[] | undefined} */ const files = registry.getFirstObject()?.getABAPFiles();
   const file = files?.find((entry) => entry.getFilename() === filename);
   if (file === undefined) return source;
-  const changes = [];
+  /** @type {{start: number, end: number, lowered: string}[]} */ const changes = [];
   for (const statement of file.getStatements()) {
     if (!/^(Submit|Unknown)$/.test(statement.get().constructor.name) ||
         statement.getTokens()[0]?.getStr()?.toUpperCase() !== "SUBMIT") continue;

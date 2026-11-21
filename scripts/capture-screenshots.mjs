@@ -7,8 +7,11 @@ import {spawn} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
+import {restampTreeArtefact, verifyTreeArtefact} from "../tools/osd-public-tree.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+const preview = resolve(root, "build/preview");
+const provenance = verifyTreeArtefact(preview, root);
 const out = resolve(root, "build/preview/screenshots");
 await mkdir(out, {recursive: true});
 
@@ -27,6 +30,9 @@ try {
   await page.screenshot({path: join(out, "metadata.png"), fullPage: true});
   await page.goto(`http://localhost:${port}/sap/opu/odata/sap/ZSTG_SADL_SRV/Zc_Stg_TravelcubeSet?$select=STATUS,SEATS&$orderby=STATUS&$format=json`);
   await page.screenshot({path: join(out, "sadl-aggregate.png"), fullPage: true});
+  // the screenshots changed the preview: stamp it again, only if the tree is
+  // still the generation it was verified as
+  restampTreeArtefact(preview, root, provenance);
   console.log(`Screenshots in ${out}`);
 } finally {
   await context.close();

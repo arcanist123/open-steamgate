@@ -5,10 +5,47 @@ import {execFileSync} from "node:child_process";
 import {createRequire} from "node:module";
 import {chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {basename, isAbsolute, join, win32} from "node:path";
-import {copySeedTree, excludeStagedPackSources, excludeTestOnlyIncludes, loadSeedDependencies, shipsTestPath, TEST_ONLY_ABAP} from "../scripts/build-vsix.mjs";
+import {copySeedTree, excludeStagedPackSources, excludeTestOnlyIncludes, loadSeedDependencies, shipsTestPath, stageSystemSeed, TEST_ONLY_ABAP} from "../scripts/build-vsix.mjs";
 import {inventoryThirdParties} from "../scripts/third-party-notices.mjs";
 import {tilesOf} from "../tools/osd-packs.mjs";
+import {verifyPublicArtefact} from "../tools/osd-provenance.mjs";
 import {root, currentVsixFile, packagedSeedEntries, packagedPacks, testScratch, buildTestVsix, packagedController, timeVsixTests} from "./helpers/vsix.mjs";
+
+describe("private system seed boundary", () => {
+  // build-vsix (the Marketplace .vsix) and build-binary --seed both stage the
+  // seed through stageSystemSeed -> copySeedTree, which copies libraries from
+  // libraryPath(): .local/system/libs/<name> when a system is installed
+  const refuses = async (source) => {
+    const destination = join(source, "seed");
+    expect(() => copySeedTree(destination, [], source)).to.throw().with.property("code", "PRIVATE_LAYER");
+    let error;
+    try { await stageSystemSeed(destination, process.env, {sourceRoot: source}); } catch (caught) { error = caught; }
+    expect(error?.code, String(error)).to.equal("PRIVATE_LAYER");
+    expect(existsSync(destination)).to.equal(false);
+  };
+
+  it("refuses an installed private lib layer before copying VSIX or binary seed files", async () => {
+    const source = testScratch("private-seed-system");
+    try {
+      const identity = {order: 0, name: "synthetic", kind: "lib", private: true,
+        digest: `sha256:${"1".repeat(64)}`, treeDigest: `sha256:${"2".repeat(64)}`, path: "libs/synthetic"};
+      mkdirSync(join(source, ".local/system/libs/synthetic"), {recursive: true});
+      writeFileSync(join(source, ".local/system/.osd-system.json"), JSON.stringify({digest: `sha256:${"3".repeat(64)}`, layers: [identity]}));
+      writeFileSync(join(source, ".local/system/libs/synthetic/.osd-layer.json"), JSON.stringify(identity));
+      await refuses(source);
+    } finally { rmSync(source, {recursive: true, force: true}); }
+  });
+
+  it("refuses a stale private generation before copying VSIX or binary seed files", async () => {
+    const source = testScratch("private-seed-source");
+    try {
+      mkdirSync(join(source, "build/by-input/private"), {recursive: true});
+      writeFileSync(join(source, "build/by-input/private/manifest.json"), JSON.stringify({systemDigest: null, systemPrivate: true}));
+      symlinkSync("by-input/private", join(source, "build/live"));
+      await refuses(source);
+    } finally { rmSync(source, {recursive: true, force: true}); }
+  });
+});
 
 describe("packaging changed seed content", function () {
   timeVsixTests();
@@ -386,6 +423,8 @@ describe("packaging a prebuilt generation (T2, docs/ideas.md)", function () {
       const generations = [...new Set(entries.map((entry) => /^build\/by-input\/([0-9a-f]{16})\//.exec(entry)?.[1])
         .filter((hash) => hash !== undefined))];
       expect(generations, "exactly one generation, as real files").to.have.length(1);
+      // stamped from the seed's own public live generation, as a release is
+      expect(verifyPublicArtefact(out).generation).to.equal(generations[0]);
       expect(entries.some((entry) => entry.startsWith("gen/"))).to.equal(true);
       expect(entries.some((entry) => /^(output|build\/live)\/?$/.test(entry)), "no links: the first build makes them").to.equal(false);
       // and the cross-reference rows of that generation, one file
@@ -398,6 +437,12 @@ describe("packaging a prebuilt generation (T2, docs/ideas.md)", function () {
       const {ensureMaterializedHome, ensureWorkspacePacks} = createRequire(import.meta.url)(join(extensionDir, "launcher.js"));
       // another path than the one it was built under: the name must not depend on it
       const home = await ensureMaterializedHome(join(extensionDir, "osd"), join(scratch, "elsewhere", "globalStorage"));
+      // the read record ships without the builder's paths, and marks the
+      // generation as not publishable from here (#908 r5 MUST 2)
+      const shipped = readFileSync(join(home, "build", "by-input", generations[0], "reads.json"), "utf8");
+      expect(shipped, "no builder path in the shipped read record").to.not.include(scratch);
+      const shippedRecord = JSON.parse(shipped);
+      expect([shippedRecord.root, shippedRecord.reads.length, shippedRecord.incomplete]).to.deep.equal(["/", 0, true]);
       const mapsDir = join(home, "build", "by-input", generations[0], "output");
       const maps = readdirSync(mapsDir).filter((name) => name.endsWith(".mjs.map"));
       expect(maps.length, "the published seed includes source maps").to.be.greaterThan(0);

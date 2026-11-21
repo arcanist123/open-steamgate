@@ -93,15 +93,62 @@ response falls back to `/sap/bc/adt/discovery`: a 401 proves the ADT path is
 there, while a 200 must have an Atom service-document content type and root
 element. Each request has its own deadline, so a stalled response cannot hang
 the wait.
-The osgo default omits `write`: source save is absent, and a failed restore
-aborts the harness for safety. All other groups still run. The omitted write
-expectation is documented as unexercised; re-enable it when save is available.
-An explicit `--only write` overrides the target defaults for diagnosis.
-Measured at `bc2ab5b5`, after PR #691 (CHECKRUN on osgo) merged: **22 PASS,
-1 FAIL, 23 MISSING** of 46 exercised scenarios; one write scenario omitted.
-The exercised FAIL is `debugger.coreDiscovery` (the client cannot parse core
-discovery; it fails on the Node host too). The omitted write scenario retains
-its FAIL expectation until it is exercised.
+The osgo expectations select every group, `write` included, since source save
+landed on osgo (#855). An explicit `--only write` overrides them for diagnosis.
+
+Measured at `6847c55a` (main after #855) and again on
+`feat/osgo-adt-read-families`, every group, osgo `-adt` built by the recipe
+above:
+
+| | PASS | FAIL | MISSING | of |
+|---|---|---|---|---|
+| main `6847c55a` | 25 | 1 | 21 | 47 |
+| with `go/adtpreview` + `go/adtread` | 28 | 1 | 18 | 47 |
+| with `go/adtactivate` + `go/adtunit` | 30 | 1 | 16 | 47 |
+| with the function, message, include, preflight, where-used and core discovery families (ABAP) | 37 | 0 | 10 | 47 |
+
+The three that moved are `data.freestyle`, `data.table` (the data preview
+routes are mounted once `abap.ADTPreview` says the host answers SYSTEM SQL in
+the request's own step) and `activate.inactiveObjects` (a Go continuation of
+the HOST verdict, as the Node facade serves it). `activate.object` and
+`unit.run` moved next (`feat/osgo-adt-activate-unit`): activation checks and
+publishes in the object store, with a rebuild warning when the code changed,
+and ABAP Unit runs the fixture's test class compiled into the binary
+(docs/osgo-adt-activation.md). What is left, and why:
+
+Then `feat/osgo-adt-more-families` (2026-11-08,
+docs/adt-abap-port/family-specs/functions-messages-xref.md) moved seven
+more, on both hosts at once because they are ABAP in `src/adt/`:
+`object.FUGR`, `object.FM` and `object.MSAG` (ZCL_OSD_ADT_FUNCTION and
+ZCL_OSD_ADT_MSAG over the abapGit files of the store, the group's parts read
+through STORE READ by program name), `object.INCL.mainprograms`
+(ZCL_OSD_ADT_INCLUDES over D010INC), `whereused.references`
+(ZCL_OSD_ADT_WHEREUSED over WBCROSSGT; osgo seeds the cross-reference at
+build), `create.validate` (the preflight is native ABAP over STORE OBJECT,
+so `programs/validation` and `includes/validation` join the OO and package
+forms, on osgo too, whose store has no PARSE CREATE_VALIDATION) and
+`debugger.coreDiscovery` (core discovery holds one collection per workspace,
+which is the form the pinned client parses). What is left, and why:
+
+| Scenario | osgo | Node | Why |
+|---|---|---|---|
+| `editor.completion`, `editor.elementinfo`, `editor.definition`, `editor.typehierarchy`, `editor.prettyprinter` | MISSING | MISSING | Route not served on either host. An empty proposal list, an empty hierarchy or an identity pretty printer would be well-formed and false: the user would read "no proposals" or "already formatted" where the system has simply not looked. These need the compiler's symbol table in the request's step and are not stubbed. |
+| `transport.userTransports`, `transport.configurations` | MISSING | MISSING | Route not served: there is no CTS (`transport.check` answers "no transport needed" and passes). An empty `tm:root` would be true, but discovery does not advertise the CTS workspace, so ABAP-FS never asks; the kit asks directly. Left unserved rather than serving a view of a transport system that does not exist. |
+| `atc.customizing`, `atc.run` | MISSING | MISSING | Route not served: no ATC. A run that answers zero findings without having checked would be a lie. |
+| `debugger.breakpoints` | MISSING | MISSING | Route not served: no ADT debugger; a breakpoint that nothing will hit is not set. |
+
+So no scenario Node serves is MISSING on osgo, and every MISSING is a route
+nobody serves, each for a stated reason.
+
+The same client against the Node host, measured the same day with
+`--start` (`test/run.mjs`, the default child mode, whose ADT front runs in
+the reduced parent kernel): **35 PASS, 0 FAIL, 12 MISSING**, the two extra
+MISSING being `object.INCL.mainprograms` and `whereused.references`, whose
+routes read D010INC and WBCROSSGT and are registered only where the kernel
+has those tables (ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE). With
+`OSD_ADT_ONE_RUNTIME=1`, the ADT step in the serving child, the Node host
+measures **37 / 0 / 10** like osgo. `test/fixtures/abapfs-conformance/expected.json`
+records the default mode.
 
 ## The client, and why it is pinned this way
 
@@ -199,25 +246,26 @@ What works end to end:
 
 Gaps, by what an ABAP-FS user loses:
 
-1. **New-object name validation**: class/interface (`oo/validation/objectname`)
-   and package (`packages/validation`) preflight now check repository names,
-   duplicates and writable parents. The other `*/validation` resources remain
-   missing, so their create wizards can still stop before POST. The snapshot
-   counts above predate this addition.
+1. **New-object name validation**: class/interface (`oo/validation/objectname`),
+   package (`packages/validation`), program (`programs/validation`) and
+   include (`includes/validation`) preflights check repository names,
+   duplicates and writable parents, in ABAP on both hosts. `functions/validation`
+   and `messageclass/validation` stay missing: nothing here creates those
+   objects, so their wizards stop before a POST that would be refused.
 2. **Code completion** (MISSING, `abapsource/codecompletion/proposal`).
 3. **Go to definition** (MISSING, `navigation/target`).
-4. **Function groups and modules cannot be opened** (MISSING, `functions/groups/*`).
-5. **Message classes cannot be opened** (MISSING, `messageclass/*`).
-   ABAP-FS has a custom editor for them.
-6. **Where-used** (MISSING, `informationsystem/usageReferences`).
-7. **Debugging cannot start** (FAIL + MISSING). `core/discovery` returns
-   several collections per workspace, and abap-adt-api expects one, so
-   `adtCoreDiscovery` throws while parsing. `debugger/breakpoints` is not
-   served.
+4. **Function groups and modules open** (`functions/groups/*`, read-only; the
+   tree lists a group's modules and includes), **message classes open**
+   (`messageclass/*`, the document and a text form), **where-used answers**
+   at object level (`informationsystem/usageReferences`, over WBCROSSGT),
+   and **an include knows its main program** (`mainprograms`, over D010INC).
+   Since 2026-11-08; see the osgo table above.
+5. **Debugging can start but not debug**: `core/discovery` parses now (one
+   collection per workspace); `debugger/breakpoints` is not served.
 
-Then: include main programs, ATC (customizing, runs), element-info hover,
-the pretty printer, the transport organizer and its search configuration
-(all expected missing), and the type hierarchy. The transport and abapGit
+Then: ATC (customizing, runs), element-info hover, the pretty printer, the
+transport organizer and its search configuration (all expected missing),
+and the type hierarchy. The transport and abapGit
 panels stay hidden on their own, because the façade does not advertise
 their discovery gates. That is the intended state while those endpoints do
 not exist.

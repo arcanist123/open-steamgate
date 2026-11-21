@@ -54,23 +54,20 @@
       "feature": "Open INCL (structure + source)"
     },
     "object.FUGR": {
-      "status": "MISSING",
-      "feature": "Open FUGR (structure + source)",
-      "reason": "GET /sap/bc/adt/functions/groups/zosd_test_fg is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Open FUGR (structure + source)"
     },
     "object.FM": {
-      "status": "MISSING",
-      "feature": "Open FM (structure + source)",
-      "reason": "GET /sap/bc/adt/functions/groups/zosd_test_fg/fmodules/z_osd_test_status_text is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Open FM (structure + source)"
     },
     "object.DDLS": {
       "status": "PASS",
       "feature": "Open DDLS (structure + source)"
     },
     "object.MSAG": {
-      "status": "MISSING",
-      "feature": "Open MSAG (structure + source)",
-      "reason": "GET /sap/bc/adt/messageclass/zosd_test_msg is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Open MSAG (structure + source)"
     },
     "object.TABL": {
       "status": "PASS",
@@ -85,42 +82,36 @@
       "feature": "Outline (objectstructure)"
     },
     "object.INCL.mainprograms": {
-      "status": "MISSING",
-      "feature": "Include main program",
-      "reason": "GET /sap/bc/adt/programs/includes/zosd_test_demo_inc/mainprograms is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Include main program"
     },
     "write.lockWriteUnlock": {
-      "status": "FAIL",
-      "feature": "Edit + save (lock, PUT source, unlock)",
-      "reason": "Not exercised: osgo has no source save; a failed restore is fatal. Omitted from the default groups so reads still run. Re-enable write when save is implemented."
+      "status": "PASS",
+      "feature": "Edit + save (lock, PUT source, unlock)"
     },
     "check.syntax": {
       "status": "PASS",
       "feature": "Syntax check (checkruns)"
     },
     "activate.object": {
-      "status": "MISSING",
-      "feature": "Activate",
-      "reason": "POST /sap/bc/adt/activation is not served on osgo; activation needs save first (slice 2-3)."
+      "status": "PASS",
+      "feature": "Activate"
     },
     "activate.inactiveObjects": {
-      "status": "MISSING",
-      "feature": "Inactive objects list",
-      "reason": "GET /sap/bc/adt/activation/inactiveobjects is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Inactive objects list"
     },
     "unit.run": {
-      "status": "MISSING",
-      "feature": "ABAP Unit (Test Explorer)",
-      "reason": "POST /sap/bc/adt/abapunit/testruns is not served on osgo."
+      "status": "PASS",
+      "feature": "ABAP Unit (Test Explorer)"
     },
     "search.quick": {
       "status": "PASS",
       "feature": "Object search (quickSearch)"
     },
     "whereused.references": {
-      "status": "MISSING",
-      "feature": "Where-used / find references",
-      "reason": "POST /sap/bc/adt/repository/informationsystem/usageReferences is not served by ABAP here."
+      "status": "PASS",
+      "feature": "Where-used / find references"
     },
     "editor.completion": {
       "status": "MISSING",
@@ -152,14 +143,12 @@
       "feature": "Versions / revisions"
     },
     "data.freestyle": {
-      "status": "MISSING",
-      "feature": "SQL query (datapreview freestyle)",
-      "reason": "Datapreview freestyle route is enabled only in one-runtime mode, which this osgo -adt host does not enable."
+      "status": "PASS",
+      "feature": "SQL query (datapreview freestyle)"
     },
     "data.table": {
-      "status": "MISSING",
-      "feature": "Table contents (datapreview ddic)",
-      "reason": "Datapreview ddic route is enabled only in one-runtime mode, which this osgo -adt host does not enable."
+      "status": "PASS",
+      "feature": "Table contents (datapreview ddic)"
     },
     "transport.check": {
       "status": "PASS",
@@ -186,9 +175,8 @@
       "reason": "POST /sap/bc/adt/atc/runs is not served by ABAP here."
     },
     "debugger.coreDiscovery": {
-      "status": "FAIL",
-      "feature": "Debug session start (core discovery)",
-      "reason": "Core discovery returns HTTP 200, but the pinned client cannot parse it (missing category @_term)."
+      "status": "PASS",
+      "feature": "Debug session start (core discovery)"
     },
     "debugger.listeners": {
       "status": "PASS",
@@ -204,19 +192,16 @@
       "feature": "Feeds / dumps / users"
     },
     "create.validate": {
-      "status": "MISSING",
-      "feature": "New object wizard: name validation",
-      "reason": "POST /sap/bc/adt/programs/validation is not served by ABAP here."
+      "status": "PASS",
+      "feature": "New object wizard: name validation"
     },
     "create.createDelete": {
-      "status": "MISSING",
-      "feature": "Create + delete in $TMP",
-      "reason": "POST /sap/bc/adt/programs/programs (create) is not served on osgo; create/save are slice 2."
+      "status": "PASS",
+      "feature": "Create + delete in $TMP"
     },
     "create.createDeleteInPackage": {
-      "status": "MISSING",
-      "feature": "Create + delete in a package ($ZOSD_TEST)",
-      "reason": "POST /sap/bc/adt/programs/programs (create) is not served on osgo; create/save are slice 2."
+      "status": "PASS",
+      "feature": "Create + delete in a package ($ZOSD_TEST)"
     }
   },
   "target": "osgo",
@@ -225,6 +210,7 @@
     "connect",
     "tree",
     "objects",
+    "write",
     "check",
     "activate",
     "unit",
@@ -240,17 +226,15 @@
     "create"
   ],
   "measured": {
-    "revision": "bc2ab5b534446346907b594691c4e9ea0d6fa998",
+    "revision": "5aedcb937d0d9dc93bfb65516c490a5af8ff12f8",
     "build": "osgo-host fixture staging, npm run transpile, node tools/gogen/osgo.mjs; -adt",
     "counts": {
-      "PASS": 22,
-      "FAIL": 1,
-      "MISSING": 23
+      "PASS": 37,
+      "FAIL": 0,
+      "MISSING": 10
     },
-    "exercised": 46,
-    "omitted": [
-      "write.lockWriteUnlock"
-    ],
-    "note": "Measured after PR #689 merged. The exercised FAIL is debugger.coreDiscovery; write.lockWriteUnlock retains its FAIL expectation while omitted."
+    "exercised": 47,
+    "omitted": [],
+    "note": "Full run of every group on feat/osgo-adt-more-families over feat/osgo-adt-activate-unit 5aedcb93 (#863): function groups and modules, message classes, include main programs, program/include preflight, where-used and the core discovery form are ABAP on both hosts (docs/adt-abap-port/family-specs/functions-messages-xref.md); osgo seeds the cross-reference at build. Before it, on 5aedcb93: 30 PASS, 1 FAIL, 16 MISSING of 47."
   }
 }

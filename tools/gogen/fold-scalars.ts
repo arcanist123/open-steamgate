@@ -42,7 +42,7 @@ function numSign(t: string): NumberSign {
 const decimalDigits = (t: string): boolean => /^(\d+\.?\d*|\.\d+)$/.test(t);
 export function ParseF(v: string): number {
   // Exact, bounded integer text avoids the decimal/exponent grammar below.
-  if (/^[+-]?\d{1,15}(?![\s\S])/.test(v)) return Number(v);
+  if (/^[+-]?\d{1,15}$/.test(v)) return Number(v);
   let t = v.replace(/^ +/, "");
   if (t === "") return 0;
   const sp = t.indexOf(" ");

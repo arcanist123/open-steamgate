@@ -1,0 +1,4 @@
+@EndUserText.label: 'RAP trip demo service (R4)'
+define service ZUI_RAP_TRIP {
+  expose ZI_RAP_TRIP as Trip;
+}

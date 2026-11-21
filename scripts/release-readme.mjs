@@ -9,12 +9,17 @@ const binaries = new Set(["osd-linux-x64", "osd-linux-arm64", "osd-darwin-arm64"
 const goBinaries = new Set(["osgo-linux-x64", "osgo-linux-arm64", "osgo-darwin-arm64", "osgo-darwin-x64",
   "osgo-windows-x64.exe", "osgo-windows-arm64.exe"]);
 const compose = new Set(["sqlite.yml", "duckdb.yml", "postgres.yml", "hana.yml"]);
+// The platform packages (scripts/package-vsix-platforms.mjs): vsce's naming,
+// <name>-<target>-<version>.vsix, for the five targets the sidecar pin covers.
+export const VSIX_TARGETS = ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "win32-x64"];
+const universalVsix = /^open-steamgate-\d+\.\d+\.\d+\.vsix$/;
+const platformVsix = new RegExp(`^open-steamgate-(${VSIX_TARGETS.join("|")})-\\d+\\.\\d+\\.\\d+\\.vsix$`);
 
 export function renderReadme(assets) {
   const names = [...new Set(assets)];
   if (names.length === 0) throw new Error("pass at least one release asset");
   for (const name of names) {
-    if (!/^open-steamgate-\d+\.\d+\.\d+\.vsix$/.test(name) && !binaries.has(name) && !goBinaries.has(name) && !compose.has(name)) {
+    if (!universalVsix.test(name) && !platformVsix.test(name) && !binaries.has(name) && !goBinaries.has(name) && !compose.has(name)) {
       throw new Error(`unknown release asset: ${name}`);
     }
   }
@@ -26,7 +31,13 @@ export function renderReadme(assets) {
   ];
   for (const name of names) {
     lines.push(`## ${name}`, "");
-    if (name.endsWith(".vsix")) {
+    const platform = platformVsix.exec(name)?.[1];
+    if (platform !== undefined) {
+      lines.push(
+        `The same extension for ${platform} only, with the \`osd-hana-dump\` sidecar bundled for **OSD: Extract my code from HANA**. Install it like the universal VSIX (**Extensions: Install from VSIX...**); use it on ${platform} only. The Marketplace serves this package to ${platform} automatically.`,
+        "",
+      );
+    } else if (name.endsWith(".vsix")) {
       lines.push(
         "In VS Code 1.101 or newer, run **Extensions: Install from VSIX...** and select this file. Then run **osd: Start (build + run this system)** from the Command Palette. If asked whether to run an open-steamgate checkout, choose the bundled copy to use the packaged system. Its first start copies and builds the system; allow time for that build.",
         "",

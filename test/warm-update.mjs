@@ -5,7 +5,8 @@ import {join, resolve} from "node:path";
 import {build} from "../tools/osd-build.mjs";
 import {WarmCompiler} from "../tools/osd-warm.mjs";
 import {UPDATE_LIMIT} from "../tools/osd-warm-update.mjs";
-import {outputFiles} from "../tools/osd-transpile.mjs";
+import {modulesOf, outputFiles} from "../tools/osd-transpile.mjs";
+import {orderRegistry} from "../tools/osd-warm-order.mjs";
 
 const source = (name, body = "rv = 1.") => `CLASS ${name} DEFINITION PUBLIC CREATE PUBLIC.
  PUBLIC SECTION. CLASS-METHODS get RETURNING VALUE(rv) TYPE i. ENDCLASS.
@@ -214,5 +215,65 @@ describe("kept registry after a cold publication", function () {
     const error = await compiler.update().catch(e => e);
     expect(error.message).to.include("incremental registry differs");
     expect(compiler.primed).to.equal(false);
+  });
+});
+
+// The DDL the transpiler writes follows the registry order, and a view whose
+// base is another view breaks DuckDB when it comes first: SQLite checks a
+// view's bases at first read, DuckDB at CREATE and refuses ("Catalog Error:
+// Table with name ... does not exist"), which killed every DuckDB start of a
+// tree with /dmo/c_connection_r before /dmo/i_connection_r. The registry is
+// fed here (orderRegistry), so the order is checked here, against the DDL
+// the pinned transpiler actually writes rather than against a comment.
+describe("a view over a view reaches the DDL after its base", () => {
+  const tabl = `<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_TABL" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values>
+  <DD02V><TABNAME>zt_under_t</TABNAME><DDLANGUAGE>E</DDLANGUAGE><TABCLASS>TRANSP</TABCLASS><DDTEXT>base</DDTEXT></DD02V>
+  <DD03P_TABLE><DD03P><FIELDNAME>id</FIELDNAME><KEYFLAG>X</KEYFLAG><DATATYPE>CHAR</DATATYPE><LENG>000004</LENG></DD03P></DD03P_TABLE>
+ </asx:values></asx:abap></abapGit>`;
+  const view = (name, base) => `<?xml version="1.0" encoding="utf-8"?>
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_VIEW" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values>
+  <DD25V><VIEWNAME>${name.toUpperCase()}</VIEWNAME><AS4LOCAL>A</AS4LOCAL><DDLANGUAGE>E</DDLANGUAGE><AGGTYPE>V</AGGTYPE><DDTEXT>${name}</DDTEXT><VIEWCLASS>D</VIEWCLASS></DD25V>
+  <DD26V_TABLE><DD26V><VIEWNAME>${name.toUpperCase()}</VIEWNAME><TABNAME>${base.toUpperCase()}</TABNAME><TABPOS>0001</TABPOS><FORTABNAME>${base.toUpperCase()}</FORTABNAME></DD26V></DD26V_TABLE>
+  <DD27P_TABLE><DD27P><VIEWFIELD>id</VIEWFIELD><TABNAME>${base.toUpperCase()}</TABNAME><FIELDNAME>id</FIELDNAME><KEYFLAG>X</KEYFLAG></DD27P></DD27P_TABLE>
+ </asx:values></asx:abap></abapGit>`;
+  // zc_over_v reads zi_under_v and sorts before it, which is the trap: the
+  // walk feeds the dependent first and the DDL follows the walk
+  const files = [
+    {filename: "zc_over_v.view.xml", contents: view("zc_over_v", "zi_under_v")},
+    {filename: "zi_under_v.view.xml", contents: view("zi_under_v", "zt_under_t")},
+    {filename: "zt_under_t.tabl.xml", contents: tabl},
+  ];
+
+  it("names the base view before the view that reads it, table first", async () => {
+    const {core, Transpiler} = modulesOf(process.cwd());
+    const native = new core.Registry();
+    for (const f of files) native.addFile(new core.MemoryFile(f.filename, f.contents));
+    expect([...native.getObjects()].map(o => o.getName()), "the walk alone feeds the dependent first")
+      .to.deep.equal(["ZC_OVER_V", "ZI_UNDER_V", "ZT_UNDER_T"]);
+    const raw = await new Transpiler({ignoreSyntaxCheck: true, ignoreSourceMap: true}).run(native);
+    const rawDdl = raw.databaseSetup.schemas.sqlite.join("\n");
+    expect(rawDdl.indexOf("CREATE VIEW 'zc_over_v'")).to.be.lessThan(rawDdl.indexOf("CREATE VIEW 'zi_under_v'"));
+
+    const reg = new core.Registry();
+    for (const f of files) reg.addFile(new core.MemoryFile(f.filename, f.contents));
+    orderRegistry(reg, core, files, []);
+    expect([...reg.getObjects()].map(o => o.getName())).to.deep.equal(["ZI_UNDER_V", "ZT_UNDER_T", "ZC_OVER_V"]);
+    const output = await new Transpiler({ignoreSyntaxCheck: true, ignoreSourceMap: true}).run(reg);
+    const ddl = output.databaseSetup.schemas.sqlite
+      .map(s => /CREATE (TABLE|VIEW) '([^']+)'/.exec(s))
+      .map(m => `${m[1].toLowerCase()} ${m[2]}`);
+    expect(ddl).to.deep.equal(["table zt_under_t", "view zi_under_v", "view zc_over_v"]);
+  });
+
+  it("leaves a tree of views over tables alone", async () => {
+    const {core} = modulesOf(process.cwd());
+    const plain = files.filter(f => f.filename !== "zc_over_v.view.xml");
+    const reg = new core.Registry();
+    for (const f of plain) reg.addFile(new core.MemoryFile(f.filename, f.contents));
+    orderRegistry(reg, core, plain, []);
+    expect([...reg.getObjects()].map(o => o.getName())).to.deep.equal(["ZI_UNDER_V", "ZT_UNDER_T"]);
   });
 });

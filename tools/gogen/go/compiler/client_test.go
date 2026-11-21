@@ -220,6 +220,27 @@ func TestDiscovery(t *testing.T) {
 		t.Fatalf("both paths recorded: %v", err)
 	}
 }
+func TestLocateAndDescribe(t *testing.T) {
+	dir := t.TempDir()
+	sidecar := filepath.Join(dir, "osd")
+	if err := os.WriteFile(sidecar, []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OSGO_SIDECAR", sidecar)
+	path, err := Locate()
+	if err != nil || path != sidecar {
+		t.Fatalf("override: %s %v", path, err)
+	}
+	if line := Describe(path, err); !strings.Contains(line, sidecar) || strings.Contains(line, "absent") {
+		t.Fatalf("found line: %s", line)
+	}
+	line := Describe("", &AbsentError{Paths: []string{"/x/osd"}})
+	for _, want := range []string{"absent", "/x/osd", "OSGO_SIDECAR", "beside this binary"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("absent line lacks %q: %s", want, line)
+		}
+	}
+}
 func TestHelloAndCheck(t *testing.T) {
 	c := fake(t, "answer")
 	if c.proc != nil || c.Status().Found {

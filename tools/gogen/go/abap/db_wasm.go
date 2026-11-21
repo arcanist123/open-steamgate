@@ -9,7 +9,7 @@ import (
 
 // openSQL has no driver to open in a wasm build (js/wasm and wasip1/wasm):
 // modernc.org/libc, under modernc.org/sqlite, has no wasm files. So OpenDB
-// and OpenDBFile answer this error, and a statement then panics in DB() with
+// and OpenDBFile answer this error, and a statement then panics in Session.database with
 // NOT_COMPILED "the host did not open a database": the code that needs no
 // database runs, the code that does says so instead of answering nothing.
 //

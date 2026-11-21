@@ -21,6 +21,7 @@ const {spawn} = require("node:child_process");
 const {killTree} = require("./process-tree");
 const {JobWorker, workerEnabled} = require("./job-worker");
 const {startCredentials} = require("./abapfs-bridge.js");
+const {engineOf, ensureOsgoBinary, osgoArgs, OsgoEngineError} = require("./osgo-engine.js");
 const {createServer} = require("node:net");
 const {EventEmitter} = require("node:events");
 const {createHash, randomUUID} = require("node:crypto");
@@ -45,6 +46,13 @@ function classify(logText, error) {
     typeof error?.code === "string" ? error.code : "",
     typeof error?.message === "string" ? error.message : "",
   ].filter(Boolean).join("\n");
+  // osd.engine "osgo" (osgo-engine.js): no asset for this machine, a
+  // checksum that does not match, no network -- each message says what to do
+  const osgo = text.match(/\bOSGO_[A-Z_]+\b/);
+  if (osgo) {
+    return {kind: "osgo", message: typeof error?.message === "string" ? error.message : osgo[0],
+      actions: ["Open log", "Use the Node engine"]};
+  }
   const mismatch = text.match(/osd: (?:layer|pack) [^\r\n]+ needs osd >= \d+\.\d+\.\d+; this system is \d+\.\d+\.\d+ — update the extension \(or the binary\)/);
   if (mismatch) return {kind: "version-mismatch", message: mismatch[0], actions: ["Update"]};
   if (/\bUNFETCHED\b/.test(text)) {
@@ -1177,6 +1185,14 @@ class Launcher extends EventEmitter {
     // OSD_WARM); a test hands in "off" to keep the plain end-to-end run cold.
     this.warmMode = options.warm ?? "auto";
     this.debug = options.debug === true;
+    // `osd.engine` (docs/vscode-extension.md "Engine"): "node" runs
+    // `node test/run.mjs` after tools/osd-build.mjs; "osgo" runs the
+    // release's Go executable (osgo-engine.js). `osgo` carries what the
+    // download needs: {storageDir (global storage), version, releaseTag,
+    // home (the -home directory), baseUrl and binary for tests}.
+    this.engine = engineOf(options.engine);
+    this.osgo = options.osgo ?? {};
+    this.osgoBinary = undefined;
     this.state = "stopped";
     this.child = undefined;
     this.buildChild = undefined;
@@ -1259,6 +1275,19 @@ class Launcher extends EventEmitter {
     this.startedAt = Date.now();
     this.#setState("building");
     this.layers = detectWorkspaceLayers(this.workspaceFolders);
+    const osgo = this.engine === "osgo";
+    if (osgo && this.database.kind !== "sqlite") {
+      this.#setState("stopped");
+      throw new OsgoEngineError("OSGO_DATABASE",
+        `osd.engine "osgo" keeps its rows in its own SQLite file; osd.database.system is ${this.database.kind}. ` +
+        `Set osd.database.system to "sqlite", or osd.engine to "node"`);
+    }
+    if (osgo) {
+      for (const layer of this.layers) {
+        this.#log(`osgo: workspace layer ${layer.folder} is not compiled into the osgo executable; ` +
+          "it serves the services it was built with (osd.engine \"node\" builds the workspace)\n");
+      }
+    }
     let covered = new Set();
     try {
       const {packsOf} = await import(pathToFileURL(path.join(this.osdHome, "tools", "osd-packs.mjs")).href);
@@ -1269,8 +1298,8 @@ class Launcher extends EventEmitter {
     for (const layer of covered) {
       this.#log(`workspace layer ${layer.folder} is already a pack of this system (packs/ or OSD_PACKS): it is not projected again\n`);
     }
-    const packsDir = ensureWorkspacePacks(this.storageDir, this.layers.filter((layer) => !covered.has(layer)));
-    for (const layer of this.layers) {
+    const packsDir = ensureWorkspacePacks(this.storageDir, osgo ? [] : this.layers.filter((layer) => !covered.has(layer)));
+    for (const layer of osgo ? [] : this.layers) {
       this.#log(`workspace layer: ${layer.folder} (${path.relative(layer.folder, layer.srcDir) === "" ? "." : "src"})\n`);
     }
 
@@ -1309,13 +1338,14 @@ class Launcher extends EventEmitter {
       this.#setState("stopped");
       return undefined;
     }
-    if (!this.debug) this.inspectPort = undefined;
-    if (this.debug && (this.inspectPort === undefined || await isFree(this.inspectPort) === false)) {
+    if (osgo && this.debug) this.#log("osgo: osd.debug is the Node host's inspector; ignored with osd.engine \"osgo\"\n");
+    if (!this.debug || osgo) this.inspectPort = undefined;
+    if (this.debug && !osgo && (this.inspectPort === undefined || await isFree(this.inspectPort) === false)) {
       this.inspectPort = await pickInspectorPort();
     }
     // open from the start only when asked at start; otherwise it is opened
     // on demand (openInspector) and a new system begins without one
-    this.inspectorOpen = this.debug;
+    this.inspectorOpen = this.debug && !osgo;
     const dbEnv = databaseEnv(this.database);
     // RuntimePool gives every serving worker the same inspector port; a
     // debugger session can follow one child only.
@@ -1340,7 +1370,7 @@ class Launcher extends EventEmitter {
       OSD_TLS_DIR: tlsDir,
       STG_SERVE: "child",
       ...warmEnvironment(this.warmMode),
-    }, this.debug, this.inspectPort);
+    }, this.debug && !osgo, this.inspectPort);
     env.OSD_PACKS = [process.env.OSD_PACKS, packsDir]
       .filter((value) => value !== undefined && value !== "").join(path.delimiter);
     delete env.OSD_JOB_WORKER;
@@ -1357,7 +1387,31 @@ class Launcher extends EventEmitter {
     }
 
     let build;
-    try {
+    if (osgo) {
+      // the "build" of this engine is the download (or the re-check of the
+      // kept copy); a stop() meanwhile aborts it
+      const download = new AbortController();
+      this.buildAbort = download;
+      try {
+        const resolved = this.osgo.binary !== undefined
+          ? {binary: this.osgo.binary, tag: "osd.osgo.binary", downloaded: false}
+          : await ensureOsgoBinary({storageDir: this.osgo.storageDir ?? this.storageDir, version: this.osgo.version,
+            releaseTag: this.osgo.releaseTag, baseUrl: this.osgo.baseUrl, platform: this.osgo.platform, arch: this.osgo.arch,
+            timeoutMs: this.osgo.timeoutMs, signal: download.signal, log: (line) => this.#log(line)});
+        this.osgoBinary = resolved;
+        build = {code: 0, output: ""};
+      } catch (error) {
+        if (this.buildCancelled) {
+          this.#setState("stopped");
+          return undefined;
+        }
+        this.#setState("stopped");
+        error.logText ??= this.lastLog;
+        throw error;
+      } finally {
+        if (this.buildAbort === download) this.buildAbort = undefined;
+      }
+    } else try {
       build = await runToCompletion(this.osdHome, "tools/osd-build.mjs", force || forceBuild ? ["--force"] : [], env,
         (line) => this.#log(line), (child) => { this.buildChild = child; });
     } catch (error) {
@@ -1392,12 +1446,26 @@ class Launcher extends EventEmitter {
       env.OSD_LAUNCHER_IDENTITY = this.launcherIdentity;
       this.adtCredentials = startCredentials(env);
       env.OSD_ADT_TOKEN = this.adtCredentials.token;
-      child = spawn(process.execPath, ["test/run.mjs"], {cwd: this.osdHome, env, detached: process.platform !== "win32"});
+      if (osgo) {
+        const home = this.osgo.home ?? path.join(this.storageDir, "osgo-home");
+        fs.mkdirSync(home, {recursive: true});
+        const args = osgoArgs({port, root: this.osdHome, home});
+        this.#log(`osgo: ${this.osgoBinary.binary} ${args.join(" ")}\n`);
+        // a missing or non-executable file is a clear error here rather than
+        // a spawn "error" event with no pid to record
+        fs.accessSync(this.osgoBinary.binary, process.platform === "win32" ? fs.constants.R_OK : fs.constants.X_OK);
+        child = spawn(this.osgoBinary.binary, args, {cwd: home, env, detached: process.platform !== "win32"});
+      } else {
+        child = spawn(process.execPath, ["test/run.mjs"], {cwd: this.osdHome, env, detached: process.platform !== "win32"});
+      }
     } catch (error) {
       this.#setState("stopped");
       error.logText ??= this.lastLog;
       throw error;
     }
+    // spawn's own failure (EACCES, a file the OS will not run) arrives as an
+    // "error" event; unheard it would end the extension host
+    child.on("error", (error) => this.#log(`osd: could not run the system: ${error.message}\n`));
     this.child = child;
     this.pid = child.pid;
     try {
@@ -1497,7 +1565,11 @@ class Launcher extends EventEmitter {
     }
     this.port = port;
     this.generation = serving.generation;
-    if (workerEnabled(this.jobsWorkerMode, env)) {
+    if (osgo) {
+      // the job worker runs the Node host's scheduler (job-worker.js);
+      // osgo's scheduler is ADR 0010 slice 7
+      if (this.jobsWorkerMode === "on") this.#log("osgo: background jobs run on the Node engine only for now\n");
+    } else if (workerEnabled(this.jobsWorkerMode, env)) {
       this.jobWorker = new JobWorker({cwd:this.osdHome, env,
         log: line => this.emit("jobsLog", line)});
       this.jobWorker.start();
@@ -1586,6 +1658,7 @@ class Launcher extends EventEmitter {
     await this.jobWorker?.stop();
     if (this.state === "building") {
       this.buildCancelled = true;
+      this.buildAbort?.abort();
       await terminate(this.buildChild);
       this.buildChild = undefined;
       this.#setState("stopped");
@@ -1779,6 +1852,7 @@ async function unpackTar(chunks, dest) {
 
 
 module.exports = {
+  STOP_GRACE_MS,
   WARM_MEMORY_FLOOR_BYTES,
   writeTar,
   unpackTar,

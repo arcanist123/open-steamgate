@@ -1,5 +1,6 @@
 import {strict as assert} from "node:assert";
-import {renderDiz, renderReadme} from "../scripts/release-readme.mjs";
+import {readFileSync} from "node:fs";
+import {renderDiz, renderReadme, VSIX_TARGETS} from "../scripts/release-readme.mjs";
 
 describe("release README and FILE_ID.DIZ", () => {
   it("renders start and checksum instructions for a sample release asset list", () => {
@@ -62,5 +63,20 @@ describe("release README and FILE_ID.DIZ", () => {
     assert.match(text, /xattr -d com\.apple\.quarantine osd/);
     assert.match(text, /## osd-windows-arm64\.exe\n\n.*osd\.exe up/);
     assert.match(text, /## osgo-windows-arm64\.exe\n\n.*osgo\.exe/);
+  });
+
+  it("allows the five platform packages beside the universal one, and nothing else named like them", () => {
+    const pin = JSON.parse(readFileSync(new URL("../tools/osd-hana/sidecar.lock.json", import.meta.url), "utf8"));
+    assert.deepEqual([...VSIX_TARGETS].sort(), Object.keys(pin.targets).sort());
+    const names = VSIX_TARGETS.map((t) => `open-steamgate-${t}-0.7.42.vsix`);
+    const text = renderReadme(["open-steamgate-0.7.42.vsix", ...names]);
+    for (const t of VSIX_TARGETS) {
+      assert.match(text, new RegExp(`## open-steamgate-${t}-0\\.7\\.42\\.vsix\n\nThe same extension for ${t} only, with the \`osd-hana-dump\` sidecar`));
+    }
+    assert.match(text, /## open-steamgate-0\.7\.42\.vsix\n\nIn VS Code 1\.101/);
+    assert.match(text, /sha256sum -c/);
+    assert.throws(() => renderReadme(["open-steamgate-win32-arm64-0.7.42.vsix"]), /unknown release asset/);
+    assert.throws(() => renderReadme(["open-steamgate-web-0.7.42.vsix"]), /unknown release asset/);
+    assert.throws(() => renderReadme(["open-steamgate-linux-x64-0.7.42.vsix.sha256"]), /unknown release asset/);
   });
 });

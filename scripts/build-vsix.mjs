@@ -83,6 +83,9 @@ import {packagedVersion, writeVersionMarker} from "../tools/layer-version/index.
 import {readLock} from "../tools/osd-lock.mjs";
 import {writeThirdPartyNotices} from "./third-party-notices.mjs";
 import {forPublishing, generationTmpProblem} from "../tools/osd-tmp.mjs";
+import {assertExtensionSources, assertPublicExtensionIdentity} from "../tools/osd-extension-sources.mjs";
+import {verifyPublicArtefact} from "../tools/osd-provenance.mjs";
+import {assertPublicSystem} from "../tools/osd-system.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const EXT_DIR = join(ROOT, "editors", "vscode");
@@ -353,7 +356,8 @@ export function excludeTestOnlyIncludes(seedRoot, excludedPaths) {
 export const SEED_DIRS = ["src", "webapp", "tools", "data"];
 export const SEED_FILES = ["abap_transpile.json", "abaplint.jsonc", "libs.lock.json", "package.json"];
 
-export function copySeedTree(seedRoot, selectedPacks) {
+export function copySeedTree(seedRoot, selectedPacks, sourceRoot = ROOT) {
+  assertPublicSystem(sourceRoot);
   mkdirSync(seedRoot, {recursive: true});
 
   // No output/ and no gen/ from the checkout: the checkout's generation
@@ -514,6 +518,9 @@ export function excludeStagedPackSources(seedRoot, selectedPacks) {
  *  launcher's empty notebook-scratch pack, which names nothing since a pack
  *  that brings nothing is not an input (tools/osd-build.mjs inputsOf); a
  *  workspace pack with content is another input and builds cold, as before. */
+// seed root -> the checked provenance of its prebuilt generation
+const SEED_PROVENANCE = new Map();
+
 function prebuildGeneration(seedRoot, env) {
   // a seed is published: $TMP is left out (tools/osd-tmp.mjs)
   const buildEnv = forPublishing({...env});
@@ -553,12 +560,32 @@ function prebuildGeneration(seedRoot, env) {
       ? "build-vsix: cacheKey() gave no key for the seed (tools/osd-xref-seed.mjs), so the cross-reference cache cannot ship"
       : `build-vsix: the cross-reference cache was not written for key ${xrefKey} (found: ${xrefFiles.join(", ") || "none"})`);
   }
+  // The seed's provenance, while it still has its live link: the seed's own
+  // tree, in the build's environment, must be its public live generation
+  // (tools/osd-public-tree.mjs). The links go below, so it is taken now.
+  let provenance;
+  try {
+    provenance = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e",
+      'const m = await import("./tools/osd-public-tree.mjs"); process.stdout.write(JSON.stringify(m.publicProvenance(process.cwd())));'],
+    {cwd: seedRoot, env: buildEnv, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]}));
+  } catch (error) {
+    throw new Error(`build-vsix: the prebuilt seed is not a public live generation: ${String(error.stderr ?? error.message).trim().split("\n").at(-1)}`, {cause: error});
+  }
+  if (provenance.generation !== hash) throw new Error(`build-vsix: the seed's provenance names ${provenance.generation}, its live generation is ${hash}`);
+  SEED_PROVENANCE.set(resolve(seedRoot), provenance);
   for (const name of readdirSync(join(seedRoot, "build"))) {
     if (name !== "by-input" && name !== "xref") rmSync(join(seedRoot, "build", name), {recursive: true, force: true});
   }
   for (const name of readdirSync(join(seedRoot, "build", "by-input"))) {
     if (name !== hash) rmSync(join(seedRoot, "build", "by-input", name), {recursive: true, force: true});
   }
+  // The read record names real paths under this builder's staging tree: it
+  // would leak them and change the seed ID per build. Its job (the public
+  // check above) is done. The seed ships a record that names no path and is
+  // incomplete: a first start still reuses the generation, and publishing
+  // from it is refused (UNKNOWN_PRIVACY) until it is rebuilt where it runs.
+  writeFileSync(join(seedRoot, "build", "by-input", hash, "reads.json"), `${JSON.stringify({schema: 1, root: "/", reads: [], uncovered: [],
+    incomplete: true, incompleteReads: ["prebuilt seed generation: its read record is not shipped"]}, null, 2)}\n`);
   rmSync(join(seedRoot, "output"), {force: true});
   const dropLinks = (dir) => {
     for (const entry of readdirSync(dir, {withFileTypes: true})) {
@@ -576,7 +603,8 @@ function prebuildGeneration(seedRoot, env) {
  *  its generations by its own bytes (tools/osd-build.mjs generatorIdentity),
  *  so a prebuilt generation could never be reused there: `prebuild` is the
  *  VSIX's alone. */
-export async function stageSystemSeed(seedRoot, env = process.env, {prebuild = false, version = packagedVersion(ROOT)} = {}) {
+export async function stageSystemSeed(seedRoot, env = process.env, {prebuild = false, version = packagedVersion(ROOT), sourceRoot = ROOT} = {}) {
+  assertPublicSystem(sourceRoot);
   requireSupportedNode(process.versions.node, "system seed: ");
   const transpilerRef = pinnedTranspilerRef();
   const preflight = describeVsixPreflight(vsixPreflightMissing(ROOT));
@@ -599,14 +627,32 @@ export async function stageSystemSeed(seedRoot, env = process.env, {prebuild = f
  * without installing the pinned transpiler fork. */
 export function finalizeSystemSeed(seedRoot, selectedPacks, {
   prebuild = false, version = packagedVersion(ROOT), transpilerRef, env = process.env,
+  commit = seedCommit(env),
 } = {}) {
   writeVersionMarker(seedRoot, version);
+  // A seeded home is not a checkout, so `core/http/build` cannot ask git
+  // there and answered `"commit":"unknown"` (release check 2026-11-08).
+  // tools/adt-facade.mjs reads release.json in the home first, as it does
+  // beside a make-release directory. Written before the seed id, so two
+  // builds of different commits never share an extracted home.
+  if (commit) writeFileSync(join(seedRoot, "release.json"), `${JSON.stringify({commit}, undefined, 2)}\n`);
   writeFileSync(join(seedRoot, ".osd-transpiler-ref"), `${transpilerRef}\n`);
   materializeSeedLinks(seedRoot);
   excludeStagedPackSources(seedRoot, selectedPacks);
   const generation = prebuild ? prebuildGeneration(seedRoot, env) : undefined;
   const seedId = writeSeedId(seedRoot);
   return {seedId, generation};
+}
+
+/** The commit a seed is built from: the workflow's GITHUB_SHA, else the
+ *  checkout's HEAD, else nothing (the facade then falls back to git). */
+export function seedCommit(env = process.env) {
+  if (env.GITHUB_SHA) return env.GITHUB_SHA;
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]}).trim();
+  } catch {
+    return undefined;
+  }
 }
 
 // These npm distributions omit their repository licences.
@@ -664,19 +710,49 @@ export function stageKernelScanner(seedRoot, extensionDir) {
 function webEntry(profile) {
   if (profile !== "marketplace") return true;
   if (process.env.OSD_VSIX_WEB !== "1") return false;
-  const bundle = join(EXT_DIR, "dist", "web", "extension.js");
-  if (!existsSync(bundle)) throw new Error(`build-vsix: OSD_VSIX_WEB=1 but ${bundle} is missing; run npm run web:vscode first`);
+  verifiedWebBundle(EXT_DIR);
   return true;
+}
+
+export function verifiedWebBundle(extension) {
+  const bundle = join(extension, "dist", "web", "extension.js");
+  if (!existsSync(bundle)) throw new Error(`build-vsix: OSD_VSIX_WEB=1 but ${bundle} is missing; run npm run web:vscode first`);
+  const record = verifyPublicArtefact(join(extension, "dist", "web"));
+  assertPublicExtensionIdentity(extension, "dist/web");
+  return record;
+}
+
+// Entries of editors/vscode/ that never enter the universal package:
+//   osd                   never present here; guards a stray dev copy
+//   .osd-provenance.json  the directory's own record, not a part
+//   bin                   the osd-hana-dump sidecars fetch-sidecar places per
+//                         target (gitignored); only a platform package
+//                         (scripts/package-vsix-platforms.mjs) carries one,
+//                         and then only its own
+// dist/ is handled separately (shipped only when the profile asks for it).
+export const UNSTAGED_EXTENSION_ENTRIES = Object.freeze(["osd", ".osd-provenance.json", "bin"]);
+
+/** The editors/vscode/ entries the universal package copies and checks
+ *  against the Git closure: everything but UNSTAGED_EXTENSION_ENTRIES and
+ *  dist/. */
+export function extensionStaticParts(names) {
+  return names.filter(name => !UNSTAGED_EXTENSION_ENTRIES.includes(name) && name !== "dist");
 }
 
 function copyExtensionFiles(extensionDir, profile) {
   mkdirSync(extensionDir, {recursive: true});
+  const staticParts = extensionStaticParts(readdirSync(EXT_DIR));
+  assertExtensionSources(EXT_DIR, staticParts);
   for (const entry of readdirSync(EXT_DIR, {withFileTypes: true})) {
-    if (entry.name === "osd") continue; // never present here; guards a stray dev copy
+    if (UNSTAGED_EXTENSION_ENTRIES.includes(entry.name)) continue;
     // The web bundle ships to the Marketplace only when the build asks for
     // it (OSD_VSIX_WEB=1, after a fresh npm run web:vscode): a dist/ left
     // over from a local build must not ride along by accident.
-    if (profile === "marketplace" && entry.name === "dist" && !webEntry(profile)) continue;
+    if (entry.name === "dist") {
+      if (!webEntry(profile)) continue;
+      if (readdirSync(join(EXT_DIR, "dist")).some(name => name !== "web")) throw new Error("build-vsix: unverified dist entry");
+      verifiedWebBundle(EXT_DIR);
+    }
     copyReal(join(EXT_DIR, entry.name), join(extensionDir, entry.name));
   }
   // LICENSE.txt, as vsce names it: an OPC package gives every part a
@@ -794,7 +870,10 @@ ${prerelease ? '      <Property Id="Microsoft.VisualStudio.Code.PreRelease" Valu
 
 // ---- entry point ------------------------------------------------------------
 
-export async function buildVsix(env = process.env, outputDir = BUILD_DIR) {
+// `stamp: false` is for tests only and is not reachable from the command line:
+// the package then has no provenance sidecar, which every release path
+// (tools/osd-provenance.mjs verify in release.yml) refuses.
+export async function buildVsix(env = process.env, outputDir = BUILD_DIR, {stamp = true} = {}) {
   const profile = env.OSD_VSIX_PROFILE ?? "default";
   const qualityText = env.OSD_VSIX_BROTLI_QUALITY;
   const quality = qualityText === undefined ? 5 : Number(qualityText);
@@ -867,6 +946,17 @@ export async function buildVsix(env = process.env, outputDir = BUILD_DIR) {
   };
   const unpackedTotal = Object.values(breakdown).reduce((a, b) => a + b, 0);
   const vsixSize = statSync(out).size;
+  if (!stamp) {
+    rmSync(`${out}.osd-provenance.json`, {force: true});
+  } else if (generation === undefined) {
+    const {writePublicArtefact} = await import("../tools/osd-public-tree.mjs");
+    writePublicArtefact(out, ROOT);
+  } else {
+    const provenance = SEED_PROVENANCE.get(resolve(seedRoot));
+    if (provenance?.generation !== generation) throw new Error("build-vsix: no checked provenance for the prebuilt seed");
+    const {writeArtefactProvenance} = await import("../tools/osd-provenance.mjs");
+    writeArtefactProvenance(out, provenance);
+  }
 
   log(`.vsix: ${out} (${fmtMB(vsixSize)})`);
   log(`unpacked: ${fmtMB(unpackedTotal)}`);

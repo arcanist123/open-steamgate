@@ -3,6 +3,7 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compile, compileAll, compileConfiguredAll, readModel} from "../tools/stg-compile.mjs";
+import {dictionaryDates} from "../tools/osd-ddic-info-registry.mjs";
 import {generate} from "../tools/segw-gen.mjs";
 import {loadFunctionGroups} from "../tools/segw-gen-mapping.mjs";
 import {buildModel, parseIwpr} from "../tools/segw-gen.mjs";
@@ -112,6 +113,23 @@ describe("tools/stg-compile: <service>.stg.yaml -> IWPR, IWSV, IWMO, _MPC/_DPC",
     expect(dpc).to.contain("      method = 'BOOKINGSET_CREATE_ENTITY'.");
     expect(dpc).not.to.contain("STATUSVHSET_CREATE_ENTITY");
     expect(Object.keys(result.ext)).to.deep.equal(["zcl_zstg_demo_mpc_ext.clas.abap", "zcl_zstg_demo_mpc_ext.clas.xml", "zcl_zstg_demo_dpc_ext.clas.abap", "zcl_zstg_demo_dpc_ext.clas.xml"]);
+  });
+
+  // A system derives no sap:display-format from a DATS component (measured,
+  // milestone 3 B4); a SEGW developer annotates the date. stg-compile does
+  // the same for its models, so their apps keep showing dates without a time.
+  it("annotates a date as a date: an inline date, and a DATS component of a bound dictionary type", () => {
+    const annotation = "iv_key      = 'display-format'\n        iv_value    = 'Date' ).";
+    const mpc = result.classes["zcl_zstg_demo_mpc.clas.abap"];
+    const flightDate = mpc.slice(mpc.indexOf("iv_property_name = 'FlightDate'"));
+    expect(flightDate.slice(0, flightDate.indexOf("create_property", 10))).to.contain(annotation);
+    expect(mpc.split("'display-format'").length - 1, "only the date").to.equal(1);
+    // a bound dictionary structure: the twin's line item, DELIV_DATE is DATS
+    const dates = dictionaryDates(["test/hana-m2"]);
+    expect(dates("ZOSD_H5X_S_ITEM", "DELIV_DATE")).to.equal(true);
+    expect(dates("zosd_h5x_s_item", "item_no")).to.equal(false);
+    // the hand-written demo MPC says the same
+    expect(readFileSync("src/demo/zcl_zstg_demo_mpc.clas.abap", "utf8")).to.contain("iv_key      = 'display-format'");
   });
 
   it("routes table: and cds: sources to SADL", () => {
@@ -528,5 +546,24 @@ describe("the hand-written demo MPC and the generated one declare the same types
     const shared = Object.keys(hand).filter((k) => gen[k] !== undefined);
     expect(shared.length, "no shared type at all: this would pass on nothing").to.be.greaterThan(2);
     for (const k of shared) expect(gen[k], `${k} differs`).to.deep.equal(hand[k]);
+  });
+
+  it("declares the text element container for an action when no property is labelled", () => {
+    const r = compile(`project: ZSTG_INCL
+service: ZSTG_INCL_SRV
+entities:
+  Thing:
+    keys: [Id]
+    properties:
+      Id: String(4)
+functions:
+  Touch:
+    method: POST
+    returns: {entity: Thing}
+    parameters: {Id: String(4)}
+`);
+    const mpc = Object.entries(r.classes).find(([f]) => /_mpc\.clas\.abap$/.test(f))[1];
+    expect(mpc).to.contain("iv_text_element_container = gc_incl_name");
+    expect(mpc).to.match(/constants GC_INCL_NAME type STRING/);
   });
 });

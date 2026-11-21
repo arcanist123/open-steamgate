@@ -1,0 +1,12 @@
+{
+ "inputs": {
+  "exit": 0,
+  "seconds": 1.4,
+  "maxRssKiB": 177072
+ },
+ "full": {
+  "exit": 1,
+  "seconds": 326.3,
+  "maxRssKiB": 12418592
+ }
+}

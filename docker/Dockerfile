@@ -8,6 +8,12 @@
 # Built from the repository root so the context can reach .local/release:
 #   bun scripts/make-release.mjs .local/release
 #   docker build -f docker/Dockerfile -t osd:local .
+FROM node:24-bookworm-slim AS provenance-check
+WORKDIR /check
+COPY tools/osd-provenance.mjs /check/osd-provenance.mjs
+COPY .local/release/ /release/
+RUN node --input-type=module -e 'import {verifyPublicArtefact} from "./osd-provenance.mjs"; verifyPublicArtefact("/release")'
+
 FROM debian:12-slim
 
 # Three packages, and each one was added because something measurably did not
@@ -28,7 +34,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /osd
-COPY .local/release/ /osd/
+COPY --from=provenance-check /release/ /osd/
 
 # The database file lives outside the image layer, for the reason
 # docs/amdp-in-hana.md records about HANA's own data: a writable layer copies

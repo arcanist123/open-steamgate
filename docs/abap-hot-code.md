@@ -1,6 +1,6 @@
 # How to write hot ABAP for this runtime
 
-Current build pin: `local/osd-build-3b` at `f34e9bf4947daaf6464566b42b1e3ef1eaeb369c` (2.14.3, parser 2.120.73).
+Current build pin: `local/osd-build-4l` at `b2998ada877470d69fefe07c098eeb49440f8ba5` (4l = `local/osd-build-4k` plus `EXPORT`/`IMPORT` TO/FROM SHARED MEMORY and SHARED BUFFER, ANORMALIES `export-import-shared-memory`, and `decfloat16` on the runtime's decfloat34, ANORMALIES `decfloat16-type-todo`, each with a comment commit saying what is not modelled; 4k = `local/osd-build-4j` plus a blank-separated dynamic ORDER BY given its commas at the source and SQL literals that no rewrite reads, ANORMALIES `sql-literals-statement-text`; 4j = `local/osd-build-4f` plus interface constants from other constants and two critic rounds, ANORMALIES `intf-const-from-const`, and class constructors whose targets load first, without an import cycle, in dependency order, wait-cycles said at load, ANORMALIES `cctor-load-order`; 4f = `local/osd-build-4e` plus the `[]` suffix fix and the class-pool load order, ANORMALIES `table-body-suffix-js` and `local-inherits-owner`; `local/osd-build-4c` plus the two SELECT loop commits below it; upstream main `8824945a` after 2.14.19, parser 2.120.94; [transpiler-pin-4.md](transpiler-pin-4.md)).
 The measurements below are historical snapshots; see [the pin move report](transpiler-pin-2.md).
 
 *Measured 2026-09-17 on one 16-core x86-64 workstation under Node 26, against

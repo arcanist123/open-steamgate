@@ -1,0 +1,22 @@
+managed implementation in class zbp_rap_bill unique;
+define behavior for ZI_RAP_BILL alias bill
+persistent table zrap_bill
+lock master
+early numbering
+{
+  create;
+  update;
+  delete;
+  field ( readonly ) bill_id, total, checks, copied_from;
+  field ( mandatory ) description;
+  // the total is the internal action's, executed by the determination
+  internal action ReCalcTotal;
+  // a copy of a bill, mapped under the %cid of the import row
+  factory action copyBill [1];
+  // the validation where its triggers hold, the count always
+  determine action check { validation checkAmount; determination ( always ) countCheck; }
+  determination calcTotal on modify { create; field amount, discount; }
+  determination countCheck on save { field amount; }
+  validation checkAmount on save { create; field amount, discount; }
+  mapping for zrap_bill corresponding;
+}

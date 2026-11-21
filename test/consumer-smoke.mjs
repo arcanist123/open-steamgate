@@ -131,7 +131,10 @@ describe("consumer smoke runner", function () {
   it("keeps the job budget above setup, installation and all six command bounds", () => {
     const workflow = readFileSync(resolve(".github/workflows/consumer-smoke.yml"), "utf8");
     const budgets = [...workflow.matchAll(/timeout-minutes: (\d+)/g)].map(m => Number(m[1]));
-    assert.ok(budgets[0] >= budgets[1] + budgets[2] + 6 + 2 * 8 + 4 * 6 + 5);
+    // Every step that carries its own bound counts (the pin split the install
+    // into three steps), beside the checkout minutes and the six fleet
+    // commands' expected bounds: two at 8 and four at 6.
+    assert.ok(budgets[0] >= budgets.slice(1).reduce((a, b) => a + b, 0) + 6 + 2 * 8 + 4 * 6);
     assert.match(workflow, /run: node \.\.\/osd\/tools\/consumer-smoke.mjs install/);
     for (const key of ["sqlite", "duckdb", "cli", "jobs", "l3", "iti"]) {
       assert.match(workflow, new RegExp(`if: success\\(\\) \\|\\| failure\\(\\)\\n        working-directory: demo\\n        run: node \\.\\.\\/osd/tools/consumer-smoke.mjs run ${key}`));

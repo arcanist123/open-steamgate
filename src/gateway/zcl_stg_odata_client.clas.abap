@@ -8,6 +8,17 @@ CLASS zcl_stg_odata_client DEFINITION PUBLIC CREATE PUBLIC.
 * its own ABAP fields and types); $filter, $top, $skip, $orderby,
 * $inlinecount and search travel through unchanged.
   PUBLIC SECTION.
+* the technical order (ABAP names) as the other service's $orderby value:
+* each field by the OData name of the same property of the local set, a
+* path into a complex property (property initial, property_path
+* ADDRESS-CITY) by its OData path (Address/City)
+    CLASS-METHODS orderby_option
+      IMPORTING
+        it_orderby      TYPE /iwbep/t_mgw_tech_order
+        is_set          TYPE zcl_stg_model_info=>ty_entity_set
+      RETURNING
+        VALUE(rv_value) TYPE string.
+
     METHODS constructor
       IMPORTING
         iv_service    TYPE string
@@ -183,6 +194,30 @@ CLASS zcl_stg_odata_client IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+  METHOD orderby_option.
+    DATA ls_orderby  LIKE LINE OF it_orderby.
+    DATA ls_property TYPE zcl_stg_model_info=>ty_property.
+    DATA lv_name     TYPE string.
+
+    LOOP AT it_orderby INTO ls_orderby.
+      lv_name = ls_orderby-property.
+      IF lv_name IS INITIAL.
+        lv_name = ls_orderby-property_path.
+      ENDIF.
+      READ TABLE is_set-properties INTO ls_property WITH KEY fieldname = lv_name.
+      IF sy-subrc <> 0.
+        READ TABLE is_set-components INTO ls_property WITH KEY fieldname = lv_name.
+      ENDIF.
+      IF sy-subrc = 0.
+        lv_name = ls_property-name.
+      ENDIF.
+      IF rv_value IS NOT INITIAL.
+        rv_value = |{ rv_value },|.
+      ENDIF.
+      rv_value = |{ rv_value }{ lv_name } { to_lower( ls_orderby-order ) }|.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD get_entityset.
     DATA ls_set      TYPE zcl_stg_model_info=>ty_entity_set.
     DATA lt_options  TYPE tihttpnvp.
@@ -190,7 +225,6 @@ CLASS zcl_stg_odata_client IMPLEMENTATION.
     DATA lo_filter   TYPE REF TO /iwbep/if_mgw_req_filter.
     DATA lo_context  TYPE REF TO zcl_stg_request_context.
     DATA lt_orderby  TYPE /iwbep/t_mgw_tech_order.
-    DATA ls_orderby  LIKE LINE OF lt_orderby.
     DATA lv_top      TYPE string.
     DATA lv_skip     TYPE i.
     DATA lv_body     TYPE string.
@@ -228,12 +262,8 @@ CLASS zcl_stg_odata_client IMPLEMENTATION.
     ENDIF.
     lt_orderby = io_tech_request_context->get_orderby( ).
     CLEAR ls_option.
-    LOOP AT lt_orderby INTO ls_orderby.
-      IF ls_option-value IS NOT INITIAL.
-        ls_option-value = |{ ls_option-value },|.
-      ENDIF.
-      ls_option-value = |{ ls_option-value }{ ls_orderby-property } { to_lower( ls_orderby-order ) }|.
-    ENDLOOP.
+    ls_option-value = orderby_option( it_orderby = lt_orderby
+                                      is_set     = ls_set ).
     IF ls_option-value IS NOT INITIAL.
       ls_option-name = '$orderby'.
       APPEND ls_option TO lt_options.

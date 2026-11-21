@@ -1,8 +1,9 @@
 import {expect} from "chai";
 import {execFileSync} from "node:child_process";
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
+import {assertPinnedTranspiler, bootstrap} from "../tools/osd-bootstrap.mjs";
 import {describeVsixPreflight, githubWorkflowEnv, librariesFromLock, readLock} from "../tools/osd-lock.mjs";
 import {vsixPreflightMissing} from "../tools/osd-lib-path.mjs";
 import {nodeVersionProblem, requireSupportedNode} from "../tools/osd-node-version.mjs";
@@ -140,5 +141,93 @@ describe("fresh checkout bootstrap", () => {
 
   it("the committed lock pins placeholder-licence libraries at approved refs", () => {
     expect(() => checkLockLicences(ROOT)).not.to.throw();
+  });
+});
+
+// The pin step as bootstrap runs it: a verified fake pin clone, the published
+// packages `npm ci` leaves, and a fake npm that records the transpile step.
+// Everything persistent lives under .local (pinPath refuses /tmp by design).
+function pinTree() {
+  const base = resolve(process.env.OSD_PIN_TEST_ROOT ?? ".local");
+  mkdirSync(base, {recursive: true});
+  const root = mkdtempSync(join(base, "boot-pin-"));
+  const clone = join(root, "cache");
+  const put = (file, text) => { mkdirSync(join(clone, file, ".."), {recursive: true}); writeFileSync(join(clone, file), text); };
+  for (const name of ["transpiler", "runtime", "cli"]) {
+    put(`packages/${name}/package.json`, JSON.stringify({name: `@abaplint/${name}`, version: "0.0.0", devDependencies: {"@abaplint/core": "0.0.0"}}));
+    put(`packages/${name}/node_modules/marker`, "installed");
+    put(`packages/${name}/build/index.js`, "compiled");
+  }
+  put("package.json", JSON.stringify({devDependencies: {"@abaplint/core": "0.0.0"}}));
+  put("packages/transpiler/build/src/index.js", "this.options?.only?.(obj) === false");
+  put("packages/transpiler/build/src/types.d.ts", "only?:");
+  put("packages/transpiler/build/src/validation.js", "reg.getConfig().get()) === JSON.stringify(conf.get())\nobj.setDirty()");
+  for (const at of ["", "packages/transpiler/", "packages/cli/"]) {
+    put(`${at}node_modules/@abaplint/core/package.json`, '{"version":"0.0.0"}');
+  }
+  put("packages/cli/abap_transpile", "#!/bin/sh\nexit 0\n");
+  chmodSync(join(clone, "packages/cli/abap_transpile"), 0o755);
+  put("node_modules/marker", "installed");
+  const git = (...args) => execFileSync("git", args, {cwd: clone, encoding: "utf8"}).trim();
+  git("init", "-q"); git("add", ".");
+  git("-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture");
+  const ref = git("rev-parse", "HEAD");
+  // the tree npm ci leaves: the published transpiler, no links
+  mkdirSync(join(root, "node_modules/@abaplint/transpiler"), {recursive: true});
+  writeFileSync(join(root, "node_modules/@abaplint/transpiler/package.json"), JSON.stringify({name: "@abaplint/transpiler", version: "2.14.19"}));
+  // the checkout's own bootstrap inputs: an empty library closure, a pack
+  // fetch that does nothing, and a fake npm recording the transpile step
+  writeFileSync(join(root, "package.json"), JSON.stringify({devDependencies: {"@abaplint/core": "0.0.0"}}));
+  writeFileSync(join(root, "libs.lock.json"), JSON.stringify({transpiler: {repo: "test/transpiler", ref}, libraries: []}));
+  writeFileSync(join(root, "abap_transpile.json"), JSON.stringify({libs: []}));
+  mkdirSync(join(root, "tools"));
+  writeFileSync(join(root, "tools", "osd-fetch.mjs"), "process.exit(0);\n");
+  mkdirSync(join(root, "commands"));
+  writeFileSync(join(root, "commands", "npm"), '#!/bin/sh\necho "npm $*" >> "$PIN_BOOT_LOG"\n');
+  chmodSync(join(root, "commands", "npm"), 0o755);
+  return {root, clone, ref, log: join(root, "npm.log")};
+}
+
+describe("bootstrap runs the pin step before it transpiles", function () {
+  this.timeout(60000);
+
+  it("refuses to continue on the published package when the pin cannot be built", () => {
+    const f = pinTree();
+    try {
+      rmSync(f.clone, {recursive: true, force: true});
+      writeFileSync(join(f.root, "commands", "git"), "#!/bin/sh\nexit 1\n");
+      chmodSync(join(f.root, "commands", "git"), 0o755);
+      const said = [];
+      const env = {...process.env, TRANSPILER: f.clone, PATH: `${join(f.root, "commands")}:${process.env.PATH}`};
+      expect(() => bootstrap(f.root, (line) => said.push(line), env)).to.throw(/Pinned transpiler build failed/);
+      expect(existsSync(f.log), "the transpile step must not run").to.equal(false);
+      expect(lstatSync(join(f.root, "node_modules/@abaplint/transpiler")).isSymbolicLink(),
+        "the published package must not be linked over").to.equal(false);
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
+
+  it("with the pin present, it links and then transpiles (npm faked)", () => {
+    const f = pinTree();
+    try {
+      const said = [];
+      const env = {...process.env, TRANSPILER: f.clone, PATH: `${join(f.root, "commands")}:${process.env.PATH}`, PIN_BOOT_LOG: f.log};
+      const result = bootstrap(f.root, (line) => said.push(line), env);
+      expect(result).to.include({libraries: 0, cloned: 0});
+      expect(realpathSync(join(f.root, "node_modules/@abaplint/transpiler"))).to.equal(join(f.clone, "packages/transpiler"));
+      expect(readFileSync(f.log, "utf8").trim()).to.equal("npm run transpile");
+      expect(() => assertPinnedTranspiler(f.root, f.clone)).not.to.throw();
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
+  });
+
+  it("assertPinnedTranspiler names the fix when the link is missing or published", () => {
+    const f = pinTree();
+    try {
+      expect(() => assertPinnedTranspiler(f.root, f.clone)).to.throw(/osd-transpiler-pin\.mjs/);
+      expect(() => assertPinnedTranspiler(f.root, f.clone)).to.throw(/pinned build/);
+      rmSync(join(f.root, "node_modules/@abaplint/transpiler"), {recursive: true});
+      expect(() => assertPinnedTranspiler(f.root, f.clone)).to.throw(/pinned build/);
+      symlinkSync(join(f.clone, "packages/transpiler"), join(f.root, "node_modules/@abaplint/transpiler"), "dir");
+      expect(() => assertPinnedTranspiler(f.root, f.clone)).not.to.throw();
+    } finally { rmSync(f.root, {recursive: true, force: true}); }
   });
 });

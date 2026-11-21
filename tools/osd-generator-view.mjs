@@ -39,6 +39,7 @@ export function installGeneratorView(env = process.env) {
     // A missing active file must look absent, including direct reads.
     return replaced.has(path) ? replaced.get(path) ?? join(root, "build", "inactive", ".absent", relative(root, path)) : file;
   };
+  globalThis[Symbol.for("osd.generator.readPath")] = readPath;
   for (const method of ["readFileSync", "existsSync", "statSync", "lstatSync"]) {
     fs[method] = (file, ...args) => original[method](readPath(file), ...args);
   }

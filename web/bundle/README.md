@@ -67,9 +67,12 @@ record so the work is not done twice, not a task.
   the transpiler escapes the percent in the specifier, and the file on disk
   carries it raw. The `NormalModuleReplacementPlugin(/%25/)` in the config
   puts it back. Remove it and the build fails on a file that is right there.
-- Paths in `webpack.config.cjs` are absolute into
-  `/home/alice/dev/open-steamgate-shlp/node_modules`. That is deliberate for a
-  scratch build and wrong for anything permanent.
+- Paths. The scratch build had absolute paths into one machine's sibling
+  checkout. They now come from `paths.cjs`: webpack, the polyfills and
+  playwright from this repository's `node_modules` (or
+  `OSD_BUNDLE_NODE_MODULES`), `apc-socket.mjs` from `../open-abap-apc` beside
+  this checkout (or `OPEN_ABAP_APC`), through the webpack alias
+  `open-abap-apc`.
 
 ## Source maps
 

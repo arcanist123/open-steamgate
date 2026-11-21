@@ -14,6 +14,31 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       IMPORTING
         it_sets TYPE zcl_stg_model_info=>ty_entity_sets.
 
+* the table the decimals of a unit of measure are read from (MSEHI, ANDEC
+* -- the decimals for rounding, not DECAN, the display decimals --,
+* client-dependent): T006 on a system (public table of units of measure,
+* https://www.sapdatasheet.org/abap/tabl/t006.html); a twin's own table in
+* its tests
+    CONSTANTS c_unit_table TYPE string VALUE 'T006'.
+    CLASS-METHODS unit_table
+      IMPORTING
+        iv_table TYPE csequence DEFAULT c_unit_table.
+
+* the statements run on the unit table since the process started (tests:
+* one per request, however many quantities it writes)
+    CLASS-METHODS unit_reads
+      RETURNING
+        VALUE(rv_reads) TYPE i.
+
+* The ETag of a row, for the entries of a type that declares one: the same
+* ZCL_OSD_V4_MODEL the V4 facade builds, so both protocols answer the same
+* tag for the same row byte for byte (one implementation, not a V2 copy).
+* Unbound hands the tag back to nobody: entries of a type without an ETag,
+* or of a service whose request carried no model, carry no etag member.
+    CLASS-METHODS register_etag_model
+      IMPORTING
+        io_model TYPE REF TO zcl_osd_v4_model OPTIONAL.
+
     CLASS-METHODS feed_of
       IMPORTING
         it_entities    TYPE string_table
@@ -21,6 +46,9 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       RETURNING
         VALUE(rv_json) TYPE string.
 
+* it_select: the $select paths that apply to these rows (the answer's own
+* rows: the request's list; an expansion's rows: the paths below its
+* navigation); empty is every property
     CLASS-METHODS feed
       IMPORTING
         it_data        TYPE ANY TABLE
@@ -28,6 +56,7 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         iv_namespace   TYPE string
         iv_base_url    TYPE string
         iv_inlinecount TYPE string OPTIONAL
+        it_select      TYPE string_table OPTIONAL
       RETURNING
         VALUE(rv_json) TYPE string.
 
@@ -38,6 +67,7 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         iv_namespace   TYPE string
         iv_base_url    TYPE string
         it_nav_json    TYPE ty_nav_jsons OPTIONAL
+        it_select      TYPE string_table OPTIONAL
       RETURNING
         VALUE(rv_json) TYPE string.
 
@@ -48,9 +78,47 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         iv_namespace   TYPE string
         iv_base_url    TYPE string
         it_nav_json    TYPE ty_nav_jsons OPTIONAL
+        it_select      TYPE string_table OPTIONAL
       RETURNING
         VALUE(rv_json) TYPE string.
 
+* The V2 ETag of a row: W/"<the URI literal of the ETag property>", its
+* value percent-encoded with upper-case escapes -- the system's form
+* (M3 oracle: W/"datetime'YYYY-MM-DDTHH%3AMM%3ASS.0000000'"). A type with
+* several ETag properties keeps the V4 facade's tag: no system form of a
+* two-property V2 tag has been measured (none in the oracle's service).
+* Empty when the type declares none or the request registered no model.
+    CLASS-METHODS etag
+      IMPORTING
+        is_data        TYPE any
+        is_set         TYPE zcl_stg_model_info=>ty_entity_set
+      RETURNING
+        VALUE(rv_etag) TYPE string.
+
+* one value as an OData V2 URI literal (datetime'...', guid'...', 'text',
+* 12.5m): the form of a key predicate and of an ETag
+    CLASS-METHODS uri_literal
+      IMPORTING
+        iv_value          TYPE any
+        iv_edm_type       TYPE string
+      RETURNING
+        VALUE(rv_literal) TYPE string.
+
+* %3a -> %3A: the escapes of cl_http_utility are lower case, the system's
+* upper case
+    CLASS-METHODS percent_upper
+      IMPORTING
+        iv_text        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
+
+* the key of an entry as its URI carries it (__metadata id and uri, the
+* deferred links, the Location of a created entry): each value in its
+* converted form when its property has a conversion exit (a language key
+* in its ISO form, not its one-character key; a unit in its external form)
+* and percent-encoded the way a system writes it (zcl_stg_url=>escape_key;
+* M3 oracle 02-08a, 02-15a). The names, the = and the , between two keys
+* stay
     CLASS-METHODS key_predicate
       IMPORTING
         is_data          TYPE any
@@ -75,8 +143,18 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       IMPORTING
         iv_code        TYPE string
         iv_message     TYPE string
+        it_messages    TYPE bapirettab OPTIONAL
       RETURNING
         VALUE(rv_json) TYPE string.
+
+* the same error as the XML document of the V2 error format: what a
+* system answers where the request takes no JSON (a /$count)
+    CLASS-METHODS error_xml
+      IMPORTING
+        iv_code       TYPE string
+        iv_message    TYPE string
+      RETURNING
+        VALUE(rv_xml) TYPE string.
 
 * One JSON object -> name/value pairs. Accepts the v2 {"d":{...}} wrapper,
 * skips __metadata, keeps numbers, booleans and null as their literal text.
@@ -102,6 +180,40 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         zcx_stg_error.
   PRIVATE SECTION.
     CLASS-DATA gt_sets TYPE zcl_stg_model_info=>ty_entity_sets.
+    CLASS-DATA go_etag_model TYPE REF TO zcl_osd_v4_model.
+    TYPES: BEGIN OF ty_unit,
+             unit     TYPE string,
+             decimals TYPE i,
+           END OF ty_unit.
+    CLASS-DATA gt_units TYPE HASHED TABLE OF ty_unit WITH UNIQUE KEY unit.
+    CLASS-DATA gv_unit_table TYPE string VALUE c_unit_table.
+* the whole unit table is read on the first quantity of a request; a unit
+* it does not hold is a miss without another statement
+    CLASS-DATA gv_units_read TYPE abap_bool.
+    CLASS-DATA gv_unit_reads TYPE i.
+
+* the decimals a quantity of a unit of measure is written with (the unit's
+* rounding decimals); -1 when the unit (or the table) is not there. The
+* table is read once per request, whole (a few hundred rows; one statement
+* per unit cost a product list a hundred statements, milestone 3 pass 3)
+    CLASS-METHODS unit_decimals
+      IMPORTING
+        iv_unit            TYPE string
+      RETURNING
+        VALUE(rv_decimals) TYPE i.
+
+* a quantity in its unit's decimals, as a system writes it (M3 oracle,
+* the line items' Quantity and the products' dimensions): the decimals the
+* field has beyond the unit's are cut when they are all zero -- 3.000 EA is
+* 3, 0.650 M is 0.65 -- and kept otherwise (WRITE ... UNIT; a non-zero
+* digit beyond the unit's decimals is not in the oracle). A unit the table
+* does not hold keeps the field's scale
+    CLASS-METHODS quantity_text
+      IMPORTING
+        iv_text        TYPE string
+        iv_unit        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
 
     CLASS-METHODS nested
       IMPORTING
@@ -110,6 +222,17 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
         is_set         TYPE zcl_stg_model_info=>ty_entity_set
         iv_namespace   TYPE string
         iv_base_url    TYPE string
+      RETURNING
+        VALUE(rv_json) TYPE string.
+
+* a complex property: an object of its members with the type in __metadata,
+* the way a v2 Gateway writes it ({"__metadata":{"type":"NS.CT"},"City":..})
+    CLASS-METHODS complex
+      IMPORTING
+        is_data        TYPE any
+        is_property    TYPE zcl_stg_model_info=>ty_property
+        is_set         TYPE zcl_stg_model_info=>ty_entity_set
+        iv_namespace   TYPE string
       RETURNING
         VALUE(rv_json) TYPE string.
 
@@ -136,6 +259,30 @@ CLASS zcl_stg_json DEFINITION PUBLIC CREATE PUBLIC.
       CHANGING
         cv_off  TYPE i.
 
+    CLASS-METHODS trim_blanks
+      IMPORTING
+        iv_text        TYPE string
+      RETURNING
+        VALUE(rv_text) TYPE string.
+
+* the output conversion exit of a property (CONVERSION_EXIT_<x>_OUTPUT),
+* as the framework runs it on a system before the value is written
+* (ZCL_OSD_CONV_EXIT: an exit with no module, or one that declines the
+* value, leaves it as it is)
+    CLASS-METHODS converted
+      IMPORTING
+        iv_value        TYPE any
+        iv_exit         TYPE string
+      RETURNING
+        VALUE(rv_value) TYPE string.
+
+    CLASS-METHODS selected
+      IMPORTING
+        it_select          TYPE string_table
+        iv_name            TYPE string
+      RETURNING
+        VALUE(rv_selected) TYPE abap_bool.
+
     CLASS-METHODS epoch_ms
       IMPORTING
         iv_date      TYPE d
@@ -147,16 +294,142 @@ ENDCLASS.
 CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD escape.
-    rv_string = iv_string.
-    REPLACE ALL OCCURRENCES OF '\' IN rv_string WITH '\\'.
-    REPLACE ALL OCCURRENCES OF '"' IN rv_string WITH '\"'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>cr_lf IN rv_string WITH '\r\n'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>newline IN rv_string WITH '\n'.
-    REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>horizontal_tab IN rv_string WITH '\t'.
+* every character JSON does not allow raw in a string: the quote, the
+* backslash and all of U+0000..U+001F (a lone CR, a backspace, a form feed
+* and the rest as much as CR LF and TAB), as zcl_osd_v4_json=>quote does
+    rv_string = zcl_stg_json_text=>escape_string( iv_string ).
   ENDMETHOD.
 
   METHOD error.
-    rv_json = |\{"error":\{"code":"{ escape( iv_code ) }","message":\{"lang":"en","value":"{ escape( iv_message ) }"\}\}\}|.
+    DATA ls_message TYPE bapiret2.
+    DATA lv_first   TYPE abap_bool.
+    DATA lv_row     TYPE string.
+    DATA lv_severity TYPE string.
+    DATA lv_id_text TYPE string.
+    DATA lv_msg_text TYPE string.
+
+    rv_json = |\{"error":\{"code":"{ escape( iv_code ) }","message":\{"lang":"en","value":"{ escape( iv_message ) }"\}|.
+    IF it_messages IS NOT INITIAL.
+* the message container's rows ride the error as innererror.errordetails,
+* one row per message, the way a Gateway answers a business exception
+      rv_json = rv_json && ',"innererror":{"errordetails":['.
+      lv_first = abap_true.
+      LOOP AT it_messages INTO ls_message.
+        IF lv_first = abap_false.
+          rv_json = rv_json && ','.
+        ENDIF.
+        lv_first = abap_false.
+        CASE ls_message-type.
+          WHEN 'E' OR 'A'.
+            lv_severity = 'error'.
+          WHEN 'W'.
+            lv_severity = 'warning'.
+          WHEN OTHERS.
+            lv_severity = 'info'.
+        ENDCASE.
+        lv_id_text  = ls_message-id.
+        lv_msg_text = ls_message-message.
+        lv_row = |\{"code":"{ escape( lv_id_text ) }{ ls_message-number }","message":\{"lang":"en","value":"{ escape( lv_msg_text ) }"\},"severity":"{ lv_severity }"\}|.
+        rv_json = rv_json && lv_row.
+      ENDLOOP.
+      rv_json = rv_json && ']}'.
+    ENDIF.
+    rv_json = rv_json && '}}'.
+  ENDMETHOD.
+
+  METHOD error_xml.
+    DATA lv_code    TYPE string.
+    DATA lv_message TYPE string.
+
+* & first, so the entities the others become are not escaped again
+    lv_code = iv_code.
+    lv_message = iv_message.
+    REPLACE ALL OCCURRENCES OF '&' IN lv_code WITH '&amp;'.
+    REPLACE ALL OCCURRENCES OF '<' IN lv_code WITH '&lt;'.
+    REPLACE ALL OCCURRENCES OF '>' IN lv_code WITH '&gt;'.
+    REPLACE ALL OCCURRENCES OF '&' IN lv_message WITH '&amp;'.
+    REPLACE ALL OCCURRENCES OF '<' IN lv_message WITH '&lt;'.
+    REPLACE ALL OCCURRENCES OF '>' IN lv_message WITH '&gt;'.
+    rv_xml = |<?xml version="1.0" encoding="utf-8"?>|
+          && |<error xmlns="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata">|
+          && |<code>{ lv_code }</code><message xml:lang="{ zcl_osd_session_langu=>iso( ) }">{ lv_message }</message>|
+          && |</error>|.
+  ENDMETHOD.
+
+  METHOD unit_table.
+    gv_unit_table = to_upper( iv_table ).
+    CLEAR: gt_units, gv_units_read.
+  ENDMETHOD.
+
+  METHOD unit_reads.
+    rv_reads = gv_unit_reads.
+  ENDMETHOD.
+
+  METHOD unit_decimals.
+    TYPES: BEGIN OF ty_decimals,
+             msehi TYPE c LENGTH 3,
+             andec TYPE i,
+           END OF ty_decimals.
+    DATA lt_rows   TYPE STANDARD TABLE OF ty_decimals WITH DEFAULT KEY.
+    DATA ls_row    TYPE ty_decimals.
+    DATA ls_unit   TYPE ty_unit.
+
+    rv_decimals = -1.
+    IF gv_units_read = abap_false.
+      gv_units_read = abap_true.
+      gv_unit_reads = gv_unit_reads + 1.
+      TRY.
+* ANDEC: a system writes a quantity to the unit's rounding decimals. Its
+* display decimals (DECAN) are 0 for every unit of the M3 oracle while it
+* writes three, two or no decimals by unit, each time the unit's ANDEC
+* (milestone 3, second measured pass)
+          SELECT msehi andec FROM (gv_unit_table) INTO CORRESPONDING FIELDS OF TABLE lt_rows.
+        CATCH cx_root ##NO_HANDLER.
+* no unit table in this system: every quantity keeps its field's scale (a
+* form difference, not a value: the digits are the same)
+      ENDTRY.
+      LOOP AT lt_rows INTO ls_row.
+        ls_unit-unit     = ls_row-msehi.
+        ls_unit-decimals = ls_row-andec.
+        INSERT ls_unit INTO TABLE gt_units.
+      ENDLOOP.
+    ENDIF.
+    IF iv_unit IS INITIAL.
+      RETURN.
+    ENDIF.
+    READ TABLE gt_units INTO ls_unit WITH TABLE KEY unit = iv_unit.
+    IF sy-subrc = 0.
+      rv_decimals = ls_unit-decimals.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD quantity_text.
+    DATA lv_decimals TYPE i.
+    DATA lv_int      TYPE string.
+    DATA lv_frac     TYPE string.
+    DATA lv_cut      TYPE string.
+
+    rv_text = iv_text.
+    lv_decimals = unit_decimals( iv_unit ).
+    IF lv_decimals < 0 OR iv_text NS '.'.
+      RETURN.
+    ENDIF.
+    SPLIT iv_text AT '.' INTO lv_int lv_frac.
+    IF strlen( lv_frac ) <= lv_decimals.
+      RETURN.
+    ENDIF.
+    lv_cut = substring( val = lv_frac off = lv_decimals ).
+    IF lv_cut CO '0'.
+      IF lv_decimals = 0.
+        rv_text = lv_int.
+      ELSE.
+        rv_text = |{ lv_int }.{ substring( val = lv_frac len = lv_decimals ) }|.
+      ENDIF.
+* a value that is zero once cut is no negative number: never -0 or -0.00
+      IF rv_text CP '-*' AND substring( val = rv_text off = 1 ) CO '0.'.
+        rv_text = substring( val = rv_text off = 1 ).
+      ENDIF.
+    ENDIF.
   ENDMETHOD.
 
   METHOD nested.
@@ -198,6 +471,42 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
   METHOD register_sets.
     gt_sets = it_sets.
+* a new request: units are read again (the table may have changed)
+    CLEAR: gt_units, gv_units_read.
+  ENDMETHOD.
+
+  METHOD complex.
+    DATA ls_member TYPE zcl_stg_model_info=>ty_property.
+    DATA lv_parent TYPE string.
+    DATA lv_field  TYPE string.
+    DATA lv_name   TYPE string.
+    DATA lv_value  TYPE string.
+    FIELD-SYMBOLS <lv_member> TYPE any.
+
+    rv_json = |\{"__metadata":\{"type":"{ iv_namespace }.{ is_property-complex_type }"\}|.
+    LOOP AT is_set-components INTO ls_member WHERE parent = is_property-name.
+* the member's own field: ADDRESS-CITY is CITY of the ADDRESS structure
+      SPLIT ls_member-fieldname AT '-' INTO lv_parent lv_field.
+      ASSIGN COMPONENT lv_field OF STRUCTURE is_data TO <lv_member>.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      lv_name  = substring_after( val = ls_member-name sub = '/' ).
+      IF ls_member-conv_exit IS NOT INITIAL.
+        lv_value = value( iv_value    = converted( iv_value = <lv_member>
+                                                   iv_exit  = ls_member-conv_exit )
+                          iv_edm_type = ls_member-edm_type ).
+      ELSE.
+        lv_value = value( iv_value    = <lv_member>
+                          iv_edm_type = ls_member-edm_type ).
+      ENDIF.
+      rv_json = |{ rv_json },"{ lv_name }":{ lv_value }|.
+    ENDLOOP.
+    rv_json = rv_json && '}'.
+  ENDMETHOD.
+
+  METHOD register_etag_model.
+    go_etag_model = io_model.
   ENDMETHOD.
 
   METHOD skip_blanks.
@@ -205,7 +514,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
 
     lv_len = strlen( iv_json ).
     WHILE cv_off < lv_len.
-      IF iv_json+cv_off(1) <> space AND
+      IF iv_json+cv_off(1) <> ` ` AND
          iv_json+cv_off(1) <> cl_abap_char_utilities=>newline AND
          iv_json+cv_off(1) <> cl_abap_char_utilities=>horizontal_tab AND
          iv_json+cv_off(1) <> cl_abap_char_utilities=>cr_lf(1).
@@ -213,6 +522,14 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
       cv_off = cv_off + 1.
     ENDWHILE.
+  ENDMETHOD.
+
+  METHOD trim_blanks.
+* the JSON blanks (space, tab, CR, LF) off both ends of a token. SHIFT
+* RIGHT DELETING TRAILING SPACE moved a trailing blank to the front ("9 "
+* became " 9", which failed the number check) and left a newline alone
+    rv_text = iv_text.
+    REPLACE ALL OCCURRENCES OF REGEX '^\s+|\s+$' IN rv_text WITH ``.
   ENDMETHOD.
 
   METHOD read_string.
@@ -262,8 +579,19 @@ CLASS zcl_stg_json IMPLEMENTATION.
             IF lv_hex CN '0123456789abcdefABCDEF'.
               EXIT.
             ENDIF.
+* the hex digits of \u may be lower case (JSON.stringify writes \u001f);
+* a conversion to x stops at the first lower-case letter, so upper first
+            lv_hex = to_upper( lv_hex ).
             lv_x = lv_hex.
             lv_high = lv_x.
+* a NUL cannot reach the database: the SQL text ends at it
+            IF lv_high = 0.
+              RAISE EXCEPTION TYPE zcx_stg_error
+                EXPORTING
+                  status  = 400
+                  code    = 'STG/BAD_JSON'
+                  message = 'A NUL character (\u0000) in a string is not accepted'.
+            ENDIF.
             IF lv_high >= 55296 AND lv_high <= 56319.
               cv_off = cv_off + 4.
               IF cv_off + 6 > lv_len OR iv_json+cv_off(2) <> '\u'.
@@ -274,6 +602,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
               IF lv_hex CN '0123456789abcdefABCDEF'.
                 EXIT.
               ENDIF.
+              lv_hex = to_upper( lv_hex ).
               lv_low_x = lv_hex.
               lv_low = lv_low_x.
               IF lv_low < 56320 OR lv_low > 57343.
@@ -377,8 +706,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
     IF iv_json+lv_start(1) <> '{' AND iv_json+lv_start(1) <> '['.
       lv_off = cv_off - lv_start.
       lv_token = iv_json+lv_start(lv_off).
-      SHIFT lv_token LEFT DELETING LEADING space.
-      SHIFT lv_token RIGHT DELETING TRAILING space.
+      lv_token = trim_blanks( lv_token ).
       IF lv_token <> 'true' AND lv_token <> 'false' AND lv_token <> 'null'.
         FIND REGEX '^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$' IN lv_token.
         IF sy-subrc <> 0.
@@ -450,7 +778,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
       lv_count = lv_off - lv_start.
       lv_elem = iv_json+lv_start(lv_count).
-      SHIFT lv_elem RIGHT DELETING TRAILING space.
+      lv_elem = trim_blanks( lv_elem ).
       APPEND lv_elem TO rt_elements.
     ENDDO.
     skip_blanks( EXPORTING iv_json = iv_json CHANGING cv_off = lv_off ).
@@ -576,7 +904,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
         skip_value( EXPORTING iv_json = iv_json CHANGING cv_off = lv_off ).
         lv_count = lv_off - lv_start.
         ls_pair-value = iv_json+lv_start(lv_count).
-        SHIFT ls_pair-value RIGHT DELETING TRAILING space.
+        ls_pair-value = trim_blanks( ls_pair-value ).
       ENDIF.
       IF lv_name <> '__metadata'.
         APPEND ls_pair TO rt_values.
@@ -619,6 +947,7 @@ CLASS zcl_stg_json IMPLEMENTATION.
     DATA lv_kind   TYPE c LENGTH 1.
     DATA lv_date   TYPE d.
     DATA lv_time   TYPE t.
+    DATA lv_seconds TYPE p LENGTH 8 DECIMALS 0.
 
     DESCRIBE FIELD iv_value TYPE lv_kind.
 
@@ -646,6 +975,19 @@ CLASS zcl_stg_json IMPLEMENTATION.
         ELSEIF lv_kind = 'D'.
           lv_date = iv_value.
           rv_json = |"\\/Date({ epoch_ms( iv_date = lv_date iv_time = lv_time ) })\\/"|.
+        ELSEIF lv_kind = 'P'.
+* a packed timestamp, short (DEC 15) or long (DEC 21,7): whole seconds by a
+* rounding move to 15 digits. Formatted as it is, a DEC 21,7 reads one
+* second early in the open-abap runtime (20210102030405.0000000 ->
+* "20210102030404.9995776", ANOMALY-2026-11-14-packed-21-format)
+          lv_seconds = iv_value.
+          lv_string = |{ lv_seconds }|.
+          CONDENSE lv_string NO-GAPS.
+          lv_date = lv_string(8).
+          IF strlen( lv_string ) >= 14.
+            lv_time = lv_string+8(6).
+          ENDIF.
+          rv_json = |"\\/Date({ epoch_ms( iv_date = lv_date iv_time = lv_time ) })\\/"|.
         ELSE.
 * timestamp YYYYMMDDHHMMSS, possibly with fraction
           lv_string = |{ iv_value }|.
@@ -655,6 +997,18 @@ CLASS zcl_stg_json IMPLEMENTATION.
             lv_time = lv_string+8(6).
           ENDIF.
           rv_json = |"\\/Date({ epoch_ms( iv_date = lv_date iv_time = lv_time ) })\\/"|.
+        ENDIF.
+      WHEN 'Edm.Guid'.
+* the 16 bytes as the system writes them in a body: lower case, dashed
+* (M3 oracle 03-04a: 8-4-4-4-12 lower-case hex digits; before, 32
+* upper-case hex digits, M3-B0 W6)
+        IF iv_value IS INITIAL.
+          rv_json = 'null'.
+        ELSE.
+          lv_string = uri_literal( iv_value    = iv_value
+                                   iv_edm_type = iv_edm_type ).
+          lv_string = substring( val = lv_string off = 5 len = strlen( lv_string ) - 6 ).
+          rv_json = |"{ lv_string }"|.
         ENDIF.
       WHEN 'Edm.Time'.
         lv_string = iv_value.
@@ -694,11 +1048,24 @@ CLASS zcl_stg_json IMPLEMENTATION.
           lv_literal = value( iv_value    = <lv_field>
                               iv_edm_type = ls_property-edm_type ).
           REPLACE ALL OCCURRENCES OF '"' IN lv_literal WITH ''.
+        WHEN 'Edm.Guid'.
+* guid'xxxxxxxx-...', the key form the system's URIs carry (M3 oracle)
+          lv_literal = uri_literal( iv_value    = <lv_field>
+                                    iv_edm_type = ls_property-edm_type ).
         WHEN OTHERS.
-          lv_value = <lv_field>.
+          IF ls_property-conv_exit IS NOT INITIAL.
+            lv_value = converted( iv_value = <lv_field>
+                                  iv_exit  = ls_property-conv_exit ).
+          ELSE.
+            lv_value = <lv_field>.
+          ENDIF.
           REPLACE ALL OCCURRENCES OF lv_quote IN lv_value WITH lv_two.
           lv_literal = |'{ lv_value }'|.
       ENDCASE.
+* every literal form goes through the same encoding; for a non-string key
+* (datetime'..T..:..', guid'..') the colon becomes %3A unmeasured: no set of
+* the oracle has such a key
+      lv_literal = zcl_stg_url=>escape_key( lv_literal ).
       IF lv_keys = 1.
         rv_string = lv_literal.
       ELSEIF rv_string IS INITIAL.
@@ -709,32 +1076,252 @@ CLASS zcl_stg_json IMPLEMENTATION.
     ENDLOOP.
   ENDMETHOD.
 
+  METHOD converted.
+    rv_value = zcl_osd_conv_exit=>output( iv_value = iv_value
+                                          iv_exit  = iv_exit ).
+  ENDMETHOD.
+
+  METHOD selected.
+* no $select (or *): everything; a name, or a path below it (Address/City,
+* ToItems/Note), keeps the member
+    DATA lv_item TYPE string.
+
+    IF it_select IS INITIAL.
+      rv_selected = abap_true.
+      RETURN.
+    ENDIF.
+    LOOP AT it_select INTO lv_item.
+      IF lv_item = '*' OR lv_item = iv_name OR lv_item CP |{ iv_name }/*|.
+        rv_selected = abap_true.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD percent_upper.
+    DATA lv_len  TYPE i.
+    DATA lv_off  TYPE i.
+    DATA lv_char TYPE string.
+
+    lv_len = strlen( iv_text ).
+    WHILE lv_off < lv_len.
+      lv_char = iv_text+lv_off(1).
+      IF lv_char = '%' AND lv_off + 2 < lv_len.
+        rv_text = rv_text && to_upper( iv_text+lv_off(3) ).
+        lv_off = lv_off + 3.
+        CONTINUE.
+      ENDIF.
+      rv_text = rv_text && lv_char.
+      lv_off = lv_off + 1.
+    ENDWHILE.
+  ENDMETHOD.
+
+  METHOD uri_literal.
+    DATA lv_string  TYPE string.
+    DATA lv_kind    TYPE c LENGTH 1.
+    DATA lv_dec     TYPE i.
+    DATA lv_seconds TYPE p LENGTH 8 DECIMALS 0.
+    DATA lv_ms      TYPE i.
+    DATA lv_frac    TYPE string.
+    DATA lv_x       TYPE xstring.
+
+    DESCRIBE FIELD iv_value TYPE lv_kind.
+    CASE iv_edm_type.
+      WHEN 'Edm.DateTime'.
+* an initial timestamp is null on the wire, and its literal is null (not
+* measured on a system: no row of the oracle has an initial ETag value)
+        IF iv_value IS INITIAL.
+          rv_literal = 'null'.
+          RETURN.
+        ENDIF.
+        IF lv_kind = 'D'.
+          lv_string = iv_value.
+          rv_literal = |datetime'{ lv_string(4) }-{ lv_string+4(2) }-{ lv_string+6(2) }T00:00:00'|.
+          RETURN.
+        ENDIF.
+* a packed timestamp: whole seconds by a rounding move (ANOMALY-2026-11-14-
+* packed-21-format), the fraction to the millisecond, written with as many
+* digits as the field has decimals -- DEC 21,7 is .0000000
+        lv_seconds = iv_value.
+        lv_string = |{ lv_seconds }|.
+        CONDENSE lv_string NO-GAPS.
+        WHILE strlen( lv_string ) < 14.
+          lv_string = |{ lv_string }0|.
+        ENDWHILE.
+        rv_literal = |{ lv_string(4) }-{ lv_string+4(2) }-{ lv_string+6(2) }T{ lv_string+8(2) }:{ lv_string+10(2) }:{ lv_string+12(2) }|.
+        IF lv_kind = 'P'.
+          DESCRIBE FIELD iv_value DECIMALS lv_dec.
+          IF lv_dec > 0.
+            lv_ms = ( iv_value - lv_seconds ) * 1000.
+            IF lv_ms < 0.
+              lv_ms = 0.
+            ENDIF.
+            lv_frac = |{ lv_ms }|.
+            CONDENSE lv_frac NO-GAPS.
+            WHILE strlen( lv_frac ) < 3.
+              lv_frac = |0{ lv_frac }|.
+            ENDWHILE.
+            WHILE strlen( lv_frac ) < lv_dec.
+              lv_frac = |{ lv_frac }0|.
+            ENDWHILE.
+            lv_frac = substring( val = lv_frac len = lv_dec ).
+            rv_literal = |{ rv_literal }.{ lv_frac }|.
+          ENDIF.
+        ENDIF.
+        rv_literal = |datetime'{ rv_literal }'|.
+      WHEN 'Edm.Guid'.
+        lv_x = iv_value.
+        lv_string = to_lower( |{ lv_x }| ).
+        IF strlen( lv_string ) = 32.
+          lv_string = |{ lv_string(8) }-{ lv_string+8(4) }-{ lv_string+12(4) }-{ lv_string+16(4) }-{ lv_string+20(12) }|.
+        ENDIF.
+        rv_literal = |guid'{ lv_string }'|.
+      WHEN 'Edm.Decimal'.
+        lv_string = |{ iv_value }|.
+        CONDENSE lv_string NO-GAPS.
+        rv_literal = |{ lv_string }m|.
+      WHEN 'Edm.Int16' OR 'Edm.Int32' OR 'Edm.Byte' OR 'Edm.SByte'.
+        lv_string = |{ iv_value }|.
+        CONDENSE lv_string NO-GAPS.
+        rv_literal = lv_string.
+      WHEN 'Edm.Int64'.
+        lv_string = |{ iv_value }|.
+        CONDENSE lv_string NO-GAPS.
+        rv_literal = |{ lv_string }L|.
+      WHEN 'Edm.Boolean'.
+        IF iv_value IS INITIAL.
+          rv_literal = 'false'.
+        ELSE.
+          rv_literal = 'true'.
+        ENDIF.
+      WHEN OTHERS.
+        lv_string = iv_value.
+        REPLACE ALL OCCURRENCES OF |'| IN lv_string WITH |''|.
+        rv_literal = |'{ lv_string }'|.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD etag.
+    DATA ls_property TYPE zcl_stg_model_info=>ty_property.
+    DATA ls_tagged   TYPE zcl_stg_model_info=>ty_property.
+    DATA lv_count    TYPE i.
+    DATA lv_literal  TYPE string.
+    DATA lv_prefix   TYPE string.
+    DATA lv_value    TYPE string.
+    DATA lv_quote    TYPE i.
+    FIELD-SYMBOLS <lv_value> TYPE any.
+
+    IF go_etag_model IS NOT BOUND.
+      RETURN.
+    ENDIF.
+    LOOP AT is_set-properties INTO ls_property WHERE is_etag = abap_true.
+      lv_count = lv_count + 1.
+      ls_tagged = ls_property.
+    ENDLOOP.
+    IF lv_count = 0.
+      RETURN.
+    ELSEIF lv_count > 1.
+      rv_etag = zcl_osd_v4_json=>etag( is_data  = is_data
+                                       is_set   = is_set
+                                       io_model = go_etag_model ).
+      RETURN.
+    ENDIF.
+    ASSIGN COMPONENT ls_tagged-fieldname OF STRUCTURE is_data TO <lv_value>.
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+* the literal's own quotes stay, its value is escaped: datetime'...%3A...'
+    lv_literal = uri_literal( iv_value    = <lv_value>
+                              iv_edm_type = ls_tagged-edm_type ).
+    FIND FIRST OCCURRENCE OF |'| IN lv_literal MATCH OFFSET lv_quote.
+    IF sy-subrc = 0 AND strlen( lv_literal ) > lv_quote + 1.
+      lv_prefix = lv_literal(lv_quote).
+      lv_value = substring( val = lv_literal off = lv_quote + 1 len = strlen( lv_literal ) - lv_quote - 2 ).
+      lv_literal = |{ lv_prefix }'{ percent_upper( cl_http_utility=>escape_url( lv_value ) ) }'|.
+    ELSE.
+      lv_literal = percent_upper( cl_http_utility=>escape_url( lv_literal ) ).
+    ENDIF.
+    rv_etag = |W/"{ lv_literal }"|.
+  ENDMETHOD.
+
   METHOD entity.
     DATA ls_property LIKE LINE OF is_set-properties.
     DATA lv_uri      TYPE string.
     DATA lv_media   TYPE string.
+    DATA lv_etag    TYPE string.
     DATA lv_fields   TYPE string.
     DATA ls_nav      LIKE LINE OF is_set-navs.
     DATA ls_nav_json LIKE LINE OF it_nav_json.
     DATA lv_nested   TYPE string.
+    DATA lv_converted TYPE string.
+    DATA ls_unit_property LIKE LINE OF is_set-properties.
+    DATA lv_unit     TYPE string.
     FIELD-SYMBOLS <lv_field> TYPE any.
+    FIELD-SYMBOLS <lv_unit>  TYPE any.
 
     lv_uri = |{ iv_base_url }/{ is_set-name }({ key_predicate( is_data = is_data is_set = is_set ) })|.
 
+* the entity's ETag, when the type declares one and the request handed the
+* model over: a v2 client (UI5 among them) sends it back as If-Match on
+* MERGE/PUT/DELETE, which is the lost-update protection the metadata promises
+    lv_etag = etag( is_data = is_data
+                    is_set  = is_set ).
+
     LOOP AT is_set-properties INTO ls_property.
+      IF selected( it_select = it_select iv_name = ls_property-name ) = abap_false.
+        CONTINUE.
+      ENDIF.
       ASSIGN COMPONENT ls_property-fieldname OF STRUCTURE is_data TO <lv_field>.
       IF sy-subrc <> 0.
         CONTINUE.
       ENDIF.
+      IF ls_property-complex_type IS NOT INITIAL.
+        lv_fields = |{ lv_fields },"{ ls_property-name }":{ complex( is_data      = <lv_field>
+                                                                     is_property  = ls_property
+                                                                     is_set       = is_set
+                                                                     iv_namespace = iv_namespace ) }|.
+        CONTINUE.
+      ENDIF.
+      IF ls_property-conv_exit IS NOT INITIAL.
+        lv_converted = converted( iv_value = <lv_field>
+                                  iv_exit  = ls_property-conv_exit ).
+        lv_fields = |{ lv_fields },"{ ls_property-name }":{ value( iv_value    = lv_converted
+                                                                   iv_edm_type = ls_property-edm_type ) }|.
+        CONTINUE.
+      ENDIF.
+      IF ls_property-ddic_type = 'QUAN' AND ls_property-unit_property IS NOT INITIAL
+          AND ls_property-edm_type = 'Edm.Decimal'.
+        READ TABLE is_set-properties INTO ls_unit_property WITH KEY name = ls_property-unit_property.
+        IF sy-subrc = 0.
+          ASSIGN COMPONENT ls_unit_property-fieldname OF STRUCTURE is_data TO <lv_unit>.
+          IF sy-subrc = 0.
+            lv_converted = value( iv_value    = <lv_field>
+                                  iv_edm_type = ls_property-edm_type ).
+            lv_converted = substring( val = lv_converted off = 1 len = strlen( lv_converted ) - 2 ).
+            lv_unit = <lv_unit>.
+            lv_fields = |{ lv_fields },"{ ls_property-name }":"{ quantity_text( iv_text = lv_converted
+                                                                                iv_unit = lv_unit ) }"|.
+            CONTINUE.
+          ENDIF.
+        ENDIF.
+      ENDIF.
       lv_fields = |{ lv_fields },"{ ls_property-name }":{ value( iv_value    = <lv_field>
                                                                  iv_edm_type = ls_property-edm_type ) }|.
     ENDLOOP.
+
+* the key values are part of the URI, percent-encoded by key_predicate; the
+* base URL is not, and a quote or a backslash in it must be escaped like any
+* other string, before the deferred links are built of it
+    lv_uri = escape( lv_uri ).
 
 * navigation properties: expanded content when the caller supplies it, a
 * nested component of a deep structure (what a DPC returns from
 * create_deep_entity / get_expanded_*) when the data carries one, the v2
 * deferred link otherwise
     LOOP AT is_set-navs INTO ls_nav.
+      IF selected( it_select = it_select iv_name = ls_nav-name ) = abap_false.
+        CONTINUE.
+      ENDIF.
       READ TABLE it_nav_json INTO ls_nav_json WITH KEY name = ls_nav-name.
       IF sy-subrc = 0.
         lv_fields = |{ lv_fields },"{ ls_nav-name }":{ ls_nav_json-json }|.
@@ -752,15 +1339,15 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
-* the key values are part of the URI: a backslash in one (SEGW's
-* DS_ATT_PATH, IT_RANGE\HIGH) must be escaped like any other string
-    lv_uri = escape( lv_uri ).
 * a media entity: where its content is read and written (v2 clients, Fiori
 * Elements among them, follow media_src to show the picture)
     IF is_set-is_media = abap_true.
       lv_media = |,"media_src":"{ lv_uri }/$value","edit_media":"{ lv_uri }/$value"|.
     ENDIF.
-    rv_json = |\{"__metadata":\{"id":"{ lv_uri }","uri":"{ lv_uri }","type":"{ iv_namespace }.{ is_set-entity_type }"{ lv_media }\}{ lv_fields }\}|.
+    IF lv_etag IS NOT INITIAL.
+      lv_etag = |,"etag":"{ escape( lv_etag ) }"|.
+    ENDIF.
+    rv_json = |\{"__metadata":\{"id":"{ lv_uri }","uri":"{ lv_uri }","type":"{ iv_namespace }.{ is_set-entity_type }"{ lv_etag }{ lv_media }\}{ lv_fields }\}|.
   ENDMETHOD.
 
   METHOD entry.
@@ -768,7 +1355,8 @@ CLASS zcl_stg_json IMPLEMENTATION.
                                 is_set       = is_set
                                 iv_namespace = iv_namespace
                                 iv_base_url  = iv_base_url
-                                it_nav_json  = it_nav_json ) }\}|.
+                                it_nav_json  = it_nav_json
+                                it_select    = it_select ) }\}|.
   ENDMETHOD.
 
   METHOD feed_of.
@@ -783,11 +1371,13 @@ CLASS zcl_stg_json IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
-    rv_json = |\{"d":\{"results":[{ lv_rows }]|.
+* the inline count before the rows, where the system writes it (M3 oracle
+* 04-01a: {"d":{"__count":"2","results":[...]}})
     IF iv_inlinecount IS NOT INITIAL.
-      rv_json = |{ rv_json },"__count":"{ iv_inlinecount }"|.
+      rv_json = |\{"d":\{"__count":"{ iv_inlinecount }","results":[{ lv_rows }]\}\}|.
+    ELSE.
+      rv_json = |\{"d":\{"results":[{ lv_rows }]\}\}|.
     ENDIF.
-    rv_json = |{ rv_json }\}\}|.
   ENDMETHOD.
 
   METHOD feed.
@@ -798,7 +1388,8 @@ CLASS zcl_stg_json IMPLEMENTATION.
       APPEND entity( is_data      = <ls_row>
                      is_set       = is_set
                      iv_namespace = iv_namespace
-                     iv_base_url  = iv_base_url ) TO lt_entities.
+                     iv_base_url  = iv_base_url
+                     it_select    = it_select ) TO lt_entities.
     ENDLOOP.
     rv_json = feed_of( it_entities    = lt_entities
                        iv_inlinecount = iv_inlinecount ).

@@ -1,0 +1,1 @@
+panic: tools/gogen/frontend.mjs:82:59: value outside supported numeric, ordering or conversion domain [recovered, repanicked]
