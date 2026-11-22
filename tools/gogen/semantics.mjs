@@ -50,6 +50,8 @@ const EXPECT = {
   ZCL_GOGEN_T_MOVCLR: "clear:3,0 append:1,9 delete:2,2 free:4,2,8 deep:6,10 component:14,16 object:18,19 loop:11,2,13",
   // Unmeasured: ABAP value semantics; a forwarded row reference must not alias the copy.
   ZCL_GOGEN_T_MOVFWD: "1",
+  // Unmeasured: ABAP keyword documentation, VALUE with a table expression and OPTIONAL or DEFAULT (#996).
+  ZCL_GOGEN_T_VALOPT: "1/a/0/[]/2/9/other/fallback/initial",
   // TASK5: initial NUMC(3) and character message fields.
   ZCL_GOGEN_T_MSGINITIAL: "000//////",
   // TASK5 supplied CS oracle; other operators follow SAP character comparison rules.
