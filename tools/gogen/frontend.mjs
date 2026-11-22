@@ -5531,19 +5531,16 @@ function eventInfo(ctx, owner, evName) {
  * declaration), the type is the type of the table expression.
  */
 /** @param {import("./frontend-types.ts").ConstructorItem} c @param {import("./frontend-types.ts").MethodContext} ctx @param {import("./ir.ts").Type} [inferred] @returns {import("./frontend-types.ts").ValueExpr | undefined} */ function valueFallback(c, ctx, inferred) {
-  // @ts-expect-error -- abapiti form pending
   const kids = c.body?.getChildren() ?? [];
   const optional = kids.length === 2 && isTok(kids[1], "OPTIONAL");
   const withDefault = kids.length === 3 && isTok(kids[1], "DEFAULT") && isExpr(kids[2], Expressions.Source);
   if ((!optional && !withDefault) || !isExpr(kids[0], Expressions.Source)) return undefined;
-  // @ts-expect-error -- abapiti form pending
   const parts = kids[0].findDirectExpression(Expressions.FieldChain)?.getChildren() ?? [];
   const at = parts.findIndex((p) => isExpr(p, Expressions.TableExpression));
   if (at < 1) throw new Unsupported(`VALUE with ${optional ? "OPTIONAL" : "DEFAULT"} on something other than a table expression: ${c.text}`);
   // @ts-expect-error -- abapiti form pending
   const exists = tableExpressionExists(parts.slice(0, at), parts[at], ctx);
   const to = c.typeNode.concatTokens() === "#" && inferred === undefined
-    // @ts-expect-error -- abapiti form pending
     ? source(kids[0], ctx).type
     : namedType(c.typeNode, ctx, inferred);
   const read = convert(source(kids[0], ctx, to), to);
