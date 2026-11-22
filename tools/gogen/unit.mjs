@@ -361,7 +361,7 @@ const updateCompiledCount = () => {
 };
 writeFileSync(join(runDir, "plan.json"), JSON.stringify(summary, null, 2));
 if (!ready.length || args.includes("--build-only")) { console.log(JSON.stringify(summary)); process.exit(ready.length ? 0 : 2); }
-const bin = join(runDir, "unit");
+const bin = join(runDir, process.platform === "win32" ? "unit.exe" : "unit");
 if (process.env.GOGEN_GO_BUILD_X) writeFileSync(join(runDir, "go-build-x.log"), "");
 // The Go compiler can reject a method that the IR frontend accepted. Find
 // its ABAP source position, retain its typed signature, and emit a method

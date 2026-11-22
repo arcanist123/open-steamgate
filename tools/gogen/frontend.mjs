@@ -5699,7 +5699,6 @@ const FUNCTIONS = {
     if (kids.length !== 1) throw new Unsupported(`a call on a CAST result: ${chainText}`);
     const ck = kids[0].getChildren();
     const body = ck.slice(3, -1).find((c) => isExpr(c, Expressions.Source));
-    // @ts-expect-error -- abapiti form pending
     return constructor({kw: "CAST", typeNode: ck[1], body, text: chainText}, ctx, hint);
   }
   /** @type {import("./frontend-types.ts").ValueExpr | null} */ let receiver = null;
