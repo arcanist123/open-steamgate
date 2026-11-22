@@ -220,13 +220,30 @@ func DataString(d Data) string {
 	panic(NotCompiled("move", "a generic value of type kind "+string(d.T.Kind)+" into a string"))
 }
 
-// DataI is a generic value moved into an i.
+// DataI is a generic value moved into an i: an int8 with the overflow check,
+// a p rounded half away from zero, as the conversion rules of an i target.
 func DataI(d Data) int32 {
 	d.Check()
-	if d.T.Kind == 'I' {
+	switch d.T.Kind {
+	case 'I':
 		return *d.P.(*int32)
+	case '8':
+		return I8ToI(*d.P.(*int64))
+	case 'P':
+		return PToI(*d.P.(*string), false)
 	}
 	panic(NotCompiled("move", "a generic value of type kind "+string(d.T.Kind)+" into an i"))
+}
+
+// DataX is a generic byte-like value (x or xstring) as its bytes; a target
+// of type x fits them to its length (XFit).
+func DataX(d Data) string {
+	d.Check()
+	switch d.T.Kind {
+	case 'X', 'y':
+		return *d.P.(*string)
+	}
+	panic(NotCompiled("move", "a generic value of type kind "+string(d.T.Kind)+" into a byte-like field"))
 }
 
 // FmtData is a generic value in a string template.

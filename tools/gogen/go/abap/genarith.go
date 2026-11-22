@@ -68,13 +68,16 @@ func CalcKind(static string, charTarget bool, target Data, leaves ...Data) byte 
 	return 'I'
 }
 
-// DataI8 is a generic i or int8 read as an int8.
+// DataI8 is a generic i, int8 or p read as an int8 (a p rounded half away
+// from zero, with the overflow check of an int8 target).
 func DataI8(d Data) int64 {
 	switch d.T.Kind {
 	case 'I':
 		return int64(*d.P.(*int32))
 	case '8':
 		return *d.P.(*int64)
+	case 'P':
+		return PToI8(*d.P.(*string), false)
 	}
 	panic(NotCompiled("move", "a generic value of type kind "+string(d.T.Kind)+" into an int8"))
 }

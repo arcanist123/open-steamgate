@@ -6183,7 +6183,7 @@ const FUNCTIONS = {
     // ultra/itab: an operand of generic arithmetic, read into one calculation type
     if (GEN_CALC && (["i", "int8", "f"].includes(to.k) || (to.k === "p" && to.calc))) return {e: "unwrap_calc", x: expr, type: to};
     // @ts-expect-error -- abapiti form pending
-    if (!["string", "c", "i", "d", "t", "p"].includes(to.k) || to.calc) throw new Unsupported(`a generic value moved into a ${to.k}`);
+    if (!["string", "c", "i", "int8", "f", "x", "xstring", "d", "t", "p"].includes(to.k) || to.calc) throw new Unsupported(`a generic value moved into a ${to.k}`);
     return {e: "unwrap", x: expr, type: to};
   }
   const from = expr.type;

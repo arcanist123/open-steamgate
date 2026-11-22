@@ -1105,6 +1105,10 @@ function expr(e, ctx) {
 /** a generic value read into a typed one: an i, or a string fitted to a c's length */
 function unwrapTo(t, d) {
   if (t.k === "i") return `abap.DataI(${d})`;
+  if (t.k === "int8") return `abap.DataI8(${d})`;
+  if (t.k === "f") return `abap.DataF(${d})`;
+  if (t.k === "xstring") return `abap.DataX(${d})`;
+  if (t.k === "x") return `abap.XFit(abap.DataX(${d}), ${t.len})`;
   if (t.k === "c") return `abap.CFit(abap.DataString(${d}), ${t.len})`;
   if (t.k === "p") return `abap.PFit(abap.DataP(${d}), ${t.len}, ${t.dec ?? 0}, false)`;
   return `abap.DataString(${d})`;

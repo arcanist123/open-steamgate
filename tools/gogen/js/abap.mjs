@@ -994,6 +994,8 @@ export const S2T = (v) => (v === "" ? "000000" : [...v].slice(0, 6).join("").pad
 export function DataI(d) {
   if (d === null) throw notAssigned("move");
   if (d.t.kind === "I") return d.get();
+  if (d.t.kind === "8") return I8ToI(d.get());
+  if (d.t.kind === "P") return PToI(d.get(), false);
   throw new AbapError("NOT_COMPILED", `move: a generic value of type kind ${d.t.kind} into an i`);
 }
 
@@ -1651,7 +1653,14 @@ export function CalcKind(statics, charTarget, target, leaves) {
 export function DataI8(d) {
   if (d.t.kind === "I") return BigInt(d.get());
   if (d.t.kind === "8") return d.get();
+  if (d.t.kind === "P") return PToI8(d.get(), false);
   throw new AbapError("NOT_COMPILED", `move: a generic value of type kind ${d.t.kind} into an int8`);
+}
+// go/abap DataX: a generic x or xstring as its bytes
+export function DataX(d) {
+  if (d === null) throw notAssigned("move");
+  if (d.t.kind === "X" || d.t.kind === "y") return d.get();
+  throw new AbapError("NOT_COMPILED", `move: a generic value of type kind ${d.t.kind} into a byte-like field`);
 }
 export function DataF(d) {
   const v = d.get();
