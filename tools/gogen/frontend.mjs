@@ -5546,9 +5546,7 @@ function eventInfo(ctx, owner, evName) {
     // @ts-expect-error -- abapiti form pending
     ? source(kids[0], ctx).type
     : namedType(c.typeNode, ctx, inferred);
-  // @ts-expect-error -- abapiti form pending
   const read = convert(source(kids[0], ctx, to), to);
-  // @ts-expect-error -- abapiti form pending
   const otherwise = withDefault ? convert(source(kids[2], ctx, to), to) : null;
   return {e: "cond", branches: [{cond: exists, value: read}], else: otherwise, type: to};
 }
@@ -6591,14 +6589,12 @@ const FUNCTIONS = {
   const fk = fc?.getChildren() ?? [];
   const te = fk.at(-1);
   if (!fc || !isExpr(te, Expressions.TableExpression)) throw new Unsupported(`line_exists form: ${chain.concatTokens()}`);
-  // @ts-expect-error -- abapiti form pending
   return tableExpressionExists(fk.slice(0, -1), te, ctx);
 }
 
 /** whether a table expression finds a line: the table is the chain in front of
  * it, the keys as in line_exists */
 /** @param {readonly (import("@abaplint/core").Nodes.ExpressionNode | import("@abaplint/core").Nodes.TokenNode)[]} head @param {import("@abaplint/core").Nodes.ExpressionNode} te @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./ir.ts").Condition} */ function tableExpressionExists(head, te, ctx) {
-  // @ts-expect-error -- abapiti form pending
   const table = head.length === 1 ? sourceOperand(head[0], ctx) : fieldChainParts(head, () => head.map((k) => k.concatTokens()).join(""), ctx);
   if (table.type.k !== "table") throw new Unsupported("line_exists of a non-table");
   const inner = te.getChildren().filter((c) => !isTok(c, "[") && !isTok(c, "]"));
