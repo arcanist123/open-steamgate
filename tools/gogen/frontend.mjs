@@ -5688,8 +5688,8 @@ const FUNCTIONS = {
     // @ts-expect-error -- abapiti form pending
     return {e: "random", min: convert(source(arg("MIN"), ctx, I), I), max: convert(source(arg("MAX"), ctx, I), I), type: I};
   }
-  if (isExpr(kids[0], Expressions.NewObject)) {
-    if (kids.length !== 1) throw new Unsupported(`a call on a new object: ${chainText}`);
+  // NEW x( )->m( ) goes on below as a chain whose receiver is the new object (#540)
+  if (isExpr(kids[0], Expressions.NewObject) && kids.length === 1) {
     const nk = kids[0].getChildren();
     const body = nk.slice(3, -1).find((c) => !isTok(c)) ?? null;
     // @ts-expect-error -- abapiti form pending
@@ -5725,15 +5725,16 @@ const FUNCTIONS = {
   } else if (kids.length === 3 && upper(kids[0].concatTokens()) === "ME" && isTok(kids[1], "->")) {
     // @ts-expect-error -- abapiti form pending
     mc = kids[2];
-  } else if (kids.length === 3 && isTok(kids[1], "->") && isExpr(kids[2], Expressions.MethodCall) && !isExpr(kids[0], Expressions.MethodCall)) {
+  } else if (kids.length === 3 && isTok(kids[1], "->") && isExpr(kids[2], Expressions.MethodCall) && !isExpr(kids[0], Expressions.MethodCall) && !isExpr(kids[0], Expressions.NewObject)) {
     receiver = isExpr(kids[0], Expressions.FieldChain) || isExpr(kids[0], Expressions.SourceField) ? fieldChain(kids[0], ctx) : null;
     if (receiver === null || receiver.type.k !== "ref") throw new Unsupported(`call through ${kids[0].concatTokens()}`);
     if (!receiver.type.intf && !ctx.program.wanted.has(receiver.type.name)) throw notInProgram(ctx, receiver.type.name, `call on a ${receiver.type.name}, which is not compiled in this program`);
     owner = receiver.type.name;
     mc = kids[2];
-  } else if ((kids.length > 3 || isExpr(kids[0], Expressions.MethodCall)) && isTok(kids[kids.length - 2], "->") && isExpr(kids[kids.length - 1], Expressions.MethodCall)) {
+  } else if ((kids.length > 3 || isExpr(kids[0], Expressions.MethodCall) || isExpr(kids[0], Expressions.NewObject)) && isTok(kids[kids.length - 2], "->") && isExpr(kids[kids.length - 1], Expressions.MethodCall)) {
     // a->b( )->c( ): the receiver is what the chain before the last -> returns;
-    // so is m( )->n( ) and zif_x~m( )->n( ), whose head is a call on me
+    // so is m( )->n( ) and zif_x~m( )->n( ), whose head is a call on me, and
+    // NEW x( )->m( ), whose head is the new object
     const head = kids.slice(0, -2);
     receiver = call(chain, ctx, false, undefined, head);
     if (receiver.type.k !== "ref") throw new Unsupported(`call through a ${receiver.type.k}: ${chainText}`);
