@@ -220,6 +220,12 @@ import {P_GENERIC} from "./frontend-classes-native.mjs";
     ?? clasDef(ctx.reg, ctx.className)?.getTypeDefinitions().getByName(t);
   if (local !== undefined) return typeOf(local.getType(), text, ctx.program);
   if (ctx.reg.getObject("CLAS", t) || ctx.reg.getObject("INTF", t)) return {k: "ref", name: t, intf: ctx.reg.getObject("INTF", t) !== undefined};
+  // a DDIC type by name, VALUE string_table( ... ) (#998): what DATA x TYPE name gives
+  for (const kind of ["TTYP", "TABL", "DTEL"]) {
+    // @ts-expect-error -- abapiti form pending
+    const ddic = ctx.reg.getObject(kind, t)?.parseType?.(ctx.reg);
+    if (ddic !== undefined) return typeOf(ddic, text, ctx.program);
+  }
   const m = /^(\w+)=>(\w+)$/.exec(t);
   if (m) {
     // @ts-expect-error -- abapiti form pending
