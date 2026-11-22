@@ -58,6 +58,8 @@ const EXPECT = {
   ZCL_GOGEN_T_VALOPT: "1/a/0/[]/2/9/other/fallback/initial",
   // Unmeasured: ABAP keyword documentation, NEW for a data reference (#997).
   ZCL_GOGEN_T_NEWDREF: "5/6/n6/1x/3/0/s/2z",
+  // Unmeasured: ABAP keyword documentation, VALUE with a DDIC table type (#998).
+  ZCL_GOGEN_T_VALDDIC: "3/ac/0",
   // TASK5: initial NUMC(3) and character message fields.
   ZCL_GOGEN_T_MSGINITIAL: "000//////",
   // TASK5 supplied CS oracle; other operators follow SAP character comparison rules.
