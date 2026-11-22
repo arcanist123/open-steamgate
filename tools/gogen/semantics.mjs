@@ -56,6 +56,8 @@ const EXPECT = {
   ZCL_GOGEN_T_GENMOVE: "7/5000000000/3/7/2.5/12/-3/ABCDEF/ABCD/0100",
   // Unmeasured: ABAP keyword documentation, VALUE with a table expression and OPTIONAL or DEFAULT (#996).
   ZCL_GOGEN_T_VALOPT: "1/a/0/[]/2/9/other/fallback/initial",
+  // Unmeasured: ABAP keyword documentation, NEW for a data reference (#997).
+  ZCL_GOGEN_T_NEWDREF: "5/6/n6/1x/3/0/s/2z",
   // TASK5: initial NUMC(3) and character message fields.
   ZCL_GOGEN_T_MSGINITIAL: "000//////",
   // TASK5 supplied CS oracle; other operators follow SAP character comparison rules.

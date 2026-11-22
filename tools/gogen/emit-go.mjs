@@ -2558,6 +2558,14 @@ ${t}	}`));
     // @ts-expect-error -- abapiti form pending
     case "wrap": return `abap.Data{P: ${addressable(e.x) ? `&${place(e.x, ctx)}` : `abap.Ptr(${expr(e.x, ctx)})`}, T: ${desc(e.x.type)}}`;
     case "unwrap": return unwrapTo(e.type, expr(e.x, ctx));
+    // NEW #( v ) for a data reference: a new data object holding a copy of v
+    case "new_data": {
+      // @ts-expect-error -- abapiti form pending
+      const inner = e.type.to;
+      // @ts-expect-error -- abapiti form pending
+      const value = copied(expr(e.value, ctx), e.value.type, e.value);
+      return `func() abap.Data { p := new(${goType(inner)}); *p = ${value}; return abap.Data{P: p, T: ${desc(inner)}} }()`;
+    }
     case "unwrap_chars": return `abap.DataChars(${expr(e.x, ctx)})`;
     case "fae_row": return `fae${e.n}`;
     case "lines_data": return `int32(abap.Lines(${expr(e.x, ctx)}))`;

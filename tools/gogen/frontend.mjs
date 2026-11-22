@@ -4057,7 +4057,7 @@ function localInterfaceConstant(id, attr, local, reg) {
   }
   if (c.kw === "NEW") {
     const to = namedType(c.typeNode, ctx, inferred);
-    if (to.k !== "ref") throw new Unsupported(`NEW of a ${to.k}: ${c.text}`);
+    if (to.k !== "ref") return newData(c, to, ctx);
     if (!ctx.program.wanted.has(to.name)) throw notInProgram(ctx, to.name, `NEW ${to.name}: the class is not compiled in this program`);
     const sig = constructorSignature(ctx, to.name); const given = new Map();
     // @ts-expect-error -- abapiti form pending
@@ -4087,6 +4087,56 @@ function localInterfaceConstant(id, attr, local, reg) {
     return {e: "new", cls: to.name, args, type: to};
   }
   throw new Unsupported(`${c.kw} constructor expression`);
+}
+/**
+ * NEW for a data object (#997): NEW #( v ) where the target is REF TO t, or
+ * NEW t( v ), is a new anonymous data object of type t with the value v (a
+ * structure from its components, a table from its lines, nothing for the
+ * initial value), and the expression is a data reference to it.
+ */
+/** @param {import("./frontend-types.ts").ConstructorItem} c @param {import("./ir.ts").Type} to @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./frontend-types.ts").ValueExpr} */ function newData(c, to, ctx) {
+  const inner = to.k === "dref" ? to.to : to;
+  if (inner === undefined) throw new Unsupported(`NEW for a generic data reference: ${c.text}`);
+  if (["ref", "exc", "data", "dref"].includes(inner.k)) throw new Unsupported(`NEW of a ${inner.k}: ${c.text}`);
+  // @ts-expect-error -- abapiti form pending
+  /** @type {import("@abaplint/core").Nodes.ExpressionNode | null} */ const body = c.body;
+  /** @type {import("./frontend-types.ts").ValueExpr} */ let value;
+  const params = body?.findDirectExpressions(Expressions.ParameterS) ?? [];
+  // @ts-expect-error -- abapiti form pending
+  /** @type {readonly (import("@abaplint/core").Nodes.ExpressionNode | import("@abaplint/core").Nodes.TokenNode)[]} */ const parts = c.parts ?? [];
+  if (inner.k === "table" && parts.some((p) => isTok(p, "("))) {
+    // NEW #( ( 1 ) ( a = 2 ) ): one line per parenthesis, a value or components
+    /** @type {import("./frontend-types.ts").ValueExpr[]} */ const rows = [];
+    /** @type {(import("@abaplint/core").Nodes.ExpressionNode | import("@abaplint/core").Nodes.TokenNode)[]} */ let line = [];
+    for (const p of parts) {
+      if (isTok(p, "(")) { line = []; continue; }
+      if (!isTok(p, ")")) { line.push(p); continue; }
+      const exprs = line.filter((x) => !isTok(x));
+      if (inner.row.k !== "struct" && exprs.length === 1 && isExpr(exprs[0], Expressions.Source)) {
+        rows.push(convert(source(exprs[0], ctx, inner.row), inner.row));
+      } else if (inner.row.k === "struct" && exprs.every((x) => isExpr(x, Expressions.FieldAssignment))) {
+        rows.push({e: "struct", type: inner.row, fields: exprs.map((x) => {
+          // @ts-expect-error -- abapiti form pending
+          const f = fieldOf(ctx, inner.row, upper(x.findDirectExpression(Expressions.FieldSub).concatTokens()), c.text);
+          // @ts-expect-error -- abapiti form pending
+          return {name: f.name, value: convert(source(x.findDirectExpression(Expressions.Source), ctx, f.type), f.type)};
+        })});
+      } else throw new Unsupported(`NEW table line ${line.map((x) => x.concatTokens()).join(" ")}`);
+    }
+    if (inner.sorted && rows.length > 0) throw new Unsupported(`NEW with rows for a SORTED table: ${c.text}`);
+    value = {e: "table_lit", rows, type: inner};
+  } else if (body === null) value = {e: "zero", type: inner};
+  else if (isExpr(body, Expressions.Source)) value = convert(source(body, ctx, inner), inner);
+  else if (params.length > 0 && inner.k === "struct") {
+    // NEW #( a = 1 b = 2 ): the components come as a parameter list
+    value = {e: "struct", type: inner, fields: params.map((p) => {
+      // @ts-expect-error -- abapiti form pending
+      const f = fieldOf(ctx, inner, upper(p.findDirectExpression(Expressions.ParameterName).concatTokens()), c.text);
+      // @ts-expect-error -- abapiti form pending
+      return {name: f.name, value: convert(source(p.findDirectExpression(Expressions.Source), ctx, f.type), f.type)};
+    })};
+  } else value = valueBody(body, inner, ctx, c.text);
+  return {e: "new_data", value, type: {k: "dref", to: inner}};
 }
 /** @param {unknown} value @returns {boolean} */ const isMethodArray = (value) => Array.isArray(value);
 /** @param {import("@abaplint/core").IInterfaceDefinition | import("@abaplint/core").IClassDefinition} def @returns {readonly import("./frontend-types.ts").MethodDefinition[]} */ function methodDefinitions(def) { const all = def.getMethodDefinitions(); return isMethodArray(all) ? Array.from(/** @type {import("./frontend-types.ts").MethodDefinition[]} */ (/** @type {unknown} */ (all))) : Array.from(all.getAll()); }
@@ -5721,7 +5771,7 @@ const FUNCTIONS = {
     const nk = kids[0].getChildren();
     const body = nk.slice(3, -1).find((c) => !isTok(c)) ?? null;
     // @ts-expect-error -- abapiti form pending
-    return constructor({kw: "NEW", typeNode: nk[1], body, text: chainText}, ctx, hint);
+    return constructor({kw: "NEW", typeNode: nk[1], body, parts: nk.slice(3, -1), text: chainText}, ctx, hint);
   }
   if (isExpr(kids[0], Expressions.Cast)) {
     if (kids.length !== 1) throw new Unsupported(`a call on a CAST result: ${chainText}`);

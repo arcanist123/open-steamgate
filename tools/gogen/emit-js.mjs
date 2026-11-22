@@ -1096,6 +1096,8 @@ function expr(e, ctx) {
     }
     case "wrap": return isPlace(e.x) ? bind(e.x, ctx) : `abap.cell(${expr(e.x, ctx)}, ${desc(e.x.type)})`;
     case "unwrap": return unwrapTo(e.type, expr(e.x, ctx));
+    // NEW #( v ) for a data reference: a new cell holding a copy of v
+    case "new_data": return `abap.cell(${moved(e.value, ctx)}, ${desc(e.type.to)})`;
     case "unwrap_chars": return `abap.DataChars(${expr(e.x, ctx)})`;
     case "lines_data": return `abap.Lines(${expr(e.x, ctx)})`;
     default: throw new Error(`no JS for expression ${e.e}`);

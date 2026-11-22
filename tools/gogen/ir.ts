@@ -45,6 +45,7 @@ export type Expr = ExprMetadata & (
   | { readonly e: 'zero'; readonly type: Type }
   | { readonly e: 'new'; readonly cls: string; readonly args: readonly Argument[]; readonly type: Type }
   | { readonly e: 'wrap'; readonly x: Expr; readonly type: Type }
+  | { readonly e: 'new_data'; readonly value: Expr; readonly type: Type }
   | { readonly e: 'call'; readonly method: string; readonly static: boolean; readonly owner: string | null;
     // two absence values today: null at frontend.mjs:1233, omitted at 6373; phase 2 normalises
     readonly receiver?: Expr | null;
