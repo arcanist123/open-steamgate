@@ -1743,6 +1743,16 @@ examples:
       return compileRule(file, {registry});
     };
 
+    it("compiles the row-rule example from the documentation", async () => {
+      const section = readFileSync("docs/dsl-l2.md", "utf8").split("### Row rules")[1];
+      const text = section.split("```yaml\n")[1].split("```")[0];
+      const model = compile("documentation", text);
+      const {findings} = await renderRule(model);
+      expect(findings).to.deep.equal([]);
+      expect(evaluate(model, {zosd_l2_ship: [{ship_id: "S001", name: "Albatross", status: "M"}]}))
+        .to.deep.equal(["S001 Albatross: grounded"]);
+    });
+
     it("uses the existing model without exists clauses and derives only when boundaries", () => {
       const model = compileRule(ROW, {registry});
       expect(model.kind).to.equal("row");

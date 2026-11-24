@@ -260,6 +260,7 @@ reading a second table:
 
 ```yaml
 rule: grounded-ship
+title: Grounded airships need attention
 for: ZOSD_L2_SHIP as ship
 when: ship.status = 'M' or ship.status = 'D'
 forbid: row
