@@ -2154,7 +2154,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:261a40af2d0749172679c7fd629ac5bda30271eb99fc117715f1d81743242369",
+  "model": "sha256:d6bd4b7056cc98985ff457a7c4e5441515492e9316cb4c64a06f2214777204b0",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_min_crew.clas.abap", "hash": "sha256:6b1bf3be89cd87d298af74486668103ba733deb5d680fc4bb17d5320990b8c9e"}

@@ -2116,7 +2116,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:1a98ab8236d4b32bcbc6d1187ca8b12ec825b46ab68540614bdf0abb29689cc4",
+  "model": "sha256:45ea923b55497387bebe8f844927710b4793719d6598f05beeb5a07536f6be87",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_busy.clas.abap", "hash": "sha256:b3bbd8d6b025797b6c95f187d5461eb4f50fdf46389ec0b17af9e6d02bb28c83"}

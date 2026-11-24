@@ -1621,7 +1621,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:d8feb25097552e0015fb73ae6e7bfc460a13c8a271519f63783d88a04d1bbed1",
+  "model": "sha256:b394b7c481c2078cec32dd098774403af021f9b5992e10060c4df66f30a2ec63",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_grounded_ship_crew.clas.abap", "hash": "sha256:b1015f0d983b4b3e0f98fd8d990f457843dd4dfd1d7dd69828df6df16e737a5c"}

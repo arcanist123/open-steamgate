@@ -2003,7 +2003,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:c3b6ec28ec46857a719f23e9b05349c72e3bd39d7fbbcd55e37ac85fa8b7b805",
+  "model": "sha256:d483f71ccc12072af345698b9cd0fd355fa1752136a847190353e49f07ec5e83",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_max_cargo.clas.abap", "hash": "sha256:51ed870bf4a9a3c335c904fcd73dce0dcd1c634c5ef859ba8fdd47bb0fc990b2"}

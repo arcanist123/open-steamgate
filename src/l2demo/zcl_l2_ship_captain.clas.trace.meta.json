@@ -1252,7 +1252,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:dff116ac0941f1e1790e50f846bb09fe28665fe682300678bbfaef69c9782710",
+  "model": "sha256:c354a2df3f0f895d4132bc9e3f3fadd07b2f7b04066360d8ba6c7fcabd981d99",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_captain.clas.abap", "hash": "sha256:6a0532425db0215ebf10599196dd9815fe57d728c2a5b57626e16d41259b6cac"}

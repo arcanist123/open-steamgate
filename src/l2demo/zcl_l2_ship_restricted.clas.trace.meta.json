@@ -2482,7 +2482,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:46ed02305acee5e31a18cd70bb45025de414ecf2708953f6c385b26b1bfbc63b",
+  "model": "sha256:18006270e7dcddf8c40bc565abb3af570fa4cd132647d3710090252ae99418cd",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_restricted.clas.abap", "hash": "sha256:8986994cd94d788cf35882735ce5ba5d904e530978a269d239c18f065d59ed12"}

@@ -1380,7 +1380,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:ea0fc1c43d1d87383647621eddfef10d7056cd4e2c542841fba47ab28a5c6fb6",
+  "model": "sha256:44dac8cf4f02744f207591d59ab67f90ec0108133257850d785acf7c43a0687f",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_maintenance_ship.clas.abap", "hash": "sha256:3450c52ee14203cd29d6482d48dfab856788c7fae00db76892a7c055539a9bad"}

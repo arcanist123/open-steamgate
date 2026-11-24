@@ -338,8 +338,7 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{/single}}
 {{^single}}
 {{#pieces}}
-    {{lead}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{stop}}
+    {{lead}}{{value | literal}}{{stop}}
 {{/pieces}}
     APPEND lv_exp TO lt_exp.
 {{/single}}

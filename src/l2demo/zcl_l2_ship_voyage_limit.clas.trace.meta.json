@@ -1767,7 +1767,7 @@
       "template_line": 529
     }
   ],
-  "model": "sha256:c3d9b6de809febb3cd79d6407bfb4df7289764a66e3d9b242507b8bc3db81a07",
+  "model": "sha256:d5ba08cb38257a35fa27e16091cb1325fe0b3ad00dce9d5b1dfcb24d4e103596",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_voyage_limit.clas.abap", "hash": "sha256:1f4eb023626f9245314ae226d52724d7c0e092bad6efa8ab4d6ebcd1fe7927bd"}
