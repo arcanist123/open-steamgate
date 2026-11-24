@@ -72,9 +72,9 @@ CLASS ltcl_examples IMPLEMENTATION.
     ls_zosd_l2_note-mandt = sy-mandt.
     ls_zosd_l2_note-ship_id = 'S001'.
     ls_zosd_l2_note-status = 'M'.
-    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c`
-      && `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear`
-      && ` skies clear skies clear skies clear skies clear skies c!`.
+    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c` &
+        `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear` &
+        ` skies clear skies clear skies clear skies clear skies c!`.
     APPEND ls_zosd_l2_note TO mt_zosd_l2_note.
     INSERT zosd_l2_note FROM TABLE mt_zosd_l2_note.
     lv_exp = `S001: Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear s`
@@ -96,9 +96,9 @@ CLASS ltcl_examples IMPLEMENTATION.
     CLEAR ls_zosd_l2_note.
     ls_zosd_l2_note-mandt = sy-mandt.
     ls_zosd_l2_note-ship_id = 'S001'.
-    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c`
-      && `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear`
-      && ` skies clear skies clear skies clear skies clear skies c!`.
+    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c` &
+        `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear` &
+        ` skies clear skies clear skies clear skies clear skies c!`.
     ls_zosd_l2_note-status = 'M'.
     APPEND ls_zosd_l2_note TO mt_zosd_l2_note.
     INSERT zosd_l2_note FROM TABLE mt_zosd_l2_note.
@@ -120,9 +120,9 @@ CLASS ltcl_examples IMPLEMENTATION.
     CLEAR ls_zosd_l2_note.
     ls_zosd_l2_note-mandt = sy-mandt.
     ls_zosd_l2_note-ship_id = 'S001'.
-    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c`
-      && `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear`
-      && ` skies clear skies clear skies clear skies clear skies c!`.
+    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c` &
+        `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear` &
+        ` skies clear skies clear skies clear skies clear skies c!`.
     ls_zosd_l2_note-status = 'N'.
     APPEND ls_zosd_l2_note TO mt_zosd_l2_note.
     INSERT zosd_l2_note FROM TABLE mt_zosd_l2_note.
@@ -140,9 +140,9 @@ CLASS ltcl_examples IMPLEMENTATION.
     CLEAR ls_zosd_l2_note.
     ls_zosd_l2_note-mandt = sy-mandt.
     ls_zosd_l2_note-ship_id = 'S001'.
-    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c`
-      && `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear`
-      && ` skies clear skies clear skies clear skies clear skies c!`.
+    ls_zosd_l2_note-note = `Airship ``Albatross`` navigation note: clear skies clear skies clear skies clear skies clear skies c` &
+        `lear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear` &
+        ` skies clear skies clear skies clear skies clear skies c!`.
     ls_zosd_l2_note-status = ''.
     APPEND ls_zosd_l2_note TO mt_zosd_l2_note.
     INSERT zosd_l2_note FROM TABLE mt_zosd_l2_note.

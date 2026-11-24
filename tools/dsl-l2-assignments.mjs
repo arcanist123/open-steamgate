@@ -10,3 +10,20 @@ export function assignmentNode(field, pieces) {
     value, "value@type": {built_in: "STRG"}, first: k === 0, stop: k === list.length - 1 ? "." : "",
   }))};
 }
+
+// Compile-time concatenated constants also work in DEFAULT and call arguments.
+// Enrich every typed literal, so new assignment sites share the same splitting.
+export function literalNodes(node, pieces) {
+  if (!node || typeof node !== "object") return node;
+  if (Array.isArray(node)) return node.map((child) => literalNodes(child, pieces));
+  const out = Object.fromEntries(Object.entries(node).map(([key, value]) => [key, literalNodes(value, pieces)]));
+  for (const key of Object.keys(node).filter((key) => key.endsWith("@type"))) {
+    const name = key.slice(0, -5);
+    if (typeof node[name] !== "string") continue;
+    const split = assignmentNode({"@id": `${node["@id"]}/${name}`, rule_line: node.rule_line,
+      value: node[name], "value@type": node[key]}, pieces).assignment_pieces;
+    // An explicit empty list masks a parent context's pieces in the template.
+    out[`${name}_pieces`] = split ?? [];
+  }
+  return out;
+}

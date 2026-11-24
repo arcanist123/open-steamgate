@@ -196,7 +196,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
           "template": "main",
-          "template_line": 26
+          "template_line": 27
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -205,7 +205,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 26
+      "template_line": 27
     },
     {
       "contributors": [
@@ -214,56 +214,13 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
           "template": "main",
-          "template_line": 42
+          "template_line": 44
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
       "line": 10,
       "node": "rule/ship-too-many-future-voyages",
       "path": "/",
-      "rule_line": 1,
-      "template": "main",
-      "template_line": 42
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
-          "template": "main",
-          "template_line": 43
-        }
-      ],
-      "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 11,
-      "node": "rule/ship-too-many-future-voyages",
-      "path": "/",
-      "rule_line": 1,
-      "template": "main",
-      "template_line": 43
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
-          "template": "main",
-          "template_line": 44
-        },
-        {
-          "invocation": 1,
-          "path": "/class",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/class"},
-          "template": "main",
-          "template_line": 44
-        }
-      ],
-      "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 12,
-      "node": "rule/ship-too-many-future-voyages",
-      "path": "/class",
       "rule_line": 1,
       "template": "main",
       "template_line": 44
@@ -279,7 +236,7 @@
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 13,
+      "line": 11,
       "node": "rule/ship-too-many-future-voyages",
       "path": "/",
       "rule_line": 1,
@@ -297,16 +254,16 @@
         },
         {
           "invocation": 1,
-          "path": "/comment",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/comment"},
+          "path": "/class",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/class"},
           "template": "main",
           "template_line": 46
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 14,
+      "line": 12,
       "node": "rule/ship-too-many-future-voyages",
-      "path": "/comment",
+      "path": "/class",
       "rule_line": 1,
       "template": "main",
       "template_line": 46
@@ -315,17 +272,60 @@
       "contributors": [
         {
           "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
+          "template": "main",
+          "template_line": 47
+        }
+      ],
+      "file": "zcl_l2_ship_voyage_limit.clas.abap",
+      "line": 13,
+      "node": "rule/ship-too-many-future-voyages",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 47
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
+          "template": "main",
+          "template_line": 48
+        },
+        {
+          "invocation": 1,
+          "path": "/comment",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/comment"},
+          "template": "main",
+          "template_line": 48
+        }
+      ],
+      "file": "zcl_l2_ship_voyage_limit.clas.abap",
+      "line": 14,
+      "node": "rule/ship-too-many-future-voyages",
+      "path": "/comment",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 48
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 48
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
           "template": "main",
-          "template_line": 48
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -334,7 +334,7 @@
       "path": "/queries/1/type",
       "rule_line": 7,
       "template": "main",
-      "template_line": 48
+      "template_line": 50
     },
     {
       "contributors": [
@@ -343,28 +343,28 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/column",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/column"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/table",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/table"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -373,7 +373,7 @@
       "path": "/queries/1/fields/1/name",
       "rule_line": 4,
       "template": "main",
-      "template_line": 50
+      "template_line": 52
     },
     {
       "contributors": [
@@ -382,28 +382,28 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/column",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/column"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/table",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/table"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -411,31 +411,6 @@
       "node": "rule/ship-too-many-future-voyages/join/field/2",
       "path": "/queries/1/fields/2/name",
       "rule_line": 11,
-      "template": "main",
-      "template_line": 50
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
-          "template": "main",
-          "template_line": 52
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/type",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
-          "template": "main",
-          "template_line": 52
-        }
-      ],
-      "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 18,
-      "node": "rule/ship-too-many-future-voyages/join",
-      "path": "/queries/1/type",
-      "rule_line": 7,
       "template": "main",
       "template_line": 52
     },
@@ -446,38 +421,6 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 53
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/itab",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/itab"},
-          "template": "main",
-          "template_line": 53
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/type",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
-          "template": "main",
-          "template_line": 53
-        }
-      ],
-      "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 19,
-      "node": "rule/ship-too-many-future-voyages/join",
-      "path": "/queries/1/itab",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 53
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
-          "template": "main",
           "template_line": 54
         },
         {
@@ -486,19 +429,12 @@
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
           "template": "main",
           "template_line": 54
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/wa",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/wa"},
-          "template": "main",
-          "template_line": 54
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 20,
+      "line": 18,
       "node": "rule/ship-too-many-future-voyages/join",
-      "path": "/queries/1/wa",
+      "path": "/queries/1/type",
       "rule_line": 7,
       "template": "main",
       "template_line": 54
@@ -507,8 +443,40 @@
       "contributors": [
         {
           "invocation": 1,
-          "path": "/queries/1/limit",
-          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
+          "template": "main",
+          "template_line": 55
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 55
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 55
+        }
+      ],
+      "file": "zcl_l2_ship_voyage_limit.clas.abap",
+      "line": 19,
+      "node": "rule/ship-too-many-future-voyages/join",
+      "path": "/queries/1/itab",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 55
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
           "template_line": 56
         },
@@ -518,12 +486,19 @@
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
           "template": "main",
           "template_line": 56
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 56
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
-      "line": 21,
+      "line": 20,
       "node": "rule/ship-too-many-future-voyages/join",
-      "path": "/queries/1/type",
+      "path": "/queries/1/wa",
       "rule_line": 7,
       "template": "main",
       "template_line": 56
@@ -532,10 +507,35 @@
       "contributors": [
         {
           "invocation": 1,
+          "path": "/queries/1/limit",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
+          "template": "main",
+          "template_line": 58
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 58
+        }
+      ],
+      "file": "zcl_l2_ship_voyage_limit.clas.abap",
+      "line": 21,
+      "node": "rule/ship-too-many-future-voyages/join",
+      "path": "/queries/1/type",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 58
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
           "path": "/",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
           "template": "main",
-          "template_line": 87
+          "template_line": 89
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -544,7 +544,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 87
+      "template_line": 89
     },
     {
       "contributors": [
@@ -553,7 +553,7 @@
           "path": "/threshold/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/is_count"},
           "template": "main",
-          "template_line": 93
+          "template_line": 95
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -562,7 +562,7 @@
       "path": "/threshold/is_count",
       "rule_line": 10,
       "template": "main",
-      "template_line": 93
+      "template_line": 95
     },
     {
       "contributors": [
@@ -571,7 +571,7 @@
           "path": "/threshold/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/is_count"},
           "template": "main",
-          "template_line": 94
+          "template_line": 96
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -580,7 +580,7 @@
       "path": "/threshold/is_count",
       "rule_line": 10,
       "template": "main",
-      "template_line": 94
+      "template_line": 96
     },
     {
       "contributors": [
@@ -589,7 +589,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 160
+          "template_line": 167
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -598,7 +598,7 @@
       "path": "/queries/1",
       "rule_line": 7,
       "template": "main",
-      "template_line": 160
+      "template_line": 167
     },
     {
       "contributors": [
@@ -607,21 +607,21 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 175
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 175
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/source",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/1", "selector": "/source"},
           "template": "main",
-          "template_line": 175
+          "template_line": 182
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -630,7 +630,7 @@
       "path": "/queries/1/fields/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 175
+      "template_line": 182
     },
     {
       "contributors": [
@@ -639,21 +639,21 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 175
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 175
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/source",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/field/2", "selector": "/source"},
           "template": "main",
-          "template_line": 175
+          "template_line": 182
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -662,7 +662,7 @@
       "path": "/queries/1/fields/2/source",
       "rule_line": 11,
       "template": "main",
-      "template_line": 175
+      "template_line": 182
     },
     {
       "contributors": [
@@ -671,21 +671,21 @@
           "path": "/queries/1/from",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/for", "selector": "/"},
           "template": "main",
-          "template_line": 179
+          "template_line": 186
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/alias",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/for", "selector": "/alias"},
           "template": "main",
-          "template_line": 179
+          "template_line": 186
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/table",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/for", "selector": "/table"},
           "template": "main",
-          "template_line": 179
+          "template_line": 186
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -694,7 +694,7 @@
       "path": "/queries/1/from/table",
       "rule_line": 4,
       "template": "main",
-      "template_line": 179
+      "template_line": 186
     },
     {
       "contributors": [
@@ -703,21 +703,21 @@
           "path": "/queries/1/joins/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/alias",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/alias"},
           "template": "main",
-          "template_line": 182
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/table",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/table"},
           "template": "main",
-          "template_line": 182
+          "template_line": 189
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -726,7 +726,7 @@
       "path": "/queries/1/joins/1/table",
       "rule_line": 8,
       "template": "main",
-      "template_line": 182
+      "template_line": 189
     },
     {
       "contributors": [
@@ -735,28 +735,28 @@
           "path": "/queries/1/joins/1/on/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/1", "selector": "/"},
           "template": "main",
-          "template_line": 184
+          "template_line": 191
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/lhs",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 184
+          "template_line": 191
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/op",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/1", "selector": "/op"},
           "template": "main",
-          "template_line": 184
+          "template_line": 191
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/sref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/1", "selector": "/sref"},
           "template": "main",
-          "template_line": 184
+          "template_line": 192
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -765,7 +765,7 @@
       "path": "/queries/1/joins/1/on/1/lhs",
       "rule_line": 9,
       "template": "main",
-      "template_line": 184
+      "template_line": 191
     },
     {
       "contributors": [
@@ -774,14 +774,14 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 187
+          "template_line": 195
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 187
+          "template_line": 195
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -790,7 +790,7 @@
       "path": "/queries/1/itab",
       "rule_line": 7,
       "template": "main",
-      "template_line": 187
+      "template_line": 195
     },
     {
       "contributors": [
@@ -799,42 +799,42 @@
           "path": "/queries/1/where/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/when/1", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/is_cmp",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/when/1", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/lhs",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/when/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/op",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/when/1", "selector": "/op"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/pre",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/when/1", "selector": "/pre"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/when/1", "selector": "/value"},
           "template": "main",
-          "template_line": 189
+          "template_line": 198
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -843,7 +843,7 @@
       "path": "/queries/1/where/1/pre",
       "rule_line": 6,
       "template": "main",
-      "template_line": 189
+      "template_line": 197
     },
     {
       "contributors": [
@@ -852,42 +852,42 @@
           "path": "/queries/1/where/2",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/2", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/is_cmp",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/2", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/lhs",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/2", "selector": "/lhs"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/op",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/2", "selector": "/op"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/pre",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/2", "selector": "/pre"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/sref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/where/2", "selector": "/sref"},
           "template": "main",
-          "template_line": 189
+          "template_line": 198
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -896,7 +896,7 @@
       "path": "/queries/1/where/2/pre",
       "rule_line": 9,
       "template": "main",
-      "template_line": 189
+      "template_line": 197
     },
     {
       "contributors": [
@@ -905,42 +905,42 @@
           "path": "/queries/1/where/3",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/range", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/is_cmp",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/range", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/lhs",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/range", "selector": "/lhs"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/op",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/range", "selector": "/op"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/pre",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/range", "selector": "/pre"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/sref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/range", "selector": "/sref"},
           "template": "main",
-          "template_line": 189
+          "template_line": 198
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -949,7 +949,7 @@
       "path": "/queries/1/where/3/pre",
       "rule_line": 5,
       "template": "main",
-      "template_line": 189
+      "template_line": 197
     },
     {
       "contributors": [
@@ -958,7 +958,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 191
+          "template_line": 200
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -967,7 +967,7 @@
       "path": "/queries/1",
       "rule_line": 7,
       "template": "main",
-      "template_line": 191
+      "template_line": 200
     },
     {
       "contributors": [
@@ -976,14 +976,14 @@
           "path": "/queries/1/order/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/order/1", "selector": "/"},
           "template": "main",
-          "template_line": 193
+          "template_line": 202
         },
         {
           "invocation": 1,
           "path": "/queries/1/order/1/source",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join/order/1", "selector": "/source"},
           "template": "main",
-          "template_line": 193
+          "template_line": 202
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -992,7 +992,7 @@
       "path": "/queries/1/order/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 193
+      "template_line": 202
     },
     {
       "contributors": [
@@ -1001,21 +1001,21 @@
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 302
+          "template_line": 314
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 302
+          "template_line": 314
         },
         {
           "invocation": 1,
           "path": "/queries/1/sort_by",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/sort_by"},
           "template": "main",
-          "template_line": 302
+          "template_line": 314
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1024,7 +1024,7 @@
       "path": "/queries/1/itab",
       "rule_line": 7,
       "template": "main",
-      "template_line": 302
+      "template_line": 314
     },
     {
       "contributors": [
@@ -1033,21 +1033,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 304
+          "template_line": 316
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 304
+          "template_line": 316
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 304
+          "template_line": 316
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1056,7 +1056,7 @@
       "path": "/queries/1/itab",
       "rule_line": 7,
       "template": "main",
-      "template_line": 304
+      "template_line": 316
     },
     {
       "contributors": [
@@ -1065,14 +1065,14 @@
           "path": "/queries/1/key_change",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/key_change"},
           "template": "main",
-          "template_line": 308
+          "template_line": 320
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 308
+          "template_line": 320
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1081,7 +1081,7 @@
       "path": "/queries/1/key_change",
       "rule_line": 7,
       "template": "main",
-      "template_line": 308
+      "template_line": 320
     },
     {
       "contributors": [
@@ -1090,21 +1090,21 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 309
+          "template_line": 321
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/op",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/op"},
           "template": "main",
-          "template_line": 309
+          "template_line": 321
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/value"},
           "template": "main",
-          "template_line": 309
+          "template_line": 322
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1113,7 +1113,7 @@
       "path": "/queries/1/limit/op",
       "rule_line": 10,
       "template": "main",
-      "template_line": 309
+      "template_line": 321
     },
     {
       "contributors": [
@@ -1122,7 +1122,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 310
+          "template_line": 323
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1131,7 +1131,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 310
+      "template_line": 323
     },
     {
       "contributors": [
@@ -1140,7 +1140,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 311
+          "template_line": 324
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1149,7 +1149,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 311
+      "template_line": 324
     },
     {
       "contributors": [
@@ -1158,21 +1158,21 @@
           "path": "/queries/1/alert_parts/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/1", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/1/jref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/1", "selector": "/jref"},
           "template": "main",
-          "template_line": 348
+          "template_line": 363
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1181,7 +1181,7 @@
       "path": "/queries/1/alert_parts/1/jref",
       "rule_line": 11,
       "template": "main",
-      "template_line": 348
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1190,21 +1190,21 @@
           "path": "/queries/1/alert_parts/2",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/1", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/2/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/1", "selector": "/value"},
           "template": "main",
-          "template_line": 348
+          "template_line": 363
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1213,7 +1213,7 @@
       "path": "/queries/1/alert_parts/2/value",
       "rule_line": 11,
       "template": "main",
-      "template_line": 348
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1222,21 +1222,21 @@
           "path": "/queries/1/alert_parts/3",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/2", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/3/jref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/2", "selector": "/jref"},
           "template": "main",
-          "template_line": 348
+          "template_line": 363
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1245,7 +1245,7 @@
       "path": "/queries/1/alert_parts/3/jref",
       "rule_line": 11,
       "template": "main",
-      "template_line": 348
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1254,21 +1254,21 @@
           "path": "/queries/1/alert_parts/4",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/2", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/4/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/2", "selector": "/value"},
           "template": "main",
-          "template_line": 348
+          "template_line": 363
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1277,7 +1277,7 @@
       "path": "/queries/1/alert_parts/4/value",
       "rule_line": 11,
       "template": "main",
-      "template_line": 348
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1286,21 +1286,21 @@
           "path": "/queries/1/alert_parts/5",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/count", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/5/jref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/count", "selector": "/jref"},
           "template": "main",
-          "template_line": 348
+          "template_line": 363
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1309,7 +1309,7 @@
       "path": "/queries/1/alert_parts/5/jref",
       "rule_line": 11,
       "template": "main",
-      "template_line": 348
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1318,21 +1318,21 @@
           "path": "/queries/1/alert_parts/6",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/3", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/6/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/3", "selector": "/value"},
           "template": "main",
-          "template_line": 348
+          "template_line": 363
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1341,7 +1341,7 @@
       "path": "/queries/1/alert_parts/6/value",
       "rule_line": 11,
       "template": "main",
-      "template_line": 348
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1350,7 +1350,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 353
+          "template_line": 368
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1359,7 +1359,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 353
+      "template_line": 368
     },
     {
       "contributors": [
@@ -1368,7 +1368,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 354
+          "template_line": 369
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1377,7 +1377,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 354
+      "template_line": 369
     },
     {
       "contributors": [
@@ -1386,7 +1386,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 355
+          "template_line": 370
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1395,7 +1395,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 355
+      "template_line": 370
     },
     {
       "contributors": [
@@ -1404,7 +1404,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 356
+          "template_line": 371
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1413,7 +1413,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 356
+      "template_line": 371
     },
     {
       "contributors": [
@@ -1422,7 +1422,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 357
+          "template_line": 372
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1431,7 +1431,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 357
+      "template_line": 372
     },
     {
       "contributors": [
@@ -1440,14 +1440,14 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 358
+          "template_line": 373
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 358
+          "template_line": 373
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1456,7 +1456,7 @@
       "path": "/queries/1/wa",
       "rule_line": 7,
       "template": "main",
-      "template_line": 358
+      "template_line": 373
     },
     {
       "contributors": [
@@ -1465,7 +1465,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/join", "selector": "/"},
           "template": "main",
-          "template_line": 387
+          "template_line": 402
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1474,7 +1474,7 @@
       "path": "/queries/1",
       "rule_line": 7,
       "template": "main",
-      "template_line": 387
+      "template_line": 402
     },
     {
       "contributors": [
@@ -1483,21 +1483,21 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 391
+          "template_line": 406
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/op",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/op"},
           "template": "main",
-          "template_line": 391
+          "template_line": 406
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/value"},
           "template": "main",
-          "template_line": 391
+          "template_line": 407
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1506,7 +1506,7 @@
       "path": "/queries/1/limit/op",
       "rule_line": 10,
       "template": "main",
-      "template_line": 391
+      "template_line": 406
     },
     {
       "contributors": [
@@ -1515,7 +1515,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 392
+          "template_line": 408
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1524,7 +1524,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 392
+      "template_line": 408
     },
     {
       "contributors": [
@@ -1533,7 +1533,7 @@
           "path": "/queries/1/limit/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 393
+          "template_line": 409
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1542,7 +1542,7 @@
       "path": "/queries/1/limit/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 393
+      "template_line": 409
     },
     {
       "contributors": [
@@ -1551,14 +1551,14 @@
           "path": "/queries/1/alert_parts/1",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/1", "selector": "/"},
           "template": "main",
-          "template_line": 428
+          "template_line": 445
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/1/jref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/1", "selector": "/jref"},
           "template": "main",
-          "template_line": 428
+          "template_line": 446
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1567,7 +1567,7 @@
       "path": "/queries/1/alert_parts/1/jref",
       "rule_line": 11,
       "template": "main",
-      "template_line": 428
+      "template_line": 445
     },
     {
       "contributors": [
@@ -1576,14 +1576,14 @@
           "path": "/queries/1/alert_parts/2",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/1", "selector": "/"},
           "template": "main",
-          "template_line": 428
+          "template_line": 445
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/2/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/1", "selector": "/value"},
           "template": "main",
-          "template_line": 428
+          "template_line": 446
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1592,7 +1592,7 @@
       "path": "/queries/1/alert_parts/2/value",
       "rule_line": 11,
       "template": "main",
-      "template_line": 428
+      "template_line": 445
     },
     {
       "contributors": [
@@ -1601,14 +1601,14 @@
           "path": "/queries/1/alert_parts/3",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/2", "selector": "/"},
           "template": "main",
-          "template_line": 428
+          "template_line": 445
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/3/jref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/hole/2", "selector": "/jref"},
           "template": "main",
-          "template_line": 428
+          "template_line": 446
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1617,7 +1617,7 @@
       "path": "/queries/1/alert_parts/3/jref",
       "rule_line": 11,
       "template": "main",
-      "template_line": 428
+      "template_line": 445
     },
     {
       "contributors": [
@@ -1626,14 +1626,14 @@
           "path": "/queries/1/alert_parts/4",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/2", "selector": "/"},
           "template": "main",
-          "template_line": 428
+          "template_line": 445
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/4/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/2", "selector": "/value"},
           "template": "main",
-          "template_line": 428
+          "template_line": 446
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1642,7 +1642,7 @@
       "path": "/queries/1/alert_parts/4/value",
       "rule_line": 11,
       "template": "main",
-      "template_line": 428
+      "template_line": 445
     },
     {
       "contributors": [
@@ -1651,14 +1651,14 @@
           "path": "/queries/1/alert_parts/5",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/count", "selector": "/"},
           "template": "main",
-          "template_line": 428
+          "template_line": 445
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/5/jref",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/count", "selector": "/jref"},
           "template": "main",
-          "template_line": 428
+          "template_line": 446
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1667,7 +1667,7 @@
       "path": "/queries/1/alert_parts/5/jref",
       "rule_line": 11,
       "template": "main",
-      "template_line": 428
+      "template_line": 445
     },
     {
       "contributors": [
@@ -1676,14 +1676,14 @@
           "path": "/queries/1/alert_parts/6",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/3", "selector": "/"},
           "template": "main",
-          "template_line": 428
+          "template_line": 445
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/6/value",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/alert/text/3", "selector": "/value"},
           "template": "main",
-          "template_line": 428
+          "template_line": 446
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1692,7 +1692,7 @@
       "path": "/queries/1/alert_parts/6/value",
       "rule_line": 11,
       "template": "main",
-      "template_line": 428
+      "template_line": 445
     },
     {
       "contributors": [
@@ -1701,7 +1701,7 @@
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 430
+          "template_line": 448
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1710,7 +1710,7 @@
       "path": "/queries/1/limit",
       "rule_line": 10,
       "template": "main",
-      "template_line": 430
+      "template_line": 448
     },
     {
       "contributors": [
@@ -1719,7 +1719,7 @@
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 431
+          "template_line": 449
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1728,7 +1728,7 @@
       "path": "/queries/1/limit",
       "rule_line": 10,
       "template": "main",
-      "template_line": 431
+      "template_line": 449
     },
     {
       "contributors": [
@@ -1737,7 +1737,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
           "template": "main",
-          "template_line": 439
+          "template_line": 457
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1746,7 +1746,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 439
+      "template_line": 457
     },
     {
       "contributors": [
@@ -1755,7 +1755,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_voyage_limit.l2.yaml", "node": "rule/ship-too-many-future-voyages", "selector": "/"},
           "template": "main",
-          "template_line": 505
+          "template_line": 529
         }
       ],
       "file": "zcl_l2_ship_voyage_limit.clas.abap",
@@ -1764,15 +1764,15 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 505
+      "template_line": 529
     }
   ],
-  "model": "sha256:d5ba08cb38257a35fa27e16091cb1325fe0b3ad00dce9d5b1dfcb24d4e103596",
+  "model": "sha256:c3d9b6de809febb3cd79d6407bfb4df7289764a66e3d9b242507b8bc3db81a07",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_voyage_limit.clas.abap", "hash": "sha256:1f4eb023626f9245314ae226d52724d7c0e092bad6efa8ab4d6ebcd1fe7927bd"}
   ],
   "rule": "src/l2demo/ship_voyage_limit.l2.yaml",
   "template": "recipes/l2-check/template.tpl",
-  "templates": {"recipes/l2-check/template.tpl": "sha256:9e5dc7ba26806efb39c4220085dde8aec6a912b5f85cac3c265637b9cd91f9c1"}
+  "templates": {"recipes/l2-check/template.tpl": "sha256:dd979ef4c734cbacc2e6902bd0c4a4d964f373c348b491655881775143f89b06"}
 }

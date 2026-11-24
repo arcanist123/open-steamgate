@@ -196,7 +196,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
           "template": "main",
-          "template_line": 26
+          "template_line": 27
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -205,7 +205,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 26
+      "template_line": 27
     },
     {
       "contributors": [
@@ -214,56 +214,13 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
           "template": "main",
-          "template_line": 42
+          "template_line": 44
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
       "line": 10,
       "node": "rule/ship-min-crew",
       "path": "/",
-      "rule_line": 1,
-      "template": "main",
-      "template_line": 42
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
-          "template": "main",
-          "template_line": 43
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 11,
-      "node": "rule/ship-min-crew",
-      "path": "/",
-      "rule_line": 1,
-      "template": "main",
-      "template_line": 43
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
-          "template": "main",
-          "template_line": 44
-        },
-        {
-          "invocation": 1,
-          "path": "/class",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/class"},
-          "template": "main",
-          "template_line": 44
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 12,
-      "node": "rule/ship-min-crew",
-      "path": "/class",
       "rule_line": 1,
       "template": "main",
       "template_line": 44
@@ -279,7 +236,7 @@
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 13,
+      "line": 11,
       "node": "rule/ship-min-crew",
       "path": "/",
       "rule_line": 1,
@@ -297,16 +254,16 @@
         },
         {
           "invocation": 1,
-          "path": "/comment",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/comment"},
+          "path": "/class",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/class"},
           "template": "main",
           "template_line": 46
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 14,
+      "line": 12,
       "node": "rule/ship-min-crew",
-      "path": "/comment",
+      "path": "/class",
       "rule_line": 1,
       "template": "main",
       "template_line": 46
@@ -315,17 +272,60 @@
       "contributors": [
         {
           "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
+          "template": "main",
+          "template_line": 47
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 13,
+      "node": "rule/ship-min-crew",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 47
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
+          "template": "main",
+          "template_line": 48
+        },
+        {
+          "invocation": 1,
+          "path": "/comment",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/comment"},
+          "template": "main",
+          "template_line": 48
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 14,
+      "node": "rule/ship-min-crew",
+      "path": "/comment",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 48
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
           "template": "main",
-          "template_line": 48
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/type"},
           "template": "main",
-          "template_line": 48
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -334,7 +334,7 @@
       "path": "/queries/1/type",
       "rule_line": 7,
       "template": "main",
-      "template_line": 48
+      "template_line": 50
     },
     {
       "contributors": [
@@ -343,28 +343,28 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/column",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/column"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/table"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -373,7 +373,7 @@
       "path": "/queries/1/fields/1/name",
       "rule_line": 4,
       "template": "main",
-      "template_line": 50
+      "template_line": 52
     },
     {
       "contributors": [
@@ -382,28 +382,28 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/column",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/column"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/table"},
           "template": "main",
-          "template_line": 50
+          "template_line": 52
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -411,31 +411,6 @@
       "node": "rule/ship-min-crew/join/field/2",
       "path": "/queries/1/fields/2/name",
       "rule_line": 11,
-      "template": "main",
-      "template_line": 50
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
-          "template": "main",
-          "template_line": 52
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/type",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/type"},
-          "template": "main",
-          "template_line": 52
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 18,
-      "node": "rule/ship-min-crew/join",
-      "path": "/queries/1/type",
-      "rule_line": 7,
       "template": "main",
       "template_line": 52
     },
@@ -446,38 +421,6 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
           "template": "main",
-          "template_line": 53
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/itab",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/itab"},
-          "template": "main",
-          "template_line": 53
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/type",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/type"},
-          "template": "main",
-          "template_line": 53
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 19,
-      "node": "rule/ship-min-crew/join",
-      "path": "/queries/1/itab",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 53
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
-          "template": "main",
           "template_line": 54
         },
         {
@@ -486,19 +429,12 @@
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/type"},
           "template": "main",
           "template_line": 54
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/wa",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/wa"},
-          "template": "main",
-          "template_line": 54
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 20,
+      "line": 18,
       "node": "rule/ship-min-crew/join",
-      "path": "/queries/1/wa",
+      "path": "/queries/1/type",
       "rule_line": 7,
       "template": "main",
       "template_line": 54
@@ -507,10 +443,74 @@
       "contributors": [
         {
           "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
+          "template": "main",
+          "template_line": 55
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 55
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 55
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 19,
+      "node": "rule/ship-min-crew/join",
+      "path": "/queries/1/itab",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 55
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
+          "template": "main",
+          "template_line": 56
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 56
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 56
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 20,
+      "node": "rule/ship-min-crew/join",
+      "path": "/queries/1/wa",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 56
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 59
+          "template_line": 61
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -519,7 +519,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 59
+      "template_line": 61
     },
     {
       "contributors": [
@@ -528,28 +528,28 @@
           "path": "/queries/1/zero/keys/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/"},
           "template": "main",
-          "template_line": 61
+          "template_line": 63
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/keys/1/column",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/column"},
           "template": "main",
-          "template_line": 61
+          "template_line": 63
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/keys/1/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/name"},
           "template": "main",
-          "template_line": 61
+          "template_line": 63
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/keys/1/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/table"},
           "template": "main",
-          "template_line": 61
+          "template_line": 63
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -558,7 +558,7 @@
       "path": "/queries/1/zero/keys/1/name",
       "rule_line": 4,
       "template": "main",
-      "template_line": 61
+      "template_line": 63
     },
     {
       "contributors": [
@@ -567,7 +567,7 @@
           "path": "/queries/1/zero/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 65
+          "template_line": 67
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -576,7 +576,7 @@
       "path": "/queries/1/zero/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 65
+      "template_line": 67
     },
     {
       "contributors": [
@@ -585,7 +585,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 71
+          "template_line": 73
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -594,7 +594,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 71
+      "template_line": 73
     },
     {
       "contributors": [
@@ -603,7 +603,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 72
+          "template_line": 74
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -612,7 +612,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 72
+      "template_line": 74
     },
     {
       "contributors": [
@@ -621,28 +621,28 @@
           "path": "/queries/1/zero/for_fields/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/1/column",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/column"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/1/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/1/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/table"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -651,7 +651,7 @@
       "path": "/queries/1/zero/for_fields/1/name",
       "rule_line": 4,
       "template": "main",
-      "template_line": 74
+      "template_line": 76
     },
     {
       "contributors": [
@@ -660,28 +660,28 @@
           "path": "/queries/1/zero/for_fields/2",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/2/column",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/column"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/2/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/2/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/table"},
           "template": "main",
-          "template_line": 74
+          "template_line": 76
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -690,43 +690,7 @@
       "path": "/queries/1/zero/for_fields/2/name",
       "rule_line": 11,
       "template": "main",
-      "template_line": 74
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
-          "template": "main",
-          "template_line": 76
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 28,
-      "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero",
-      "rule_line": 10,
-      "template": "main",
       "template_line": 76
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
-          "template": "main",
-          "template_line": 77
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 29,
-      "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 77
     },
     {
       "contributors": [
@@ -739,7 +703,7 @@
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 30,
+      "line": 28,
       "node": "rule/ship-min-crew/join/zero",
       "path": "/queries/1/zero",
       "rule_line": 10,
@@ -754,19 +718,12 @@
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
           "template_line": 79
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/key_list",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/key_list"},
-          "template": "main",
-          "template_line": 79
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 31,
+      "line": 29,
       "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero/key_list",
+      "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
       "template_line": 79
@@ -782,7 +739,7 @@
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 32,
+      "line": 30,
       "node": "rule/ship-min-crew/join/zero",
       "path": "/queries/1/zero",
       "rule_line": 10,
@@ -793,10 +750,53 @@
       "contributors": [
         {
           "invocation": 1,
+          "path": "/queries/1/zero",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
+          "template": "main",
+          "template_line": 81
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/key_list",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/key_list"},
+          "template": "main",
+          "template_line": 81
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 31,
+      "node": "rule/ship-min-crew/join/zero",
+      "path": "/queries/1/zero/key_list",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 81
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
+          "template": "main",
+          "template_line": 82
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 32,
+      "node": "rule/ship-min-crew/join/zero",
+      "path": "/queries/1/zero",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 82
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
           "path": "/",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
           "template": "main",
-          "template_line": 87
+          "template_line": 89
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -805,7 +805,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 87
+      "template_line": 89
     },
     {
       "contributors": [
@@ -814,7 +814,7 @@
           "path": "/threshold/is_count",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/fewer_than", "selector": "/is_count"},
           "template": "main",
-          "template_line": 93
+          "template_line": 95
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -823,7 +823,7 @@
       "path": "/threshold/is_count",
       "rule_line": 10,
       "template": "main",
-      "template_line": 93
+      "template_line": 95
     },
     {
       "contributors": [
@@ -832,7 +832,7 @@
           "path": "/threshold/is_count",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/fewer_than", "selector": "/is_count"},
           "template": "main",
-          "template_line": 94
+          "template_line": 96
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -841,7 +841,7 @@
       "path": "/threshold/is_count",
       "rule_line": 10,
       "template": "main",
-      "template_line": 94
+      "template_line": 96
     },
     {
       "contributors": [
@@ -850,7 +850,7 @@
           "path": "/queries/1/zero/for_query",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/for", "selector": "/"},
           "template": "main",
-          "template_line": 142
+          "template_line": 148
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -859,7 +859,7 @@
       "path": "/queries/1/zero/for_query",
       "rule_line": 4,
       "template": "main",
-      "template_line": 142
+      "template_line": 148
     },
     {
       "contributors": [
@@ -868,21 +868,21 @@
           "path": "/queries/1/zero/for_fields/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 144
+          "template_line": 150
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/1/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 144
+          "template_line": 150
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/1/source",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/source"},
           "template": "main",
-          "template_line": 144
+          "template_line": 150
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -891,7 +891,7 @@
       "path": "/queries/1/zero/for_fields/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 144
+      "template_line": 150
     },
     {
       "contributors": [
@@ -900,21 +900,21 @@
           "path": "/queries/1/zero/for_fields/2",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 144
+          "template_line": 150
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/2/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 144
+          "template_line": 150
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_fields/2/source",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/2", "selector": "/source"},
           "template": "main",
-          "template_line": 144
+          "template_line": 150
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -923,7 +923,7 @@
       "path": "/queries/1/zero/for_fields/2/source",
       "rule_line": 11,
       "template": "main",
-      "template_line": 144
+      "template_line": 150
     },
     {
       "contributors": [
@@ -932,21 +932,21 @@
           "path": "/queries/1/zero/for_query/from",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/for", "selector": "/"},
           "template": "main",
-          "template_line": 147
+          "template_line": 153
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/from/alias",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/for", "selector": "/alias"},
           "template": "main",
-          "template_line": 147
+          "template_line": 153
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/from/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/for", "selector": "/table"},
           "template": "main",
-          "template_line": 147
+          "template_line": 153
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -955,7 +955,7 @@
       "path": "/queries/1/zero/for_query/from/table",
       "rule_line": 4,
       "template": "main",
-      "template_line": 147
+      "template_line": 153
     },
     {
       "contributors": [
@@ -964,7 +964,7 @@
           "path": "/queries/1/zero/for_query",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/for", "selector": "/"},
           "template": "main",
-          "template_line": 149
+          "template_line": 155
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -973,7 +973,7 @@
       "path": "/queries/1/zero/for_query",
       "rule_line": 4,
       "template": "main",
-      "template_line": 149
+      "template_line": 155
     },
     {
       "contributors": [
@@ -982,42 +982,42 @@
           "path": "/queries/1/zero/for_query/where/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/1/is_cmp",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/1/lhs",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/1/op",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/op"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/1/pre",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/pre"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/1/value",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/value"},
           "template": "main",
-          "template_line": 151
+          "template_line": 158
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1026,7 +1026,7 @@
       "path": "/queries/1/zero/for_query/where/1/pre",
       "rule_line": 6,
       "template": "main",
-      "template_line": 151
+      "template_line": 157
     },
     {
       "contributors": [
@@ -1035,42 +1035,42 @@
           "path": "/queries/1/zero/for_query/where/2",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/2/is_cmp",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/2/lhs",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/lhs"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/2/op",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/op"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/2/pre",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/pre"},
           "template": "main",
-          "template_line": 151
+          "template_line": 157
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/for_query/where/2/sref",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/sref"},
           "template": "main",
-          "template_line": 151
+          "template_line": 158
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1079,7 +1079,7 @@
       "path": "/queries/1/zero/for_query/where/2/pre",
       "rule_line": 5,
       "template": "main",
-      "template_line": 151
+      "template_line": 157
     },
     {
       "contributors": [
@@ -1088,7 +1088,7 @@
           "path": "/queries/1/zero/for_query",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/for", "selector": "/"},
           "template": "main",
-          "template_line": 153
+          "template_line": 160
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1097,7 +1097,7 @@
       "path": "/queries/1/zero/for_query",
       "rule_line": 4,
       "template": "main",
-      "template_line": 153
+      "template_line": 160
     },
     {
       "contributors": [
@@ -1106,14 +1106,14 @@
           "path": "/queries/1/order/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/"},
           "template": "main",
-          "template_line": 155
+          "template_line": 162
         },
         {
           "invocation": 1,
           "path": "/queries/1/order/1/source",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/source"},
           "template": "main",
-          "template_line": 155
+          "template_line": 162
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1122,7 +1122,7 @@
       "path": "/queries/1/order/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 155
+      "template_line": 162
     },
     {
       "contributors": [
@@ -1131,7 +1131,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
           "template": "main",
-          "template_line": 160
+          "template_line": 167
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1140,7 +1140,7 @@
       "path": "/queries/1",
       "rule_line": 7,
       "template": "main",
-      "template_line": 160
+      "template_line": 167
     },
     {
       "contributors": [
@@ -1149,21 +1149,21 @@
           "path": "/queries/1/join_fields/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 169
+          "template_line": 176
         },
         {
           "invocation": 1,
           "path": "/queries/1/join_fields/1/name",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 169
+          "template_line": 176
         },
         {
           "invocation": 1,
           "path": "/queries/1/join_fields/1/source",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/field/1", "selector": "/source"},
           "template": "main",
-          "template_line": 169
+          "template_line": 176
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1172,7 +1172,7 @@
       "path": "/queries/1/join_fields/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 169
+      "template_line": 176
     },
     {
       "contributors": [
@@ -1181,21 +1181,21 @@
           "path": "/queries/1/from",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/for", "selector": "/"},
           "template": "main",
-          "template_line": 179
+          "template_line": 186
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/alias",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/for", "selector": "/alias"},
           "template": "main",
-          "template_line": 179
+          "template_line": 186
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/for", "selector": "/table"},
           "template": "main",
-          "template_line": 179
+          "template_line": 186
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1204,7 +1204,7 @@
       "path": "/queries/1/from/table",
       "rule_line": 4,
       "template": "main",
-      "template_line": 179
+      "template_line": 186
     },
     {
       "contributors": [
@@ -1213,21 +1213,21 @@
           "path": "/queries/1/joins/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/alias",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/alias"},
           "template": "main",
-          "template_line": 182
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/table",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/table"},
           "template": "main",
-          "template_line": 182
+          "template_line": 189
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1236,7 +1236,7 @@
       "path": "/queries/1/joins/1/table",
       "rule_line": 8,
       "template": "main",
-      "template_line": 182
+      "template_line": 189
     },
     {
       "contributors": [
@@ -1245,28 +1245,28 @@
           "path": "/queries/1/joins/1/on/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/1", "selector": "/"},
           "template": "main",
-          "template_line": 184
+          "template_line": 191
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/lhs",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 184
+          "template_line": 191
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/op",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/1", "selector": "/op"},
           "template": "main",
-          "template_line": 184
+          "template_line": 191
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/sref",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/1", "selector": "/sref"},
           "template": "main",
-          "template_line": 184
+          "template_line": 192
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1275,7 +1275,7 @@
       "path": "/queries/1/joins/1/on/1/lhs",
       "rule_line": 9,
       "template": "main",
-      "template_line": 184
+      "template_line": 191
     },
     {
       "contributors": [
@@ -1284,14 +1284,14 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
           "template": "main",
-          "template_line": 187
+          "template_line": 195
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 187
+          "template_line": 195
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1300,7 +1300,7 @@
       "path": "/queries/1/itab",
       "rule_line": 7,
       "template": "main",
-      "template_line": 187
+      "template_line": 195
     },
     {
       "contributors": [
@@ -1309,42 +1309,42 @@
           "path": "/queries/1/where/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/is_cmp",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/lhs",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/op",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/op"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/pre",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/pre"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/value",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/when/1", "selector": "/value"},
           "template": "main",
-          "template_line": 189
+          "template_line": 198
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1353,7 +1353,7 @@
       "path": "/queries/1/where/1/pre",
       "rule_line": 6,
       "template": "main",
-      "template_line": 189
+      "template_line": 197
     },
     {
       "contributors": [
@@ -1362,42 +1362,42 @@
           "path": "/queries/1/where/2",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/2", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/is_cmp",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/2", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/lhs",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/2", "selector": "/lhs"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/op",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/2", "selector": "/op"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/pre",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/2", "selector": "/pre"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/sref",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/where/2", "selector": "/sref"},
           "template": "main",
-          "template_line": 189
+          "template_line": 198
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1406,7 +1406,7 @@
       "path": "/queries/1/where/2/pre",
       "rule_line": 9,
       "template": "main",
-      "template_line": 189
+      "template_line": 197
     },
     {
       "contributors": [
@@ -1415,42 +1415,42 @@
           "path": "/queries/1/where/3",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/is_cmp",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/lhs",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/lhs"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/op",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/op"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/pre",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/pre"},
           "template": "main",
-          "template_line": 189
+          "template_line": 197
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/sref",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/range", "selector": "/sref"},
           "template": "main",
-          "template_line": 189
+          "template_line": 198
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1459,7 +1459,7 @@
       "path": "/queries/1/where/3/pre",
       "rule_line": 5,
       "template": "main",
-      "template_line": 189
+      "template_line": 197
     },
     {
       "contributors": [
@@ -1468,7 +1468,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/"},
           "template": "main",
-          "template_line": 191
+          "template_line": 200
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1477,7 +1477,7 @@
       "path": "/queries/1",
       "rule_line": 7,
       "template": "main",
-      "template_line": 191
+      "template_line": 200
     },
     {
       "contributors": [
@@ -1486,14 +1486,14 @@
           "path": "/queries/1/order/1",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/"},
           "template": "main",
-          "template_line": 193
+          "template_line": 202
         },
         {
           "invocation": 1,
           "path": "/queries/1/order/1/source",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/order/1", "selector": "/source"},
           "template": "main",
-          "template_line": 193
+          "template_line": 202
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1502,7 +1502,7 @@
       "path": "/queries/1/order/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 193
+      "template_line": 202
     },
     {
       "contributors": [
@@ -1511,21 +1511,21 @@
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 199
+          "template_line": 208
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 199
+          "template_line": 208
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 199
+          "template_line": 208
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1534,7 +1534,7 @@
       "path": "/queries/1/itab",
       "rule_line": 7,
       "template": "main",
-      "template_line": 199
+      "template_line": 208
     },
     {
       "contributors": [
@@ -1543,14 +1543,14 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 211
+          "template_line": 220
         },
         {
           "invocation": 1,
           "path": "/queries/1/zero/join_key",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/join_key"},
           "template": "main",
-          "template_line": 211
+          "template_line": 220
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1559,7 +1559,7 @@
       "path": "/queries/1/zero/join_key",
       "rule_line": 10,
       "template": "main",
-      "template_line": 211
+      "template_line": 220
     },
     {
       "contributors": [
@@ -1568,7 +1568,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 212
+          "template_line": 221
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1577,7 +1577,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 212
+      "template_line": 221
     },
     {
       "contributors": [
@@ -1586,7 +1586,7 @@
           "path": "/queries/1/zero/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 215
+          "template_line": 224
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1595,7 +1595,7 @@
       "path": "/queries/1/zero/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 215
+      "template_line": 224
     },
     {
       "contributors": [
@@ -1604,7 +1604,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 223
+          "template_line": 232
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1613,7 +1613,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 223
+      "template_line": 232
     },
     {
       "contributors": [
@@ -1622,7 +1622,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 224
+          "template_line": 233
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1631,7 +1631,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 224
+      "template_line": 233
     },
     {
       "contributors": [
@@ -1640,44 +1640,8 @@
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 225
+          "template_line": 234
         },
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
-          "template": "main",
-          "template_line": 225
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 62,
-      "node": "rule/ship-min-crew/join",
-      "path": "/queries/1/wa",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 225
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 228
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 63,
-      "node": "rule/ship-min-crew/limit/count",
-      "path": "/queries/1/zero/aggregate/is_count",
-      "rule_line": 8,
-      "template": "main",
-      "template_line": 228
-    },
-    {
-      "contributors": [
         {
           "invocation": 1,
           "path": "/queries/1/zero",
@@ -1687,12 +1651,30 @@
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 64,
-      "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero",
-      "rule_line": 10,
+      "line": 62,
+      "node": "rule/ship-min-crew/join",
+      "path": "/queries/1/wa",
+      "rule_line": 7,
       "template": "main",
       "template_line": 234
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 237
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 63,
+      "node": "rule/ship-min-crew/limit/count",
+      "path": "/queries/1/zero/aggregate/is_count",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 237
     },
     {
       "contributors": [
@@ -1701,7 +1683,25 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 235
+          "template_line": 243
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 64,
+      "node": "rule/ship-min-crew/join/zero",
+      "path": "/queries/1/zero",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 243
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
+          "template": "main",
+          "template_line": 244
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1710,7 +1710,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 235
+      "template_line": 244
     },
     {
       "contributors": [
@@ -1719,7 +1719,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 236
+          "template_line": 245
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1728,7 +1728,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 236
+      "template_line": 245
     },
     {
       "contributors": [
@@ -1737,7 +1737,7 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 237
+          "template_line": 246
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -1745,153 +1745,6 @@
       "node": "rule/ship-min-crew/join/zero",
       "path": "/queries/1/zero",
       "rule_line": 10,
-      "template": "main",
-      "template_line": 237
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 240
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 68,
-      "node": "rule/ship-min-crew/limit/count",
-      "path": "/queries/1/zero/aggregate/is_count",
-      "rule_line": 8,
-      "template": "main",
-      "template_line": 240
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 241
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/read_key",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/read_key"},
-          "template": "main",
-          "template_line": 241
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 69,
-      "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero/read_key",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 241
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 242
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 70,
-      "node": "rule/ship-min-crew/limit/count",
-      "path": "/queries/1/zero/aggregate/is_count",
-      "rule_line": 8,
-      "template": "main",
-      "template_line": 242
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 243
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 71,
-      "node": "rule/ship-min-crew/limit/count",
-      "path": "/queries/1/zero/aggregate/is_count",
-      "rule_line": 8,
-      "template": "main",
-      "template_line": 243
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 244
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 72,
-      "node": "rule/ship-min-crew/limit/count",
-      "path": "/queries/1/zero/aggregate/is_count",
-      "rule_line": 8,
-      "template": "main",
-      "template_line": 244
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 245
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/op",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/op"},
-          "template": "main",
-          "template_line": 245
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/value",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/value"},
-          "template": "main",
-          "template_line": 245
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 73,
-      "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero/op",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 245
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero/aggregate/is_count",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
-          "template": "main",
-          "template_line": 246
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 74,
-      "node": "rule/ship-min-crew/limit/count",
-      "path": "/queries/1/zero/aggregate/is_count",
-      "rule_line": 8,
       "template": "main",
       "template_line": 246
     },
@@ -1902,184 +1755,16 @@
           "path": "/queries/1/zero/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 247
+          "template_line": 249
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 75,
+      "line": 68,
       "node": "rule/ship-min-crew/limit/count",
       "path": "/queries/1/zero/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 247
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/1",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/1", "selector": "/"},
-          "template": "main",
-          "template_line": 287
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/1/jref",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/1", "selector": "/jref"},
-          "template": "main",
-          "template_line": 287
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 76,
-      "node": "rule/ship-min-crew/alert/hole/1",
-      "path": "/queries/1/alert_parts/1/jref",
-      "rule_line": 11,
-      "template": "main",
-      "template_line": 287
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/2",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/1", "selector": "/"},
-          "template": "main",
-          "template_line": 287
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/2/value",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/1", "selector": "/value"},
-          "template": "main",
-          "template_line": 287
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 77,
-      "node": "rule/ship-min-crew/alert/text/1",
-      "path": "/queries/1/alert_parts/2/value",
-      "rule_line": 11,
-      "template": "main",
-      "template_line": 287
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/3",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/2", "selector": "/"},
-          "template": "main",
-          "template_line": 287
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/3/jref",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/2", "selector": "/jref"},
-          "template": "main",
-          "template_line": 287
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 78,
-      "node": "rule/ship-min-crew/alert/hole/2",
-      "path": "/queries/1/alert_parts/3/jref",
-      "rule_line": 11,
-      "template": "main",
-      "template_line": 287
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/4",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/2", "selector": "/"},
-          "template": "main",
-          "template_line": 287
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/4/value",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/2", "selector": "/value"},
-          "template": "main",
-          "template_line": 287
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 79,
-      "node": "rule/ship-min-crew/alert/text/2",
-      "path": "/queries/1/alert_parts/4/value",
-      "rule_line": 11,
-      "template": "main",
-      "template_line": 287
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/5",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/count", "selector": "/"},
-          "template": "main",
-          "template_line": 287
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/5/jref",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/count", "selector": "/jref"},
-          "template": "main",
-          "template_line": 287
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 80,
-      "node": "rule/ship-min-crew/alert/count",
-      "path": "/queries/1/alert_parts/5/jref",
-      "rule_line": 11,
-      "template": "main",
-      "template_line": 287
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/6",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/3", "selector": "/"},
-          "template": "main",
-          "template_line": 287
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/6/value",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/3", "selector": "/value"},
-          "template": "main",
-          "template_line": 287
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 81,
-      "node": "rule/ship-min-crew/alert/text/3",
-      "path": "/queries/1/alert_parts/6/value",
-      "rule_line": 11,
-      "template": "main",
-      "template_line": 287
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/zero",
-          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
-          "template": "main",
-          "template_line": 289
-        }
-      ],
-      "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 82,
-      "node": "rule/ship-min-crew/join/zero",
-      "path": "/queries/1/zero",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 289
+      "template_line": 249
     },
     {
       "contributors": [
@@ -2088,16 +1773,295 @@
           "path": "/queries/1/zero/aggregate/is_count",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
           "template": "main",
-          "template_line": 292
+          "template_line": 250
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/read_key",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/read_key"},
+          "template": "main",
+          "template_line": 250
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
-      "line": 83,
+      "line": 69,
+      "node": "rule/ship-min-crew/join/zero",
+      "path": "/queries/1/zero/read_key",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 250
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 251
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 70,
       "node": "rule/ship-min-crew/limit/count",
       "path": "/queries/1/zero/aggregate/is_count",
       "rule_line": 8,
       "template": "main",
-      "template_line": 292
+      "template_line": 251
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 252
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 71,
+      "node": "rule/ship-min-crew/limit/count",
+      "path": "/queries/1/zero/aggregate/is_count",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 252
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 253
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 72,
+      "node": "rule/ship-min-crew/limit/count",
+      "path": "/queries/1/zero/aggregate/is_count",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 253
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 254
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/op",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/op"},
+          "template": "main",
+          "template_line": 254
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/value",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/value"},
+          "template": "main",
+          "template_line": 255
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 73,
+      "node": "rule/ship-min-crew/join/zero",
+      "path": "/queries/1/zero/op",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 254
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 256
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 74,
+      "node": "rule/ship-min-crew/limit/count",
+      "path": "/queries/1/zero/aggregate/is_count",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 256
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 257
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 75,
+      "node": "rule/ship-min-crew/limit/count",
+      "path": "/queries/1/zero/aggregate/is_count",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 257
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/1", "selector": "/"},
+          "template": "main",
+          "template_line": 298
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1/jref",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/1", "selector": "/jref"},
+          "template": "main",
+          "template_line": 299
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 76,
+      "node": "rule/ship-min-crew/alert/hole/1",
+      "path": "/queries/1/alert_parts/1/jref",
+      "rule_line": 11,
+      "template": "main",
+      "template_line": 298
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/1", "selector": "/"},
+          "template": "main",
+          "template_line": 298
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2/value",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/1", "selector": "/value"},
+          "template": "main",
+          "template_line": 299
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 77,
+      "node": "rule/ship-min-crew/alert/text/1",
+      "path": "/queries/1/alert_parts/2/value",
+      "rule_line": 11,
+      "template": "main",
+      "template_line": 298
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/3",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/2", "selector": "/"},
+          "template": "main",
+          "template_line": 298
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/3/jref",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/hole/2", "selector": "/jref"},
+          "template": "main",
+          "template_line": 299
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 78,
+      "node": "rule/ship-min-crew/alert/hole/2",
+      "path": "/queries/1/alert_parts/3/jref",
+      "rule_line": 11,
+      "template": "main",
+      "template_line": 298
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/4",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/2", "selector": "/"},
+          "template": "main",
+          "template_line": 298
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/4/value",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/2", "selector": "/value"},
+          "template": "main",
+          "template_line": 299
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 79,
+      "node": "rule/ship-min-crew/alert/text/2",
+      "path": "/queries/1/alert_parts/4/value",
+      "rule_line": 11,
+      "template": "main",
+      "template_line": 298
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/5",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/count", "selector": "/"},
+          "template": "main",
+          "template_line": 298
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/5/jref",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/count", "selector": "/jref"},
+          "template": "main",
+          "template_line": 299
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 80,
+      "node": "rule/ship-min-crew/alert/count",
+      "path": "/queries/1/alert_parts/5/jref",
+      "rule_line": 11,
+      "template": "main",
+      "template_line": 298
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/6",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/3", "selector": "/"},
+          "template": "main",
+          "template_line": 298
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/6/value",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/alert/text/3", "selector": "/value"},
+          "template": "main",
+          "template_line": 299
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 81,
+      "node": "rule/ship-min-crew/alert/text/3",
+      "path": "/queries/1/alert_parts/6/value",
+      "rule_line": 11,
+      "template": "main",
+      "template_line": 298
     },
     {
       "contributors": [
@@ -2106,7 +2070,43 @@
           "path": "/queries/1/zero",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
           "template": "main",
-          "template_line": 298
+          "template_line": 301
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 82,
+      "node": "rule/ship-min-crew/join/zero",
+      "path": "/queries/1/zero",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 301
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero/aggregate/is_count",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/limit/count", "selector": "/is_count"},
+          "template": "main",
+          "template_line": 304
+        }
+      ],
+      "file": "zcl_l2_ship_min_crew.clas.abap",
+      "line": 83,
+      "node": "rule/ship-min-crew/limit/count",
+      "path": "/queries/1/zero/aggregate/is_count",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 304
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/zero",
+          "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew/join/zero", "selector": "/"},
+          "template": "main",
+          "template_line": 310
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -2115,7 +2115,7 @@
       "path": "/queries/1/zero",
       "rule_line": 10,
       "template": "main",
-      "template_line": 298
+      "template_line": 310
     },
     {
       "contributors": [
@@ -2124,7 +2124,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
           "template": "main",
-          "template_line": 439
+          "template_line": 457
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -2133,7 +2133,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 439
+      "template_line": 457
     },
     {
       "contributors": [
@@ -2142,7 +2142,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_min_crew.l2.yaml", "node": "rule/ship-min-crew", "selector": "/"},
           "template": "main",
-          "template_line": 505
+          "template_line": 529
         }
       ],
       "file": "zcl_l2_ship_min_crew.clas.abap",
@@ -2151,15 +2151,15 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 505
+      "template_line": 529
     }
   ],
-  "model": "sha256:d6bd4b7056cc98985ff457a7c4e5441515492e9316cb4c64a06f2214777204b0",
+  "model": "sha256:261a40af2d0749172679c7fd629ac5bda30271eb99fc117715f1d81743242369",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l2_ship_min_crew.clas.abap", "hash": "sha256:6b1bf3be89cd87d298af74486668103ba733deb5d680fc4bb17d5320990b8c9e"}
   ],
   "rule": "src/l2demo/ship_min_crew.l2.yaml",
   "template": "recipes/l2-check/template.tpl",
-  "templates": {"recipes/l2-check/template.tpl": "sha256:9e5dc7ba26806efb39c4220085dde8aec6a912b5f85cac3c265637b9cd91f9c1"}
+  "templates": {"recipes/l2-check/template.tpl": "sha256:dd979ef4c734cbacc2e6902bd0c4a4d964f373c348b491655881775143f89b06"}
 }

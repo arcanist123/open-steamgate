@@ -20,7 +20,7 @@ import {dirname, join, relative, resolve as resolvePath, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import yaml from "js-yaml";
 import {DEFAULT_DDIC, DDIC_PROVIDER, Refusal, registryFor, unresolvedDeep} from "./dsl-ddic.mjs";
-import {assignmentNode} from "./dsl-l2-assignments.mjs";
+import {assignmentNode, literalNodes} from "./dsl-l2-assignments.mjs";
 import {compileParams} from "./dsl-l2-params.mjs";
 import {compileKeys, compileRange, exampleRange, keysCheck} from "./dsl-l2-range.mjs";
 import {caseSelopt, exampleSelopt, inComparison} from "./dsl-l2-selopt.mjs";
@@ -1244,7 +1244,7 @@ export function provenance(model, path) {
 // The model the templates render: the compiled rule with the hand-written
 // examples and then the derived cases as one list of tests.
 export function renderModel(compiled) {
-  return {...compiled, tests: [...compiled.examples, ...compiled.cases]};
+  return literalNodes({...compiled, tests: [...compiled.examples, ...compiled.cases]}, pieces);
 }
 
 // The model hash both sidecars carry, "sha256:<hex>" of the rendered model;

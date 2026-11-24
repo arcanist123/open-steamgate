@@ -7,6 +7,7 @@ import {readJSONFile, readTraceMap} from "./trace-reader.mjs";
 // cases test the rule; type errors name the rule file and line; the trace
 // reaches the rule line.
 import {expect} from "chai";
+import yaml from "js-yaml";
 import {spawnSync} from "node:child_process";
 import {existsSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
@@ -68,6 +69,10 @@ function templateLinePattern(source) {
         pattern += escapePattern(part.text);
       } else if (part.tag.startsWith("/") && part.tag.slice(1) === close) {
         return {pattern, next: i + 1, closed: true};
+      } else if (part.tag.startsWith("/") && close === undefined) {
+        // A loop opened on a prior line can jump back before this suffix.
+        // Only the prefix before its closing tag is mandatory here.
+        return {pattern: pattern + ".*", next: parts.length, closed: false};
       } else if (part.tag.startsWith("#") || part.tag.startsWith("^")) {
         const name = part.tag.slice(1);
         const body = render(i + 1, name);
@@ -75,7 +80,9 @@ function templateLinePattern(source) {
           pattern += `(?:${body.pattern})?`;
           i = body.next - 1;
         } else {
-          pattern += ".*"; // a section continuing on another source line
+          // The remainder belongs to a section that may emit nothing on
+          // this line; its closing tag and suffix are on a later line.
+          return {pattern: pattern + ".*", next: parts.length, closed: false};
         }
       } else {
         // Values (including filtered/raw values), partials and unmatched tags.
@@ -842,7 +849,7 @@ examples:
           await test.FRIENDS_ACCESS_INSTANCE.teardown();
         }
       }
-      return {model, results, messages};
+      return {model, out, results, messages};
     } finally {
       for (const name of created) await db.execute(`DROP TABLE '${name}'`);
     }
@@ -2900,6 +2907,65 @@ examples:
       expect(result.ok).to.equal(true);
     });
 
+    for (const [tag, value] of [["trailing", "x".repeat(99) + "  " + "y".repeat(149) + "     "],
+      ["apostrophe", "x".repeat(99) + "'" + "y".repeat(154)], ["empty", ""], ["unicode", "飞艇 café 🚢".repeat(20)],
+      ["254", "x".repeat(254)], ["255", "x".repeat(255)]]) {
+      it(`G23 exact value: ${tag}`, async () => {
+        const className = `zcl_l2_g23_${tag}`;
+        const source = readFileSync(WIDE_NOTE, "utf8");
+        const doc = yaml.load(source);
+        doc.class = className;
+        doc.boundaries = [];
+        doc.examples[0].rows.ZOSD_L2_NOTE[0].note = value;
+        doc.examples[0].expect = [`S001: ${value.trimEnd()}`];
+        const file = writeRule(`g23-${tag}`, yaml.dump(doc));
+        const {model, out} = await loadRule(file, className, {tables: ["zosd_l2_note.tabl.xml"]});
+        const module = await import(pathToFileURL(join(out, `${className}.clas.testclasses.mjs`)).href);
+        const test = await new module.ltcl_examples().constructor_();
+        try {
+          await test.FRIENDS_ACCESS_INSTANCE[model.examples[0].method]();
+          const table = test.FRIENDS_ACCESS_INSTANCE[model.tables[0].itab];
+          expect(table.array()[0].get().note.get()).to.equal(value.padEnd(255));
+        } finally { await test.FRIENDS_ACCESS_INSTANCE.teardown(); }
+        for (const suffix of ["clas.abap", "clas.testclasses.abap"]) {
+          expect(readFileSync(join(out, `${className}.${suffix}`), "utf8").split("\n").filter((l) => l.length > 255)).to.deep.equal([]);
+        }
+      });
+    }
+
+    for (const mode of ["driving", "range-param", "scalar-param"]) {
+      it(`G23: a 255-character ${mode} bound/default runs in ABAP`, async () => {
+        const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));
+        const className = `zcl_l2_g23_${mode.replaceAll("-", "_")}`;
+        doc.class = className;
+        doc.boundaries = [];
+        const value = doc.examples[0].rows.ZOSD_L2_NOTE[0].note;
+        const bounds = [{sign: "I", option: "BT", low: value, high: value}];
+        if (mode === "driving") {
+          doc.range = "ship.note";
+          doc.examples[0].range = bounds;
+        } else {
+          const range = mode === "range-param";
+          doc.params = {notes: {type: "ZOSD_L2_NOTE-NOTE", ...(range ? {range: true} : {}), default: range ? bounds : value}};
+          doc.when += range ? " and ship.note in $notes" : " and ship.note = $notes";
+          doc.examples.push({...doc.examples[0], name: "explicit wide parameter", params: {notes: range ? bounds : value}});
+        }
+        const {results, messages, out} = await runRule(writeRule(`g23-${mode}`, yaml.dump(doc)), className,
+          {tables: ["zosd_l2_note.tabl.xml"]});
+        expect(failed(results), JSON.stringify(messages)).to.deep.equal([]);
+        expect(Object.keys(results)).to.have.length(mode === "driving" ? 1 : 2);
+        for (const suffix of ["clas.abap", "clas.testclasses.abap"]) {
+          expect(readFileSync(join(out, `${className}.${suffix}`), "utf8").split("\n").filter((l) => l.length > 255)).to.deep.equal([]);
+        }
+      });
+    }
+
+    it("G23: a note longer than CHAR 255 is still refused", () => {
+      const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));
+      doc.examples[0].rows.ZOSD_L2_NOTE[0].note = "x".repeat(256);
+      expect(() => compileRule(writeRule("g23-too-wide", yaml.dump(doc)), {registry})).to.throw(/longer than CHAR 255/);
+    });
+
     it("a maximal accepted alert text renders in pieces, every line of both classes at most 255", async () => {
       const out = join(scratch, "long-alert");
       const {files, findings} = await buildRule(writeRule("long-alert", LONG_ALERT), out, {registry});
@@ -2915,22 +2981,24 @@ examples:
       expect(Object.keys(results).length).to.be.greaterThan(5);
       expect(failed(results), JSON.stringify(messages)).to.deep.equal([]);
     });
-    it("a line the profile still refuses is a RuleError at its rule line, before any file is written", async () => {
-      // an example name that fits the literal check but not the assert call's line
+    it("an oversized generated header is still a RuleError at the rule line", async () => {
+      const model = compileRule(WIDE_NOTE, {registry});
+      model.source = "x".repeat(256);
+      let error;
+      try { await renderRule(model); } catch (e) { error = e; }
+      expect(error).to.be.instanceOf(RuleError);
+      expect(error.message).to.contain("Line exceeds 255 characters");
+      expect(error.message).to.contain(`${WIDE_NOTE}:1:`);
+    });
+
+    it("G23: long example labels use the same split in assertion arguments", async () => {
       const name = `nb${"!".repeat(170)}`;
       const file = writeRule("long-name", LONG_ALERT.replace("  - name: fires", `  - name: ${name}`));
-      const out = join(scratch, "long-name-out");
-      let error;
-      try {
-        await buildRule(file, out, {registry});
-      } catch (e) {
-        error = e;
+      const {files, findings} = await buildRule(file, join(scratch, "long-name-out"), {registry});
+      expect(findings).to.deep.equal([]);
+      for (const [name, text] of Object.entries(files).filter(([n]) => n.endsWith(".abap"))) {
+        expect(text.split("\n").filter((line) => line.length > 255), name).to.deep.equal([]);
       }
-      expect(error).to.be.instanceOf(RuleError);
-      const where = relative(process.cwd(), file).split(sep).join("/");
-      expect(error.message.startsWith(`${where}:${lineIn(readFileSync(file, "utf8"), /^\s+- name: n/)}: the generated zcl_l2_long_alert.clas.testclasses.abap line `), error.message).to.equal(true);
-      expect(error.message).to.contain("Line exceeds 255 characters");
-      expect(() => readdirSync(out)).to.throw();
     });
   });
 
