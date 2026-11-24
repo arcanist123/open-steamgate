@@ -175,7 +175,6 @@ export function evaluate(model, rows, params = {}, override = {}) {
     }));
   } else {
     each((context) => {
-      // A row rule has no exists clauses: the selected for row emits once.
       const walk = (c, ctx) => {
         if (c === model.clauses.length) { alerts.push(alertOf(model.alert.parts, ctx)); return; }
         const clause = model.clauses[c];
