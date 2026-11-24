@@ -1770,6 +1770,18 @@ examples:
         .to.throw(RuleError, /unknown alias voy/);
     });
 
+    for (const [name, from, to, reason] of [
+      ["foreign alias in when", "when: ship.status", "when: voy.status", /unknown alias voy/],
+      ["all alongside row", "forbid: row", "forbid: row\nall: []", /unknown key all/],
+      ["any alongside row", "forbid: row", "forbid: row\nany: []", /unknown key any/],
+      ["row inside all", "forbid: row", "forbid: {all: [row, row]}", /must be a mapping/],
+      ["row inside any", "forbid: row", "forbid: {any: [row, row]}", /must be a mapping/],
+      ["row with limit", "forbid: row", "forbid: row\nlimit: {}", /exactly one of forbid:, require:, or limit:/],
+      ["row with require", "forbid: row", "forbid: row\nrequire: {}", /a rule has forbid or require, not both/],
+    ]) it(`refuses ${name}`, () => {
+      expect(() => compile(name.replaceAll(" ", "-"), source.replace(from, to))).to.throw(RuleError, reason);
+    });
+
     it("refuses row combined with exists keys or another rule kind", () => {
       for (const forbid of [
         "forbid: {row: true, exists: ZOSD_L2_VOY as voy}",
