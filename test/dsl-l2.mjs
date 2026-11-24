@@ -38,7 +38,8 @@ const RECENT = "src/l2demo/recent_voyage.l2.yaml";
 const BUSY = "src/l2demo/ship_busy.l2.yaml";
 const RESTRICTED = "src/l2demo/ship_restricted_status.l2.yaml";
 const ROW = "src/l2demo/grounded_ship.l2.yaml";
-const DEMO_RULES = [ROW, RULE, OR_NOT, REQUIRE, LIMIT, MIN_CREW, MIN_CAPTAINS, CARGO_LIMIT, MAX_CARGO, RECENT, BUSY, RESTRICTED];
+const WIDE_NOTE = "src/l2demo/ship_note.l2.yaml";
+const DEMO_RULES = [WIDE_NOTE, ROW, RULE, OR_NOT, REQUIRE, LIMIT, MIN_CREW, MIN_CAPTAINS, CARGO_LIMIT, MAX_CARGO, RECENT, BUSY, RESTRICTED];
 
 const escapePattern = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -2879,6 +2880,26 @@ examples:
     before(async () => {
       await import("./start.mjs");
     });
+    it("G23: CHAR 255 example and derived assignments fit and preserve the complete note in ABAP", async () => {
+      const model = compileRule(WIDE_NOTE, {registry, out: OUT});
+      const example = model.examples[0].tables[0].rows[0].fields.find((f) => f.column === "note");
+      expect(example.value).to.have.length(255);
+      expect(example.assignment_pieces.map((p) => p.value).join("")).to.equal(example.value);
+      const wide = model.cases.flatMap((c) => c.tables.flatMap((t) => t.rows.flatMap((r) => r.fields)))
+        .filter((f) => f.column === "note" && f.value.length === 255);
+      expect(wide.length, "derived cases fill the wide field").to.be.greaterThan(0);
+      for (const field of wide) expect(field.assignment_pieces.map((p) => p.value).join("")).to.equal(field.value);
+      const {files, findings} = await renderRule(model);
+      expect(findings).to.deep.equal([]);
+      for (const [name, text] of Object.entries(files).filter(([n]) => n.endsWith(".abap"))) {
+        expect(text.split("\n").filter((line) => line.length > 255), name).to.deep.equal([]);
+      }
+      const result = await new UnitRun(new ObjectStore()).runDetached("CLAS", model.class.toUpperCase());
+      const count = model.examples.length + model.cases.length;
+      expect(result.counts, JSON.stringify(result.testClasses)).to.include({methods: count, passed: count, failed: 0});
+      expect(result.ok).to.equal(true);
+    });
+
     it("a maximal accepted alert text renders in pieces, every line of both classes at most 255", async () => {
       const out = join(scratch, "long-alert");
       const {files, findings} = await buildRule(writeRule("long-alert", LONG_ALERT), out, {registry});

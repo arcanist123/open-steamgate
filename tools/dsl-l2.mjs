@@ -20,6 +20,7 @@ import {dirname, join, relative, resolve as resolvePath, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import yaml from "js-yaml";
 import {DEFAULT_DDIC, DDIC_PROVIDER, Refusal, registryFor, unresolvedDeep} from "./dsl-ddic.mjs";
+import {assignmentNode} from "./dsl-l2-assignments.mjs";
 import {compileParams} from "./dsl-l2-params.mjs";
 import {compileKeys, compileRange, exampleRange, keysCheck} from "./dsl-l2-range.mjs";
 import {caseSelopt, exampleSelopt, inComparison} from "./dsl-l2-selopt.mjs";
@@ -1085,8 +1086,8 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
             if (typeof value !== "string") rfail(`${fieldName} must be a scalar`);
             const why = misfit(value, field.literal);
             if (why) failAt(line(`${rpath}/${fieldName}`))(`${info.table}-${field.column.toUpperCase()} is ${typeText(field.literal)}; ${why}`);
-            return {"@id": `${rowId}/field/${field.column}`, rule_line: line(`${rpath}/${fieldName}`), column: field.column,
-              value, "value@type": field.literal};
+            return assignmentNode({"@id": `${rowId}/field/${field.column}`, rule_line: line(`${rpath}/${fieldName}`), column: field.column,
+              value, "value@type": field.literal}, pieces);
           });
           const missing = info.keys.find((k) => !fields.some((f) => f.column === k));
           if (missing) rfail(`a row of ${info.table} needs its key field ${missing.toUpperCase()}`);
@@ -1205,7 +1206,7 @@ function caseNode(model, c) {
             const value = row[column];
             const why = misfit(value, type);
             if (why) throw new Error(`internal: derived value ${JSON.stringify(value)} for ${t.table}-${column}: ${why}`);
-            return {...literal(`${rowId}/field/${column}`, value, type), column};
+            return assignmentNode({...literal(`${rowId}/field/${column}`, value, type), column}, pieces);
           })};
       })};
   }).filter(Boolean);

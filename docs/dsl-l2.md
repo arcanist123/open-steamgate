@@ -307,7 +307,10 @@ compared as units, the items of a group in any order: `not a and not a` is refus
   its parentheses.
 - **No line over 255 characters.** An alert text (up to 255 characters as a literal) is cut into
   pieces of at most 100, each its own `&&` line; an expected alert of a test method that does not
-  fit one literal is built in `lv_exp` the same way (`APPEND` takes no expression in 7.02). What
+  fit one literal is built in `lv_exp` the same way (`APPEND` takes no expression in 7.02).
+  Wide character values assigned to example and derived-case row fields also use pieces
+  joined with `&&`. These are string literals, preserving blanks between pieces and the
+  complete field value (the CHAR 255 airship-note demo covers G23). What
   the `abap` profile still refuses (a long example name in the assert call's line, a long CHAR
   literal after its column) is a `RuleError` at the rule line of the node the line traces to,
   raised by `renderRule` before any file is written, so `build`, `check` and the API refuse it

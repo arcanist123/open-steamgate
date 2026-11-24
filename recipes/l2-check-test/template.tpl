@@ -303,7 +303,12 @@ CLASS ltcl_examples IMPLEMENTATION.
     {{wa}}-{{client}} = sy-mandt.
 {{/client}}
 {{#fields}}
+{{#assignment_pieces}}
+    {{#first}}{{wa}}-{{column}} = {{/first}}{{^first}}  && {{/first}}{{value | literal}}{{stop}}
+{{/assignment_pieces}}
+{{^assignment_pieces}}
     {{wa}}-{{column}} = {{value | literal}}.
+{{/assignment_pieces}}
 {{/fields}}
     APPEND {{wa}} TO {{itab}}.
 {{/rows}}
