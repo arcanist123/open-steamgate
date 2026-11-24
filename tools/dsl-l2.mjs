@@ -558,16 +558,20 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     column: range.field, lhs: range.source, op: "IN", is_literal: false, sref: "it_range", ref: "it_range"}}]) : tree;
   const wa = (alias) => `ls_${alias}`;
 
-  // forbid: one exists, or all: / any: of two or three; require: one exists
+  // forbid: row, one exists, or all: / any: of two or three; require: one exists
   const present = ["forbid", "require", "limit"].filter((k) => doc[k] !== undefined);
   if (doc.forbid !== undefined && doc.require !== undefined && doc.limit === undefined) {
     failAt(line("require"))("a rule has forbid or require, not both");
   }
-  if (present.length === 0) failAt(line("rule"))("a rule needs forbid: (no row may match) or require: (a row must match) or limit: (an aggregate must meet a threshold)");
+  if (present.length === 0) failAt(line("rule"))("a rule needs forbid: (row, or no related row may match) or require: (a row must match) or limit: (an aggregate must meet a threshold)");
   if (present.length !== 1) failAt(line(present[1] ?? "rule"))("a rule needs exactly one of forbid:, require:, or limit:");
-  const kind = present[0];
+  const ruleKey = present[0];
+  const kind = doc.forbid === "row" ? "row" : ruleKey;
+  if (kind === "row" && doc.when === undefined) {
+    failAt(line("forbid"))("forbid: row needs when: to select the rows that violate the rule");
+  }
   const keys = compileKeys({doc, range, kind, id, line, failAt});
-  need(doc[kind], kind, kind === "limit" ? "a mapping with count, sum, min or max, where and a threshold" : "a mapping with exists and where", "map");
+  if (kind !== "row") need(doc[kind], kind, kind === "limit" ? "a mapping with count, sum, min or max, where and a threshold" : "a mapping with exists and where", "map");
   let threshold, aggregate;
   // `count` is the original row-count aggregate. `sum`, `min` and `max`
   // name one numeric DDIC field of the counted table.
@@ -584,9 +588,13 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     if (keys.length !== 1) failAt(line(keys[1] ? `limit/${keys[1]}` : "limit"))("limit needs exactly one of more_than, at_least, fewer_than or exactly");
     thresholdSpec = {key: keys[0], value: spec[keys[0]], rule_line: line(`limit/${keys[0]}`)};
   }
-  const listKey = ["all", "any"].find((k) => doc[kind][k] !== undefined);
+  const listKey = kind === "row" ? undefined : ["all", "any"].find((k) => doc[kind][k] !== undefined);
   let combine = "one", specs;
-  if (listKey) {
+  if (kind === "row") {
+    // No related table: the existing query, reference and evaluator emit once
+    // after when selects a driving row, with no further clauses to match.
+    specs = [];
+  } else if (listKey) {
     if (kind === "require") failAt(line(`require/${listKey}`))(`require takes one exists and where, not ${listKey}`);
     for (const key of Object.keys(doc.forbid)) if (key !== listKey) failAt(line(`forbid/${key}`))(`forbid.${listKey} stands alone: ${key} belongs inside one of its clauses`);
     const list = need(doc.forbid[listKey], `forbid/${listKey}`, "a list of clauses, each with exists and where", "list");
@@ -958,7 +966,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
       aggregate.source = `${clause.alias}~${aggregate.column}`;
       aggregate.table = clause.table;
     }
-    const topWhere = clause.tree.op === "and" ? clause.tree.items : [clause.tree];
+    const topWhere = clause ? (clause.tree.op === "and" ? clause.tree.items : [clause.tree]) : [];
     const oneOuter = kind === "limit" && threshold.zero && clause.info.client &&
       topWhere.every((node) => node.op === "cmp" && clause.conditions[node.index].op === "=" &&
         clause.conditions[node.index].cmp.rhs.kind !== "param");
@@ -977,7 +985,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
       for_query: {"@id": `${qid}/for`, rule_line: line("for"),
         from: {"@id": `${id}/for`, rule_line: line("for"), table: outer.table.toLowerCase(), alias: outer.alias},
         where: whereLines(ranged(whenTree))}} : undefined;
-    return {"@id": qid, rule_line: line(kind), type: `ty_join${suffix}`, itab: `lt_join${suffix}`, wa: qwa,
+    return {"@id": qid, rule_line: line(ruleKey), type: `ty_join${suffix}`, itab: `lt_join${suffix}`, wa: qwa,
       fields: [...fields.values()], ...(kind === "limit" ? {aggregate} : {}),
       ...(zero ? {zero, join_fields: [...fields.values()].filter((f) => group_keys.some((k) => k.source === f.source)
         || (!aggregate.is_count && f.source === aggregate.source))} : {}),
@@ -1003,6 +1011,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     : kind === "limit"
       ? aggregate.is_count ? "one query: join rows counted per for key in the loop (HAVING probe fails here)"
         : "one query: ordered JOIN rows aggregated per for key in the loop (HAVING probe fails here)"
+    : kind === "row" ? "one query: the for rows selected by when"
     : kind === "require" ? "one query: the rows of the first with no match in a subquery, never a SELECT per row"
     : combine === "any" ? "one query per clause: its table joined to the first, never a SELECT per row of the first"
       : "one query: the tables joined, never a SELECT per row of the first";
@@ -1020,7 +1029,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     const levels = [level(forNode, when.tree, when.conditions, "    ", true),
       ...group.map((c, k) => level(c, c.tree, c.conditions, " ".repeat(6 + 2 * k), kind !== "require"))];
     const indent = " ".repeat(4 + 2 * levels.length);
-    return {"@id": group[0]["@id"], rule_line: group[0].rule_line, indent, levels,
+    return {"@id": group[0]?.["@id"] ?? `${id}/forbid`, rule_line: group[0]?.rule_line ?? line("forbid"), indent, levels,
       alert_parts: parts.map((part, k) => ({...part, lead: `${indent}${k === 0 ? "lv_alert = " : "  && "}`, stop: k === parts.length - 1 ? "." : ""})),
       closes: [...levels].reverse().map((l) => ({"@id": l["@id"], rule_line: l.rule_line, indent: l.indent, word: l.is_loop ? "ENDLOOP." : "ENDIF."}))};
   };

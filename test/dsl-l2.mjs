@@ -37,7 +37,8 @@ const MAX_CARGO = "src/l2demo/ship_max_cargo.l2.yaml";
 const RECENT = "src/l2demo/recent_voyage.l2.yaml";
 const BUSY = "src/l2demo/ship_busy.l2.yaml";
 const RESTRICTED = "src/l2demo/ship_restricted_status.l2.yaml";
-const DEMO_RULES = [RULE, OR_NOT, REQUIRE, LIMIT, MIN_CREW, MIN_CAPTAINS, CARGO_LIMIT, MAX_CARGO, RECENT, BUSY, RESTRICTED];
+const ROW = "src/l2demo/grounded_ship.l2.yaml";
+const DEMO_RULES = [ROW, RULE, OR_NOT, REQUIRE, LIMIT, MIN_CREW, MIN_CAPTAINS, CARGO_LIMIT, MAX_CARGO, RECENT, BUSY, RESTRICTED];
 
 const escapePattern = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -1731,6 +1732,103 @@ examples:
         const line = source.split("\n").findIndex((entry) => entry.includes(threshold)) + 1;
         expect(() => compileRule(file, {registry})).to.throw(RuleError, new RegExp(`:${line}: ${operation} is undefined for an empty group`));
       }
+    });
+  });
+
+  describe("row rules", () => {
+    const source = readFileSync(ROW, "utf8");
+    const compile = (name, text) => {
+      const file = join(scratch, `row-${name}.l2.yaml`);
+      writeFileSync(file, text);
+      return compileRule(file, {registry});
+    };
+
+    it("uses the existing model without exists clauses and derives only when boundaries", () => {
+      const model = compileRule(ROW, {registry});
+      expect(model.kind).to.equal("row");
+      expect(model.clauses).to.deep.equal([]);
+      expect(model.tables.map((t) => t.table)).to.deep.equal(["zosd_l2_ship"]);
+      expect(model.cases.length).to.be.greaterThan(0);
+      expect(model.skipped).to.deep.equal([]);
+      for (const c of model.cases) {
+        expect(c.derived.condition).to.match(/^when\//);
+        expect(caseDiscriminates(model, conditionOf(model, c.derived.condition),
+          Object.fromEntries(c.tables.map((t) => [t.table, t.rows.map((r) => Object.fromEntries(r.fields.map((f) => [f.column, f.value])))])),
+          {date: c.date.value, maintenance: "M"}), c.method).to.equal(true);
+      }
+    });
+
+    it("refuses a missing when at the forbid line", () => {
+      const text = source.replace(/^when:.*\n/m, "");
+      const at = text.split("\n").findIndex((l) => l === "forbid: row") + 1;
+      expect(() => compile("no-when", text)).to.throw(RuleError,
+        new RegExp(`:${at}: forbid: row needs when:`));
+    });
+
+    it("refuses alert holes naming any other alias", () => {
+      expect(() => compile("alias", source.replace("{ship.name}", "{voy.name}")))
+        .to.throw(RuleError, /unknown alias voy/);
+    });
+
+    it("refuses row combined with exists keys or another rule kind", () => {
+      for (const forbid of [
+        "forbid: {row: true, exists: ZOSD_L2_VOY as voy}",
+        "forbid: {exists: ZOSD_L2_VOY as voy, where: voy.ship_id = ship.ship_id, row: true}",
+      ]) expect(() => compile("exists", source.replace("forbid: row", forbid)))
+        .to.throw(RuleError, /unknown key forbid.row/);
+      for (const extra of ["exists: ZOSD_L2_VOY as voy", "where: voy.ship_id = ship.ship_id"]) {
+        expect(() => compile("extra-key", source.replace("forbid: row", `forbid: row\n${extra}`)))
+          .to.throw(RuleError, /unknown key (exists|where)/);
+      }
+      expect(() => compile("require", source.replace("forbid: row", "forbid: row\nrequire: {}")))
+        .to.throw(RuleError, /a rule has forbid or require, not both/);
+    });
+
+    it("the interpreter emits one alert per matching row in key order and honors params and range", () => {
+      const model = compileRule(ROW, {registry});
+      const rows = {zosd_l2_ship: [
+        {ship_id: "S003", name: "Petrel", status: "D"},
+        {ship_id: "S001", name: "Albatross", status: "M"},
+        {ship_id: "S002", name: "Tern", status: "A"},
+      ]};
+      expect(evaluate(model, rows, {date: "20261001", maintenance: "M"}))
+        .to.deep.equal(["S001 Albatross: grounded (M)", "S003 Petrel: grounded (D)"]);
+      expect(evaluate(model, rows, {date: "20261001", maintenance: "A",
+        $range: [{sign: "I", option: "EQ", low: "S002"}]}))
+        .to.deep.equal(["S002 Tern: grounded (A)"]);
+    });
+
+    it("lowers to the committed single-table SELECT snapshot with parentheses and line origins", async () => {
+      const model = compileRule(ROW, {registry, out: OUT});
+      const {files, findings} = await renderRule(model);
+      const abap = files[`${model.class}.clas.abap`];
+      const check = abap.split("  METHOD check.")[1].split("  ENDMETHOD.")[0];
+      expect(check.match(/\bSELECT\b/g)).to.have.length(1);
+      expect(check).to.not.match(/JOIN|EXISTS/);
+      expect(check).to.include("      FROM zosd_l2_ship AS ship");
+      expect(check).to.include("      WHERE ( ship~status = iv_maintenance\n           OR ship~status = 'D' )\n        AND ship~ship_id IN it_range");
+      expect(check).to.include("      ORDER BY\n        ship~ship_id.");
+      expect(abap).to.equal(readFileSync(join(OUT, `${model.class}.clas.abap`), "utf8"));
+      expect(findings).to.deep.equal([]);
+      const trace = JSON.parse(files[`${model.class}.clas.trace.json`]);
+      expect(trace.format).to.equal("osd-trace/1");
+      const meta = JSON.parse(files[`${model.class}.clas.trace.meta.json`]);
+      const whereLine = abap.split("\n").findIndex((l) => l.includes("WHERE ( ship~status")) + 1;
+      const origin = meta.lines.find((l) => l.line === whereLine);
+      expect(origin.node).to.equal("rule/grounded-ship/when/1");
+      expect(origin.rule_line).to.equal(9);
+      expect(abap.split("\n").every((l) => l.length <= 255)).to.equal(true);
+      expect(model.queries[0].where.filter((l) => l.is_cmp).map((l) => l.rule_line))
+        .to.include(source.split("\n").findIndex((l) => l.startsWith("when:")) + 1);
+    });
+
+    it("the generated ABAP Unit runs every example and derived case, including keys and reference", async () => {
+      await import("./start.mjs");
+      const model = compileRule(ROW, {registry});
+      const result = await new UnitRun(new ObjectStore()).runDetached("CLAS", model.class.toUpperCase());
+      const count = model.examples.length + model.cases.length;
+      expect(result.counts, JSON.stringify(result.testClasses)).to.include({methods: count, passed: count, failed: 0});
+      expect(result.ok).to.equal(true);
     });
   });
 

@@ -1,0 +1,52 @@
+rule: grounded-ship
+class: zcl_l2_grounded_ship
+title: A ship in maintenance or dry dock needs attention
+for: ZOSD_L2_SHIP as ship
+range: ship.ship_id
+keys: true
+params:
+  maintenance: {type: ZOSD_L2_SHIP-STATUS, default: M}
+when: ship.status = $maintenance or ship.status = 'D'
+forbid: row
+alert: "{ship.ship_id} {ship.name}: grounded ({ship.status})"
+boundaries: auto
+examples:
+  - name: fleet out of key order
+    date: 20261001
+    rows:
+      ZOSD_L2_SHIP:
+        - {ship_id: S003, name: Petrel, status: D}
+        - {ship_id: S001, name: Albatross, status: M}
+        - {ship_id: S002, name: Tern, status: A}
+    expect:
+      - "S001 Albatross: grounded (M)"
+      - "S003 Petrel: grounded (D)"
+    expect_keys: [S001, S003]
+  - name: empty fleet
+    date: 20261001
+    rows: {}
+    expect: []
+    expect_keys: []
+  - name: active ship
+    date: 20261001
+    rows:
+      ZOSD_L2_SHIP: [{ship_id: S001, name: Albatross, status: A}]
+    expect: []
+  - name: the range keeps the inner ship
+    date: 20261001
+    range: [{sign: I, option: EQ, low: S002}]
+    rows:
+      ZOSD_L2_SHIP:
+        - {ship_id: S003, name: Petrel, status: D}
+        - {ship_id: S002, name: Tern, status: M}
+        - {ship_id: S001, name: Albatross, status: M}
+    expect: ["S002 Tern: grounded (M)"]
+    expect_keys: [S002]
+  - name: parameter override
+    date: 20261001
+    params: {maintenance: A}
+    rows:
+      ZOSD_L2_SHIP:
+        - {ship_id: S001, name: Albatross, status: M}
+        - {ship_id: S002, name: Tern, status: A}
+    expect: ["S002 Tern: grounded (A)"]
