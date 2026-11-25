@@ -277,6 +277,13 @@ recorded files. Repacking replaces the previous closure, removing stale outputs.
 `--list` prints generated objects, rules, runtime DDIC, referenced objects and
 explicit includes without creating a stage, zip or manifest.
 
+Like `dsl-l3 build`, packing renders through the transpiled DSL engine
+(`tools/dsl-engine.mjs` boots `output/init.mjs`), so it needs a built tree and
+starts that tree's database the way a build does, including its usual cache under
+`.local/db`. A tree built without a pack the environment names fails here as it
+fails in `build`; `OSD_WEB_PACKS=` (or a rebuild) is the remedy. Packing without
+the runtime is a follow-up for the engine, not for the packer.
+
 Domain tables and their types are referenced, rather than shipped. To include the
 public demo tables, add `--ddic src/l2demo --with-ddic`; a `--ddic` folder alone
 only supplies compiler metadata. `--include 'src/l3proof/zcl_l3_fleet_proof.clas.*'`

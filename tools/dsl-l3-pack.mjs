@@ -36,7 +36,8 @@ function checkStage(stage) {
   return names.filter((f) => f !== receiptName);
 }
 
-/** Plan entirely in memory: --list has no filesystem writes, including no stage. */
+/** Plan in memory: --list writes no stage, zip, manifest or receipt (the DSL engine it renders
+ *  through boots the built runtime like `dsl-l3 build` does; tools/dsl-engine.mjs). */
 export async function collectSet(file, {ddic = [], include = [], withDdic = false} = {}) {
   const options = {ddic: [...DEFAULT_DDIC, ...ddic]};
   const doc = yaml.load(readFileSync(file, 'utf8'), {schema: yaml.FAILSAFE_SCHEMA});
