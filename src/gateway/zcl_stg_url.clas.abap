@@ -63,6 +63,26 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_value) TYPE string
       RAISING
         zcx_stg_error.
+* a URL part unescaped; an escaped NUL is a 400 like a NUL in a literal:
+* unescape_url answers nothing for it and says so as its last error 3, as
+* on a system (open-abap-core #1352, #1356), so it is asked
+    CLASS-METHODS unescape
+      IMPORTING
+        iv_value        TYPE string
+        iv_code         TYPE string
+        iv_where        TYPE string
+      RETURNING
+        VALUE(rv_value) TYPE string
+      RAISING
+        zcx_stg_error.
+* the query options as the HTTP layer decoded them, with an escaped NUL
+* put back where the decoder (cl_http_utility, as on a system) left the
+* value empty, so that the option's own check refuses it with a 400
+    CLASS-METHODS keep_escaped_nul
+      IMPORTING
+        iv_query  TYPE string
+      CHANGING
+        ct_fields TYPE tihttpnvp.
 * a NUL cannot reach the database (the SQL text ends at it): a value
 * holding one is a 400 with the code and the words of the caller
     CLASS-METHODS refuse_nul
@@ -305,6 +325,51 @@ CLASS zcl_stg_url IMPLEMENTATION.
                 iv_where = 'a key' ).
   ENDMETHOD.
 
+  METHOD unescape.
+    CONSTANTS lc_null_character TYPE i VALUE 3.
+    rv_value = cl_http_utility=>unescape_url( iv_value ).
+    IF cl_http_utility=>get_last_error( ) = lc_null_character.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD keep_escaped_nul.
+    CONSTANTS lc_null_character TYPE i VALUE 3.
+    DATA lt_pairs TYPE string_table.
+    DATA lt_parts TYPE string_table.
+    DATA lv_pair  TYPE string.
+    DATA lv_name  TYPE string.
+    DATA lv_value TYPE string.
+    DATA lv_part  TYPE string.
+    DATA lv_fixed TYPE string.
+    DATA lv_nul   TYPE string.
+    FIELD-SYMBOLS <ls_field> LIKE LINE OF ct_fields.
+
+    lv_nul = cl_abap_conv_in_ce=>uccp( '0000' ).
+    SPLIT iv_query AT '&' INTO TABLE lt_pairs.
+    LOOP AT lt_pairs INTO lv_pair.
+      SPLIT lv_pair AT '=' INTO lv_name lv_value.
+      cl_http_utility=>unescape_url( lv_value ).
+      IF cl_http_utility=>get_last_error( ) <> lc_null_character.
+        CONTINUE.
+      ENDIF.
+      SPLIT lv_value AT '%00' INTO TABLE lt_parts.
+      CLEAR lv_fixed.
+      LOOP AT lt_parts INTO lv_part.
+        IF sy-tabix > 1.
+          lv_fixed = lv_fixed && lv_nul.
+        ENDIF.
+        lv_fixed = lv_fixed && cl_http_utility=>unescape_url( lv_part ).
+      ENDLOOP.
+      lv_name = cl_http_utility=>unescape_url( lv_name ).
+      LOOP AT ct_fields ASSIGNING <ls_field> WHERE name = lv_name AND value IS INITIAL.
+        <ls_field>-value = lv_fixed.
+        EXIT.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
   METHOD refuse_nul.
     DATA lv_nul TYPE string.
 
@@ -440,8 +505,12 @@ CLASS zcl_stg_url IMPLEMENTATION.
         RAISE EXCEPTION TYPE zcx_stg_error
           EXPORTING status = 400 code = 'STG/BAD_KEY' message = 'Malformed key predicate'.
       ENDIF.
-      ls_key-name = cl_http_utility=>unescape_url( ls_key-name ).
-      ls_key-value = cl_http_utility=>unescape_url( ls_key-value ).
+      ls_key-name = unescape( iv_value = ls_key-name
+                              iv_code  = 'STG/BAD_KEY'
+                              iv_where = 'a key' ).
+      ls_key-value = unescape( iv_value = ls_key-value
+                               iv_code  = 'STG/BAD_KEY'
+                               iv_where = 'a key' ).
       ls_key-value = unquote( ls_key-value ).
       READ TABLE rt_key_tab WITH KEY name = ls_key-name TRANSPORTING NO FIELDS.
       IF sy-subrc = 0.

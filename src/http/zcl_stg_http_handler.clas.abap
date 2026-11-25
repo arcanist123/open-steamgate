@@ -42,6 +42,8 @@ CLASS zcl_stg_http_handler IMPLEMENTATION.
     ENDIF.
     lv_host = |{ lv_proto }://{ lv_host }{ server->request->get_header_field( 'x-forwarded-prefix' ) }|.
     server->request->get_form_fields_cs( CHANGING fields = lt_options ).
+    zcl_stg_url=>keep_escaped_nul( EXPORTING iv_query  = server->request->get_header_field( '~query_string' )
+                                   CHANGING  ct_fields = lt_options ).
 * the whole header set travels with the request: If-Match of a write is
 * read from it (the ETag check of ZCL_STG_DISPATCHER), as the V4 front does
     server->request->get_header_fields( CHANGING fields = lt_headers ).

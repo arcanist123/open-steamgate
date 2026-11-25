@@ -221,14 +221,15 @@ All of these ran on one machine, one at a time under the shared lock:
 
 ## 4m (2026-11-25): back onto an upstream release
 
-`local/osd-build-4m` at `21edc6890405e4eecf6c27719396349ee02beb2d` is
+`local/osd-build-4m` at `a272f3c96ad43bda22ab2ad7eff6349cf01cd5cf` is
 upstream 2.14.38 (`1c768652`, abaplint/transpiler#2264: the CDS metadata in
 `abap.DDIC`) with the fork commits of 4k cherry-picked onto it. The two
 commits of 4l are gone, because upstream merged them: `EXPORT`/`IMPORT` TO
 SHARED MEMORY / SHARED BUFFER (#2134, `73e33f03`) and `decfloat16` (#2135,
 `5813c035`, rounded to 16 digits by #2244), both ancestors of `1c768652`.
 `8a6eee2e` (core 2.120.94 exactly) is replaced by the same alignment at
-2.120.118, the parser 2.14.38 requires.
+2.120.118, the parser 2.14.38 requires. (`a272f3c9` is the first push of 4m, `21edc689`, without a stray
+`test/database.ts.orig` one cherry-pick had committed.)
 
 **It is not a pure upstream pin**, and could not be one: 26 fork commits are
 in no release -- the `only` option and registry reuse the build gate needs
@@ -252,25 +253,69 @@ three fork unit tests whose names upstream had taken were renumbered.
 Transpiler repository on 4m: packages/transpiler 532 passing, runtime 226,
 the root suite 3831 passing, eslint clean.
 
-The parser move to 2.120.118 cost four things in this tree, each a stricter
-check or a corrected runtime behaviour, not a defect:
+The parser move to 2.120.118 and the library pins that go with it changed
+these things in this tree, each a stricter check or a behaviour that now
+matches a system, not a defect:
 
 - **`APPEND ... TO itab[ ... ]-comp` is refused** (check_syntax): the
-  converted-report registry (`tools/osd-gui-convert.mjs`) and
-  `oisee/open-abap-gui` (`d7422fec`, branch `osd/core-2.120.118`) assign the
-  row to a field symbol first.
+  converted-report registry (`tools/osd-gui-convert.mjs`) assigns the row to
+  a field symbol first.
 - **A block `INSERT LINES OF` into a unique key raises on a duplicate**
   (#2089, as on a system): the rap-flight seed makes its codes unique first.
-- **`CLEAR` of a `TABLES` parameter clears its header line** (#2082): in
-  `oisee/open-abap-core` (`70940117`, branch `osd/tables-clear`)
-  `WWWDATA_IMPORT` and `DOCU_GET` clear the rows (`mime[]`), which is what
-  they meant; the caller's table has no header line and the old form failed
-  at `getHeader`.
-- **Three syntax errors in open-abap-core itself** (a `c` without `LENGTH`
-  in an OO context, two exception constructors without the super call),
-  which gogen's frontend checks: fixed on the same branch.
+- **The libraries.** Lars had already fixed upstream what 2.120.118 and the
+  runtime's `CLEAR` of a `TABLES` parameter (#2082: the header line, as on a
+  system) broke in them: open-abap-core `CLEAR mime[]` / `CLEAR line[]` /
+  `CLEAR text_stream[]` (#1334, #1336), the super constructor calls (#1331,
+  #1337), `ddlanguage TYPE c LENGTH 1` (#1345); open-abap-gui's
+  `zcl_gg_host_list` (#231). So the pins move onto upstream:
+  - `oisee/open-abap-core` `8af2fe38` (branch `osd/core-rebase-2026-11-25`)
+    is upstream main `01ac867e` plus the three commits open-steamgate still
+    holds (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook of
+    `WWWDATA_IMPORT`, two benchmark commits); abaplint 2.120.118 over it:
+    0 issues.
+  - `oisee/open-abap-gui` `8b239c23` (branch `osd/abaplint-2.120.118`):
+    upstream main has moved on too far to pin (the converter is TypeScript
+    now, express 5), so the fork keeps its base `b65c4431` with upstream's
+    #231 picked and the rest of the 2.120.118 findings fixed the way upstream
+    fixed them (sixteen super constructor calls, event parameters by
+    `VALUE`, typed references, `NODE_NOT_FOUND` in `cl_gui_alv_tree`); the
+    fork-only example `zcl_gg_rich_selection_base` keeps
+    `CX_SY_ITAB_LINE_NOT_FOUND` for a missing row. check_syntax over src,
+    framework and examples: 0 issues.
+- **open-abap-core upstream behaves as a system where the old pin did not**,
+  and two tests here had written the old behaviour down:
+  `cl_abap_tstmp=>subtract` keeps the fraction (#1311), so
+  `ZCL_OSD_ADT_REENTRANCE` reads the difference in milliseconds; and
+  `cl_http_utility=>unescape_url` (and `string_to_fields`, which the ICF
+  shim decodes the query with) answers nothing for an escaped NUL and
+  reports error 3 (#1352, #1356), so `ZCL_STG_URL=>UNESCAPE` asks for that
+  error and `ZCL_STG_URL=>KEEP_ESCAPED_NUL` puts the NUL back into a query
+  option the decoder emptied: a NUL in a key or a `$filter` literal stays
+  the 400 it has been, in V2 and V4.
+- **gogen.** Two refusal fixtures are now refused by abaplint's own syntax
+  check (`zcl_gogen_t_rf_sort` line 54, as on A4H), which `semantics.mjs`
+  takes as the refusal, like `ZCL_GOGEN_T_RF_OWN`; `zcl_gogen_t_rf_wherei8`
+  keys its sorted key on the `i` component, because 2.120.118 refuses a
+  `WHERE` that leaves a key component out, and so still tests the int8
+  mismatch it was written for. The Go emitter stored plain rows into tables
+  whose rows are pointers ("stable" rows) in two places, `FIND ... RESULTS`
+  and the row-by-row table conversion; the new core and parser made both
+  reachable (`zcl_gogen_t_findinline` through the rewritten
+  `cl_abap_matcher`, and `zcl_apc_host` line 82, a row-by-row conversion
+  of a table of stable rows). Two more from the new core: a constant of a
+  `BEGIN OF ENUM` (the new `cl_bcs_mail_*`) had no number and was written
+  as `NaN`, and is now left out like any constant gogen cannot write; and
+  `cl_abap_tstmp=>subtract` returns a `TZNTSTMPL`, so the Go host function
+  returns the difference with its seven decimals instead of an `i`.
+- the leak-scan workflow installs the same parser.
 
-Measured on 4m in this tree: `npm run transpile` green, ABAP Unit 1154
-methods with 0 failures (`ZCL_OSD_SHARED_MEMORY_TEST` 5 of 5), gogen's
-frontend tests 406 of 406, `npm run lint` without errors, and `gen/cds`
-byte-identical between the old and the new parser.
+Measured on 4m in this tree, with the library pins above: `npm run
+transpile` green, ABAP Unit 1154 methods with 0 failures
+(`ZCL_OSD_SHARED_MEMORY_TEST` 5 of 5), `node tools/gogen/semantics.mjs`
+passing (the refused sort and wherei8 rows included),
+`list-position-oracle.mjs --check` passing (it now calls a program's
+`$main`, which a program exports since transpiler 2.14.20, as does
+`test/adt-active-inactive.mjs`), gogen's frontend tests 406 of 406, the
+osgo-host gateway built and answering `$metadata` (14 objects with syntax
+errors in the whole-tree front end, 15 on main), `npm run lint` without
+errors, and `gen/cds` byte-identical between the old and the new parser.

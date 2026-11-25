@@ -358,7 +358,7 @@ for (const front of ["node", "abap"]) describe(`ADT active/inactive: ${front} so
     // A cold rebuild with the inactive overlay still runs P1.
     await build({root, generators: false, overlay: store.overlay(), force: true});
     await versions(object, path, prog("P1"), p2, "inactive");
-    const code = `import {ABAP} from '@abaplint/runtime'; globalThis.abap = new ABAP(); await import(${JSON.stringify(pathToFileURL(join(root, "output", "zt05.prog.mjs")).href)}); process.stdout.write(abap.console.get());`;
+    const code = `import {ABAP} from '@abaplint/runtime'; globalThis.abap = new ABAP(); const p = await import(${JSON.stringify(pathToFileURL(join(root, "output", "zt05.prog.mjs")).href)}); if (typeof p.$main === "function") await p.$main(); process.stdout.write(abap.console.get());`;
     expect(execFileSync(process.execPath, ["--input-type=module", "-e", code], {cwd: root, encoding: "utf8"})).to.equal("P1");
     await save(object, path, prog("P3"));
     expect(await activate(object)).to.include('activationExecuted="true"');

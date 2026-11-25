@@ -1,14 +1,14 @@
 {
   "transpiler": {
     "repo": "oisee/transpiler",
-    "ref": "21edc6890405e4eecf6c27719396349ee02beb2d"
+    "ref": "a272f3c96ad43bda22ab2ad7eff6349cf01cd5cf"
   },
   "libraries": [
-    { "folder": "open-abap-core", "repo": "oisee/open-abap-core", "ref": "709401178ba056fe2c4d4e4d1bf22059d0ab367d" },
+    { "folder": "open-abap-core", "repo": "oisee/open-abap-core", "ref": "8af2fe386fcba9ad0ec7c140bfcb8eb1838f886c" },
     { "folder": "express-icf-shim", "repo": "open-abap/express-icf-shim", "ref": "c1fc36026f69eb0ae7d1830d304e1e1923e9a9a3" },
     { "folder": "open-abap-apc", "repo": "oisee/open-abap-apc", "ref": "bcf43c75b1c3b83ddee24298b2d0cba4637e15cd" },
     { "folder": "abapgit", "repo": "abapGit/abapGit", "ref": "3b6485b5d0b09ef3861006b966e68542446721ce" },
-    { "folder": "open-abap-gui", "repo": "oisee/open-abap-gui", "ref": "d7422fec471ed010e697feb52a1add0f96137462" },
+    { "folder": "open-abap-gui", "repo": "oisee/open-abap-gui", "ref": "8b239c239cbb9f9e41be3f57346cbeecb093257a" },
     { "folder": "open-abap-odata", "repo": "oisee/open-abap-odata", "ref": "bd9f1fb175e7b26678e48eb2e311a278a13ef91b" },
     { "folder": "ajson", "repo": "sbcgua/ajson", "ref": "e5e0fd043f5813ef5a271fcba4b327aa944c3224" }
   ]

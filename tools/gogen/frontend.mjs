@@ -1434,6 +1434,7 @@ function compiledFunctionCall(node, ctx, text, name) {
     return go;
   }
   if (!SCALAR.includes(type.k)) return undefined;
+  if (["i", "int8", "f"].includes(type.k) && !Number.isFinite(Number(unquote(value)))) return undefined; // a BEGIN OF ENUM component has a name, not a number
   program.consts.set(go, {go, type, value: unquote(value)});
   return go;
 }

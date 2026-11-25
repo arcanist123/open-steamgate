@@ -111,7 +111,9 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
         fail( iv_text = 'Unsupported V4 resource path' iv_status = 404 ).
       ENDIF.
       ms_request-entity_set = cl_http_utility=>unescape_url( ms_request-entity_set ).
-      ms_request-key_string = cl_http_utility=>unescape_url( ms_request-key_string ).
+      ms_request-key_string = zcl_stg_url=>unescape( iv_value = ms_request-key_string
+                                                     iv_code  = 'STG/BAD_KEY'
+                                                     iv_where = 'a key' ).
       IF mv_navigation CS '.'.
         mv_action = cl_http_utility=>unescape_url( mv_navigation ).
         CLEAR mv_navigation.

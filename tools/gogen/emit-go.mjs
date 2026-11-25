@@ -2291,16 +2291,17 @@ ${t}	}`));
       const f = st.f;
       const rowGo = goType(st.row);
       const subGo = goType(st.sub);
+      /** stable rows are pointers: what is appended is stored so @param {string} v @returns {string} */ const subStored = (v) => stable({k: "table", row: st.sub}) ? `abap.Ptr(${v})` : v;
       /** @param {string} r @returns {string[]} */ const fill = (r) => [`${t}\t\t${r}.${ident(f.LINE)} = 0`, `${t}\t\t${r}.${ident(f.OFFSET)} = fm${n}[0]`, `${t}\t\t${r}.${ident(f.LENGTH)} = fm${n}[1]`,
         `${t}\t\t${r}.${ident(f.SUBMATCHES)} = nil`,
         `${t}\t\tfor g := 2; g+1 < len(fm${n}); g += 2 {`,
-        `${t}\t\t\t${r}.${ident(f.SUBMATCHES)} = append(${r}.${ident(f.SUBMATCHES)}, ${subGo}{${ident(f.SOFFSET)}: fm${n}[g], ${ident(f.SLENGTH)}: fm${n}[g+1]})`,
+        `${t}\t\t\t${r}.${ident(f.SUBMATCHES)} = append(${r}.${ident(f.SUBMATCHES)}, ${subStored(`${subGo}{${ident(f.SOFFSET)}: fm${n}[g], ${ident(f.SLENGTH)}: fm${n}[g+1]}`)})`,
         `${t}\t\t}`];
       const tgt = place(st.target, ctx);
       const call = st.bytes ? `abap.FindBytesAll(${expr(st.subject, ctx)}, ${expr(st.pattern, ctx)})` : `abap.FindResults(${expr(st.subject, ctx)}, ${expr(st.pattern, ctx)}, ${st.mode ? `'${st.mode}'` : "0"}, ${st.icase}, ${st.all})`;
       if (st.table) {
         return [`${t}{`, `${t}\tfms${n} := ${call}`, `${t}\t${tgt} = nil`, ...(st.count ? [`${t}\t${place(st.count, ctx)} = int32(len(fms${n}))`] : []), `${t}\ts.Sy.Subrc = 4`, `${t}\tfor _, fm${n} := range fms${n} {`,
-          `${t}\t\ts.Sy.Subrc = 0`, `${t}\t\tvar fr${n} ${rowGo}`, ...fill(`fr${n}`), `${t}\t\t${tgt} = append(${tgt}, fr${n})`, `${t}\t}`, `${t}}`];
+          `${t}\t\ts.Sy.Subrc = 0`, `${t}\t\tvar fr${n} ${rowGo}`, ...fill(`fr${n}`), `${t}\t\t${tgt} = append(${tgt}, ${stable({k: "table", row: st.row}) ? `abap.Ptr(fr${n})` : `fr${n}`})`, `${t}\t}`, `${t}}`];
       }
       return [`${t}{`, `${t}\tfms${n} := ${call}`, `${t}\ts.Sy.Subrc = 4`, `${t}\tif len(fms${n}) > 0 {`, `${t}\t\ts.Sy.Subrc = 0`,
         `${t}\t\tfm${n} := fms${n}[0]`, `${t}\t\tfr${n} := &${tgt}`, ...fill(`fr${n}`), `${t}\t}`, `${t}}`];
@@ -2628,7 +2629,7 @@ ${t}	}`));
       if (from === "f" && to === "int8") return `abap.F2I8(${x})`;
       break;
     case "c2s": return x;
-    case "table_rows": return `func() ${goType(e.to)} { var out ${goType(e.to)}; for _, ConvRow := range ${x} { out = append(out, ${rowStored(e.to, expr(/** @type {import("./emit-go-types.ts").Expr} */ (e.row), ctx))}) }; return out }()`;
+    case "table_rows": return `func() ${goType(e.to)} { var out ${goType(e.to)}; for _, ${stable(e.from) ? "ConvRowP" : "ConvRow"} := range ${x} { ${stable(e.from) ? "ConvRow := *ConvRowP; " /* stable rows are pointers */ : ""}out = append(out, ${rowStored(e.to, expr(/** @type {import("./emit-go-types.ts").Expr} */ (e.row), ctx))}) }; return out }()`;
     // @ts-expect-error -- abapiti form pending
     case "s2c": return `abap.CFit(${x}, ${e.to.len})`;
     case "s2d": return `abap.S2D(${x})`;

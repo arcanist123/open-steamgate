@@ -56,6 +56,8 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     ELSE.
       server->request->get_form_fields_cs( CHANGING fields = lt_options ).
     ENDIF.
+    zcl_stg_url=>keep_escaped_nul( EXPORTING iv_query  = lv_query
+                                   CHANGING  ct_fields = lt_options ).
     lv_proto = server->request->get_header_field( 'x-forwarded-proto' ).
     IF lv_proto IS INITIAL.
       lv_proto = 'http'.

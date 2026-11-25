@@ -47,7 +47,9 @@ async function runNode(files, target) {
   for (const object of output.objects.filter(o => o.filename.endsWith(".clas.mjs") || o.filename.endsWith(".intf.mjs"))) {
     await import(pathToFileURL(join(target, object.filename)).href);
   }
-  await import(pathToFileURL(join(target, "zprobe.prog.mjs")).href);
+  // a program's statements run in its exported $main since transpiler 2.14.20
+  const program = await import(pathToFileURL(join(target, "zprobe.prog.mjs")).href);
+  if (typeof program.$main === "function") await program.$main();
   return abap.console.get();
 }
 

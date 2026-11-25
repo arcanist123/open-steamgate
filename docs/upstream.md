@@ -8,7 +8,7 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-4m` at `21edc6890405e4eecf6c27719396349ee02beb2d`
+The current transpiler and runtime build is `local/osd-build-4m` at `a272f3c96ad43bda22ab2ad7eff6349cf01cd5cf`
 (upstream 2.14.38 `1c768652`, parser 2.120.118, with items 20 and 21 merged upstream and the CDS metadata of #2264)
 with the fork commits ported onto it ([transpiler-pin-4.md](transpiler-pin-4.md), "4m"). Until 2026-11-25 it was
 `local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81`
@@ -261,6 +261,18 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     Regression: 17 of 17 green, performance green. **Merged 2026-11-19
     (`5813c035`), released in 2.14.38**, with #2244 rounding to 16 digits;
     `local/osd-build-4m` drops the fork's `e9958256` + `b2998ada`.
+
+22. **open-abap-core and open-abap-gui under abaplint 2.120.118** -- no PR
+    needed: Lars fixed upstream what the parser and the runtime's `CLEAR` of
+    a `TABLES` parameter broke there (open-abap-core #1331, #1334, #1336,
+    #1337, #1345, including `CONVERT_ITF_TO_STREAM_TEXT`'s
+    `CLEAR text_stream[]`; open-abap-gui #231). The pins moved onto
+    upstream: `oisee/open-abap-core` `osd/core-rebase-2026-11-25` is
+    upstream main plus the three commits open-steamgate still holds
+    (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook), which
+    stay candidates; `oisee/open-abap-gui` keeps its base (upstream's
+    converter is TypeScript now) with #231 picked and the other findings
+    fixed as upstream fixed them, so nothing of it is a candidate either.
 
 ## What we carry, and what we wait for
 
