@@ -13,6 +13,7 @@
 // module file; exporting it is a one-line upstream change (drafted, not sent).
 // What #2264 does not give stays in cds2ddic.mjs and its helpers, each place
 // marked "not in #2264" (the list is in docs/cds-publish.md).
+import {createHash} from "node:crypto";
 import {existsSync} from "node:fs";
 import {dirname, join} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
@@ -39,9 +40,12 @@ async function coreBeside(file) {
   }
   return undefined;
 }
-const mirrors = new WeakMap();
 const KNOWN = new Set(["VIEW", "VIEW_ENTITY", "PROJECTION_VIEW", "ABSTRACT_ENTITY", "CUSTOM_ENTITY",
   "TABLE_FUNCTION", "HIERARCHY", "TABLE_ENTITY", "EXTERNAL_ENTITY"]);
+// per registry: the reader (CDSMetadata caches each view it built) and the
+// mirror, keyed by the DDLS sources they were built from. A registry that
+// lives on and is edited in place (the ADT store's) gets new ones when any
+// DDLS source differs, so an edit is never answered from the old source
 const readers = new WeakMap();
 // #2264 writes a redirected target as its token text, `/ DMO / C_X` for a
 // namespaced one (ANORMALIES cds-metadata-redirect-namespace); a name has no blanks
@@ -57,23 +61,32 @@ export function cdsMetadataOf(obj, reg) {
   // node_modules, as the image has) parses with one and reads with the
   // other: the DDLS sources are parsed again with the transpiler's own
   const own = transpilerCore === undefined || obj instanceof transpilerCore.Objects.DataDefinition;
-  const source = own ? reg : mirrorOf(reg);
-  let reader = readers.get(source);
-  if (reader === undefined) readers.set(source, reader = new CDSMetadata(source));
-  return checkedDefinition(obj.getName(), reader.build(own ? obj : source.getObject("DDLS", obj.getName())));
+  const key = sourcesKey(reg);
+  let cached = readers.get(reg);
+  if (cached === undefined || cached.key !== key || cached.own !== own) {
+    const source = own ? reg : mirrorOf(reg);
+    cached = {key, own, source, reader: new CDSMetadata(source)};
+    readers.set(reg, cached);
+  }
+  return checkedDefinition(obj.getName(), cached.reader.build(own ? obj : cached.source.getObject("DDLS", obj.getName())));
+}
+
+/** what the cached reader was built from: every DDLS file's name and text */
+function sourcesKey(reg) {
+  const hash = createHash("sha256");
+  for (const ddls of reg.getObjectsByType("DDLS")) {
+    for (const file of ddls.getFiles()) hash.update(file.getFilename()).update("\0").update(file.getRaw()).update("\0");
+  }
+  return hash.digest("hex");
 }
 
 /** the DDLS objects of `reg`, parsed by the transpiler's copy of @abaplint/core */
 function mirrorOf(reg) {
-  let mirror = mirrors.get(reg);
-  if (mirror === undefined) {
-    mirror = new transpilerCore.Registry();
-    for (const ddls of reg.getObjectsByType("DDLS")) {
-      for (const file of ddls.getFiles()) mirror.addFile(new transpilerCore.MemoryFile(file.getFilename(), file.getRaw()));
-    }
-    mirror.parse();
-    mirrors.set(reg, mirror);
+  const mirror = new transpilerCore.Registry();
+  for (const ddls of reg.getObjectsByType("DDLS")) {
+    for (const file of ddls.getFiles()) mirror.addFile(new transpilerCore.MemoryFile(file.getFilename(), file.getRaw()));
   }
+  mirror.parse();
   return mirror;
 }
 
