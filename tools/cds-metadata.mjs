@@ -13,21 +13,31 @@
 // module file; exporting it is a one-line upstream change (drafted, not sent).
 // What #2264 does not give stays in cds2ddic.mjs and its helpers, each place
 // marked "not in #2264" (the list is in docs/cds-publish.md).
-import {createRequire} from "node:module";
+import {existsSync} from "node:fs";
+import {dirname, join} from "node:path";
+import {fileURLToPath, pathToFileURL} from "node:url";
 
 let CDSMetadata;
 let missing;
-// the @abaplint/core the transpiler itself resolves, when it can be asked
+// the @abaplint/core the transpiler itself loads: the first one up from its
+// own files, as Node resolves it (a bundle has one module graph, one core)
 let transpilerCore;
 try {
   ({CDSMetadata} = (await import("@abaplint/transpiler/build/src/cds_metadata.js")).default);
-  try {
-    transpilerCore = createRequire(import.meta.resolve("@abaplint/transpiler/build/src/cds_metadata.js"))("@abaplint/core");
-  } catch {
-    transpilerCore = undefined; // a bundle: one module graph, one core
-  }
+  transpilerCore = await coreBeside(fileURLToPath(import.meta.resolve("@abaplint/transpiler/build/src/cds_metadata.js"))).catch(() => undefined);
 } catch (error) {
   missing = error;
+}
+
+async function coreBeside(file) {
+  for (let dir = dirname(file); dirname(dir) !== dir; dir = dirname(dir)) {
+    const index = join(dir, "node_modules", "@abaplint", "core", "build", "src", "index.js");
+    if (existsSync(index)) {
+      const loaded = await import(pathToFileURL(index).href);
+      return loaded.Registry ? loaded : loaded.default;
+    }
+  }
+  return undefined;
 }
 const mirrors = new WeakMap();
 const KNOWN = new Set(["VIEW", "VIEW_ENTITY", "PROJECTION_VIEW", "ABSTRACT_ENTITY", "CUSTOM_ENTITY",
