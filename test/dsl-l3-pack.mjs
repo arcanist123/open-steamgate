@@ -42,6 +42,11 @@ describe('DSL L3 pack', function () {
       }
     }
   });
+  it('picks up the opted-in proof as a generated class with its test include', async () => {
+    const plan = await collectSet('src/l2demo/proof_demo.l3.yaml');
+    assert(plan.groups.generated.includes('CLAS ZCL_L3_PROOF_DEMO_PROOF'));
+    assert(plan.files.has('zcl_l3_proof_demo_proof.clas.testclasses.abap'));
+  });
   it('reports no missing set-related objects from the manual l3demo unit', () => {
     assert(fleet2.groups.included.includes('CLAS ZCL_L3_FLEET2_AUTOCLOSE'));
     const hand = loadManifest().units.l3demo.objects;

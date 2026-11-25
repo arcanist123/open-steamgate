@@ -1,0 +1,897 @@
+{
+  "format": "osd-trace-meta/1",
+  "generator": "dsl-l2",
+  "generator_version": "0.7",
+  "lines": [
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 1
+        },
+        {
+          "invocation": 1,
+          "path": "/source",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/source"},
+          "template": "main",
+          "template_line": 1
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 1,
+      "node": "rule/ship-note",
+      "path": "/source",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 1
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/rule",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/rule"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/title",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/title"},
+          "template": "main",
+          "template_line": 2
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 2,
+      "node": "rule/ship-note",
+      "path": "/rule",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 2
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 3
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/class"},
+          "template": "main",
+          "template_line": 3
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 3,
+      "node": "rule/ship-note",
+      "path": "/class",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 3
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 4
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 4,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 4
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 13
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 5,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 13
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 14
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 6,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 14
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 26
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 7,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 26
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 42
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 8,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 42
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 43
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 9,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 43
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 44
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/class"},
+          "template": "main",
+          "template_line": 44
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 10,
+      "node": "rule/ship-note",
+      "path": "/class",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 44
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 45
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 11,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 45
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 46
+        },
+        {
+          "invocation": 1,
+          "path": "/comment",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/comment"},
+          "template": "main",
+          "template_line": 46
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 12,
+      "node": "rule/ship-note",
+      "path": "/comment",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 46
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 48
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 48
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 13,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1/type",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 48
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/column",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/column"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/name",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/name"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/table",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/table"},
+          "template": "main",
+          "template_line": 50
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 14,
+      "node": "rule/ship-note/join/field/1",
+      "path": "/queries/1/fields/1/name",
+      "rule_line": 4,
+      "template": "main",
+      "template_line": 50
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2/column",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/column"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2/name",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/name"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2/table",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/table"},
+          "template": "main",
+          "template_line": 50
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 15,
+      "node": "rule/ship-note/join/field/2",
+      "path": "/queries/1/fields/2/name",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 50
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 52
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 52
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 16,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1/type",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 52
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 53
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 53
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 53
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 17,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1/itab",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 53
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 54
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 54
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 54
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 18,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1/wa",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 54
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 87
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 19,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 87
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 160
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 20,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 160
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/"},
+          "template": "main",
+          "template_line": 175
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/name",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/name"},
+          "template": "main",
+          "template_line": 175
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/source",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/1", "selector": "/source"},
+          "template": "main",
+          "template_line": 175
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 21,
+      "node": "rule/ship-note/join/field/1",
+      "path": "/queries/1/fields/1/source",
+      "rule_line": 4,
+      "template": "main",
+      "template_line": 175
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/"},
+          "template": "main",
+          "template_line": 175
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2/name",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/name"},
+          "template": "main",
+          "template_line": 175
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/2/source",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/field/2", "selector": "/source"},
+          "template": "main",
+          "template_line": 175
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 22,
+      "node": "rule/ship-note/join/field/2",
+      "path": "/queries/1/fields/2/source",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 175
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/from",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/for", "selector": "/"},
+          "template": "main",
+          "template_line": 179
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/from/alias",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/for", "selector": "/alias"},
+          "template": "main",
+          "template_line": 179
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/from/table",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/for", "selector": "/table"},
+          "template": "main",
+          "template_line": 179
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 23,
+      "node": "rule/ship-note/for",
+      "path": "/queries/1/from/table",
+      "rule_line": 4,
+      "template": "main",
+      "template_line": 179
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 187
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 187
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 24,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1/itab",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 187
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/when/1", "selector": "/"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/is_cmp",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/when/1", "selector": "/is_cmp"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/lhs",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/when/1", "selector": "/lhs"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/op",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/when/1", "selector": "/op"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/pre",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/when/1", "selector": "/pre"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/value",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/when/1", "selector": "/value"},
+          "template": "main",
+          "template_line": 189
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 25,
+      "node": "rule/ship-note/when/1",
+      "path": "/queries/1/where/1/pre",
+      "rule_line": 5,
+      "template": "main",
+      "template_line": 189
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 191
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 26,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 191
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/order/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/order/1", "selector": "/"},
+          "template": "main",
+          "template_line": 193
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/order/1/source",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join/order/1", "selector": "/source"},
+          "template": "main",
+          "template_line": 193
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 27,
+      "node": "rule/ship-note/join/order/1",
+      "path": "/queries/1/order/1/source",
+      "rule_line": 4,
+      "template": "main",
+      "template_line": 193
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 304
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 304
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 304
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 28,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1/itab",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 304
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/alert/hole/1", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1/jref",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/alert/hole/1", "selector": "/jref"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 29,
+      "node": "rule/ship-note/alert/hole/1",
+      "path": "/queries/1/alert_parts/1/jref",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/alert/text/1", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2/value",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/alert/text/1", "selector": "/value"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 30,
+      "node": "rule/ship-note/alert/text/1",
+      "path": "/queries/1/alert_parts/2/value",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/3",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/alert/hole/2", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/3/jref",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/alert/hole/2", "selector": "/jref"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 31,
+      "node": "rule/ship-note/alert/hole/2",
+      "path": "/queries/1/alert_parts/3/jref",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 385
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 32,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 385
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/join", "selector": "/"},
+          "template": "main",
+          "template_line": 387
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 33,
+      "node": "rule/ship-note/join",
+      "path": "/queries/1",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 387
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 439
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 34,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 439
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note", "selector": "/"},
+          "template": "main",
+          "template_line": 505
+        }
+      ],
+      "file": "zcl_l2_ship_note.clas.abap",
+      "line": 35,
+      "node": "rule/ship-note",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 505
+    }
+  ],
+  "model": "sha256:587749b4a0f385879a103d3d5fd56c0e91d09e1910ca6aad2c7a4e1df1832581",
+  "model_serialization": "JSON.stringify (existing writer model)",
+  "outputs": [
+    {"file": "zcl_l2_ship_note.clas.abap", "hash": "sha256:6e4e8f0f3049b04f3054b432883a0bbf18ccb6cff857b1d9ad5d6be4ec9a0ccf"}
+  ],
+  "rule": "src/l2demo/ship_note.l2.yaml",
+  "template": "recipes/l2-check/template.tpl",
+  "templates": {"recipes/l2-check/template.tpl": "sha256:0c78088f1afb165f0a95164bbd0c8a0dc7e3db70a793672df7cc00af9b55c5d7"}
+}

@@ -1,0 +1,19 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcl_l3_proof_demo_proof.clas.abap",
+      "lines": [
+        {
+          "lines": [1, 5],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/class.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcx_l3_proof_demo_port.clas.abap",
+      "lines": [
+        {
+          "line": 1,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/exception.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 2,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/set"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/exception.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 3,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/exception"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/exception.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [4, 14],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/exception.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 15,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/exception"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/exception.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "lines": [16, 26],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/exception.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        }
+      ]
+    }
+  ]
+}
