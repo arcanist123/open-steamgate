@@ -81,22 +81,19 @@ CLASS ltcl_proof IMPLEMENTATION.
     LOOP AT mt_seed_1 INTO ls_zosd_l2_ship.
       " Full fixture key; client is implicit in Open SQL.
       DELETE FROM zosd_l2_ship
-        WHERE ship_id = ls_zosd_l2_ship-ship_id
-        .
+        WHERE ship_id = ls_zosd_l2_ship-ship_id.
     ENDLOOP.
     CLEAR mt_seed_1.
     LOOP AT mt_seed_2 INTO ls_zosd_l2_note.
       " Full fixture key; client is implicit in Open SQL.
       DELETE FROM zosd_l2_note
-        WHERE ship_id = ls_zosd_l2_note-ship_id
-        .
+        WHERE ship_id = ls_zosd_l2_note-ship_id.
     ENDLOOP.
     CLEAR mt_seed_2.
     LOOP AT mt_seed_3 INTO ls_zosd_l2_crew.
       " Full fixture key; client is implicit in Open SQL.
       DELETE FROM zosd_l2_crew
-        WHERE crew_id = ls_zosd_l2_crew-crew_id
-        .
+        WHERE crew_id = ls_zosd_l2_crew-crew_id.
     ENDLOOP.
     CLEAR mt_seed_3.
     clean_runs( ).
@@ -175,13 +172,13 @@ CLASS ltcl_proof IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = lt_act exp = lt_log msg = iv_rule ).
   ENDMETHOD.
   METHOD proof_maintenance_ship.
+    DATA ls_zosd_l2_ship TYPE zosd_l2_ship.
+    DATA lt_exp TYPE string_table.
+    DATA lv_exp TYPE string.
     IF gv_skip IS NOT INITIAL.
       cl_abap_unit_assert=>skip( msg = gv_skip ).
       RETURN.
     ENDIF.
-    DATA ls_zosd_l2_ship TYPE zosd_l2_ship.
-    DATA lt_exp TYPE string_table.
-    DATA lv_exp TYPE string.
     clean( ).
     CLEAR lt_exp.
     CLEAR ls_zosd_l2_ship.
@@ -226,13 +223,13 @@ CLASS ltcl_proof IMPLEMENTATION.
            iv_hash = zcl_l3_proof_demo=>c_hash_1 it_exp = lt_exp ).
   ENDMETHOD.
   METHOD ship_note.
+    DATA ls_zosd_l2_note TYPE zosd_l2_note.
+    DATA lt_exp TYPE string_table.
+    DATA lv_exp TYPE string.
     IF gv_skip IS NOT INITIAL.
       cl_abap_unit_assert=>skip( msg = gv_skip ).
       RETURN.
     ENDIF.
-    DATA ls_zosd_l2_note TYPE zosd_l2_note.
-    DATA lt_exp TYPE string_table.
-    DATA lv_exp TYPE string.
     clean( ).
     CLEAR lt_exp.
     CLEAR ls_zosd_l2_note.
@@ -255,14 +252,14 @@ CLASS ltcl_proof IMPLEMENTATION.
            iv_hash = zcl_l3_proof_demo=>c_hash_2 it_exp = lt_exp ).
   ENDMETHOD.
   METHOD ship_min_captains.
-    IF gv_skip IS NOT INITIAL.
-      cl_abap_unit_assert=>skip( msg = gv_skip ).
-      RETURN.
-    ENDIF.
     DATA ls_zosd_l2_ship TYPE zosd_l2_ship.
     DATA ls_zosd_l2_crew TYPE zosd_l2_crew.
     DATA lt_exp TYPE string_table.
     DATA lv_exp TYPE string.
+    IF gv_skip IS NOT INITIAL.
+      cl_abap_unit_assert=>skip( msg = gv_skip ).
+      RETURN.
+    ENDIF.
     clean( ).
     CLEAR lt_exp.
     CLEAR ls_zosd_l2_ship.

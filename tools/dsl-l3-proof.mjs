@@ -58,7 +58,7 @@ export function compileProof(spec, model, all, {line, fail}) {
           byKey.set(key, {...row, set_line: r.at, rule_file: r.recorded});
         }
         return {...t, client: c.ddic[t.table].client,
-          keys: c.ddic[t.table].keys.map((column, i) => ({column, lead: i ? 'AND' : 'WHERE'})),
+          keys: c.ddic[t.table].keys.map((column, i, keys) => ({column, lead: i ? 'AND' : 'WHERE', stop: i === keys.length - 1 ? '.' : ''})),
           rows: [...byKey.values()]};
       });
       const expected = texts(examples.flatMap(e => e.expect.map(x => x.value)));

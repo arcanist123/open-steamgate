@@ -15497,7 +15497,7 @@
       "template_line": 3209
     }
   ],
-  "model": "sha256:5de4bf7fc15ca5f852e68859377d075f79ebc0d655f555a21c012c79ac361a6f",
+  "model": "sha256:f96d95dcd20b0ae64c59b9450cd0b51f0e8b1b24b6d5cc7c46285fbadc4b0746",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcl_l3_proof_demo.clas.abap", "hash": "sha256:2479147bc70843370e98f3bc3ae6dd85f438137cbda02ccacfbce70f7676d317"}

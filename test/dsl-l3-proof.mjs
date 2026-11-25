@@ -135,6 +135,29 @@ describe('DSL L3 generated proof', function () {
     assert.match(rendered.files[`${PROOF}.clas.xml`], /<WITH_UNIT_TESTS>X<\/WITH_UNIT_TESTS>/);
   });
 
+  it('passes abaplint punctuation and declaration-order rules on the rendered proof class', () => {
+    const {core} = modulesOf(process.cwd());
+    const config = new core.Config(JSON.stringify({
+      syntax: {version: 'open-abap'},
+      rules: {parser_error: true, line_only_punc: true, definitions_top: true},
+    }));
+    const lint = source => {
+      const reg = new core.Registry(config);
+      reg.addFile(new core.MemoryFile(`${PROOF}.clas.abap`, rendered.files[`${PROOF}.clas.abap`]));
+      reg.addFile(new core.MemoryFile(`${PROOF}.clas.testclasses.abap`, source));
+      return reg.findIssues().map(issue => issue.getKey());
+    };
+    const source = rendered.files[`${PROOF}.clas.testclasses.abap`];
+    assert.deepEqual(lint(source), []);
+    // Both mutations must be detected, so a parser/rule no-op cannot pass.
+    const punc = source.replace('    clean( ).', '    clean( )\n      .');
+    assert.notEqual(punc, source);
+    assert(lint(punc).includes('line_only_punc'));
+    const lateData = source.replace('    DATA lv_exp TYPE string.', '    CLEAR lt_exp.\n    DATA lv_exp TYPE string.');
+    assert.notEqual(lateData, source);
+    assert(lint(lateData).includes('definitions_top'));
+  });
+
   it('scopes every rendered DELETE to the full fixture key or an owned run id', () => {
     const source = rendered.files[`${PROOF}.clas.testclasses.abap`].replace(/^\s*["*].*$/gm, '');
     const deletes = [...source.matchAll(/\bDELETE\s+FROM\s+(\w+)\b([^.]*)\./gi)];

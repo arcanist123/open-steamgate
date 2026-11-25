@@ -74,9 +74,8 @@ CLASS ltcl_proof IMPLEMENTATION.
       " Full fixture key; client is implicit in Open SQL.
       DELETE FROM {{table}}
 {{#keys}}
-        {{lead}} {{column}} = {{wa}}-{{column}}
+        {{lead}} {{column}} = {{wa}}-{{column}}{{stop}}
 {{/keys}}
-        .
     ENDLOOP.
     CLEAR {{ledger}}.
 {{/fixtures}}
@@ -146,6 +145,13 @@ CLASS ltcl_proof IMPLEMENTATION.
   ENDMETHOD.
 {{#rules}}
   METHOD {{method}}.
+{{^skip}}
+{{#tables}}
+    DATA {{wa}} TYPE {{table}}.
+{{/tables}}
+    DATA lt_exp TYPE string_table.
+    DATA lv_exp TYPE string.
+{{/skip}}
     IF gv_skip IS NOT INITIAL.
       cl_abap_unit_assert=>skip( msg = gv_skip ).
       RETURN.
@@ -155,11 +161,6 @@ CLASS ltcl_proof IMPLEMENTATION.
     RETURN.
 {{/skip}}
 {{^skip}}
-{{#tables}}
-    DATA {{wa}} TYPE {{table}}.
-{{/tables}}
-    DATA lt_exp TYPE string_table.
-    DATA lv_exp TYPE string.
 {{#dates}}
     clean( ).
     CLEAR lt_exp.
