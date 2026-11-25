@@ -500,7 +500,7 @@
       "template_line": 26
     }
   ],
-  "model": "sha256:e5795eaa0d2e604a9b80c031899b306f91e9c6549198a1fbced98a2e4d04a9ea",
+  "model": "sha256:5de4bf7fc15ca5f852e68859377d075f79ebc0d655f555a21c012c79ac361a6f",
   "model_serialization": "JSON.stringify (existing writer model)",
   "outputs": [
     {"file": "zcx_l3_proof_demo_port.clas.abap", "hash": "sha256:cd841fc40a86cce26b48ae4efd9a92e6713764a59f9f34e2cc4cea7dff941e61"}

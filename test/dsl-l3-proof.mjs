@@ -15,19 +15,47 @@ const CORE = '.local/lars/open-abap-core/src';
 const read = file => readFileSync(file, 'utf8');
 
 // The same inventory and lifecycle driver used by npm run unit / CI.
-function unit(filename) {
+function unit(filename, {foreign = []} = {}) {
   const script = `
+    import assert from 'node:assert/strict';
     import {initializeABAP} from './output/init.mjs';
     import {harnessEntries, runAll} from './tools/osd-unit-all.mjs';
     import {readFileSync} from 'node:fs';
     import {pathToFileURL} from 'node:url';
     import {resolve} from 'node:path';
     await initializeABAP();
+    const client = abap.context.databaseConnections.DEFAULT;
+    const foreign = ${JSON.stringify(foreign)};
+    for (const row of foreign) await client.execute(row.insert);
+    const before = await Promise.all(foreign.map(row => client.select({select: row.select})));
+    const skips = [];
+    const skip = abap.Classes.CL_ABAP_UNIT_ASSERT.skip;
+    abap.Classes.CL_ABAP_UNIT_ASSERT.skip = async args => {
+      skips.push(args.msg.get());
+      return skip(args);
+    };
     const entries = harnessEntries(readFileSync('output/index.mjs', 'utf8'))
       .filter(e => e.objectName.toUpperCase() === '${PROOF.toUpperCase()}');
     if (entries.length !== 1) throw new Error('proof missing from CI inventory');
     ${filename ? `entries[0].filename = ${JSON.stringify(resolve(filename))};` : ''}
     const result = await runAll(entries, f => import(pathToFileURL(resolve('output', f)).href));
+    if (foreign.length) {
+      assert.equal(skips.length, entries[0].methods.length, 'the whole class must skip');
+      for (const msg of skips) {
+        assert.match(msg, /proof needs empty .*; found [0-9]+ foreign rows -- run it in a sandbox package\\/client/);
+        assert(msg.includes('found ' + foreign.length + ' foreign rows'));
+        for (const row of foreign) assert(msg.toLowerCase().includes(row.table));
+      }
+      const after = await Promise.all(foreign.map(row => client.select({select: row.select})));
+      assert.deepEqual(after, before, 'foreign rows must survive unchanged');
+      console.log('foreign rows preserved: ' + foreign.length + '; skipped: ' + skips.length);
+    } else {
+      assert.equal(skips.length, 1, 'only the unsupported rule should skip');
+      for (const table of ['zosd_l2_ship', 'zosd_l2_note', 'zosd_l2_crew', 'zosd_l3_alert', 'zosd_l3_pile', 'zosd_l3_run']) {
+        const rows = await client.select({select: 'SELECT * FROM ' + table});
+        assert.equal(rows.rows.length, 0, table + ': proof left owned rows behind');
+      }
+    }
     console.log('generated proof unit: ' + result.ran + ' methods, ' + result.failed.length + ' failed');
     process.exit(result.failed.length ? 1 : 0);
   `;
@@ -68,6 +96,15 @@ describe('DSL L3 generated proof', function () {
     const fail = (line, message) => { throw new SetError(DEMO, line, message); };
     const options = {line: () => 5, fail};
     assert.equal(compileProof({class: 'ZCL_L3_NAMED_PROOF'}, {...model, rules: [model.rules[0]]}, all, options).class, 'zcl_l3_named_proof');
+    for (const name of ['setup', 'class_setup', 'clean_runs']) {
+      const proof = compileProof('generated', {...model, rules: [{...model.rules[0], name}]},
+        [{...all[0], compiled: {...compiled, rule: name}}], options);
+      assert.notEqual(proof.rules[0].method, name, 'rule must not become a lifecycle hook or cleanup helper');
+    }
+    const keyless = {...compiled, ddic: Object.fromEntries(Object.entries(compiled.ddic).map(([table, type]) => [table, {...type, keys: []}]))};
+    const proof = compileProof('generated', {...model, rules: [model.rules[0]]}, [{...all[0], compiled: keyless}], options);
+    assert.match(proof.rules[0].skip, /no non-client DDIC key for cleanup/);
+    assert.deepEqual(proof.fixtures, []);
     for (const value of ['no', true, null, [], {}, {class: 1}, {class: 'cl_bad'}, {class: 'z'.repeat(31)}, {class: 'zok', extra: 'x'}, {class: model.class}]) {
       assert.throws(() => compileProof(value, model, all, options), /proof_demo.l3.yaml:5: proof/);
     }
@@ -98,6 +135,24 @@ describe('DSL L3 generated proof', function () {
     assert.match(rendered.files[`${PROOF}.clas.xml`], /<WITH_UNIT_TESTS>X<\/WITH_UNIT_TESTS>/);
   });
 
+  it('scopes every rendered DELETE to the full fixture key or an owned run id', () => {
+    const source = rendered.files[`${PROOF}.clas.testclasses.abap`].replace(/^\s*["*].*$/gm, '');
+    const deletes = [...source.matchAll(/\bDELETE\s+FROM\s+(\w+)\b([^.]*)\./gi)];
+    assert.equal(deletes.length, model.proof.fixtures.length + 3);
+    for (const [, table, clause] of deletes) {
+      assert.match(clause, /\bWHERE\b/i, table);
+      const fixture = model.proof.fixtures.find(t => t.table === table);
+      if (fixture) {
+        for (const {column} of fixture.keys) assert.match(clause, new RegExp(`\\b${column} = ${fixture.wa}-${column}\\b`), table);
+      } else {
+        assert.match(clause, /\brun_id = lv_run\b/);
+        assert.match(clause, /\bset_name = 'proof_demo'/);
+      }
+    }
+    assert.match(source, /LOOP AT mt_runs INTO lv_run/);
+    assert.equal((source.match(/APPEND ls_result-run_id TO mt_runs/g) ?? []).length, 3);
+  });
+
   it('traces set entries, example rows and expected text back to their YAML lines and records skips', () => {
     const trace = readTraceFile(`${OUT}/${PROOF}.clas.testclasses.trace.json`);
     assert.equal(trace.format, 'osd-trace/1');
@@ -121,6 +176,24 @@ describe('DSL L3 generated proof', function () {
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /generated proof unit: 4 methods, 0 failed/);
     console.log('    ' + result.stdout.match(/generated proof unit:.*/)[0] + ' (one explicit SKIP)');
+  });
+
+  it('skips the whole generated class for foreign source or set state and preserves every row', () => {
+    const rows = [
+      {table: 'zosd_l2_ship', insert: "INSERT INTO zosd_l2_ship (mandt, ship_id, name, status) VALUES ('123', 'S001', 'Foreign ship', 'M')"},
+      {table: 'zosd_l2_note', insert: "INSERT INTO zosd_l2_note (mandt, ship_id, note, status) VALUES ('123', 'S001', 'Foreign note', 'A')"},
+      {table: 'zosd_l2_crew', insert: "INSERT INTO zosd_l2_crew (mandt, crew_id, ship_id, role) VALUES ('123', 'C00001', 'S001', 'C')"},
+      {table: 'zosd_l3_alert', insert: "INSERT INTO zosd_l3_alert (mandt, set_name, model_hash, check_date, pile_no, alert_seq, run_id, alert_text) VALUES ('123', 'proof_demo', 'foreign', '20261001', 1, 1, 'foreign-run', 'Foreign alert')"},
+      {table: 'zosd_l3_pile', insert: "INSERT INTO zosd_l3_pile (mandt, run_id, rule_name, pile_no, set_name) VALUES ('123', 'foreign-run', 'foreign-rule', 1, 'proof_demo')"},
+      {table: 'zosd_l3_run', insert: "INSERT INTO zosd_l3_run (mandt, set_name, check_date, run_id, status) VALUES ('123', 'proof_demo', '20261001', 'foreign-run', 'RELEASED')"},
+    ].map(row => ({...row, select: `SELECT * FROM ${row.table}`}));
+    // Independent cases prove neither a source nor a set-state check masks
+    // another. The final case is the source + alert regression from review.
+    for (const foreign of [...rows.map(row => [row]), [rows[0], rows[3]]]) {
+      const result = unit(undefined, {foreign});
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      assert.match(result.stdout, new RegExp(`foreign rows preserved: ${foreign.length}; skipped: 4`));
+    }
   });
 
   it('turns red when one generated example expectation is broken, then passes the original again', async () => {

@@ -207,21 +207,33 @@ Every selected row must carry the runner's `c_hash_<n>` for that rule.
 For each date the proof also runs the dummy sink, asserting that the run
 writes no log rows, and the capture sink, asserting the same rule's texts
 and hashes as the log run. Every run must return mode S and status DONE,
-with all enabled rules present, DONE and failed = 0. Setup deletes all rows
-of the set's source tables; each date starts clean and teardown removes
-the fixtures, this set's alert/plan/lock rows and captured rows. These are
-`RISK LEVEL DANGEROUS` tests for a disposable test client.
+with all enabled rules present, DONE and failed = 0. The proof never changes
+or deletes a row it did not insert itself. Read-only `class_setup` counts
+every source table and this set's rows in `ZOSD_L3_ALERT`, `ZOSD_L3_PILE`
+(plans) and `ZOSD_L3_RUN` (runs/locks). If any are non-empty, every test
+method skips before seeding, with the affected tables and total count:
+`proof needs empty <tables>; found n foreign rows -- run it in a sandbox package/client`.
+The class guard also works when the runtime's skip method simply returns.
+Only successful fixture inserts enter the cleanup ledger. Between dates
+and in teardown they are deleted by their full DDIC key (client implicit
+in Open SQL); alerts, plans and run/lock rows are deleted only by run IDs
+returned by this proof, recorded before result assertions. Run state is
+also cleaned between sink bindings. These remain `RISK LEVEL DANGEROUS`
+tests for an otherwise idle sandbox package/client; that flag supplies no isolation.
 
 A rule that cannot be isolated retains its method and calls
 `cl_abap_unit_assert=>skip( msg = ... )`, followed by RETURN. Open-abap's
 skip currently returns without reporting a skipped count: the reason is
 also recorded in the trace navigation metadata's `skips` list. Reasons
-include missing source tables or generated variants, incompatible rows
+include missing source tables or generated variants, source tables without
+a non-client key for cleanup, incompatible rows
 with the same key, a combined fixture whose alerts differ from the union,
 example ranges or parameter overrides the date-level run cannot express,
 and set parameter defaults differing from the rule's. Staged sets and
 execution overlays (governor, simulation or remote execution) are currently
-marked unsupported for isolation. No examples are silently dropped.
+marked unsupported for isolation. Known limit: one unsupported example
+skips its whole rule, including any supported examples of that rule.
+No examples are silently dropped.
 The proof requires generated table variants on every source and log,
 dummy and capture variants on the sink.
 

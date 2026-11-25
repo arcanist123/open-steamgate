@@ -18,7 +18,7 @@ export function compileProof(spec, model, all, {line, fail}) {
     ...model.ports.flatMap(p => p.variants.map(v => v.class)), ...all.map(r => r.compiled.class)];
   if (usedClasses.includes(name)) fail(at, `proof.class ${name} collides with another set object`);
   const root = {'@id': `${model['@id']}/proof`, set_line: at, class: name};
-  const methods = new Set(['setup', 'teardown', 'clean', 'prove', 'assert_result']);
+  const methods = new Set(['setup', 'class_setup', 'teardown', 'clean', 'clean_runs', 'prove', 'assert_result']);
   const tableNames = new Set(model.sources.map(s => s.table));
   root.rules = all.filter(r => r.enabled).map(r => {
     const c = r.compiled;
@@ -32,6 +32,7 @@ export function compileProof(spec, model, all, {line, fail}) {
     const reasons = [];
     const missing = c.tables.filter(t => !tableNames.has(t.table));
     if (missing.length) reasons.push(`source ports do not read ${missing.map(t => t.table).join(', ')}`);
+    if (c.tables.some(t => !c.ddic[t.table].keys.length)) reasons.push('a source has no non-client DDIC key for cleanup');
     if (model.sources.some(s => !s.variants.some(v => v.is_table))) reasons.push('a source has no generated table variant');
     if (['log', 'dummy', 'capture'].some(v => !model.sink.variants.some(x => x.generated && x.name === v))) {
       reasons.push('sink needs generated log, dummy and capture variants');
@@ -56,7 +57,9 @@ export function compileProof(spec, model, all, {line, fail}) {
           }
           byKey.set(key, {...row, set_line: r.at, rule_file: r.recorded});
         }
-        return {...t, client: c.ddic[t.table].client, rows: [...byKey.values()]};
+        return {...t, client: c.ddic[t.table].client,
+          keys: c.ddic[t.table].keys.map((column, i) => ({column, lead: i ? 'AND' : 'WHERE'})),
+          rows: [...byKey.values()]};
       });
       const expected = texts(examples.flatMap(e => e.expect.map(x => x.value)));
       const rows = Object.fromEntries(tables.map(t => [t.table, t.rows.map(plain)]));
@@ -78,6 +81,14 @@ export function compileProof(spec, model, all, {line, fail}) {
     }
     return node;
   });
+  // Only successful INSERTs enter these instance-owned ledgers. A failed
+  // INSERT (including a concurrent key collision) must never authorize cleanup.
+  const fixtures = new Map();
+  for (const rule of root.rules.filter(r => !r.skip)) for (const date of rule.dates) for (const table of date.tables) {
+    if (!fixtures.has(table.table)) fixtures.set(table.table, {...table, ledger: `mt_seed_${fixtures.size + 1}`});
+    table.ledger = fixtures.get(table.table).ledger;
+  }
+  root.fixtures = [...fixtures.values()].map(({rows, ...table}) => table);
   return root;
 }
 
@@ -85,7 +96,8 @@ export async function renderProof(model, {renderRecipe, sidecar, classXml}) {
   if (!model.proof) return {};
   const proof = model.proof;
   const root = continuationNodes(literalNodes({...proof, source: model.source, runner: model.class,
-    sources: model.sources, rule_count: String(model.rules.length), set: model.set, 'set@type': {built_in: 'CHAR', length: 16},
+    sources: model.sources.map(s => ({...s, 'table@type': STRG})),
+    rule_count: String(model.rules.length), set: model.set, 'set@type': {built_in: 'CHAR', length: 16},
     sink: model.sink, capture: model.sink.variants.find(v => v.is_capture)?.class,
     bindings: ['log', 'dummy', 'capture'].filter(v => model.sink.variants.some(x => x.generated && x.name === v)).map(variant => ({variant, log: variant === 'log', capture_variant: variant === 'capture',
       value: [...model.sources.map(s => `${s.name}=table`), `${model.sink.name}=${variant}`].join(','), 'value@type': STRG})),
