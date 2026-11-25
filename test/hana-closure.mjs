@@ -3412,7 +3412,8 @@ process.exit(0);
       expect(record.cycles[0].members).to.deep.equal(["ZCL_H5C_CYC_A", "ZCL_H5C_CYC_B", "ZCL_H5C_CYC_C"]);
       expect(record.cycles[0].kept).to.equal(true);
       expect(Object.keys(record.cycles[0].findings).sort()).to.deep.equal(record.cycles[0].members);
-      expect(record.cycles[0].findings.ZCL_H5C_CYC_A[0]).to.match(/Super class "zcl_h5c_cyc_b" not found or contains/);
+      // abaplint 2.120.118 names the cycle; before, the superclass "not found"
+      expect(record.cycles[0].findings.ZCL_H5C_CYC_A[0]).to.match(/Super class "zcl_h5c_cyc_b" not found or contains|Cyclic inheritance: /);
       for (const f of ["zcl_h5c_cyc_a.clas.abap", "zcl_h5c_cyc_b.clas.abap", "zcl_h5c_cyc_c.clas.abap"]) {
         expect(existsSync(join(root, "gen", "hana-src", "000-h5c-main", "src", f)), `${f} stays in the build`).to.equal(true);
       }
