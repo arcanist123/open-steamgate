@@ -184,7 +184,19 @@ describe("DSL L3 slice 6c: chaos profiles and overrides", function () {
           if (/\.trace(?:\.meta)?\.json$/.test(name) || cockpit.has(name)) continue;
           const was = git(["show", `${BEFORE}:${OUT}/${name}`]);
           expect(was.status, `${name} existed before the slice`).to.equal(0);
-          expect(text.replaceAll(basename(file), "fleet2.l3.yaml"), name).to.equal(was.stdout);
+          let expected = was.stdout;
+          if (name === "zcl_l3_fleet2.clas.abap") {
+            // The later dry-report fix is independent of chaos profiles. Pin
+            // its whole method to that commit; compare every other byte to BEFORE.
+            const fixed = git(["show", `fc353cb58:${OUT}/${name}`]);
+            expect(fixed.status, "the dry-report fix is in local history").to.equal(0);
+            const method = /^  METHOD dry\.[\s\S]*?^  ENDMETHOD\./m;
+            const dry = fixed.stdout.match(method)?.[0];
+            expect(dry, "the fixed dry method").to.be.a("string");
+            expect(expected).to.match(method);
+            expected = expected.replace(method, dry);
+          }
+          expect(text.replaceAll(basename(file), "fleet2.l3.yaml"), name).to.equal(expected);
           compared++;
         }
         // the set's own files (runner, ports and variants, the twin, settings, reports): 40 without the cockpit's

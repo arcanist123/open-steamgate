@@ -1,4 +1,4 @@
-import {readJSONFile, readTraceMap} from "./trace-reader.mjs";
+import {readJSONFile as readStoredJSONFile, readTraceMap} from "./trace-reader.mjs";
 // DSL L2, slices 1 and 2 (docs/dsl-l2.md): a rule compiled to L1, rendered to
 // ABAP as one query, proven by its own examples and by cases derived from its
 // conditions, each run against the nested reference form. The committed class
@@ -7,13 +7,16 @@ import {readJSONFile, readTraceMap} from "./trace-reader.mjs";
 // cases test the rule; type errors name the rule file and line; the trace
 // reaches the rule line.
 import {expect} from "chai";
+import {createHash} from "node:crypto";
+import yaml from "js-yaml";
 import {spawnSync} from "node:child_process";
 import {existsSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {basename, dirname, join, relative, sep} from "node:path";
 import {pathToFileURL} from "node:url";
+import {readTrace} from "../tools/dsl-trace.mjs";
 import {DEFAULT_DDIC, registryFor} from "../tools/dsl-ddic.mjs";
-import {buildRule, capWarning, checkRule, compileRule, describeCases, evaluate, misfit, parseCondition, renderRule, RuleError, rulePath, stepValue} from "../tools/dsl-l2.mjs";
+import {buildRule, capWarning, checkRule, compileRule, describeCases, evaluate, misfit, parseCondition, renderModel, renderRule, RuleError, rulePath, stepValue} from "../tools/dsl-l2.mjs";
 import {ruleKeys} from "../tools/dsl-l2-range.mjs";
 import {bump, caseDiscriminates, compareValues, conditionOf, defaultValue, shiftDate, staleDiscriminates, structureDiscriminates, thresholdDiscriminates, windowOffsetDiscriminates} from "../tools/dsl-l2-eval.mjs";
 import {modulesOf} from "../tools/osd-transpile.mjs";
@@ -37,7 +40,9 @@ const MAX_CARGO = "src/l2demo/ship_max_cargo.l2.yaml";
 const RECENT = "src/l2demo/recent_voyage.l2.yaml";
 const BUSY = "src/l2demo/ship_busy.l2.yaml";
 const RESTRICTED = "src/l2demo/ship_restricted_status.l2.yaml";
-const DEMO_RULES = [RULE, OR_NOT, REQUIRE, LIMIT, MIN_CREW, MIN_CAPTAINS, CARGO_LIMIT, MAX_CARGO, RECENT, BUSY, RESTRICTED];
+const ROW = "src/l2demo/grounded_ship.l2.yaml";
+const WIDE_NOTE = "src/l2demo/ship_note.l2.yaml";
+const DEMO_RULES = [WIDE_NOTE, ROW, RULE, OR_NOT, REQUIRE, LIMIT, MIN_CREW, MIN_CAPTAINS, CARGO_LIMIT, MAX_CARGO, RECENT, BUSY, RESTRICTED];
 
 const escapePattern = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -66,6 +71,10 @@ function templateLinePattern(source) {
         pattern += escapePattern(part.text);
       } else if (part.tag.startsWith("/") && part.tag.slice(1) === close) {
         return {pattern, next: i + 1, closed: true};
+      } else if (part.tag.startsWith("/") && close === undefined) {
+        // A loop opened on a prior line can jump back before this suffix.
+        // Only the prefix before its closing tag is mandatory here.
+        return {pattern: pattern + ".*", next: parts.length, closed: false};
       } else if (part.tag.startsWith("#") || part.tag.startsWith("^")) {
         const name = part.tag.slice(1);
         const body = render(i + 1, name);
@@ -73,7 +82,9 @@ function templateLinePattern(source) {
           pattern += `(?:${body.pattern})?`;
           i = body.next - 1;
         } else {
-          pattern += ".*"; // a section continuing on another source line
+          // The remainder belongs to a section that may emit nothing on
+          // this line; its closing tag and suffix are on a later line.
+          return {pattern: pattern + ".*", next: parts.length, closed: false};
         }
       } else {
         // Values (including filtered/raw values), partials and unmatched tags.
@@ -94,26 +105,77 @@ function traceLineMismatch(entry, template, output) {
   // can come from it: an entry naming one is wrong (a whole sidecar pointed at
   // `{{/fields}}` used to pass)
   if (pattern === null) return `output line ${entry.line} names a tag-only template line ${entry.template_line}`;
+  // A multiline piece value emits continuation lines from the same tag.
+  if (source.includes("{{{continuation}}}") && /_pieces\/\d+\//.test(entry.path)
+      && /^        `(?:[^`]|``)*`/.test(rendered)) return null;
+  if (source.includes("{{{continuation}}}") && rendered.endsWith(" &")) {
+    const prefix = source.slice(0, source.search(/{{#[\w.]+_pieces}}/));
+    if (templateLinePattern(prefix + "{{piece}}").test(rendered)) return null;
+  }
   return pattern.test(rendered) ? null : `output ${JSON.stringify(rendered)} does not match template ${JSON.stringify(source)}`;
 }
 
 describe("DSL L2: a rule, its generated check, its examples and its derived cases", function () {
   this.timeout(180000);
   let scratch, registry;
+  const demoMetadata = new Map();
+  const readJSONFile = (file, encoding = "utf8") => {
+    const metaFile = file.replace(/\.json$/, ".meta.json");
+    const meta = demoMetadata.get(metaFile);
+    if (!meta || existsSync(metaFile)) return readStoredJSONFile(file, encoding);
+    // Read the committed stable trace and validate the in-memory navigation
+    // companion against the committed ABAP, just as readTraceFile does.
+    const outputs = Object.fromEntries(JSON.parse(meta).outputs.map(({file: output}) =>
+      [output, readFileSync(join(dirname(file), basename(output)), "utf8")]));
+    return readTrace(readFileSync(file, encoding), meta, outputs);
+  };
   before(async () => {
     scratch = mkdtempSync(join(tmpdir(), "dsl-l2-test-"));
     registry = registryFor(DEFAULT_DDIC, []);
-    // A fresh checkout has no optional navigation companions. Render them
-    // without rewriting the committed code/traces checked by the suite.
+    // A fresh checkout lacks ignored navigation companions. Keep them in
+    // memory: test fixtures must not add files to the source tree.
     for (const rule of DEMO_RULES) {
       const {files} = await renderRule(compileRule(rule, {registry, out: OUT}));
       for (const [name, text] of Object.entries(files)) {
-        const file = join(OUT, name);
-        if (name.endsWith('.trace.meta.json') && !existsSync(file)) writeFileSync(file, text);
+        if (name.endsWith(".trace.meta.json")) demoMetadata.set(join(OUT, name), text);
       }
     }
   });
   after(() => rmSync(scratch, {recursive: true, force: true}));
+
+  it("keeps every original recipe line in place for consumers' stored template_line", () => {
+    // origin/main before L2 row literals: pin all original text, plus the exact
+    // sites allowed to expand inline. No Git refs are needed by the test runner.
+    const baselines = [
+      ["l2-check", 505, "9e5dc7ba26806efb39c4220085dde8aec6a912b5f85cac3c265637b9cd91f9c1",
+        [23, 37, 124, 125, 126, 128, 151, 184, 189, 245, 255, 287, 309, 315, 348, 391, 396, 428, 464, 465, 466, 468, 486, 491]],
+      ["l2-check-test", 340, "c8106ab931430b21d35a6a0ba3e404187c4bd64f9839f454de7009d9584074e1",
+        [27, 111, 112, 113, 115, 128, 139, 144, 168, 171, 203, 213, 224, 267, 268, 269, 271, 286, 287, 288, 290, 306, 314, 323, 324, 325, 326, 332, 335, 336]],
+    ];
+    for (const [recipe, count, hash, sites] of baselines) {
+      const text = readFileSync(`recipes/${recipe}/template.tpl`, "utf8");
+      const lines = text.split("\n");
+      expect(lines.length - 1, recipe).to.be.at.least(count);
+      const changed = [];
+      const original = lines.slice(0, count).map((line, index) => {
+        const restored = line.replace(/{{#([\w.]+)_pieces}}{{{continuation}}}{{value \| literal}}{{\/\1_pieces}}{{\^\1_pieces}}{{\1 \| literal}}{{\/\1_pieces}}/g,
+          "{{$1 | literal}}");
+        if (restored !== line) changed.push(index + 1);
+        return restored;
+      }).join("\n") + "\n";
+      expect(changed, recipe).to.deep.equal(sites);
+      expect(createHash("sha256").update(original).digest("hex"), `${recipe}: original lines in original order`).to.equal(hash);
+    }
+  });
+
+  it("a stored consumer date WHERE location still names an sref recipe line", () => {
+    // Recorded by origin/main for maintenance_ship, independent of rendering.
+    const template = readFileSync("recipes/l2-check/template.tpl", "utf8").split("\n");
+    const stored = {line: 34, template_line: 189};
+    const abap = readFileSync(join(OUT, `${CLASS}.clas.abap`), "utf8").split("\n");
+    expect(abap[stored.line - 1]).to.match(/AND voy~dep_date > iv_date/);
+    expect(template[stored.template_line - 1]).to.contain("sref");
+  });
 
   // a copy of the committed rule with one line replaced
   const variant = (name, from, to) => {
@@ -840,7 +902,7 @@ examples:
           await test.FRIENDS_ACCESS_INSTANCE.teardown();
         }
       }
-      return {model, results, messages};
+      return {model, out, results, messages};
     } finally {
       for (const name of created) await db.execute(`DROP TABLE '${name}'`);
     }
@@ -1731,6 +1793,125 @@ examples:
         const line = source.split("\n").findIndex((entry) => entry.includes(threshold)) + 1;
         expect(() => compileRule(file, {registry})).to.throw(RuleError, new RegExp(`:${line}: ${operation} is undefined for an empty group`));
       }
+    });
+  });
+
+  describe("row rules", () => {
+    const source = readFileSync(ROW, "utf8");
+    const compile = (name, text) => {
+      const file = join(scratch, `row-${name}.l2.yaml`);
+      writeFileSync(file, text);
+      return compileRule(file, {registry});
+    };
+
+    it("compiles the row-rule example from the documentation", async () => {
+      const section = readFileSync("docs/dsl-l2.md", "utf8").split("### Row rules")[1];
+      const text = section.split("```yaml\n")[1].split("```")[0];
+      const model = compile("documentation", text);
+      const {findings} = await renderRule(model);
+      expect(findings).to.deep.equal([]);
+      expect(evaluate(model, {zosd_l2_ship: [{ship_id: "S001", name: "Albatross", status: "M"}]}))
+        .to.deep.equal(["S001 Albatross: grounded"]);
+    });
+
+    it("uses the existing model without exists clauses and derives only when boundaries", () => {
+      const model = compileRule(ROW, {registry});
+      expect(model.kind).to.equal("row");
+      expect(model.clauses).to.deep.equal([]);
+      expect(model.tables.map((t) => t.table)).to.deep.equal(["zosd_l2_ship"]);
+      expect(model.cases.length).to.be.greaterThan(0);
+      expect(model.skipped).to.deep.equal([]);
+      for (const c of model.cases) {
+        expect(c.derived.condition).to.match(/^when\//);
+        expect(caseDiscriminates(model, conditionOf(model, c.derived.condition),
+          Object.fromEntries(c.tables.map((t) => [t.table, t.rows.map((r) => Object.fromEntries(r.fields.map((f) => [f.column, f.value])))])),
+          {date: c.date.value, maintenance: "M"}), c.method).to.equal(true);
+      }
+    });
+
+    it("refuses a missing when at the forbid line", () => {
+      const text = source.replace(/^when:.*\n/m, "");
+      const at = text.split("\n").findIndex((l) => l === "forbid: row") + 1;
+      expect(() => compile("no-when", text)).to.throw(RuleError,
+        new RegExp(`:${at}: forbid: row needs when:`));
+    });
+
+    it("refuses alert holes naming any other alias", () => {
+      expect(() => compile("alias", source.replace("{ship.name}", "{voy.name}")))
+        .to.throw(RuleError, /unknown alias voy/);
+    });
+
+    for (const [name, from, to, reason] of [
+      ["foreign alias in when", "when: ship.status", "when: voy.status", /unknown alias voy/],
+      ["all alongside row", "forbid: row", "forbid: row\nall: []", /unknown key all/],
+      ["any alongside row", "forbid: row", "forbid: row\nany: []", /unknown key any/],
+      ["row inside all", "forbid: row", "forbid: {all: [row, row]}", /must be a mapping/],
+      ["row inside any", "forbid: row", "forbid: {any: [row, row]}", /must be a mapping/],
+      ["row with limit", "forbid: row", "forbid: row\nlimit: {}", /exactly one of forbid:, require:, or limit:/],
+      ["row with require", "forbid: row", "forbid: row\nrequire: {}", /a rule has forbid or require, not both/],
+    ]) it(`refuses ${name}`, () => {
+      expect(() => compile(name.replaceAll(" ", "-"), source.replace(from, to))).to.throw(RuleError, reason);
+    });
+
+    it("refuses row combined with exists keys or another rule kind", () => {
+      for (const forbid of [
+        "forbid: {row: true, exists: ZOSD_L2_VOY as voy}",
+        "forbid: {exists: ZOSD_L2_VOY as voy, where: voy.ship_id = ship.ship_id, row: true}",
+      ]) expect(() => compile("exists", source.replace("forbid: row", forbid)))
+        .to.throw(RuleError, /unknown key forbid.row/);
+      for (const extra of ["exists: ZOSD_L2_VOY as voy", "where: voy.ship_id = ship.ship_id"]) {
+        expect(() => compile("extra-key", source.replace("forbid: row", `forbid: row\n${extra}`)))
+          .to.throw(RuleError, /unknown key (exists|where)/);
+      }
+      expect(() => compile("require", source.replace("forbid: row", "forbid: row\nrequire: {}")))
+        .to.throw(RuleError, /a rule has forbid or require, not both/);
+    });
+
+    it("the interpreter emits one alert per matching row in key order and honors params and range", () => {
+      const model = compileRule(ROW, {registry});
+      const rows = {zosd_l2_ship: [
+        {ship_id: "S003", name: "Petrel", status: "D"},
+        {ship_id: "S001", name: "Albatross", status: "M"},
+        {ship_id: "S002", name: "Tern", status: "A"},
+      ]};
+      expect(evaluate(model, rows, {date: "20261001", maintenance: "M"}))
+        .to.deep.equal(["S001 Albatross: grounded (M)", "S003 Petrel: grounded (D)"]);
+      expect(evaluate(model, rows, {date: "20261001", maintenance: "A",
+        $range: [{sign: "I", option: "EQ", low: "S002"}]}))
+        .to.deep.equal(["S002 Tern: grounded (A)"]);
+    });
+
+    it("lowers to the committed single-table SELECT snapshot with parentheses and line origins", async () => {
+      const model = compileRule(ROW, {registry, out: OUT});
+      const {files, findings} = await renderRule(model);
+      const abap = files[`${model.class}.clas.abap`];
+      const check = abap.split("  METHOD check.")[1].split("  ENDMETHOD.")[0];
+      expect(check.match(/\bSELECT\b/g)).to.have.length(1);
+      expect(check).to.not.match(/JOIN|EXISTS/);
+      expect(check).to.include("      FROM zosd_l2_ship AS ship");
+      expect(check).to.include("      WHERE ( ship~status = iv_maintenance\n           OR ship~status = 'D' )\n        AND ship~ship_id IN it_range");
+      expect(check).to.include("      ORDER BY\n        ship~ship_id.");
+      expect(abap).to.equal(readFileSync(join(OUT, `${model.class}.clas.abap`), "utf8"));
+      expect(findings).to.deep.equal([]);
+      const trace = JSON.parse(files[`${model.class}.clas.trace.json`]);
+      expect(trace.format).to.equal("osd-trace/1");
+      const meta = JSON.parse(files[`${model.class}.clas.trace.meta.json`]);
+      const whereLine = abap.split("\n").findIndex((l) => l.includes("WHERE ( ship~status")) + 1;
+      const origin = meta.lines.find((l) => l.line === whereLine);
+      expect(origin.node).to.equal("rule/grounded-ship/when/1");
+      expect(origin.rule_line).to.equal(9);
+      expect(abap.split("\n").every((l) => l.length <= 255)).to.equal(true);
+      expect(model.queries[0].where.filter((l) => l.is_cmp).map((l) => l.rule_line))
+        .to.include(source.split("\n").findIndex((l) => l.startsWith("when:")) + 1);
+    });
+
+    it("the generated ABAP Unit runs every example and derived case, including keys and reference", async () => {
+      await import("./start.mjs");
+      const model = compileRule(ROW, {registry});
+      const result = await new UnitRun(new ObjectStore()).runDetached("CLAS", model.class.toUpperCase());
+      const count = model.examples.length + model.cases.length;
+      expect(result.counts, JSON.stringify(result.testClasses)).to.include({methods: count, passed: count, failed: 0});
+      expect(result.ok).to.equal(true);
     });
   });
 
@@ -2759,6 +2940,120 @@ examples:
     before(async () => {
       await import("./start.mjs");
     });
+    it("G23: CHAR 255 example and derived assignments fit and preserve the complete note in ABAP", async () => {
+      const model = compileRule(WIDE_NOTE, {registry, out: OUT});
+      const example = model.examples[0].tables[0].rows[0].fields.find((f) => f.column === "note");
+      expect(example.value).to.have.length(255);
+      expect(example.assignment_pieces.map((p) => p.value).join("")).to.equal(example.value);
+      const wide = model.cases.flatMap((c) => c.tables.flatMap((t) => t.rows.flatMap((r) => r.fields)))
+        .filter((f) => f.column === "note" && f.value.length === 255);
+      expect(wide.length, "derived cases fill the wide field").to.be.greaterThan(0);
+      for (const field of wide) expect(field.assignment_pieces.map((p) => p.value).join("")).to.equal(field.value);
+      const {files, findings} = await renderRule(model);
+      expect(findings).to.deep.equal([]);
+      for (const [name, text] of Object.entries(files).filter(([n]) => n.endsWith(".abap"))) {
+        expect(text.split("\n").filter((line) => line.length > 255), name).to.deep.equal([]);
+      }
+      const result = await new UnitRun(new ObjectStore()).runDetached("CLAS", model.class.toUpperCase());
+      const count = model.examples.length + model.cases.length;
+      expect(result.counts, JSON.stringify(result.testClasses)).to.include({methods: count, passed: count, failed: 0});
+      expect(result.ok).to.equal(true);
+    });
+
+    for (const [tag, value] of [["trailing", "x".repeat(99) + "  " + "y".repeat(149) + "     "],
+      ["apostrophe", "x".repeat(99) + "'" + "y".repeat(154)], ["empty", ""], ["unicode", "飞艇 café 🚢".repeat(20)],
+      ["254", "x".repeat(254)], ["255", "x".repeat(255)]]) {
+      it(`G23 exact value: ${tag}`, async () => {
+        const className = `zcl_l2_g23_${tag}`;
+        const source = readFileSync(WIDE_NOTE, "utf8");
+        const doc = yaml.load(source);
+        doc.class = className;
+        doc.boundaries = [];
+        doc.examples[0].rows.ZOSD_L2_NOTE[0].note = value;
+        doc.examples[0].expect = [`S001: ${value.trimEnd()}`];
+        const file = writeRule(`g23-${tag}`, yaml.dump(doc));
+        const {model, out} = await loadRule(file, className, {tables: ["zosd_l2_note.tabl.xml"]});
+        const module = await import(pathToFileURL(join(out, `${className}.clas.testclasses.mjs`)).href);
+        const test = await new module.ltcl_examples().constructor_();
+        try {
+          await test.FRIENDS_ACCESS_INSTANCE[model.examples[0].method]();
+          const table = test.FRIENDS_ACCESS_INSTANCE[model.tables[0].itab];
+          expect(table.array()[0].get().note.get()).to.equal(value.padEnd(255));
+        } finally { await test.FRIENDS_ACCESS_INSTANCE.teardown(); }
+        for (const suffix of ["clas.abap", "clas.testclasses.abap"]) {
+          expect(readFileSync(join(out, `${className}.${suffix}`), "utf8").split("\n").filter((l) => l.length > 255)).to.deep.equal([]);
+        }
+      });
+    }
+
+    for (const mode of ["driving", "range-param", "scalar-param"]) {
+      it(`G23: a 255-character ${mode} bound/default runs in ABAP`, async () => {
+        const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));
+        const className = `zcl_l2_g23_${mode.replaceAll("-", "_")}`;
+        doc.class = className;
+        doc.boundaries = [];
+        const value = doc.examples[0].rows.ZOSD_L2_NOTE[0].note;
+        const bounds = [{sign: "I", option: "BT", low: value, high: value}];
+        if (mode === "driving") {
+          doc.range = "ship.note";
+          doc.examples[0].range = bounds;
+        } else {
+          const range = mode === "range-param";
+          doc.params = {notes: {type: "ZOSD_L2_NOTE-NOTE", ...(range ? {range: true} : {}), default: range ? bounds : value}};
+          doc.when += range ? " and ship.note in $notes" : " and ship.note = $notes";
+          doc.examples.push({...doc.examples[0], name: "explicit wide parameter", params: {notes: range ? bounds : value}});
+        }
+        const {results, messages, out} = await runRule(writeRule(`g23-${mode}`, yaml.dump(doc)), className,
+          {tables: ["zosd_l2_note.tabl.xml"]});
+        expect(failed(results), JSON.stringify(messages)).to.deep.equal([]);
+        expect(Object.keys(results)).to.have.length(mode === "driving" ? 1 : 2);
+        for (const suffix of ["clas.abap", "clas.testclasses.abap"]) {
+          expect(readFileSync(join(out, `${className}.${suffix}`), "utf8").split("\n").filter((l) => l.length > 255)).to.deep.equal([]);
+        }
+      });
+    }
+
+    it("G23: continuation lines trace to their own piece and the original literal site", async () => {
+      const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));
+      const value = doc.examples[0].rows.ZOSD_L2_NOTE[0].note;
+      doc.boundaries = [];
+      doc.params = {note: {type: "ZOSD_L2_NOTE-NOTE", default: value}};
+      doc.when += ` and ship.note = '${value}' and ship.note = $note`;
+      const compiled = compileRule(writeRule("continuation-trace", yaml.dump(doc)), {registry});
+      const model = renderModel(compiled);
+      const {files} = await renderRule(compiled);
+      let count = 0;
+      for (const kind of ["clas", "clas.testclasses"]) {
+        const meta = JSON.parse(files[`${compiled.class}.${kind}.trace.meta.json`]);
+        const output = files[`${compiled.class}.${kind}.abap`].split("\n");
+        const recipe = kind === "clas" ? "l2-check" : "l2-check-test";
+        const template = readFileSync(`recipes/${recipe}/template.tpl`, "utf8").split("\n");
+        let continuations = 0;
+        for (const entry of meta.lines) {
+          if (!/_pieces\/[2-9]\d*\/continuation$/.test(entry.path)) continue;
+          const parts = entry.path.split("/").filter(Boolean).slice(0, -1);
+          const piece = parts.reduce((node, key) => Array.isArray(node) ? node[Number(key) - 1] : node[key], model);
+          expect(output[entry.line - 1]).to.contain("`" + piece.value.replaceAll("`", "``") + "`");
+          expect(entry.node).to.equal(piece["@id"]);
+          expect(entry.rule_line).to.equal(piece.rule_line);
+          expect(template[entry.template_line - 1]).to.contain("{{{continuation}}}");
+          const contributor = entry.contributors.find((c) => c.path === "/" + parts.join("/") + "/value");
+          expect(contributor, `piece value contributes to line ${entry.line}`).to.exist;
+          expect(contributor.template_line).to.equal(entry.template_line);
+          continuations++;
+        }
+        expect(continuations, recipe).to.be.greaterThan(0);
+        count += continuations;
+      }
+      console.log(`L2 continuation trace: ${count} exact piece locations`);
+    });
+
+    it("G23: a note longer than CHAR 255 is still refused", () => {
+      const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));
+      doc.examples[0].rows.ZOSD_L2_NOTE[0].note = "x".repeat(256);
+      expect(() => compileRule(writeRule("g23-too-wide", yaml.dump(doc)), {registry})).to.throw(/longer than CHAR 255/);
+    });
+
     it("a maximal accepted alert text renders in pieces, every line of both classes at most 255", async () => {
       const out = join(scratch, "long-alert");
       const {files, findings} = await buildRule(writeRule("long-alert", LONG_ALERT), out, {registry});
@@ -2774,22 +3069,24 @@ examples:
       expect(Object.keys(results).length).to.be.greaterThan(5);
       expect(failed(results), JSON.stringify(messages)).to.deep.equal([]);
     });
-    it("a line the profile still refuses is a RuleError at its rule line, before any file is written", async () => {
-      // an example name that fits the literal check but not the assert call's line
+    it("an oversized generated header is still a RuleError at the rule line", async () => {
+      const model = compileRule(WIDE_NOTE, {registry});
+      model.source = "x".repeat(256);
+      let error;
+      try { await renderRule(model); } catch (e) { error = e; }
+      expect(error).to.be.instanceOf(RuleError);
+      expect(error.message).to.contain("Line exceeds 255 characters");
+      expect(error.message).to.contain(`${WIDE_NOTE}:1:`);
+    });
+
+    it("G23: long example labels use the same split in assertion arguments", async () => {
       const name = `nb${"!".repeat(170)}`;
       const file = writeRule("long-name", LONG_ALERT.replace("  - name: fires", `  - name: ${name}`));
-      const out = join(scratch, "long-name-out");
-      let error;
-      try {
-        await buildRule(file, out, {registry});
-      } catch (e) {
-        error = e;
+      const {files, findings} = await buildRule(file, join(scratch, "long-name-out"), {registry});
+      expect(findings).to.deep.equal([]);
+      for (const [name, text] of Object.entries(files).filter(([n]) => n.endsWith(".abap"))) {
+        expect(text.split("\n").filter((line) => line.length > 255), name).to.deep.equal([]);
       }
-      expect(error).to.be.instanceOf(RuleError);
-      const where = relative(process.cwd(), file).split(sep).join("/");
-      expect(error.message.startsWith(`${where}:${lineIn(readFileSync(file, "utf8"), /^\s+- name: n/)}: the generated zcl_l2_long_alert.clas.testclasses.abap line `), error.message).to.equal(true);
-      expect(error.message).to.contain("Line exceeds 255 characters");
-      expect(() => readdirSync(out)).to.throw();
     });
   });
 
