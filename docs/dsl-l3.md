@@ -252,31 +252,52 @@ with its keys rule, report, ports and worklist variant, `ZOSD_L3_WORK` and `ZOSD
 "Stages, filters and a schedule"); since slice 5a also `ZOSD_L3_DOCTOR` and `ZOSD_L3_KILL` (see
 "Resilience"); since slice 6 also `ZL3C_FLEET2_SRV`, its MPC/MPC_EXT/MPC_ANN and
 DPC/DPC_EXT classes, model/service registration objects, BSP `ZOSD_FLEET2` and its ICF node.
-The objects live in three folders and the tool takes one flat folder, so stage them first:
+### Packing a set
 
+Build a flat stage, an admitted abapGit zip and its deploy manifest in one command:
+
+```sh
+npm run dsl:pack -- src/l2demo/fleet.l3.yaml --out .local/fleet.zip
 ```
-rm -rf .local/stage/l3demo && mkdir -p .local/stage/l3demo && cp \
-  src/l2demo/zosd_l2_ship.tabl.xml src/l2demo/zosd_l2_voy.tabl.xml src/l2demo/zosd_l2_crew.tabl.xml \
-  src/l2demo/zosd_l2_cargo.tabl.xml src/l2demo/zosd_l2_weight.dtel.xml src/dsl/zosd_l3_alert.tabl.xml src/dsl/zosd_l3_pile.tabl.xml src/dsl/zosd_l3_run.tabl.xml \
-  src/l2demo/zcl_l2_maintenance_ship.clas.* src/l2demo/zcl_l2_grounded_ship_crew.clas.* \
-  src/l2demo/zcl_l2_ship_captain.clas.* src/l2demo/zcl_l2_ship_voyage_limit.clas.* \
-  src/l2demo/zcl_l2_ship_min_crew.clas.* src/l2demo/zcl_l2_ship_cargo_limit.clas.* \
-  src/l2demo/zcl_l3_fleet.clas.* src/l2demo/zcl_l3_fleet_ports.clas.* src/l2demo/zcl_l3_fleet_ships_*.clas.* \
-  src/l2demo/zcl_l3_fleet_alerts_*.clas.* src/l2demo/zif_l3_fleet_*.intf.* src/l2demo/zcx_l3_fleet_port.clas.* \
-  src/l2demo/zl3_fleet.prog.* src/l3proof/zcl_l3_fleet_proof.clas.* \
-  src/dsl/zosd_l3_work.tabl.xml src/dsl/zosd_l3_stage.tabl.xml src/l2demo/zcl_l2_ship_busy.clas.* \
-  src/dsl/zosd_l3_doctor.tabl.xml src/dsl/zosd_l3_kill.tabl.xml src/dsl/zosd_l3_conf.tabl.xml src/dsl/zosd_l3_conf_log.tabl.xml src/dsl/zosd_l3_run_conf.tabl.xml \
-  src/dsl/zosd_l3_budget.tabl.xml src/dsl/zosd_l3_object.tabl.xml src/dsl/zosd_l3_event.tabl.xml \
-  src/l2demo/zcl_l3_fleet2.clas.* src/l2demo/zcl_l3_fleet2_*.clas.* src/l2demo/zif_l3_fleet2_*.intf.* \
-  src/l2demo/zcx_l3_fleet2_port.clas.* src/l2demo/zl3_fleet2.prog.* src/l2demo/zl3_fleet2_conf.prog.* \
-  src/l2demo/zcl_l3_fleet_seed.clas.* src/l2demo/zl3_fleet_seed.prog.* \
-  .local/stage/l3demo/
-node tools/stg-compile.mjs src/l2demo/zl3c_fleet2.stg.yaml --out .local/stage/l3demo
-cp src/l2demo/zcl_zl3c_fleet2_dpc_ext.clas.* .local/stage/l3demo/
-node tools/osd-bsp-app.mjs src/l2demo/cockpit/zosd_fleet2 --name ZOSD_FLEET2 --out .local/stage/l3demo --service ZL3C_FLEET2_SRV --only index.html,Component.js,manifest.json,Cockpit.controller.js,Cockpit.fragment.xml,List.controller.js,StartRun.fragment.xml,Series.js,Live.js,i18n/i18n.properties
-node tools/osd-bsp-app.mjs src/l2demo/cockpit/zosd_fleet2_s --name ZOSD_FLEET2_S --out .local/stage/l3demo --service ZL3C_FLEET2_SRV --only index.html,Component.js,manifest.json,Set.view.xml,Set.controller.js,Live.js,i18n/i18n.properties
-node tools/osd-prove-on-system.mjs .local/stage/l3demo --unit l3demo --manifest deploy/manifest.json
-```
+
+The existing L2/L3 renderers use the built template engine; run `npm run transpile`
+once in a fresh checkout. When building without optional packs, use the same
+`OSD_WEB_PACKS` selection when packing. The packer verifies each named rule (including disabled
+rules) against a fresh in-memory L2 render and copies the committed files only if
+`check` would match. Rebuild stale rules with `dsl-l2.mjs build` first. It compiles
+and renders the set with the existing L3 compiler, then discovers runtime DDIC
+transitively from names in the generated ABAP/XML and source DDIC. There is no
+hand-maintained object list. Named hand-written port adapters are also collected
+from beside the set or under `src`, following the compiler’s search order.
+Cockpit service and BSP outputs are excluded. Trace sidecars stay in the stage and never enter the zip.
+
+The default stage is `.local/stage/<set>`. `--stage <dir>` overrides it; a nonempty
+stage must have an earlier pack's `.dsl-pack.json` receipt and contain only its
+recorded files. Repacking replaces the previous closure, removing stale outputs.
+`--list` prints generated objects, rules, runtime DDIC, referenced objects and
+explicit includes without creating a stage, zip or manifest.
+
+Like `dsl-l3 build`, packing renders through the transpiled DSL engine
+(`tools/dsl-engine.mjs` boots `output/init.mjs`), so it needs a built tree and
+starts that tree's database the way a build does, including its usual cache under
+`.local/db`. A tree built without a pack the environment names fails here as it
+fails in `build`; `OSD_WEB_PACKS=` (or a rebuild) is the remedy. Packing without
+the runtime is a follow-up for the engine, not for the packer.
+
+Domain tables and their types are referenced, rather than shipped. To include the
+public demo tables, add `--ddic src/l2demo --with-ddic`; a `--ddic` folder alone
+only supplies compiler metadata. `--include 'src/l3proof/zcl_l3_fleet_proof.clas.*'`
+adds an extra object; a single abapGit file also selects its object's companion
+files. Directories and quoted globs are accepted. Every shipped object still passes
+the existing deploy admission checks, including SAP-owned names and `$TMP`.
+`--description "..."` sets the package description. The in-process zipper uses
+fixed timestamps and sorted paths, so identical inputs yield identical zip bytes.
+
+`<zip>.unit.json` is a version-1 deploy manifest with a unit named after the set.
+For a later, explicitly requested system proof, the existing tool accepts the stage
+with `--unit fleet --manifest .local/fleet.zip.unit.json`. Packing itself is offline.
+The cockpit service and BSP apps still need separate packaging; the hub registration
+row and seeding also remain manual (below).
 
 **The cockpit on a system needs three more things**, measured on the sandbox (2026-10-02):
 - the hub registration of `ZL3C_FLEET2_SRV`, which abapGit carries as an IWSG (the registration,
