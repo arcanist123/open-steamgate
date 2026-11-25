@@ -110,6 +110,8 @@ export const cascadeOf = (message) => [
   // CLASS DEFINITION statement's INHERITING FROM and GLOBAL FRIENDS); the
   // text adds nothing to ask
   [/^Super class "[^"]+" not found or contains(?: errors)?$/, "super"],
+  // abaplint 2.120.118 names a cycle of superclasses as such
+  [/^Cyclic inheritance: /, "super"],
   [/^Friend class [^ ]+ does not exist$/, "friend"],
 ].find(([re]) => re.test(message))?.[1];
 

@@ -73,7 +73,8 @@ CLASS zcl_stg_http_handler IMPLEMENTATION.
                                                 iv_body    = lv_body
                                                 iv_body_x  = lv_body_x
                                                 iv_content_type = server->request->get_header_field( 'content-type' )
-                                                it_headers = lt_headers ).
+                                                it_headers = lt_headers
+                                                iv_query   = server->request->get_header_field( '~query_string' ) ).
 
     IF lv_method <> 'GET' AND lv_method <> 'HEAD' AND lv_path NP '*/$batch*'.
       IF ls_response-status >= 400.

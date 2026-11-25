@@ -7,6 +7,18 @@ in `docs/` as `YYYY-MM-DD-topic.md`.
 > [`docs/backlog/README.md`](docs/backlog/README.md). This file stays the narrative: what
 > was decided and why.
 
+## gogen: a generic `x` parameter (2026-11-25)
+
+- `TYPE x` without a length in a method signature is outside what gogen
+  compiles ("XGenericType is outside the subset"); the method is left out
+  and a call fails at run time. Upstream open-abap-core's
+  `cl_http_utility=>hex_digit` has one, and every escape of `unescape_url`
+  and `string_to_fields` goes through it, so osgo's ADT cases with a `%` in
+  their query failed. Held workaround: the open-abap-core pin's commit
+  `2e898a6` gives the parameter a named `x LENGTH 1`. Open: gogen compiles
+  a generic `x` (as it does `xstring`), then the commit goes
+  (docs/upstream.md item 22).
+
 ## HANA track: milestone 3 closed, milestone 4 = funnel (2026-11-15)
 
 Milestone 3 is closed (last PR #959): the sample service's whole read side and
@@ -36,7 +48,8 @@ without the AI library. Open, and not Zork's to fix:
 - **gogen: `EXPORT`/`IMPORT` are refused** (`NOT_COMPILED`, "statement
   Export"), so `test/unit/zcl_osd_shared_memory_test` stays in the Go
   inventory's gap list (advisory) until the Go runtime has the two shared
-  media; the JS runtime has them in the pin `local/osd-build-4l`.
+  media; the JS runtime has them upstream since 2.14.38 (abaplint/transpiler#2134), in the pin
+  `local/osd-build-4m`.
 
 ## CI isolation for ADT pull requests, temporary (2026-10-03)
 

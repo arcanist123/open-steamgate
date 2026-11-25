@@ -28,3 +28,28 @@ func TestSubtractSecs(t *testing.T) {
 	}()
 	SubtractSecs(&abap.Session{}, "20261399000000", 1)
 }
+
+func TestSubtract(t *testing.T) {
+	for _, c := range []struct{ t1, t2, want string }{
+		{"20261003123456.9980000", "19700101000000.0000000", "1791030896.9980000"},
+		{"20260101000000", "20260101000001", "-1.0000000"},
+		{"20260101000000.0000001", "20260101000000", "0.0000001"},
+		{"20260101000000.1234567", "20260101000000.1234568", "-0.0000001"},
+		{"20260101000000.5", "20251231235959", "1.5000000"},
+		{"20260101000000", "20260101000000", "0.0000000"},
+	} {
+		if got := Subtract(&abap.Session{}, c.t1, c.t2); got != c.want {
+			t.Fatalf("%s - %s: %s, want %s", c.t1, c.t2, got, c.want)
+		}
+	}
+	for _, bad := range []string{"20261399000000", "20260101000000.12a"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("%s is not a time stamp and must be refused", bad)
+				}
+			}()
+			Subtract(&abap.Session{}, bad, "20260101000000")
+		}()
+	}
+}

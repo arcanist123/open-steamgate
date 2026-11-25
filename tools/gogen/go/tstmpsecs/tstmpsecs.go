@@ -32,3 +32,37 @@ func addSecs(where, v string, secs int64) string {
 	}
 	return t.Add(time.Duration(secs) * time.Second).UTC().Format("20060102150405")
 }
+
+// Subtract is CL_ABAP_TSTMP=>SUBTRACT: the seconds from t2 to t1 as a
+// p with seven decimals (TZNTSTMPL), fraction kept, as on a system and as
+// open-abap-core computes it since #1311. A value that is not a time stamp
+// is refused rather than guessed.
+func Subtract(s *abap.Session, t1, t2 string) string {
+	parse := func(v string) (time.Time, int64) {
+		v = strings.TrimSpace(v)
+		frac := int64(0)
+		if i := strings.IndexByte(v, '.'); i >= 0 {
+			f := (v[i+1:] + "0000000")[:7]
+			for _, c := range f {
+				if c < '0' || c > '9' {
+					panic(abap.NotCompiled("CL_ABAP_TSTMP=>SUBTRACT", "a value that is not a time stamp: "+v))
+				}
+				frac = frac*10 + int64(c-'0')
+			}
+			v = v[:i]
+		}
+		t, err := time.Parse("20060102150405", fmt.Sprintf("%014s", v))
+		if err != nil {
+			panic(abap.NotCompiled("CL_ABAP_TSTMP=>SUBTRACT", "a value that is not a time stamp: "+v))
+		}
+		return t, frac
+	}
+	a, af := parse(t1)
+	b, bf := parse(t2)
+	d := int64(a.Sub(b)/time.Second)*10000000 + af - bf
+	sign := ""
+	if d < 0 {
+		sign, d = "-", -d
+	}
+	return fmt.Sprintf("%s%d.%07d", sign, d/10000000, d%10000000)
+}

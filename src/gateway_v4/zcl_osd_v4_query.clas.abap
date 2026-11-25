@@ -91,7 +91,7 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
       fail( iv_text = 'Not a V4 service path' iv_status = 404 ).
     ENDIF.
 * a namespaced service (/DMO/UI_X) comes escaped (%2FDMO%2FUI_X), as over V2
-    ms_request-service = cl_http_utility=>unescape_url( ms_request-service ).
+    ms_request-service = zcl_stg_url=>unescape( iv_value = ms_request-service iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
     ms_request-options = it_options.
     IF lv_rest IS INITIAL OR lv_rest = '/'.
       ms_request-is_service_root = abap_true.
@@ -110,10 +110,12 @@ CLASS zcl_osd_v4_query IMPLEMENTATION.
       IF sy-subrc <> 0.
         fail( iv_text = 'Unsupported V4 resource path' iv_status = 404 ).
       ENDIF.
-      ms_request-entity_set = cl_http_utility=>unescape_url( ms_request-entity_set ).
-      ms_request-key_string = cl_http_utility=>unescape_url( ms_request-key_string ).
+      ms_request-entity_set = zcl_stg_url=>unescape( iv_value = ms_request-entity_set iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
+      ms_request-key_string = zcl_stg_url=>unescape( iv_value = ms_request-key_string
+                                                     iv_code  = 'STG/BAD_KEY'
+                                                     iv_where = 'a key' ).
       IF mv_navigation CS '.'.
-        mv_action = cl_http_utility=>unescape_url( mv_navigation ).
+        mv_action = zcl_stg_url=>unescape( iv_value = mv_navigation iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
         CLEAR mv_navigation.
         IF lv_tail IS NOT INITIAL.
           fail( iv_text = 'Unsupported V4 resource path' iv_status = 404 ).

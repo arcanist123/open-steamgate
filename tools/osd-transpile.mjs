@@ -285,6 +285,12 @@ export function outputFiles(output, config, outputFolder, files) {
     if (type === "PROG") {
       contents = `if (!globalThis.abap) await import("./_init.mjs");\n` + contents;
       generatedLineOffset = 1;
+      // since transpiler 2.14.20 a program runs in its exported $main; as the
+      // CLI does, it runs when executed directly and not when imported
+      if (o.exports?.includes("$main")) {
+        contents += "\nif (process.argv[1] !== undefined"
+          + ` && import.meta.url === (await import("url")).pathToFileURL(process.argv[1]).href) await $main();`;
+      }
     }
     if (writeSourceMaps === true && (type === "PROG" || type === "FUGR" || type === "CLAS")) {
       const name = o.filename + ".map";

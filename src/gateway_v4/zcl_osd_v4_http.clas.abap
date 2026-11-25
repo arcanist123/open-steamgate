@@ -4,6 +4,9 @@ CLASS zcl_osd_v4_http DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS dispatch IMPORTING iv_method TYPE string iv_path TYPE string
       it_options TYPE tihttpnvp OPTIONAL iv_origin TYPE string DEFAULT 'http://localhost'
       iv_body TYPE string OPTIONAL it_headers TYPE tihttpnvp OPTIONAL
+* the raw query string, required: what the decoder could not turn into text
+* is a 400 before any option is read (ZCL_STG_URL=>REFUSE_UNDECODABLE)
+      iv_query TYPE string
       RETURNING VALUE(rs_response) TYPE zcl_stg_dispatcher=>ty_response.
   PRIVATE SECTION.
 * the Allow header of a 405, set by run before it refuses a method
@@ -75,7 +78,7 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
     ENDIF.
     ls_response = dispatch( iv_method = lv_method iv_path = lv_path it_options = lt_options
       iv_origin = |{ lv_proto }://{ lv_host }{ server->request->get_header_field( 'x-forwarded-prefix' ) }|
-      iv_body = lv_body it_headers = lt_headers ).
+      iv_body = lv_body it_headers = lt_headers iv_query = lv_query ).
     IF lv_writes = abap_true.
       IF ls_response-status >= 400.
         ROLLBACK WORK.
@@ -125,6 +128,7 @@ CLASS zcl_osd_v4_http IMPLEMENTATION.
       lv_method = 'GET'.
     ENDIF.
     TRY.
+        zcl_stg_url=>refuse_undecodable( iv_query ).
         rs_response = run( iv_method = lv_method iv_path = iv_path it_options = it_options
           iv_origin = iv_origin iv_body = iv_body it_headers = it_headers ).
       CATCH zcx_stg_error INTO lx_error.

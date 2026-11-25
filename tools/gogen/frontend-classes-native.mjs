@@ -27,7 +27,7 @@ const P_GENERIC = new Set(["CL_ABAP_TSTMP=>SUBTRACT", "CL_ABAP_TSTMP=>SUBTRACTSE
   // open-abap-core's kernel lines compute them (its RETURNING is an i; a
   // system's is a p with decimals); a random integer 0 .. 2^31-2 as
   // open-abap-core's INT (a seed given to CREATE is ignored there too)
-  ["CL_ABAP_TSTMP=>SUBTRACT", {fn: "abap.TstmpSubtract", args: ["TSTMP1:p", "TSTMP2:p"]}],
+  ["CL_ABAP_TSTMP=>SUBTRACT", {fn: "tstmpsecs.Subtract", args: ["TSTMP1:p", "TSTMP2:p"]}],
   // the time stamp SECS seconds earlier, as open-abap-core's ADD computes it (go/tstmp)
   ["CL_ABAP_TSTMP=>SUBTRACTSECS", {fn: "tstmpsecs.SubtractSecs", args: ["TSTMP:p", "SECS:i"]}],
   ["CL_ABAP_RANDOM=>INT", {fn: "abap.RandomInt31", args: []}],

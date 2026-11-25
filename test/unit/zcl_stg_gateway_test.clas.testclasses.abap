@@ -359,7 +359,7 @@ CLASS ltcl_dispatch IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.
@@ -527,7 +527,7 @@ CLASS ltcl_dispatch IMPLEMENTATION.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
 * a verb the dispatcher does not know stays an honest 501
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'OPTIONS'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'OPTIONS'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 501 ).
@@ -780,7 +780,7 @@ CLASS ltcl_filter IMPLEMENTATION.
     DATA lt_options  TYPE tihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Status%20eq%20'A'%20and%20TravelId%20ge%20'T0002'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -791,7 +791,7 @@ CLASS ltcl_filter IMPLEMENTATION.
     cl_abap_unit_assert=>assert_false( boolc( ls_response-body CS '"TravelId":"T0003"' ) ).
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Nope%20eq%201` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -841,7 +841,7 @@ CLASS ltcl_writes IMPLEMENTATION.
       ls_header-value = iv_if_match.
       APPEND ls_header TO lt_headers.
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = iv_method
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = iv_method
                                                 iv_path    = iv_path
                                                 iv_body    = iv_body
                                                 it_headers = lt_headers ).
@@ -1110,7 +1110,7 @@ CLASS ltcl_batch IMPLEMENTATION.
 
     lv_body = crlf( `--b|Content-Type: application/http|Content-Transfer-Encoding: binary||GET TravelSet?$top=1&$inlinecount=allpages HTTP/1.1||` &&
                     `--b|Content-Type: application/http|Content-Transfer-Encoding: binary||GET TravelSet('T0003') HTTP/1.1||--b--|` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
@@ -1130,7 +1130,7 @@ CLASS ltcl_batch IMPLEMENTATION.
 * a batch posted under a namespace prefix: its relative inner requests are
 * joined onto that prefix, and the entries they answer name it too
     lv_body = crlf( `--b|Content-Type: application/http|Content-Transfer-Encoding: binary||GET TravelSet('T0003') HTTP/1.1||--b--|` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/OSDNS/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
@@ -1151,7 +1151,7 @@ CLASS ltcl_batch IMPLEMENTATION.
 * a part with request headers needs the blank line that ends them, and the
 * empty body line, before the boundary closes it (three line breaks in all)
                     `--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||DELETE TravelSet('T0301') HTTP/1.1|If-Match: *|||--cs--||--b--|` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
@@ -1171,7 +1171,7 @@ CLASS ltcl_batch IMPLEMENTATION.
     lv_body = crlf( `--b|Content-Type: multipart/mixed; boundary=cs||--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||` &&
                     `DELETE TravelSet('NOPE') HTTP/1.1||--cs|Content-Type: application/http|Content-Transfer-Encoding: binary||` &&
                     `POST TravelSet HTTP/1.1||{"TravelId":"T0302"}|--cs--||--b--|` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
@@ -1182,7 +1182,7 @@ CLASS ltcl_batch IMPLEMENTATION.
     cl_abap_unit_assert=>assert_false( boolc( ls_response-body CS '201 Created' ) ).
 
 * the request after the failure was not run
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0302')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 404 ).
@@ -1191,7 +1191,7 @@ CLASS ltcl_batch IMPLEMENTATION.
   METHOD boundary_missing_is_400.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'POST'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body         = 'x'
                                                 iv_content_type = 'text/plain' ).
@@ -1235,12 +1235,12 @@ CLASS ltcl_batch IMPLEMENTATION.
     DATA lv_body TYPE string.
     lv_body = crlf( `--b|Content-Type: multipart/mixed; boundary=cs||--cs|Content-Type: application/http||` &&
                     `PUT PhotoSet('T0002')/$value HTTP/1.1|Content-Type: image/jpeg||JPEG|--cs--||--b--|` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'POST'
                                                 iv_path = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$batch'
                                                 iv_body = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=b' ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS 'HTTP/1.1 204 No Content' ) ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/PhotoSet(''T0002'')/$value' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-content_type exp = 'image/jpeg' ).
   ENDMETHOD.
@@ -1264,7 +1264,7 @@ CLASS ltcl_media IMPLEMENTATION.
   METHOD metadata_has_stream.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$metadata' ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<EntityType Name="Photo" m:HasStream="true"' ) ).
     cl_abap_unit_assert=>assert_false( boolc( ls_response-body CS '<EntityType Name="Travel" m:HasStream' ) ).
@@ -1275,7 +1275,7 @@ CLASS ltcl_media IMPLEMENTATION.
   METHOD json_points_at_the_stream.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/PhotoSet(''T0001'')' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 200 ).
@@ -1288,7 +1288,7 @@ CLASS ltcl_media IMPLEMENTATION.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lv_head     TYPE xstring.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/PhotoSet(''T0001'')/$value' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 200 ).
@@ -1307,20 +1307,20 @@ CLASS ltcl_media IMPLEMENTATION.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
     DATA lv_new      TYPE xstring VALUE '89504E470D0A1A0A0000000D49484452'.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'PUT'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'PUT'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/PhotoSet(''T0002'')/$value'
                                                 iv_body_x       = lv_new
                                                 iv_content_type = 'image/png' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 204 ).
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/PhotoSet(''T0002'')/$value' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-body_x
                                         exp = lv_new ).
 
 * a travel without a picture of its own: the DPC says so
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'PUT'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'PUT'
                                                 iv_path         = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/PhotoSet(''T0404'')/$value'
                                                 iv_body_x       = lv_new
                                                 iv_content_type = 'image/png' ).
@@ -1331,7 +1331,7 @@ CLASS ltcl_media IMPLEMENTATION.
   METHOD not_a_media_entity.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet(''T0001'')/$value' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 400 ).
@@ -1378,7 +1378,7 @@ CLASS ltcl_navigation IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.
@@ -1455,7 +1455,7 @@ CLASS ltcl_navigation IMPLEMENTATION.
 
 * POST to a to-many navigation: the DPC gets the parent key with the path,
 * the payload carries neither TravelId nor a BookingId (the DPC numbers it)
-    ls_response = zcl_stg_dispatcher=>dispatch(
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded(
       iv_method = 'POST'
       iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0002')/to_Bookings`
       iv_body   = `{"Customer":"Alan Turing","FlightDate":"\/Date(1791244800000)\/"}` ).
@@ -1470,20 +1470,20 @@ CLASS ltcl_navigation IMPLEMENTATION.
                                         exp = '2' ).
 
 * a to-one navigation takes no POST, an unknown parent is a business error
-    ls_response = zcl_stg_dispatcher=>dispatch(
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded(
       iv_method = 'POST'
       iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/BookingSet(TravelId='T0002',BookingId='B002')/to_Travel`
       iv_body   = `{"Description":"x"}` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 405 ).
-    ls_response = zcl_stg_dispatcher=>dispatch(
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded(
       iv_method = 'POST'
       iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T9999')/to_Bookings`
       iv_body   = `{"Customer":"Nobody"}` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 400 ).
 
-    ls_response = zcl_stg_dispatcher=>dispatch(
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded(
       iv_method = 'DELETE'
       iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/BookingSet(TravelId='T0002',BookingId='B002')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -1618,7 +1618,7 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
     DATA lt_headers  TYPE tihttpnvp.
     DATA ls_header   TYPE ihttpnvp.
 
-    ls_response = zcl_stg_dispatcher=>dispatch(
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded(
       iv_method = 'POST'
       iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet'
       iv_body   = `{"TravelId":"T0600","Description":"Deep","Status":"A","Seats":2,` &&
@@ -1631,7 +1631,7 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '"Customer":"Alan Turing","FlightDate":"\/Date(1789171200000)\/"' ) ).
 
 * and it is really in the database, reachable through navigation
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0600')/to_Bookings/$count` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-body
                                         exp = '2' ).
@@ -1640,7 +1640,7 @@ CLASS ltcl_deep_insert IMPLEMENTATION.
     ls_header-name  = 'if-match'.
     ls_header-value = '*'.
     APPEND ls_header TO lt_headers.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'DELETE'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'DELETE'
                                                 iv_path    = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0600')`
                                                 it_headers = lt_headers ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -1671,7 +1671,7 @@ CLASS ltcl_function_import IMPLEMENTATION.
   METHOD metadata_has_function_imports.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$metadata' ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<FunctionImport Name="CancelTravel" ReturnType="ZSTG_DEMO_SRV.Travel" EntitySet="TravelSet" m:HttpMethod="POST" sap:action-for="ZSTG_DEMO_SRV.Travel">' ) ).
     cl_abap_unit_assert=>assert_true( boolc( ls_response-body CS '<Parameter Name="TravelId" Type="Edm.String" Mode="In" MaxLength="8"/>' ) ).
@@ -1685,7 +1685,7 @@ CLASS ltcl_function_import IMPLEMENTATION.
     DATA ls_header   TYPE ihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `TravelId='T0002'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'POST'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/CancelTravel'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -1698,7 +1698,7 @@ CLASS ltcl_function_import IMPLEMENTATION.
     ls_header-name  = 'if-match'.
     ls_header-value = '*'.
     APPEND ls_header TO lt_headers.
-    zcl_stg_dispatcher=>dispatch( iv_method  = 'PUT'
+    zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'PUT'
                                   iv_path    = `/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0002')`
                                   iv_body    = '{"Description":"Copenhagen to Aarhus","Status":"A","Seats":1}'
                                   it_headers = lt_headers ).
@@ -1709,7 +1709,7 @@ CLASS ltcl_function_import IMPLEMENTATION.
     DATA lt_options  TYPE tihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `Status='A'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelCount'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -1721,7 +1721,7 @@ CLASS ltcl_function_import IMPLEMENTATION.
   METHOD wrong_verb_is_405.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_DEMO_SRV/CancelTravel' ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
                                         exp = 405 ).
@@ -1764,7 +1764,7 @@ CLASS ltcl_sadl IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.
@@ -2026,7 +2026,7 @@ CLASS ltcl_odc IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.

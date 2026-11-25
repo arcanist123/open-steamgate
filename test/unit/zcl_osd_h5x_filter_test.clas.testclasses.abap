@@ -189,7 +189,7 @@ CLASS ltcl_guard IMPLEMENTATION.
     ls_option-name  = '$filter'.
     ls_option-value = iv_filter.
     APPEND ls_option TO lt_options.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.

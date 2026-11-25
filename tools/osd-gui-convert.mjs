@@ -147,7 +147,9 @@ ${cases}
           APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_input-value ) TO ls_input-ranges.
         ENDIF.
         IF line_exists( lt_input[ name = lv_name ] ).
-          APPEND LINES OF ls_input-ranges TO lt_input[ name = lv_name ]-ranges.
+          " a table expression is not an APPEND target (abaplint 2.120.118 check_syntax)
+          ASSIGN lt_input[ name = lv_name ] TO FIELD-SYMBOL(<ls_merged>).
+          APPEND LINES OF ls_input-ranges TO <ls_merged>-ranges.
         ELSE.
           INSERT ls_input INTO TABLE lt_input.
         ENDIF.

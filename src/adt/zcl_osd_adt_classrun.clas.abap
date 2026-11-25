@@ -126,7 +126,8 @@ CLASS zcl_osd_adt_classrun IMPLEMENTATION.
         lv_json = zcl_osd_adt_host=>system( iv_kind = `DUMP` iv_json = lo_payload->document( ) ).
         lo_json = zcl_ajson=>parse( lv_json ).
         rv_where = lo_json->get_string( `/where` ).
-      CATCH zcx_osd_adt zcx_ajson_error.
+* a member named twice is CX_SY_ITAB_DUPLICATE_KEY in ajson's tree
+      CATCH zcx_osd_adt zcx_ajson_error cx_sy_itab_duplicate_key.
 *       A system has ST22 instead of a host dump table.
         IF ix_root IS NOT BOUND.
           rv_where = iv_error.

@@ -13,7 +13,7 @@ describe("timing", function () {
     for (const name of ["zcl_osd_dsl_dpc_templates", "zcl_osd_dsl_dpc", "zcl_osd_dsl_mapping", "zcl_osd_dsl_dpc_map", "zcl_stg_segw_gen", "zcl_stg_segw_gen_dpc", "zcl_osd_tpl", "zcl_osd_dsl_trace", "zcl_osd_dsl_profile", "zcl_stg_dispatcher", "zcl_ajson"]) await import(`../output/${name}.clas.mjs`);
     const box = (v) => new abap.types.String().set(v);
     const xml = compile(readFileSync("src/segw/zstg_segw.stg.yaml", "utf8"), {file: "zstg_segw.stg.yaml"}).iwpr.replace(/<PROJECT>[^<]+<\/PROJECT>/g, "<PROJECT>ZTIMING</PROJECT>");
-    const r = await abap.Classes.ZCL_STG_DISPATCHER.dispatch({iv_method: box("POST"), iv_path: box("/sap/opu/odata/sap/ZSTG_SEGW_SRV/ImportSet"), iv_body: box(JSON.stringify({Content: xml}))});
+    const r = await abap.Classes.ZCL_STG_DISPATCHER.dispatch_decoded({iv_method: box("POST"), iv_path: box("/sap/opu/odata/sap/ZSTG_SEGW_SRV/ImportSet"), iv_body: box(JSON.stringify({Content: xml}))});
     console.log("import", r.get().status.get());
     const med = (a) => a.sort((x, y) => x - y)[a.length >> 1];
     const model = await abap.Classes.ZCL_STG_SEGW_GEN.build_model({iv_project: box("ZTIMING")});

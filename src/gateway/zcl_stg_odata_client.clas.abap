@@ -117,7 +117,7 @@ CLASS zcl_stg_odata_client IMPLEMENTATION.
     DATA ls_pair TYPE ihttpnvp.
     DATA lx_json TYPE REF TO zcx_stg_error.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = |/sap/opu/odata/sap/{ mv_service }/{ iv_path }|
                                                 it_options = it_options ).
     IF ls_response-status <> 200.

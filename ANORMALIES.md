@@ -4463,8 +4463,9 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
   Nothing imports it and nothing runs the program, so no suite had noticed;
   found by reading every module of the output with acorn
   (`test/output-parses.mjs`, 2026-11-08), which carries the module as a
-  dated exception until it is fixed. Upstream: abaplint/transpiler, needs an
-  issue.
+  dated exception until it is fixed. Fixed upstream in transpiler 2.14.20
+  (a program runs in its exported `$main`, and the `RETURN` returns from
+  it); the exception went with the pin `local/osd-build-4m` (2026-11-25).
 - Seed files of a namespaced table (`#dmo#travel.tabu.json`, abapGit's form,
   because a slash cannot be in a file name) were inserted into a table
   named `#dmo#travel`, which no statement of the runtime reads, and the
@@ -4992,7 +4993,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-18-export-import-shared-memory -- `EXPORT`/`IMPORT ... SHARED MEMORY` transpile to a throw
 
-- Status: `fixed in the pin` for SHARED MEMORY and SHARED BUFFER (oisee/transpiler `local/osd-build-4l`, `8aafdd71` + `c2b0b584` on 4k); every other medium still throws. Not upstream yet
+- Status: `fixed upstream: abaplint/transpiler#2134` for SHARED MEMORY and SHARED BUFFER (merged 2026-11-19 as `73e33f03`, released in 2.14.38; the pin `local/osd-build-4m` is built on it and dropped the fork's `8aafdd71` + `c2b0b584` of 4l)
 - Discovery date: `2026-11-18`
 - Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`statements/export.ts` and `statements/import.ts` return `throw new Error("Export, transpiler todo")` / `"Import, transpiler todo"` for every form of the statement)
 - Affected ABAP statement, runtime API or adapter: `EXPORT name = dobj TO SHARED MEMORY dbtab(ar) ID id` and `IMPORT name = dobj FROM SHARED MEMORY dbtab(ar) ID id` (every other `EXPORT`/`IMPORT` medium alike)
@@ -5002,13 +5003,13 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: the statement compiles and the method throws a plain `Error` the moment it reaches it -- here, the first message of every push-channel connection
 - Impact on open-steamgate: rescued code that keeps state across sessions this way cannot run its push channel (Zork's APC, stage 2 of serving it over HANA); the HTTP route of stage 1 does not reach it
 - Smallest safe workaround: none in OSG -- fixed in the transpiler instead: the runtime keeps one store per medium for the process (the application server's shared memory), keyed by dbtab, client (`sy-mandt` unless `CLIENT` is given), area and ID; `EXPORT` stores copies and replaces the cluster, `IMPORT` of a key without a cluster sets `sy-subrc` 4. Not modelled: the ID cut to the dbtab key length, displacement of SHARED BUFFER, refusal of references in an exported value, and the type check of `IMPORT` (no `CX_SY_IMPORT_MISMATCH_ERROR`: a target of another type is set with the ordinary MOVE conversion). The store is the process's: a recycled process (a warm-compile recycle, a restart) starts with no clusters, like an application server after a restart
-- Upstream issue: needs a PR (abaplint/transpiler), a feature (`main` at `a64f380e`, 2026-11-18, still throws `transpiler todo` for both statements), branch prepared on upstream main, after a critic pass
-- Regression-test location: `test/unit/zcl_osd_shared_memory_test` (5 methods: fail with the 4k pin, pass with 4l); in the transpiler, `test/statements/export_import.ts`
-- Upstream version containing a fix: unknown
+- Upstream issue: abaplint/transpiler#2134 (a feature: `main` at `a64f380e`, 2026-11-18, still threw `transpiler todo` for both statements), from the branch `shared-memory` inside abaplint/transpiler, after a critic pass
+- Regression-test location: `test/unit/zcl_osd_shared_memory_test` (5 methods: fail with the 4k pin, pass with 4l and with 4m, the upstream form); in the transpiler, `test/statements/export_import.ts`
+- Upstream version containing a fix: 2.14.38
 
 ### ANOMALY-2026-11-18-decfloat16-type-todo -- `TYPE decfloat16` transpiles to a constructor that does not exist
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4l`, `e9958256` + `b2998ada`): `decfloat16` runs on the runtime's `DecFloat34`. Not upstream yet
+- Status: `fixed upstream: abaplint/transpiler#2135` (merged 2026-11-19 as `5813c035`, released in 2.14.38): `decfloat16` runs on the runtime's `DecFloat34`, rounded to 16 significant digits since #2244; the pin `local/osd-build-4m` dropped the fork's `e9958256` + `b2998ada` of 4l
 - Discovery date: `2026-11-18`
 - Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`transpile_types.ts` maps every type it does not know to `new abap.types.typeTodo<abaplint class name>()`)
 - Affected ABAP statement, runtime API or adapter: `DATA x TYPE decfloat16` (a method local, an attribute), `CONV decfloat16( ... )`
@@ -5017,7 +5018,24 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: a decimal floating point number of 16 digits
 - Actual open-abap behaviour: the method throws `TypeError` at the declaration
 - Impact on open-steamgate: rescued code with a `decfloat16` local dies at its first line; here every push-channel connection
-- Smallest safe workaround: none in OSG -- the transpiler maps the type to the runtime's `DecFloat34`, an exact decimal. Not modelled: the 16 digit rounding and the range of `decfloat16` (a value with more than 16 significant digits is kept, not rounded), and RTTI: `cl_abap_typedescr` describes such a field as a `decfloat34` (type kind, length)
-- Upstream issue: needs a PR (abaplint/transpiler), branch `decfloat16` prepared on upstream main, after a critic pass
+- Smallest safe workaround: none in OSG -- the transpiler maps the type to the runtime's `DecFloat34` and, since #2244, rounds to 16 significant digits. Not modelled in the fork's form (4l): the 16 digit rounding; still not modelled upstream: the range of `decfloat16`, and RTTI: `cl_abap_typedescr` describes such a field as a `decfloat34` (type kind, length)
+- Upstream issue: abaplint/transpiler#2135, branch `decfloat16` inside abaplint/transpiler, after a critic pass
 - Regression-test location: in the transpiler, `test/types/decfloat16.ts`; in OSG, the push channel served over HANA (docs/hana-serve-icf.md)
-- Upstream version containing a fix: unknown
+- Upstream version containing a fix: 2.14.38
+
+### ANOMALY-2026-11-25-query-escaped-nul -- a query string escape the decoder cannot turn into text empties its field and drops the fields after it
+
+- Status: `workaround` (fail closed: `ZCL_STG_URL=>REFUSE_UNDECODABLE` answers 400 for the whole request)
+- Discovery date: `2026-11-25`
+- Affected versions: open-abap-core since #1352 / #1356 (`cl_http_utility=>unescape_url` and `string_to_fields` as on a system), in the pin `osd/core-rebase-2026-11-25`
+- Affected ABAP statement, runtime API or adapter: `cl_http_utility=>string_to_fields` over a query string with an escape it cannot decode in a value: an escaped NUL (`%00`, error 3), a `%` without two hex digits after it (`%4`, `%4g`, a literal `100%`, error 29), escaped bytes that are not UTF-8 (`%C3` alone, error 512). The ICF shim decodes every request's query with it, the V2 `$batch` its parts' queries; `zcl_osd_form=>parse` (V4) goes through `unescape_url` alike
+- Minimal ABAP reproducer: `lt = cl_http_utility=>string_to_fields( `foo=%4&$filter=x` ).` -- `foo` has no value and `$filter` is not in `lt`; `cl_http_utility=>get_last_error( )` is not 0. Inside one option, `$filter=TravelId%20eq%20'ZZZZ'%4` decodes to an empty `$filter`
+- Exact command used to run it: `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json&foo=%00&$filter=TravelId%20eq%20'ZZZZ'` and `...TravelSet?foo=%4&$filter=TravelId%20eq%20'ZZZZ'` answered 200 with every row before the workaround (critic of #1014, rounds 2 and 3); an empty filter is no filter
+- Expected SAP behaviour: unmeasured -- what a real ICF hands the application in `get_form_fields` for a field it cannot decode and for the fields after it has not been run on A4H
+- Actual open-abap behaviour: the field is empty and every later field is missing
+- Impact on open-steamgate: a filter, an order or a `$top` in or behind such a field is silently gone, so a request answers more rows than it asked for
+- Smallest safe workaround: the V2 and V4 dispatchers take the raw query (of a request and of a `$batch` part, required, not optional) and answer 400 when any part of it does not decode (`ZCL_STG_URL=>UNDECODABLE`, read off the text so that osgo, which decodes natively, is held to the same), before any option is read: "NUL" for `%00`, "malformed escape" for the rest. Path segments and keys go through `ZCL_STG_URL=>UNESCAPE` with the same rule. `%2500` and `+` decode and are accepted
+- Upstream issue: none until measured; the rule may be right on a system too
+- Regression-test location: `test/mocha.mjs` ("an escaped NUL anywhere in the query is a 400 ...", "a malformed escape anywhere in the query is a 400 too ...", "an escaped NUL in a path segment is a 400")
+- Upstream version containing a fix: n/a
+
