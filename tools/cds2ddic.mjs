@@ -22,7 +22,8 @@ import {readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync, rmSync,
 import {createHash} from "node:crypto";
 import {basename, join} from "node:path";
 import {libraryPath} from "./osd-lib-path.mjs";
-import {compositionsOf, namespaced, projectedAssociations, projectionBase, redirectOf, resolveTree} from "./cds-tree.mjs";
+import {projectedAssociations, projectionBase, resolveTree} from "./cds-tree.mjs";
+import {annotationValue, cdsMetadataOf, declaredAssociations, labelOf, metaFieldOf, redirectsOf} from "./cds-metadata.mjs";
 import {castType, edmOf} from "./cds-types.mjs";
 import {pathClass, pathElement} from "./cds-path.mjs";
 import {computedElement, computedSourceClass, constantRead, singletonOf, structureXml} from "./cds-computed.mjs";
@@ -61,6 +62,8 @@ function nodeName(node) { return node.get?.().constructor?.name ?? ""; }
 function children(node) { return node.getChildren?.() ?? []; }
 function find(node, name) { const out = []; const rec = (n) => { if (nodeName(n) === name) out.push(n); for (const c of children(n)) rec(c); }; rec(node); return out; }
 function firstDirect(node, name) { return children(node).find((c) => nodeName(c) === name); }
+// not in #2264: the annotations as source text, which the registry carries and the
+// SADL runtime reads (#2264 gives their values, tools/cds-metadata.mjs)
 function normAnno(text) { return text.replace(/\s*\.\s*/g, ".").replace(/\s*:\s*/g, ": ").replace(/@\s+/g, "@").trim(); }
 
 export function parseDDLS(obj, reg, depth = 0) {
@@ -70,8 +73,11 @@ export function parseDDLS(obj, reg, depth = 0) {
   const name = obj.getName();
   const sqlView = (p.sqlViewName ?? name).toUpperCase();
   const viewAnnotations = children(tree).filter((c) => nodeName(c) === "CDSAnnotation").map((c) => normAnno(tokensOf(c)));
+  // keys, labels, virtual elements, associations and the view's switches come
+  // from the transpiler's CDS metadata (abaplint/transpiler#2264)
+  const meta = cdsMetadataOf(obj, reg);
   // R5: `as projection on` reads the base view's table (tools/cds-tree.mjs)
-  const isProjection = nodeName(tree) === "CDSDefineProjection";
+  const isProjection = meta.definitionType === "PROJECTION_VIEW";
   const projected = isProjection ? projectionBase(tree, reg, name, depth, parseDDLS) : undefined;
   if (projected?.skip) return projected;
   const select = isProjection ? tree : firstDirect(tree, "CDSSelect");
@@ -105,23 +111,25 @@ export function parseDDLS(obj, reg, depth = 0) {
 
   const fields = [];
   const exposedAssociations = [];
-  const associationAnnotations = new Map();
-  const redirects = new Map();
+  // not in #2264: what an element reads (a column, a cast and its type, a
+  // literal, an aggregate, a path) -- its fields carry name, key, virtual and
+  // annotations, which is what is taken from them here
   for (const el of find(select, "CDSElement")) {
     const annos = children(el).filter((c) => nodeName(c) === "CDSAnnotation").map((c) => normAnno(tokensOf(c)));
-    const isKey = children(el).some((c) => nodeName(c) === "Identifier" && tokensOf(c).toLowerCase() === "key");
     const as = firstDirect(el, "CDSAs");
     const alias = as ? tokensOf(firstDirect(as, "CDSName")) : undefined;
     const src = children(el).find((c) => nodeName(c) === "CDSName" || nodeName(c) === "CDSPrefixedName");
     const srcName = src ? tokensOf(src).replace(/\s+/g, "") : undefined;
+    const field = metaFieldOf(meta, alias ?? srcName?.split(".").pop());
+    const isKey = field?.key === true;
+    const elementLabel = labelOf(field?.annotations);
     // a virtual element: no column behind it, an ABAP class calculates it
     // after the read (@ObjectModel.virtualElement + virtualElementCalculatedBy,
     // written as cast( '' as abap.<type> ) as <Name>)
     const cast = firstDirect(el, "CDSCast");
-    if (cast && annos.some((a) => /@ObjectModel\.virtualElement:\s*true/i.test(a))) {
+    if (cast && annotationValue(field?.annotations, "ObjectModel.virtualElement") === true) {
       const fieldName = (alias ?? "").toUpperCase();
-      // normAnno has put a space after every colon, the one inside 'ABAP:...' too
-      const by = annos.map((a) => /@ObjectModel\.virtualElementCalculatedBy:\s*'ABAP:\s*([^']+)'/i.exec(a)?.[1]?.trim()).find(Boolean);
+      const by = /^ABAP:\s*(.+)$/i.exec(String(annotationValue(field.annotations, "ObjectModel.virtualElementCalculatedBy") ?? ""))?.[1]?.trim();
       if (!fieldName || !by) {
         return {name, skip: `virtual element without an alias or a calculating class`};
       }
@@ -129,7 +137,7 @@ export function parseDDLS(obj, reg, depth = 0) {
       if (!t) {
         return {name, skip: `virtual element ${fieldName}: cannot read the cast type`};
       }
-      const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
+      const label = elementLabel;
       fields.push({name: fieldName, base: "", key: false, ...t.edm, abapType: t.abap,
         virtual: true, calculatedBy: by.toUpperCase(), label: label ?? fieldName, annotations: annos});
       continue;
@@ -163,7 +171,7 @@ export function parseDDLS(obj, reg, depth = 0) {
           `(${inner === undefined ? "no column inside it" : "no ABAP type"})`};
       }
       const fieldName = (alias ?? inner).toUpperCase();
-      const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
+      const label = elementLabel;
       fields.push({name: fieldName, element: alias ?? inner.split(".").pop(), base: inner.split(".").pop().toUpperCase(), key: isKey,
         ...t.edm, abapType: t.abap, casted: true, label: label ?? fieldName, annotations: annos});
       continue;
@@ -171,7 +179,7 @@ export function parseDDLS(obj, reg, depth = 0) {
     // R11: a literal (`key 1 as CarrierSingletonID`) is a constant element,
     // an aggregate of the singleton root a computed one (cds-computed.mjs)
     if (!srcName) {
-      const f = computedElement(el, {children, nodeName, tokensOf, firstDirect, annos, isKey, alias, comps, edmOf,
+      const f = computedElement(el, {children, nodeName, tokensOf, firstDirect, annos, label: elementLabel, isKey, alias, comps, edmOf,
         computed: isProjection ? undefined : computed});
       if (f?.skip) return {name, skip: f.skip};
       if (f) fields.push(f);
@@ -180,12 +188,13 @@ export function parseDDLS(obj, reg, depth = 0) {
     // R10: `_Assoc._Next.Element as X [: localized]`, a calculated element
     // (tools/cds-path.mjs)
     if (srcName.startsWith("_") && srcName.includes(".")) {
-      fields.push(pathElement(srcName, alias, annos, tokensOf(el), sqlView));
+      fields.push(pathElement(srcName, alias, annos, elementLabel, tokensOf(el), sqlView));
       continue;
     }
+    // not in #2264: an exposed association is told by its leading underscore;
+    // #2264 lists one whose source it cannot read as a field
     if (srcName.startsWith("_")) {
-      exposedAssociations.push(srcName); associationAnnotations.set(srcName, annos);
-      if (redirectOf(tokensOf(el))) redirects.set(srcName, redirectOf(tokensOf(el)));
+      exposedAssociations.push(srcName);
       continue;
     }
     if (/[()+\-*\/]/.test(srcName) || /^'/.test(srcName)) continue; // expressions: not yet
@@ -205,46 +214,26 @@ export function parseDDLS(obj, reg, depth = 0) {
     // R10: the ABAP type of the column, for a path element that ends here
     const column = comps.get(baseField);
     const typeABAP = below?.typeABAP ?? (column && !/Void|Unknown/.test(column.constructor.name) && !column.containsVoid?.() ? column.toABAP?.() : undefined);
-    const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean) ?? (below && below.label !== below.name ? below.label : undefined);
+    const label = elementLabel ?? (below && below.label !== below.name ? below.label : undefined);
     fields.push({name: fieldName, element: alias ?? srcName.split(".").pop(), base: baseField, key: isKey, ...t, typeABAP, label: label ?? fieldName,
       annotations: below ? [...annos, ...(below.annotations ?? [])] : annos, ...(below ? {fromElement: below.name} : {}),
+      ...(annotationValue(field?.annotations, "Semantics.language") === true || below?.language ? {language: true} : {}),
       ...(below?.aggregate ? {aggregate: below.aggregate} : {})});
   }
 
-  const associations = [];
-  associations.push(...compositionsOf(find(select, "CDSComposition").map(tokensOf), exposedAssociations));
-  for (const a of find(select, "CDSAssociation")) {
-    const card = tokensOf(firstDirect(a, "CDSCardinality")).replace(/\s+/g, "");
-    // `[1]` is `[0..1]` (R10: a path over it is to-one)
-    const m = /\[(\d+)\.\.(\d+|\*)\]/.exec(card) ?? /\[()(\d+|\*)\]/.exec(card)?.map((x, i) => (i === 1 ? "0" : x));
-    const toks = namespaced(tokensOf(a));
-    const toParent = /\bto\s+parent\s+/i.test(toks); // R5: `parent` is not the target
-    const target = /\bto\s+(?:parent\s+)?(\S+)/i.exec(toks)?.[1]?.toUpperCase();
-    const alias = /\bas\s+(\S+)\s+on\b/i.exec(toks)?.[1] ?? target;
-    const cond = tokensOf(firstDirect(a, "CDSCondition")) ?? "";
-    const pairs = [];
-    for (const part of cond.split(/\s+and\s+/i)) {
-      const pm = /\$projection\s*\.\s*(\w+)\s*=\s*\w+\s*\.\s*(\w+)|(\w+)\s*\.\s*(\w+)\s*=\s*\$projection\s*\.\s*(\w+)/i.exec(part);
-      if (pm) pairs.push(pm[1] ? {source: pm[1].toUpperCase(), target: pm[2].toUpperCase()} : {source: pm[5].toUpperCase(), target: pm[4].toUpperCase()});
-    }
-    // RAP's vocabulary, entered through the CDS annotation (backlog B.2):
-    // @ObjectModel.association.type: [#TO_COMPOSITION_CHILD] makes the
-    // target a part of this entity rather than a thing it points at, which
-    // is what lets a delete take the children with it.
-    const assocAnnos = associationAnnotations.get(alias) ?? [];
-    const kind = toParent ? "PARENT" : assocAnnos.map((a) => /@ObjectModel\.association\.type:\s*\[?\s*#TO_COMPOSITION_(CHILD|PARENT|ROOT)/i.exec(a)?.[1]).find(Boolean);
-    associations.push({alias, target, min: toParent ? "1" : m?.[1] ?? "0", max: toParent ? "1" : m?.[2] ?? "*", pairs, exposed: exposedAssociations.includes(alias),
-      composition: kind === undefined ? undefined : kind.toUpperCase()});
-  }
-  if (isProjection) associations.push(...projectedAssociations(projected, exposedAssociations, redirects, associations));
-  const label = viewAnnotations.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean) ?? name;
+  // the ones it declares; a projection's are its base's, retargeted where redirected
+  const declared = find(select, "CDSAssociation").length + find(select, "CDSComposition").length;
+  const associations = declaredAssociations(meta, declared);
+  if (isProjection) associations.push(...projectedAssociations(projected, exposedAssociations, redirectsOf(meta), associations));
+  const label = labelOf(meta.annotations) ?? name;
 
   // a writable projection: the view says so (@ObjectModel.writeEnabled, or
   // the finer create/update/delete switches), it reads from one table, and
   // every key column of that table is a field of the view. Anything else
   // (a join, an aggregate, a key that is not exposed) stays read-only, the
   // way SADL refuses to write through a view it cannot map back.
-  const flag = (pattern) => viewAnnotations.some((a) => new RegExp(`@ObjectModel\\.${pattern}:\\s*true`, "i").test(a));
+  const flag = (name) => annotationValue(meta.annotations, `ObjectModel.${name}`) === true;
+  const analytical = annotationValue(meta.annotations, "Analytics.dataCategory") !== undefined;
   const asked = flag("writeEnabled");
   const isTable = reg.getObject("TABL", source) !== undefined;
   const keyColumns = (table?.listKeys?.(reg) ?? []).map((k) => k.toUpperCase());
@@ -252,14 +241,14 @@ export function parseDDLS(obj, reg, depth = 0) {
   const mandt = comps.has("MANDT");
   const missing = keyColumns.filter((k) => k !== "MANDT" && !mapped.has(k));
   const writable = (asked || flag("createEnabled") || flag("updateEnabled") || flag("deleteEnabled"))
-    && isTable && missing.length === 0 && !viewAnnotations.some((a) => /@Analytics\.dataCategory/i.test(a));
+    && isTable && missing.length === 0 && !analytical;
   const write = {
     asked: asked || flag("createEnabled") || flag("updateEnabled") || flag("deleteEnabled"),
     writable,
     why: !asked && !flag("createEnabled") && !flag("updateEnabled") && !flag("deleteEnabled") ? "the view does not ask for it"
       : !isTable ? `${source} is not a table`
       : missing.length > 0 ? `the key ${missing.join(", ")} of ${source} is not a field of the view`
-      : viewAnnotations.some((a) => /@Analytics\.dataCategory/i.test(a)) ? "an analytical view is read-only"
+      : analytical ? "an analytical view is read-only"
       : "",
     creatable: asked || flag("createEnabled"),
     updatable: asked || flag("updateEnabled"),
@@ -269,7 +258,7 @@ export function parseDDLS(obj, reg, depth = 0) {
   };
   if (fields.length === 0) return {name, skip: `no field of ${source} could be resolved (is the source a view or table of this tree?)`};
   return {name, sqlView, source, fields, associations, exposedAssociations,
-    viewAnnotations, label, write, ...(isProjection ? {projectionOf: projected.name} : {}), ...(computed ? {computed} : {})};
+    viewAnnotations, label, write, publish: annotationValue(meta.annotations, "OData.publish") === true, ...(isProjection ? {projectionOf: projected.name} : {}), ...(computed ? {computed} : {})};
 }
 
 /** The fields of the generated SQL view, in order. A CDS SQL view over a
@@ -999,7 +988,7 @@ export function main() {
     write(classNameOf("zcl_stg_cds_", e.sqlView).toLowerCase() + ".clas.abap", sourceClass(e, byName));
     if (e.fields.some((f) => f.path)) write(classNameOf("zcl_stg_cds_", e.sqlView, "_p").toLowerCase() + ".clas.abap", pathClass(e));
     let published = "";
-    if (e.viewAnnotations.some((a) => /@OData\.publish:\s*true/i.test(a))) {
+    if (e.publish) {
       // the whole set of views is needed: an exposed association pulls its
       // target into the same service
       write(e.name.toLowerCase() + "_cds.stg.yaml", publishedYaml(e, byName));

@@ -14,12 +14,11 @@ import {classNameOf} from "./cds-names.mjs";
 
 /** the calculated element parseDDLS records for `_A._B[1: L = $session.
  *  system_language].Element as Alias [: localized]` (TEXT: its token text) */
-export function pathElement(srcName, alias, annos, text, sqlView) {
+export function pathElement(srcName, alias, annos, label, text, sqlView) {
   // a hop may carry a filter, `_Text[1: Language = $session.system_language]`
   const element = srcName.slice(srcName.lastIndexOf(".") + 1);
   const hops = [...srcName.slice(0, srcName.lastIndexOf(".")).matchAll(/_?\w+(\[[^\]]*\])?/g)].map((m) => m[0]);
   const name = (alias ?? element).toUpperCase();
-  const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
   return {name, element: alias ?? element, base: "", key: false, virtual: true,
     calculatedBy: classNameOf("ZCL_STG_CDS_", sqlView, "_P"), label: label ?? name, annotations: annos,
     path: {source: srcName, hops, element: element.toUpperCase(), localized: /:\s*localized\b/i.test(text)}};
@@ -37,7 +36,7 @@ export function pathElement(srcName, alias, annos, text, sqlView) {
  *  (droppedPaths, with why) -- not served, as before R10 -- and counted with
  *  the exposed associations, where an element without a column always went */
 export function resolvePaths(views, byName) {
-  const language = (v) => (v.fields ?? []).find((f) => (f.annotations ?? []).some((a) => /@Semantics\.language:\s*true/i.test(a)))?.name;
+  const language = (v) => (v.fields ?? []).find((f) => f.language === true)?.name;
   for (const view of views) {
     for (const f of [...(view.fields ?? [])]) {
       if (!f.path) continue;

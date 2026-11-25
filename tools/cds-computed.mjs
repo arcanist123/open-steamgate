@@ -43,7 +43,7 @@ export function literalType(text) {
 
 /** a CDSElement that is a literal (`key 1 as X`, `'A' as Y`), else undefined.
  *  The field is calculated (no column), its value the literal's */
-export function literalElement(el, {children, nodeName, tokensOf, annos, isKey}) {
+export function literalElement(el, {children, nodeName, tokensOf, annos, label, isKey}) {
   const lit = children(el).find((c) => ["CDSInteger", "CDSString"].includes(nodeName(c)));
   if (!lit) return undefined;
   const as = children(el).find((c) => nodeName(c) === "CDSAs");
@@ -52,7 +52,6 @@ export function literalElement(el, {children, nodeName, tokensOf, annos, isKey})
   const t = literalType(tokensOf(lit));
   if (!t) return {skip: `${alias}: a literal of no type this generator reads (${tokensOf(lit)})`};
   const name = alias.toUpperCase();
-  const label = annos.map((a) => /@EndUserText\.label:\s*'([^']*)'/.exec(a)?.[1]).find(Boolean);
   return {field: {name, element: alias, base: "", key: isKey, ...t.edm, abapType: t.abap, typeABAP: t.abap,
     virtual: true, constant: t.value, calculatedBy: "", label: label ?? name, annotations: annos}};
 }
@@ -253,15 +252,14 @@ ${fields.join("\n")}
 
 /** R11: the element of a view that has no source column: a literal (a
  *  constant element) or, in the singleton root, an aggregate */
-export function computedElement(el, {children, nodeName, tokensOf, firstDirect, annos, isKey, alias, comps, edmOf, computed}) {
-  const lit = literalElement(el, {children, nodeName, tokensOf, annos, isKey});
+export function computedElement(el, {children, nodeName, tokensOf, firstDirect, annos, label, isKey, alias, comps, edmOf, computed}) {
+  const lit = literalElement(el, {children, nodeName, tokensOf, annos, label, isKey});
   if (lit?.skip) return lit;
   if (lit) return lit.field;
   const a = computed && firstDirect(el, "CDSAggregate") ? computed.aggregates.find((x) => x.name === (alias ?? "").toUpperCase()) : undefined;
   if (!a) return undefined;
   const count = a.fn === "COUNT";
   const column = comps.get(a.column);
-  const label = annos.map((x) => /@EndUserText\.label:\s*'([^']*)'/.exec(x)?.[1]).find(Boolean);
   return {name: a.name, element: alias, base: count ? "" : a.column, key: isKey, ...(count ? {edm: "Edm.Int32", maxlength: 0} : edmOf(column)),
     typeABAP: count ? "i" : column?.toABAP?.(), ...(count ? {abapType: "i", virtual: true, calculatedBy: ""} : {}),
     aggregate: a, label: label ?? a.name, annotations: annos};
