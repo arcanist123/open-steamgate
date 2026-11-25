@@ -95,3 +95,8 @@ corpus-rap/
 # the osd-hana-dump sidecars tools/osd-hana/fetch-sidecar.mjs places per
 # target for scripts/package-vsix-platforms.mjs: build output, never tracked
 editors/vscode/bin/
+
+# L2 check versions referenced by proof_demo.l3.yaml.
+!/src/l2demo/zcl_l2_proof_ship.clas.trace.meta.json
+!/src/l2demo/zcl_l2_ship_note.clas.trace.meta.json
+!/src/l2demo/zcl_l2_ship_min_captains.clas.trace.meta.json

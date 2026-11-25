@@ -6,6 +6,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dsl:pack": "node tools/dsl-l3-pack.mjs",
     "dsl:build": "node tools/dsl-build.mjs --check",
     "lint": "node tools/cds2ddic.mjs && node tools/rap/bdef-gen.mjs && node tools/stg-compile.mjs --all && node tools/osd-textpool-registry.mjs && node tools/osd-ddic-info-registry.mjs && abaplint",
     "bootstrap": "node tools/osd-bootstrap.mjs",

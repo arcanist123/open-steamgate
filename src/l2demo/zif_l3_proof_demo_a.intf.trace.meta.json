@@ -1,0 +1,458 @@
+{
+  "format": "osd-trace-meta/1",
+  "generator": "dsl-l3",
+  "generator_version": "0.7",
+  "lines": [
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 1
+        },
+        {
+          "invocation": 1,
+          "path": "/source",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/source"},
+          "template": "main",
+          "template_line": 1
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 1,
+      "node": "set/proof_demo/port/a",
+      "path": "/source",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 1
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/port",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/port"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/set",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/set"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 2
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 2,
+      "node": "set/proof_demo/port/a",
+      "path": "/port",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 2
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 3
+        },
+        {
+          "invocation": 1,
+          "path": "/iface",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/iface"},
+          "template": "main",
+          "template_line": 3
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 3,
+      "node": "set/proof_demo/port/a",
+      "path": "/iface",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 3
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 4
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 4
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 4,
+      "node": "set/proof_demo/port/a",
+      "path": "/table",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 4
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 5
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 5,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 5
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/1",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/1"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/group/1/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/1/name"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 7
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 6,
+      "node": "set/proof_demo/port/a",
+      "path": "/group/1/name",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 7
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/2",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/2"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/group/2/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/2/name"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 7
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 7,
+      "node": "set/proof_demo/port/a",
+      "path": "/group/2/name",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 7
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/3",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/3"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/group/3/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/3/name"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 7
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 8,
+      "node": "set/proof_demo/port/a",
+      "path": "/group/3/name",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 7
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/4",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/4"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/group/4/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/group/4/name"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 7
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 9,
+      "node": "set/proof_demo/port/a",
+      "path": "/group/4/name",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 7
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/5",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/group/5/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/name"},
+          "template": "main",
+          "template_line": 7
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"},
+          "template": "main",
+          "template_line": 7
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 10,
+      "node": "set/proof_demo/piles",
+      "path": "/group/5/name",
+      "set_line": 6,
+      "template": "main",
+      "template_line": 7
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 9
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 11,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 9
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 10
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 12,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 10
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 11
+        },
+        {
+          "invocation": 1,
+          "path": "/seq",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/seq"},
+          "template": "main",
+          "template_line": 11
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 13,
+      "node": "set/proof_demo/port/a",
+      "path": "/seq",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 11
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 12
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 14,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 12
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 13
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 15,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 13
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 14
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 16,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 14
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 15
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 17,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 15
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+          "template": "main",
+          "template_line": 16
+        }
+      ],
+      "file": "zif_l3_proof_demo_a.intf.abap",
+      "line": 18,
+      "node": "set/proof_demo/port/a",
+      "path": "/",
+      "set_line": 29,
+      "template": "main",
+      "template_line": 16
+    }
+  ],
+  "model": "sha256:34302b8eecb726f43c0d8e905892dd895c0cc7bfecc1d5f451ce787f48c16f33",
+  "model_serialization": "JSON.stringify (existing writer model)",
+  "outputs": [
+    {"file": "zif_l3_proof_demo_a.intf.abap", "hash": "sha256:73c4fee375b19e75f1a2d1dc8af139e9ccdaa1024d168e8615ae137efb7af987"}
+  ],
+  "set": "src/l2demo/proof_demo.l3.yaml",
+  "template": "recipes/l3-ports/iface-sink.tpl",
+  "templates": {"recipes/l3-ports/iface-sink.tpl": "sha256:902cb3730ccfc253846c5a751994ef22ecdbf45660d1087870f9110d09eee136"}
+}

@@ -1,0 +1,127 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcl_l3_proof_demo_a_capture.clas.abap",
+      "lines": [
+        {
+          "line": 1,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 2,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/port"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/set"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/variant"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 3,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 4,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "lines": [5, 6],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 7,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 8,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "lines": [9, 11],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 12,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "lines": [13, 20],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 21,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "lines": [22, 25],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/capture", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/sink-capture.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        }
+      ]
+    }
+  ]
+}

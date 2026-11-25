@@ -1,0 +1,72 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zif_l3_proof_demo_s.intf.abap",
+      "lines": [
+        {
+          "line": 1,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/iface-source.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 2,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/port"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/set"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/iface-source.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 3,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/iface-source.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 4,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/iface-source.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 5,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/key"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/iface-source.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [6, 10],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/iface-source.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        }
+      ]
+    }
+  ]
+}

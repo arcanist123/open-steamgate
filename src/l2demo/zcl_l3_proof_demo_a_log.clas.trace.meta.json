@@ -1,0 +1,716 @@
+{
+  "format": "osd-trace-meta/1",
+  "generator": "dsl-l3",
+  "generator_version": "0.7",
+  "lines": [
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 1
+        },
+        {
+          "invocation": 1,
+          "path": "/source",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/source"},
+          "template": "main",
+          "template_line": 1
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 1,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/source",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 1
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/port",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/port"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/set",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/set"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/table"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/variant",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/variant"},
+          "template": "main",
+          "template_line": 2
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 2,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/port",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 2
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 3
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/class"},
+          "template": "main",
+          "template_line": 3
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 3,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/class",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 3
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 4
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 4,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 4
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 5
+        },
+        {
+          "invocation": 1,
+          "path": "/iface",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/iface"},
+          "template": "main",
+          "template_line": 5
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 5,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/iface",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 5
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 6
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 6,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 6
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 7
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 7,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 7
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 8
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/class"},
+          "template": "main",
+          "template_line": 8
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 8,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/class",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 8
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 9
+        },
+        {
+          "invocation": 1,
+          "path": "/iface",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/iface"},
+          "template": "main",
+          "template_line": 9
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 9,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/iface",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 9
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 10
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 10,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 10
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 11
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 11,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 11
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 12
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 12,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 12
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 13
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/table"},
+          "template": "main",
+          "template_line": 13
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 13,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/table",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 13
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 14
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 14,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 14
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 15
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 15,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 15
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 16
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 16,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 16
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 17
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/table"},
+          "template": "main",
+          "template_line": 17
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 17,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/table",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 17
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 18
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 18,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 18
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 19
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 19,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 19
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 20
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 20,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 20
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 21
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 21,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 21
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 22
+        },
+        {
+          "invocation": 1,
+          "path": "/table",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/table"},
+          "template": "main",
+          "template_line": 22
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 22,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/table",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 22
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/1",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/1"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/1/lead",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/1/lead"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/1/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/1/name"},
+          "template": "main",
+          "template_line": 24
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 23,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/group/1/lead",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 24
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/2",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/2"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/2/lead",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/2/lead"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/2/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/2/name"},
+          "template": "main",
+          "template_line": 24
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 24,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/group/2/lead",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 24
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/3",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/3"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/3/lead",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/3/lead"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/3/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/3/name"},
+          "template": "main",
+          "template_line": 24
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 25,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/group/3/lead",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 24
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/4",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/4"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/4/lead",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/4/lead"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/4/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/group/4/name"},
+          "template": "main",
+          "template_line": 24
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 26,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/group/4/lead",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 24
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/group/5",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/5/lead",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/lead"},
+          "template": "main",
+          "template_line": 24
+        },
+        {
+          "invocation": 1,
+          "path": "/group/5/name",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/name"},
+          "template": "main",
+          "template_line": 24
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 27,
+      "node": "set/proof_demo/piles",
+      "path": "/group/5/lead",
+      "set_line": 6,
+      "template": "main",
+      "template_line": 24
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 26
+        },
+        {
+          "invocation": 1,
+          "path": "/seq",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/seq"},
+          "template": "main",
+          "template_line": 26
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 28,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/seq",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 26
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 27
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 29,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 27
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a/variant/log", "selector": "/"},
+          "template": "main",
+          "template_line": 28
+        }
+      ],
+      "file": "zcl_l3_proof_demo_a_log.clas.abap",
+      "line": 30,
+      "node": "set/proof_demo/port/a/variant/log",
+      "path": "/",
+      "set_line": 34,
+      "template": "main",
+      "template_line": 28
+    }
+  ],
+  "model": "sha256:50648f523336a09f36329031221fc269860e1210dea508fde47374a360ad3eb6",
+  "model_serialization": "JSON.stringify (existing writer model)",
+  "outputs": [
+    {"file": "zcl_l3_proof_demo_a_log.clas.abap", "hash": "sha256:685f3ebd6b7df135be62dc64047bed172c98f60193db40ebef92f27712f68e72"}
+  ],
+  "set": "src/l2demo/proof_demo.l3.yaml",
+  "template": "recipes/l3-ports/sink-log.tpl",
+  "templates": {"recipes/l3-ports/sink-log.tpl": "sha256:1ccc2d243f2df7a314be11f277f4fbb74e73e4ec0689c9e498bd2c84806daacd"}
+}
