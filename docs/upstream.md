@@ -266,7 +266,7 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     needed: Lars fixed upstream what the parser and the runtime's `CLEAR` of
     a `TABLES` parameter broke there (open-abap-core #1331, #1334, #1336,
     #1337, #1345, including `CONVERT_ITF_TO_STREAM_TEXT`'s
-    `CLEAR text_stream[]`; open-abap-gui #231). The pins moved onto
+    `CLEAR text_stream[]`; open-abap/open-abap-gui#231). The pins moved onto
     upstream: `oisee/open-abap-core` `osd/core-rebase-2026-11-25` is
     upstream main plus the three commits open-steamgate still holds
     (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook), which
