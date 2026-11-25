@@ -178,6 +178,7 @@
     "\\.stg\\.yaml$",
     "\\.l2\\.yaml$",
     "\\.l3\\.yaml$",
+    "(?:^|/)\\.dsl-pack\\.json$",
     "\\.trace(?:\\.meta)?\\.json$"
   ],
   "_not_in_system": "Which of the exclusions above also mean 'this is not an object of this system'. The rest mean only 'the transpiler cannot read this file', which says nothing about whether the object exists: a CDS view is excluded by \\.ddls\\. and is very much an object here. The distinction is intent and cannot be inferred from the pattern - three attempts at inferring it were wrong in three different directions - so it is stated. Every entry must also be in exclude_filter, and test/store-exclusions.mjs checks that, so the two cannot drift. test/fixtures joined the list on 2026-09-19, after a check run over the whole tree complained, correctly about the object and falsely about the system, that a fixture selects from a table the system does not have: the fixture is not in the system, and the one test that read it as one now reads a program that is.",
@@ -187,6 +188,7 @@
     "\\.stg\\.yaml$",
     "\\.l2\\.yaml$",
     "\\.l3\\.yaml$",
+    "(?:^|/)\\.dsl-pack\\.json$",
     "\\.trace(?:\\.meta)?\\.json$",
     "\\.samc\\.model\\.json$",
     "\\.samc\\.decl\\.json$"

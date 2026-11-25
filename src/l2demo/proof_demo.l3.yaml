@@ -1,0 +1,35 @@
+# Generated end-to-end proof, using only the public L2 examples.
+set: proof_demo
+title: Examples carried through the set runner and its sinks
+date: $date
+proof: generated
+piles: {source: s, size: 1}
+rules:
+  - rule: proof_ship.l2.yaml
+  - rule: ship_note.l2.yaml
+  - rule: ship_min_captains.l2.yaml
+  # Explicitly skipped: this set has no voyage source port.
+  - rule: maintenance_ship.l2.yaml
+ports:
+  n:
+    kind: source
+    table: ZOSD_L2_NOTE
+    key: ship_id
+    variants: {table: generated}
+  s:
+    kind: source
+    table: ZOSD_L2_SHIP
+    key: ship_id
+    variants: {table: generated}
+  c:
+    kind: source
+    table: ZOSD_L2_CREW
+    key: crew_id
+    variants: {table: generated}
+  a:
+    kind: sink
+    table: ZOSD_L3_ALERT
+    group: [set_name, rule_name, model_hash, check_date]
+    seq: alert_seq
+    variants: {log: generated, dummy: generated, capture: generated}
+bindings: {n: table, s: table, c: table, a: log}

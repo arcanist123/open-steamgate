@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {compileProof, renderProof} from "./dsl-l3-proof.mjs";
 import {templateOrigins} from "./dsl-trace-origins.mjs";
 import {convertFiles, enrichTrace, legacyTrace, readTraceFile, traceArgs} from "./dsl-trace.mjs";
 // DSL L3: a set of L2 rules run as one unit, with a durable alert log and a
@@ -153,7 +154,7 @@ export function classShape(text, name, className) {
   return shape.line === undefined ? undefined : shape;
 }
 
-const KEYS = ["set", "title", "class", "report", "date", "rules", "stages", "params", "piles", "ports", "bindings", "schedule", "resilience", "settings", "governor", "simulate", "cockpit", "snapshots", "input"];
+const KEYS = ["set", "title", "class", "report", "date", "rules", "stages", "params", "piles", "ports", "bindings", "schedule", "resilience", "settings", "governor", "simulate", "cockpit", "snapshots", "input", "proof"];
 const PORT_KEYS = ["kind", "table", "key", "group", "seq", "variants"];
 const PORT_NAME = /^[a-z][a-z0-9_]{0,11}$/;
 const RULE_KEYS = ["rule", "enabled"];
@@ -162,8 +163,6 @@ const CHAR = (length) => ({built_in: "CHAR", length});
 export class SetError extends RuleError {}
 
 const path = (file) => relative(process.cwd(), file).split(sep).join("/");
-
-
 // the source of a hand-written variant class, beside the set or under src
 function findClassFile(className, roots) {
   const name = `${className}.clas.abap`;
@@ -518,11 +517,11 @@ export function compileSet(file, {ddic, registry, out} = {}) {
     has_profile: chaos.includes("simulate.profile"), has_dump: chaos.includes("simulate.dump"), has_hang: chaos.includes("simulate.hang"),
     has_slow: chaos.includes("simulate.slow"), has_hits: chaos.includes("simulate.hits_mean"), has_close: chaos.includes("simulate.autoclose")};
   if (doc.cockpit !== undefined) model.cockpit = compileCockpit(doc, model, {line, fail});
+  if (doc.proof !== undefined) model.proof = compileProof(doc.proof, model, all, {line, fail});
   Object.defineProperty(model, "where", {value: where});
   return model;
 }
 
-// the nearest node with an @id on a trace path (1-based array indexes)
 function provenance(model, tracePath) {
   let current = model, node = model;
   for (const part of String(tracePath ?? "").split("/").filter(Boolean)) {
@@ -676,7 +675,7 @@ export async function renderSet(model) {
   }
   return {
     files: convertFiles({
-      ...extra.files,
+      ...extra.files, ...await renderProof(model, {renderRecipe, sidecar, classXml}),
       ...remoteFiles,
       ...(model.cockpit ? await renderCockpit(model) : {}),
       ...(model.settings ? Object.fromEntries(results.slice(-2).flatMap(([name, result]) => [

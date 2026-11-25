@@ -1,0 +1,110 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcl_l3_proof_demo_n_table.clas.abap",
+      "lines": [
+        {
+          "line": 1,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 2,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/port"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/set"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/variant"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 3,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 4,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 5,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [6, 7],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 8,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 9,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 10,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/key"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "lines": [11, 12],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n/variant/table", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-ports/source-table.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        }
+      ]
+    }
+  ]
+}
