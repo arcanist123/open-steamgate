@@ -84,18 +84,27 @@ the code:
   void (core resolves its fields so); the fields are typed through the base
   view down to its table (`projectionBase`).
 - **Which elements are exposed associations**: told by the leading
-  underscore. #2264 lists an exposure whose source it cannot read (a view
-  outside this tree) as a field.
+  underscore, compared case-insensitively, one rule for the association's
+  `exposed` and for the list the projections and publishing read. #2264's
+  flag also counts an exposure without an underscore (an association named
+  by its target), which this reads as a column as it always did, and it
+  lists an exposure whose source it cannot read as a field; where the flag
+  and the underscore differ the build says so.
 - **Pairs it has no condition for**: a composition's (the reverse of the
   child's to-parent, `resolveCompositions`) and a projected association's
   (renamed through both projections, `resolveProjections`; #2264 keeps the
   source's ON text).
 - **Sources, joins, WHERE, the singleton root**, the write chain and the
   client field: nothing in the metadata describes them.
-- **DDLX, view parameters, union branches after the first**: neither reads
-  them.
+- **DDLX and view parameters**: neither reads them. A union is not
+  generated (its sources are two), and an association declared in a union
+  branch after the first is refused by name: #2264 reads the first select's
+  associations only, so the declared ones are counted as its direct
+  children.
 
-One workaround: #2264 writes a namespaced redirected target as its token
+`cds-metadata.mjs` needs `@abaplint/transpiler` 2.14.38 or later and says
+so when the module is not there (`package.json` asks for 2.14.38; the build
+links the pin). One workaround: #2264 writes a namespaced redirected target as its token
 text, `/ DMO / C_X`, so `cds-metadata.mjs` takes the blanks out
 (ANORMALIES `ANOMALY-2026-11-25-cds-metadata-redirect-namespace`). A
 registry parsed by another copy of `@abaplint/core` than the transpiler's

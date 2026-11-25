@@ -82,6 +82,15 @@ export function parseDDLS(obj, reg, depth = 0) {
   if (projected?.skip) return projected;
   const select = isProjection ? tree : firstDirect(tree, "CDSSelect");
   if (!select) return {name, skip: "no select"};
+  // #2264 reads the associations of the first select only, so the ones a view
+  // declares are its select's direct children; a union branch's are refused
+  const own = (node) => children(node).filter((c) => ["CDSAssociation", "CDSComposition"].includes(nodeName(c))).length;
+  const declared = own(select);
+  if (find(select, "CDSAssociation").length + find(select, "CDSComposition").length !== declared) {
+    return {name, skip: "an association declared in a union branch after the first: the CDS metadata reads the first select only"};
+  }
+  // not in #2264: the sources, joins, WHERE and the singleton root below, and
+  // the write chain and client field after the fields
   const sources = isProjection ? [projected.source]
     : find(select, "CDSSource").map((s) => tokensOf(s).replace(/\s+as\s+\w+$/i, "").trim().toUpperCase());
   // R11: the singleton root (a left outer join on 0 = 0 with aggregates and
@@ -217,13 +226,17 @@ export function parseDDLS(obj, reg, depth = 0) {
     const label = elementLabel ?? (below && below.label !== below.name ? below.label : undefined);
     fields.push({name: fieldName, element: alias ?? srcName.split(".").pop(), base: baseField, key: isKey, ...t, typeABAP, label: label ?? fieldName,
       annotations: below ? [...annos, ...(below.annotations ?? [])] : annos, ...(below ? {fromElement: below.name} : {}),
-      ...(annotationValue(field?.annotations, "Semantics.language") === true || below?.language ? {language: true} : {}),
+      ...(below?.language ? {language: true} : {}),
       ...(below?.aggregate ? {aggregate: below.aggregate} : {})});
   }
 
   // the ones it declares; a projection's are its base's, retargeted where redirected
-  const declared = find(select, "CDSAssociation").length + find(select, "CDSComposition").length;
-  const associations = declaredAssociations(meta, declared);
+  // the language key a localized path compares with, on any kind of element
+  for (const f of fields) {
+    if (annotationValue(metaFieldOf(meta, f.element ?? f.name)?.annotations, "Semantics.language") === true) f.language = true;
+  }
+  const associations = declaredAssociations(meta, declared, exposedAssociations,
+    (why) => console.log(`cds2ddic: ${name}: ${why}`));
   if (isProjection) associations.push(...projectedAssociations(projected, exposedAssociations, redirectsOf(meta), associations));
   const label = labelOf(meta.annotations) ?? name;
 
@@ -364,6 +377,7 @@ ${dd27}
  * generated `to_base` stays one hop: view field -> base column, whatever the
  * depth it came from.
  */
+// not in #2264: the write chain (nothing in the metadata says what a view writes)
 export function resolveWriteChain(views, byName, depth = 8) {
   for (const view of views) {
     const below = byName.get(String(view.source ?? "").toUpperCase());
@@ -431,8 +445,9 @@ export function inheritAssociations(views, byName) {
     const source = byName.get(String(view.source ?? "").toUpperCase());
     if (source === undefined) continue;                 // it selects from a table
     for (const name of view.exposedAssociations ?? []) {
-      if ((view.associations ?? []).some((a) => a.alias === name)) continue;
-      const inherited = (source.associations ?? []).find((a) => a.alias === name);
+      const same = (a) => String(a.alias).toUpperCase() === name.toUpperCase();
+      if ((view.associations ?? []).some(same)) continue;
+      const inherited = (source.associations ?? []).find(same);
       if (inherited === undefined) {
         view.unresolvedAssociations = [...(view.unresolvedAssociations ?? []), name];
         continue;

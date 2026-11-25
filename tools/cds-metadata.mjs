@@ -13,9 +13,13 @@
 // module file; exporting it is a one-line upstream change (drafted, not sent).
 // What #2264 does not give stays in cds2ddic.mjs and its helpers, each place
 // marked "not in #2264" (the list is in docs/cds-publish.md).
-import transpilerCds from "@abaplint/transpiler/build/src/cds_metadata.js";
-
-const {CDSMetadata} = transpilerCds;
+let CDSMetadata;
+let missing;
+try {
+  ({CDSMetadata} = (await import("@abaplint/transpiler/build/src/cds_metadata.js")).default);
+} catch (error) {
+  missing = error;
+}
 const KNOWN = new Set(["VIEW", "VIEW_ENTITY", "PROJECTION_VIEW", "ABSTRACT_ENTITY", "CUSTOM_ENTITY",
   "TABLE_FUNCTION", "HIERARCHY", "TABLE_ENTITY", "EXTERNAL_ENTITY"]);
 const readers = new WeakMap();
@@ -25,15 +29,23 @@ const nameOf = (target) => String(target).replace(/\s+/g, "").toUpperCase();
 
 /** the #2264 metadata of a DDLS object of `reg` */
 export function cdsMetadataOf(obj, reg) {
+  if (CDSMetadata === undefined) {
+    throw new Error("cds2ddic: needs @abaplint/transpiler 2.14.38 or later, whose CDSMetadata " +
+      `(build/src/cds_metadata.js) this reads; see the transpiler pin, node tools/osd-transpiler-pin.mjs (${missing?.message ?? "no CDSMetadata export"})`);
+  }
   let reader = readers.get(reg);
   if (reader === undefined) readers.set(reg, reader = new CDSMetadata(reg));
-  const meta = reader.build(obj);
-  // CDSMetadata tells the node types apart with instanceof: a registry parsed by
-  // another copy of @abaplint/core gives no annotations and no fields, and names
-  // the definition by its class. Said, never generated from.
+  return checkedDefinition(obj.getName(), reader.build(obj));
+}
+
+/** CDSMetadata tells the node types apart with instanceof: a registry parsed by
+ *  another copy of @abaplint/core gives no annotations and no fields, and names
+ *  the definition by its class. Said, never generated from */
+export function checkedDefinition(name, meta) {
   if (meta !== undefined && !KNOWN.has(meta.definitionType)) {
-    throw new Error(`cds2ddic: ${obj.getName()}: the transpiler reads it as ${meta.definitionType}; ` +
-      "@abaplint/transpiler resolves another @abaplint/core than this tree (node tools/osd-transpiler-pin.mjs)");
+    throw new Error(`cds2ddic: ${name}: the transpiler reads it as ${meta.definitionType}: either ` +
+      "@abaplint/transpiler resolves another @abaplint/core than this tree (node tools/osd-transpiler-pin.mjs), " +
+      "or it knows a definition type this generator does not (add it to KNOWN in tools/cds-metadata.mjs)");
   }
   return meta;
 }
@@ -88,22 +100,36 @@ export function pairsOf(condition) {
 /** the associations and compositions the view declares itself, in cds2ddic's
  *  record: compositions first, then the associations, each in source order.
  *  CDSMetadata lists the declared ones before those its elements take over from
- *  a source, so they are the first `declared` entries */
-export function declaredAssociations(meta, declared) {
+ *  a source, so they are the first `declared` entries (the direct children of
+ *  the first select, counted by the caller).
+ *
+ *  Exposed is one rule for the record and for cds2ddic's list of exposed
+ *  elements: an element whose name starts with an underscore names an
+ *  association, compared case-insensitively. Not in #2264 in that form: its
+ *  flag also counts an exposure without an underscore (`ZI_X` for an
+ *  association without an alias), which cds2ddic reads as a column. Where the
+ *  two differ, `warn` says so */
+export function declaredAssociations(meta, declared, exposedNames = [], warn = () => {}) {
+  const exposed = new Set(exposedNames.map((n) => String(n).toUpperCase()));
   const own = (meta?.associations ?? []).slice(0, declared);
   const record = (a) => {
     const toParent = a.type === "TO_PARENT";
     const upper = nameOf(a.target);
     const kind = toParent ? "PARENT" : a.type === "COMPOSITION" ? "CHILD"
       : /^TO_COMPOSITION_(CHILD|PARENT|ROOT)$/.exec(enumOf(annotationValue(a.annotations, "ObjectModel.association.type")) ?? "")?.[1];
-    return {alias: a.name === a.target ? upper : a.name, target: upper,
+    const alias = a.name === a.target ? upper : a.name;
+    const ours = exposed.has(alias.toUpperCase());
+    if (ours !== a.exposed) {
+      warn(`${alias} is ${a.exposed ? "" : "not "}exposed in the CDS metadata and ${ours ? "" : "not "}by its leading underscore; the underscore decides`);
+    }
+    return {alias, target: upper,
       min: toParent ? "1" : String(a.cardinality?.min ?? 0), max: toParent ? "1" : String(a.cardinality?.max ?? "*"),
-      pairs: pairsOf(a.condition), exposed: a.exposed, composition: kind};
+      pairs: pairsOf(a.condition), exposed: ours, composition: kind};
   };
   return [...own.filter((a) => a.type === "COMPOSITION"), ...own.filter((a) => a.type !== "COMPOSITION")].map(record);
 }
 
-/** a projection's redirected targets: exposed association -> target, upper case */
+/** a projection's redirected targets: exposed association (upper case) -> target, upper case */
 export function redirectsOf(meta) {
-  return new Map((meta?.associations ?? []).filter((a) => a.exposed).map((a) => [a.name, nameOf(a.target)]));
+  return new Map((meta?.associations ?? []).filter((a) => a.exposed).map((a) => [a.name.toUpperCase(), nameOf(a.target)]));
 }

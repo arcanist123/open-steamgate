@@ -32,10 +32,11 @@ export function projectionBase(tree, reg, name, depth, parseDDLS) {
 export function projectedAssociations(base, exposed, redirects, own) {
   const out = [];
   for (const alias of exposed) {
-    if (own.some((a) => a.alias === alias)) continue;
-    const a = base.associations.find((x) => x.alias === alias);
+    const same = (x) => String(x.alias).toUpperCase() === alias.toUpperCase();
+    if (own.some(same)) continue;
+    const a = base.associations.find(same);
     if (a === undefined) continue;
-    out.push({...a, target: redirects.get(alias) ?? a.target, pairs: [], exposed: true,
+    out.push({...a, target: redirects.get(alias.toUpperCase()) ?? a.target, pairs: [], exposed: true,
       projectedFrom: {view: base.name, target: a.target}});
   }
   return out;
