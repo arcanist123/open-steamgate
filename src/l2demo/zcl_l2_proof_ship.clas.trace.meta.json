@@ -1,0 +1,904 @@
+{
+  "format": "osd-trace-meta/1",
+  "generator": "dsl-l2",
+  "generator_version": "0.7",
+  "lines": [
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 1
+        },
+        {
+          "invocation": 1,
+          "path": "/source",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/source"},
+          "template": "main",
+          "template_line": 1
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 1,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/source",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 1
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/rule",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/rule"},
+          "template": "main",
+          "template_line": 2
+        },
+        {
+          "invocation": 1,
+          "path": "/title",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/title"},
+          "template": "main",
+          "template_line": 2
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 2,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/rule",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 2
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 3
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/class"},
+          "template": "main",
+          "template_line": 3
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 3,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/class",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 3
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 4
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 4,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 4
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/range",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/"},
+          "template": "main",
+          "template_line": 6
+        },
+        {
+          "invocation": 1,
+          "path": "/range/field",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/field"},
+          "template": "main",
+          "template_line": 6
+        },
+        {
+          "invocation": 1,
+          "path": "/range/table",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/table"},
+          "template": "main",
+          "template_line": 6
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 5,
+      "node": "rule/proof-maintenance-ship/range",
+      "path": "/range/table",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 6
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 13
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 6,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 13
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 14
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 7,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 14
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/range",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/"},
+          "template": "main",
+          "template_line": 16
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 8,
+      "node": "rule/proof-maintenance-ship/range",
+      "path": "/range",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 16
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 26
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 9,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 26
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 42
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 10,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 42
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 43
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 11,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 43
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 44
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/class"},
+          "template": "main",
+          "template_line": 44
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 12,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/class",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 44
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 45
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 13,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 45
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 46
+        },
+        {
+          "invocation": 1,
+          "path": "/comment",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/comment"},
+          "template": "main",
+          "template_line": 46
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 14,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/comment",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 46
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 48
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 48
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 15,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1/type",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 48
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/column",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/column"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/name",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/name"},
+          "template": "main",
+          "template_line": 50
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/table",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/table"},
+          "template": "main",
+          "template_line": 50
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 16,
+      "node": "rule/proof-maintenance-ship/join/field/1",
+      "path": "/queries/1/fields/1/name",
+      "rule_line": 5,
+      "template": "main",
+      "template_line": 50
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 52
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 52
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 17,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1/type",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 52
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 53
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 53
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 53
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 18,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1/itab",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 53
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 54
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 54
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 54
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 19,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1/wa",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 54
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 87
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 20,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 87
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 160
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 21,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 160
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/"},
+          "template": "main",
+          "template_line": 175
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/name",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/name"},
+          "template": "main",
+          "template_line": 175
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/fields/1/source",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/field/1", "selector": "/source"},
+          "template": "main",
+          "template_line": 175
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 22,
+      "node": "rule/proof-maintenance-ship/join/field/1",
+      "path": "/queries/1/fields/1/source",
+      "rule_line": 5,
+      "template": "main",
+      "template_line": 175
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/from",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/for", "selector": "/"},
+          "template": "main",
+          "template_line": 179
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/from/alias",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/for", "selector": "/alias"},
+          "template": "main",
+          "template_line": 179
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/from/table",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/for", "selector": "/table"},
+          "template": "main",
+          "template_line": 179
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 23,
+      "node": "rule/proof-maintenance-ship/for",
+      "path": "/queries/1/from/table",
+      "rule_line": 5,
+      "template": "main",
+      "template_line": 179
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 187
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 187
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 24,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1/itab",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 187
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/when/1", "selector": "/"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/is_cmp",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/when/1", "selector": "/is_cmp"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/lhs",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/when/1", "selector": "/lhs"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/op",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/when/1", "selector": "/op"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/pre",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/when/1", "selector": "/pre"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/1/value",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/when/1", "selector": "/value"},
+          "template": "main",
+          "template_line": 189
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 25,
+      "node": "rule/proof-maintenance-ship/when/1",
+      "path": "/queries/1/where/1/pre",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 189
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/2",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/2/is_cmp",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/is_cmp"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/2/lhs",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/lhs"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/2/op",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/op"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/2/pre",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/pre"},
+          "template": "main",
+          "template_line": 189
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/where/2/sref",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/range", "selector": "/sref"},
+          "template": "main",
+          "template_line": 189
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 26,
+      "node": "rule/proof-maintenance-ship/range",
+      "path": "/queries/1/where/2/pre",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 189
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 191
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 27,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 191
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/order/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/order/1", "selector": "/"},
+          "template": "main",
+          "template_line": 193
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/order/1/source",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join/order/1", "selector": "/source"},
+          "template": "main",
+          "template_line": 193
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 28,
+      "node": "rule/proof-maintenance-ship/join/order/1",
+      "path": "/queries/1/order/1/source",
+      "rule_line": 5,
+      "template": "main",
+      "template_line": 193
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 304
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/itab",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/itab"},
+          "template": "main",
+          "template_line": 304
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 304
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 29,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1/itab",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 304
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/alert/hole/1", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1/jref",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/alert/hole/1", "selector": "/jref"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 30,
+      "node": "rule/proof-maintenance-ship/alert/hole/1",
+      "path": "/queries/1/alert_parts/1/jref",
+      "rule_line": 9,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/alert/text/1", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2/value",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/alert/text/1", "selector": "/value"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 31,
+      "node": "rule/proof-maintenance-ship/alert/text/1",
+      "path": "/queries/1/alert_parts/2/value",
+      "rule_line": 9,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 385
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 32,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 385
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/join", "selector": "/"},
+          "template": "main",
+          "template_line": 387
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 33,
+      "node": "rule/proof-maintenance-ship/join",
+      "path": "/queries/1",
+      "rule_line": 8,
+      "template": "main",
+      "template_line": 387
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 439
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 34,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 439
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship", "selector": "/"},
+          "template": "main",
+          "template_line": 505
+        }
+      ],
+      "file": "zcl_l2_proof_ship.clas.abap",
+      "line": 35,
+      "node": "rule/proof-maintenance-ship",
+      "path": "/",
+      "rule_line": 2,
+      "template": "main",
+      "template_line": 505
+    }
+  ],
+  "model": "sha256:a11b4aed93b3914f8952020bf95339bab467efa3d34323ee656e401379b80129",
+  "model_serialization": "JSON.stringify (existing writer model)",
+  "outputs": [
+    {"file": "zcl_l2_proof_ship.clas.abap", "hash": "sha256:bdb5a1e36d2739077500ec11b09368e489dc5d9eb1220dd42c51aaea58750e46"}
+  ],
+  "rule": "src/l2demo/proof_ship.l2.yaml",
+  "template": "recipes/l2-check/template.tpl",
+  "templates": {"recipes/l2-check/template.tpl": "sha256:0c78088f1afb165f0a95164bbd0c8a0dc7e3db70a793672df7cc00af9b55c5d7"}
+}

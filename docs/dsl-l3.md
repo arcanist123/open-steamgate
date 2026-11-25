@@ -187,6 +187,58 @@ carried is an error.
   copy that passes the same check: `INSERT` for `MODIFY`, one rule dropped from `rules( )`, and a
   wrong model hash constant. Each makes the log check report a problem.
 
+### Generated proof
+
+Opt in with `proof: generated`, or `proof: {class: zcl_my_set_proof}` to
+choose the class name. The default is `zcl_l3_<set>_proof`. `dsl-l3 build`
+emits the global class, its ABAP Unit include, class XML with unit tests
+enabled, and `osd-trace/1` sidecars. `dsl-l3-pack` includes the proof as a
+generated object automatically. Without `proof:` the output is unchanged.
+
+The local test class has one method per enabled rule, named from the rule.
+It groups that rule's L2 `examples:` by date, seeds their combined rows (an
+identical row with the same key is inserted once), and compares the alert
+texts with the union of their `expect:` lists, independent of order. Each
+date gets its own mode S run through the generated table sources and log
+sink, including the set's pile planner. The read selects this run and rule;
+alerts from other rules sharing the tables do not affect the comparison.
+Every selected row must carry the runner's `c_hash_<n>` for that rule.
+
+For each date the proof also runs the dummy sink, asserting that the run
+writes no log rows, and the capture sink, asserting the same rule's texts
+and hashes as the log run. Every run must return mode S and status DONE,
+with all enabled rules present, DONE and failed = 0. Setup deletes all rows
+of the set's source tables; each date starts clean and teardown removes
+the fixtures, this set's alert/plan/lock rows and captured rows. These are
+`RISK LEVEL DANGEROUS` tests for a disposable test client.
+
+A rule that cannot be isolated retains its method and calls
+`cl_abap_unit_assert=>skip( msg = ... )`, followed by RETURN. Open-abap's
+skip currently returns without reporting a skipped count: the reason is
+also recorded in the trace navigation metadata's `skips` list. Reasons
+include missing source tables or generated variants, incompatible rows
+with the same key, a combined fixture whose alerts differ from the union,
+example ranges or parameter overrides the date-level run cannot express,
+and set parameter defaults differing from the rule's. Staged sets and
+execution overlays (governor, simulation or remote execution) are currently
+marked unsupported for isolation. No examples are silently dropped.
+The proof requires generated table variants on every source and log,
+dummy and capture variants on the sink.
+
+Trace origins name the set's `proof:` and rule-entry lines, and the rule
+YAML's row/field and expected-text lines. Optional `.trace.meta.json`
+files hold navigation and skip reasons; the stable sidecars retain source
+identities. Long field assignments and expected texts reuse L2's G23
+literal splitting, keeping generated ABAP lines within 255 characters.
+
+`src/l2demo/proof_demo.l3.yaml` demonstrates a piled rule on two dates,
+aggregate alerts, a full-width note, and an explicit missing-source skip.
+The small `proof_ship.l2.yaml` has compatible example rows for the piled
+case; the other rules reuse the public demo. `test/dsl-l3-proof.mjs` runs
+the generated class through the same harness inventory and lifecycle driver
+as CI (`tools/osd-unit-all.mjs`), and compiles a copy with one expected text
+broken to prove that the assertion fails. It then runs the original again.
+
 ### The ABAP Unit proof, for this runtime and a system
 
 `ZCL_L3_FLEET_PROOF` (`src/l3proof/`, its own folder and package so the deploy unit can name it
