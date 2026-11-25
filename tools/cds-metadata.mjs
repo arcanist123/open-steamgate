@@ -61,22 +61,33 @@ export function cdsMetadataOf(obj, reg) {
   // node_modules, as the image has) parses with one and reads with the
   // other: the DDLS sources are parsed again with the transpiler's own
   const own = transpilerCore === undefined || obj instanceof transpilerCore.Objects.DataDefinition;
-  const key = sourcesKey(reg);
   let cached = readers.get(reg);
+  const files = ddlsFiles(reg);
+  // a cheap look first: an edit replaces a file object, so the same objects
+  // are the same sources and the hash is taken only when one differs
+  const same = cached !== undefined && cached.files.length === files.length && cached.files.every((f, i) => f === files[i]);
+  const key = same ? cached.key : sourcesKey(files);
   if (cached === undefined || cached.key !== key || cached.own !== own) {
     const source = own ? reg : mirrorOf(reg);
-    cached = {key, own, source, reader: new CDSMetadata(source)};
+    cached = {key, own, source, files, reader: new CDSMetadata(source)};
     readers.set(reg, cached);
+  } else {
+    cached.files = files;
   }
   return checkedDefinition(obj.getName(), cached.reader.build(own ? obj : cached.source.getObject("DDLS", obj.getName())));
 }
 
+/** every DDLS file of `reg`, in the registry's order */
+function ddlsFiles(reg) {
+  const files = [];
+  for (const ddls of reg.getObjectsByType("DDLS")) files.push(...ddls.getFiles());
+  return files;
+}
+
 /** what the cached reader was built from: every DDLS file's name and text */
-function sourcesKey(reg) {
+function sourcesKey(files) {
   const hash = createHash("sha256");
-  for (const ddls of reg.getObjectsByType("DDLS")) {
-    for (const file of ddls.getFiles()) hash.update(file.getFilename()).update("\0").update(file.getRaw()).update("\0");
-  }
+  for (const file of files) hash.update(file.getFilename()).update("\0").update(file.getRaw()).update("\0");
   return hash.digest("hex");
 }
 
