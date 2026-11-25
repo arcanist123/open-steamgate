@@ -36,7 +36,7 @@ CLASS ltcl_base IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_srv && iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.

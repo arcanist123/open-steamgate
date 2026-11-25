@@ -5023,19 +5023,19 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: in the transpiler, `test/types/decfloat16.ts`; in OSG, the push channel served over HANA (docs/hana-serve-icf.md)
 - Upstream version containing a fix: 2.14.38
 
-### ANOMALY-2026-11-25-query-escaped-nul -- an escaped NUL in a query string empties its field and drops the fields after it
+### ANOMALY-2026-11-25-query-escaped-nul -- a query string escape the decoder cannot turn into text empties its field and drops the fields after it
 
-- Status: `workaround` (fail closed: `ZCL_STG_URL=>REFUSE_ESCAPED_NUL` answers 400 for the whole request)
+- Status: `workaround` (fail closed: `ZCL_STG_URL=>REFUSE_UNDECODABLE` answers 400 for the whole request)
 - Discovery date: `2026-11-25`
 - Affected versions: open-abap-core since #1352 / #1356 (`cl_http_utility=>unescape_url` and `string_to_fields` as on a system), in the pin `osd/core-rebase-2026-11-25`
-- Affected ABAP statement, runtime API or adapter: `cl_http_utility=>string_to_fields` over a query string with `%00` (or `%` followed by two non-hex characters) in a value; the ICF shim decodes every request's query with it, the V2 `$batch` its parts' queries
-- Minimal ABAP reproducer: `lt = cl_http_utility=>string_to_fields( `$format=json&foo=%00&$filter=x` ).` -- `foo` has no value and `$filter` is not in `lt`; `cl_http_utility=>get_last_error( )` is 3
-- Exact command used to run it: `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json&foo=%00&$filter=TravelId%20eq%20'ZZZZ'` answered 200 with every row before the workaround (critic of #1014, round 2)
-- Expected SAP behaviour: unmeasured -- what a real ICF hands the application in `get_form_fields` for the fields after a field with an escaped NUL (whether it stops, skips the field or keeps the rest) has not been run on A4H
+- Affected ABAP statement, runtime API or adapter: `cl_http_utility=>string_to_fields` over a query string with an escape it cannot decode in a value: an escaped NUL (`%00`, error 3), a `%` without two hex digits after it (`%4`, `%4g`, a literal `100%`, error 29), escaped bytes that are not UTF-8 (`%C3` alone, error 512). The ICF shim decodes every request's query with it, the V2 `$batch` its parts' queries; `zcl_osd_form=>parse` (V4) goes through `unescape_url` alike
+- Minimal ABAP reproducer: `lt = cl_http_utility=>string_to_fields( `foo=%4&$filter=x` ).` -- `foo` has no value and `$filter` is not in `lt`; `cl_http_utility=>get_last_error( )` is not 0. Inside one option, `$filter=TravelId%20eq%20'ZZZZ'%4` decodes to an empty `$filter`
+- Exact command used to run it: `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json&foo=%00&$filter=TravelId%20eq%20'ZZZZ'` and `...TravelSet?foo=%4&$filter=TravelId%20eq%20'ZZZZ'` answered 200 with every row before the workaround (critic of #1014, rounds 2 and 3); an empty filter is no filter
+- Expected SAP behaviour: unmeasured -- what a real ICF hands the application in `get_form_fields` for a field it cannot decode and for the fields after it has not been run on A4H
 - Actual open-abap behaviour: the field is empty and every later field is missing
-- Impact on open-steamgate: a filter, an order or a `$top` behind the NUL is silently gone, so a request answers more rows than it asked for
-- Smallest safe workaround: the V2 and V4 dispatchers take the raw query (of a request and of a `$batch` part) and answer 400 when it has an escaped NUL anywhere, before any option is read; path segments and keys with one are a 400 through `ZCL_STG_URL=>UNESCAPE`
+- Impact on open-steamgate: a filter, an order or a `$top` in or behind such a field is silently gone, so a request answers more rows than it asked for
+- Smallest safe workaround: the V2 and V4 dispatchers take the raw query (of a request and of a `$batch` part, required, not optional) and answer 400 when any part of it does not decode (`ZCL_STG_URL=>UNDECODABLE`, read off the text so that osgo, which decodes natively, is held to the same), before any option is read: "NUL" for `%00`, "malformed escape" for the rest. Path segments and keys go through `ZCL_STG_URL=>UNESCAPE` with the same rule. `%2500` and `+` decode and are accepted
 - Upstream issue: none until measured; the rule may be right on a system too
-- Regression-test location: `test/mocha.mjs` ("an escaped NUL anywhere in the query is a 400 ...", "an escaped NUL in a path segment is a 400")
+- Regression-test location: `test/mocha.mjs` ("an escaped NUL anywhere in the query is a 400 ...", "a malformed escape anywhere in the query is a 400 too ...", "an escaped NUL in a path segment is a 400")
 - Upstream version containing a fix: n/a
 

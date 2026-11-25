@@ -21,9 +21,25 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         iv_body_x          TYPE xstring OPTIONAL
         iv_content_type    TYPE string OPTIONAL
         it_headers         TYPE tihttpnvp OPTIONAL
-* the raw query string the options were decoded from: an escaped NUL in it
-* is a 400 before any option is read (ZCL_STG_URL=>REFUSE_ESCAPED_NUL)
-        iv_query           TYPE string OPTIONAL
+* the raw query string the options were decoded from, required: what the
+* decoder could not turn into text is a 400 before any option is read
+* (ZCL_STG_URL=>REFUSE_UNDECODABLE). An HTTP front passes it; a caller with
+* options built by code calls DISPATCH_DECODED, which says so
+        iv_query           TYPE string
+      RETURNING
+        VALUE(rs_response) TYPE ty_response.
+* in process: the options are built by code (a client of another service,
+* a test), so there is no query string to check
+    CLASS-METHODS dispatch_decoded
+      IMPORTING
+        iv_method          TYPE string
+        iv_path            TYPE string
+        it_options         TYPE tihttpnvp OPTIONAL
+        iv_host            TYPE string DEFAULT 'localhost'
+        iv_body            TYPE string OPTIONAL
+        iv_body_x          TYPE xstring OPTIONAL
+        iv_content_type    TYPE string OPTIONAL
+        it_headers         TYPE tihttpnvp OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response.
   PRIVATE SECTION.
@@ -404,6 +420,18 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  METHOD dispatch_decoded.
+    rs_response = dispatch( iv_method       = iv_method
+                            iv_path         = iv_path
+                            it_options      = it_options
+                            iv_host         = iv_host
+                            iv_body         = iv_body
+                            iv_body_x       = iv_body_x
+                            iv_content_type = iv_content_type
+                            it_headers      = it_headers
+                            iv_query        = `` ).
+  ENDMETHOD.
+
   METHOD dispatch.
     DATA lx_stg     TYPE REF TO zcx_stg_error.
     DATA lx_not     TYPE REF TO /iwbep/cx_mgw_not_impl_exc.
@@ -421,7 +449,7 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
     TRY.
-        zcl_stg_url=>refuse_escaped_nul( iv_query ).
+        zcl_stg_url=>refuse_undecodable( iv_query ).
       CATCH zcx_stg_error INTO lx_stg.
         rs_response = error_response( iv_status  = lx_stg->status
                                       iv_code    = lx_stg->code

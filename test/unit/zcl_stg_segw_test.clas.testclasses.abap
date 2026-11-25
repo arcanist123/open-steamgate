@@ -38,7 +38,7 @@ CLASS ltcl_crud IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = iv_method
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = iv_method
                                                 iv_path    = iv_path
                                                 it_options = lt_options
                                                 iv_body    = iv_body ).
@@ -164,7 +164,7 @@ CLASS ltcl_tree IMPLEMENTATION.
     DATA lt_options TYPE tihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZSTG_MAPPED'&$orderby=StgSeq` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/EntityTypeSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -180,7 +180,7 @@ CLASS ltcl_tree IMPLEMENTATION.
     DATA lv_seats  TYPE i.
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZSTG_MAPPED' and ParentUuid eq 'et-1'&$orderby=StgSeq&$select=Name,StgSeq` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/PropertySet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -195,7 +195,7 @@ CLASS ltcl_tree IMPLEMENTATION.
   METHOD text_table_of_the_project.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/ProjectTextSet(Project='ZSTG_MAPPED',Language='E')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS '"Description":"' ) ).
@@ -323,7 +323,7 @@ CLASS ltcl_import IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD post.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method = 'POST'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'POST'
                                                 iv_path   = gc_set
                                                 iv_body   = |\{"Content":"{ zcl_stg_json=>escape( iv_xml ) }"\}| ).
   ENDMETHOD.
@@ -333,7 +333,7 @@ CLASS ltcl_import IMPLEMENTATION.
     DATA lt_options  TYPE tihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZUT_IMP'&$orderby=StgSeq` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/EntityTypeSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -356,7 +356,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( xsdbool( lv_body CS '"StgSeq":2' ) ).
 
 * entities are unescaped on the way in
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/ProjectTextSet(Project='ZUT_IMP',Language='E')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS '"Description":"A & B <imported>"' ) ).
@@ -406,7 +406,7 @@ CLASS ltcl_import IMPLEMENTATION.
     ls_response = post( lv_xml ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 201 msg = ls_response-body ).
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/ExportSet('ZUT_IMP')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
 * the same bytes as went in: rows by position, fields in the table's order,
@@ -417,7 +417,7 @@ CLASS ltcl_import IMPLEMENTATION.
   METHOD export_of_nobody_is_400.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/ExportSet('ZUT_NOBODY')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 400 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS 'no project ZUT_NOBODY' ) ).
@@ -428,7 +428,7 @@ CLASS ltcl_import IMPLEMENTATION.
     DATA lt_options  TYPE tihttpnvp.
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZUT_IMP'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = |/sap/opu/odata/sap/ZSTG_SEGW_SRV/{ iv_set }|
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -443,7 +443,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = count( iv_set = 'PropertySet' iv_needle = '"NodeUuid":"pp-' ) exp = 2 ).
 
 * the entity type, its property and the property's text go; the other type stays
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'DELETE'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'DELETE'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/NodeSet(Project='ZUT_IMP',NodeUuid='et-1')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 204 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_equals( act = count( iv_set = 'EntityTypeSet' iv_needle = '"Name":"Travel"' ) exp = 0 ).
@@ -457,7 +457,7 @@ CLASS ltcl_import IMPLEMENTATION.
   METHOD delete_unknown_node_is_400.
     DATA ls_response TYPE zcl_stg_dispatcher=>ty_response.
 
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'DELETE'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'DELETE'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/NodeSet(Project='ZUT_IMP',NodeUuid='nobody')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 400 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS 'no node nobody in project ZUT_IMP' ) ).
@@ -471,7 +471,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 201 msg = ls_response-body ).
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZUT_IMP'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/GenerateSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -485,7 +485,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS `lo_entity_type->bind_structure( iv_structure_name   = 'ZSTG_DEMO'` ) ).
 
 * the same file by key
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/GenerateSet(Project='ZUT_IMP',Name='zcl_zut_imp_mpc.clas.abap')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS 'method GET_LAST_MODIFIED.' ) ).
@@ -525,7 +525,7 @@ CLASS ltcl_import IMPLEMENTATION.
       && `  </asx:values>` && lv_nl
       && ` </asx:abap>` && lv_nl
       && `</abapGit>` && lv_nl.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'POST'
                                                 iv_path   = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/FunctionGroupSet'
                                                 iv_body   = |\{"Name":"ZUT","Content":"{ zcl_stg_json=>escape( lv_xml ) }"\}| ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 201 msg = ls_response-body ).
@@ -533,7 +533,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS '"Rows":2' ) ).
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Funcname eq 'Z_UT_MODULE'&$orderby=StgSeq` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/ModuleParameterSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -564,7 +564,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 201 msg = ls_response-body ).
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZUT_IMP'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/RepoFileSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
@@ -575,7 +575,7 @@ CLASS ltcl_import IMPLEMENTATION.
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS '<STARTING_FOLDER>/src/</STARTING_FOLDER>' ) ).
 
 * the same repository as one zip: PK, and the base64 is not empty
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/RepoSet('ZUT_IMP')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 200 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS '"Content":"UEsDB' ) ).
@@ -597,12 +597,12 @@ CLASS ltcl_import IMPLEMENTATION.
     MODIFY tadir FROM ls_tadir.
 
     lt_options = cl_http_utility=>string_to_fields( `$filter=Project eq 'ZUT_IMP'` ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/RepoFileSet'
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 400 msg = ls_response-body ).
     cl_abap_unit_assert=>assert_true( xsdbool( ls_response-body CS 'never transported' ) ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method = 'GET'
                                                 iv_path   = `/sap/opu/odata/sap/ZSTG_SEGW_SRV/RepoSet('ZUT_IMP')` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status exp = 400 msg = ls_response-body ).
 

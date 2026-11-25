@@ -294,17 +294,20 @@ matches a system, not a defect:
   `ZCL_OSD_ADT_REENTRANCE` reads the difference in milliseconds; and
   `cl_http_utility=>unescape_url` (and `string_to_fields`, which the ICF
   shim decodes the query with) answers nothing for an escaped NUL and
-  reports error 3 (#1352, #1356); `string_to_fields` also drops every field
-  after it. So the rule fails closed, in one place every front calls
-  (`ZCL_STG_URL=>REFUSE_ESCAPED_NUL`, from the V2 and V4 dispatchers, with
-  the raw query of a request or of a `$batch` part): a query string with an
-  escaped NUL anywhere is a 400 before any option is read, and a path
-  segment or a key with one is a 400 too (`ZCL_STG_URL=>UNESCAPE`). Both
-  read the escape off the text (`%00`, or two non-hex characters), not off
-  the decoder's last error, which osgo's native `unescape_url` does not set. Before,
-  a filter or an order behind the NUL was dropped and every row came back.
-  What a real ICF hands the application for the fields after such a NUL is
-  not measured (ANORMALIES `ANOMALY-2026-11-25-query-escaped-nul`).
+  reports error 3 (#1352, #1356), and the same for a malformed escape
+  (`%4`, `%4g`, a literal `100%`) or escaped bytes that are not UTF-8
+  (`%C3` alone); `string_to_fields` then drops every field after it. So the
+  rule fails closed, in one place every front calls
+  (`ZCL_STG_URL=>REFUSE_UNDECODABLE`, from the V2 and V4 dispatchers, whose
+  raw query parameter is required; in-process callers use
+  `ZCL_STG_DISPATCHER=>DISPATCH_DECODED`): a query string with an escape
+  that does not decode anywhere is a 400 before any option is read ("NUL"
+  for `%00`, "malformed escape" for the rest), and so is a path segment or
+  a key (`ZCL_STG_URL=>UNESCAPE`). Both read the escape off the text, not
+  off the decoder's last error, which osgo's native `unescape_url` does not
+  set. Before, a filter or an order in or behind such a field was dropped
+  and every row came back. What a real ICF hands the application for those
+  fields is not measured (ANORMALIES `ANOMALY-2026-11-25-query-escaped-nul`).
 - **gogen.** Two refusal fixtures are now refused by abaplint's own syntax
   check (`zcl_gogen_t_rf_sort` line 54, as on A4H), which `semantics.mjs`
   takes as the refusal, like `ZCL_GOGEN_T_RF_OWN`; `zcl_gogen_t_rf_wherei8`

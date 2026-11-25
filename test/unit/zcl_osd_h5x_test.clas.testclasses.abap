@@ -213,7 +213,7 @@ CLASS ltcl_read IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.
@@ -350,7 +350,7 @@ CLASS ltcl_read IMPLEMENTATION.
     ls_option-name  = '%24orderby'.
     ls_option-value = 'PartnerID desc'.
     APPEND ls_option TO lt_options.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_base
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -393,7 +393,7 @@ CLASS ltcl_read IMPLEMENTATION.
     ls_option-name  = '%'.
     ls_option-value = '1'.
     APPEND ls_option TO lt_options.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_base
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -774,7 +774,7 @@ CLASS ltcl_read IMPLEMENTATION.
     ls_header-name  = 'If-None-Match'.
     ls_header-value = `W/"datetime'2021-01-02T03%3A04%3A05.0000000'"`.
     APPEND ls_header TO lt_headers.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_base && `('0000000003')`
                                                 it_headers = lt_headers ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -785,7 +785,7 @@ CLASS ltcl_read IMPLEMENTATION.
     CLEAR lt_headers.
     ls_header-value = `W/"datetime'2020-01-01T00%3A00%3A00.0000000'"`.
     APPEND ls_header TO lt_headers.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_base && `('0000000003')`
                                                 it_headers = lt_headers ).
     ok( ls_response ).
@@ -861,7 +861,7 @@ CLASS ltcl_read IMPLEMENTATION.
     lv_crlf = cl_abap_char_utilities=>cr_lf.
     lv_body = |--batch_b3{ lv_crlf }Content-Type: application/http{ lv_crlf }Content-Transfer-Encoding: binary{ lv_crlf }{ lv_crlf }| &&
               |GET PartnerSet/$count HTTP/1.1{ lv_crlf }Accept: application/json{ lv_crlf }{ lv_crlf }{ lv_crlf }--batch_b3--{ lv_crlf }|.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method       = 'POST'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method       = 'POST'
                                                 iv_path         = `/sap/opu/odata/OSDNS/ZOSD_H5X_SRV/$batch`
                                                 iv_body         = lv_body
                                                 iv_content_type = 'multipart/mixed; boundary=batch_b3' ).
@@ -1008,7 +1008,7 @@ CLASS ltcl_read IMPLEMENTATION.
     ls_header-value = 'application/json'.
     APPEND ls_header TO lt_headers.
     APPEND ls_option TO lt_options.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_base && '/$count'
                                                 it_options = lt_options
                                                 it_headers = lt_headers ).
@@ -1017,7 +1017,7 @@ CLASS ltcl_read IMPLEMENTATION.
     CLEAR lt_headers.
     ls_header-value = '*/*'.
     APPEND ls_header TO lt_headers.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_base && '/$count'
                                                 it_options = lt_options
                                                 it_headers = lt_headers ).
@@ -1270,7 +1270,7 @@ CLASS ltcl_value_help IMPLEMENTATION.
     IF iv_query IS NOT INITIAL.
       lt_options = cl_http_utility=>string_to_fields( iv_query ).
     ENDIF.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_srv && iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.
@@ -1910,7 +1910,7 @@ CLASS ltcl_annotations IMPLEMENTATION.
       ls_option-value = iv_language.
       APPEND ls_option TO lt_options.
     ENDIF.
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_metadata
                                                 it_options = lt_options ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-status
@@ -2087,7 +2087,7 @@ CLASS ltcl_annotations IMPLEMENTATION.
     APPEND ls_pair TO lt_headers.
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_session_langu=>requested( it_headers = lt_headers )
                                         exp = 'D' ).
-    ls_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = c_metadata
                                                 it_headers = lt_headers ).
     has( iv_body = element( iv_body  = ls_response-body
@@ -2202,7 +2202,7 @@ CLASS ltcl_literals IMPLEMENTATION.
     ls_option-name = '$filter'.
     ls_option-value = iv_filter.
     APPEND ls_option TO lt_options.
-    rs_response = zcl_stg_dispatcher=>dispatch( iv_method  = 'GET'
+    rs_response = zcl_stg_dispatcher=>dispatch_decoded( iv_method  = 'GET'
                                                 iv_path    = iv_path
                                                 it_options = lt_options ).
   ENDMETHOD.

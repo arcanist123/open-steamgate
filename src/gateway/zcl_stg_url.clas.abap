@@ -63,9 +63,8 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_value) TYPE string
       RAISING
         zcx_stg_error.
-* a URL part unescaped; an escaped NUL is a 400 like a NUL in a literal
-* (unescape_url answers nothing for it on a system, open-abap-core #1352,
-* #1356, and a host decoding natively answers the NUL itself)
+* a URL part unescaped; what the decoder cannot turn into text (UNDECODABLE)
+* is a 400 rather than a part that silently became empty
     CLASS-METHODS unescape
       IMPORTING
         iv_value        TYPE string
@@ -75,15 +74,24 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_value) TYPE string
       RAISING
         zcx_stg_error.
-* fail closed: a query string with an escaped NUL anywhere is a 400 before
-* any option is read. The decoder (cl_http_utility, as on a system) answers
-* nothing for such a field and drops the fields after it, so a filter or an
-* order that followed it would silently be gone
-    CLASS-METHODS refuse_escaped_nul
+* fail closed: a query string the decoder cannot turn into text anywhere is
+* a 400 before any option is read. The decoder (cl_http_utility, as on a
+* system) answers nothing for such a field and drops the fields after it,
+* so a filter or an order in or after it would silently be gone
+    CLASS-METHODS refuse_undecodable
       IMPORTING
         iv_query TYPE string
       RAISING
         zcx_stg_error.
+* what of a URL part the decoder cannot turn into text, read off the text so
+* that a host decoding natively (osgo) is held to the same rule: NUL for an
+* escaped NUL, MALFORMED for a % without two hex digits after it or escaped
+* bytes that are not UTF-8; empty when it decodes. %2500 and + decode
+    CLASS-METHODS undecodable
+      IMPORTING
+        iv_text         TYPE string
+      RETURNING
+        VALUE(rv_fault) TYPE string.
 * a NUL cannot reach the database (the SQL text ends at it): a value
 * holding one is a 400 with the code and the words of the caller
     CLASS-METHODS refuse_nul
@@ -327,23 +335,84 @@ CLASS zcl_stg_url IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD unescape.
-* the same reading as REFUSE_ESCAPED_NUL, before the decoder is asked
-    FIND REGEX '%(00|[^0-9A-Fa-f][^0-9A-Fa-f])' IN iv_value.
-    IF sy-subrc = 0.
-      RAISE EXCEPTION TYPE zcx_stg_error
-        EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
-    ENDIF.
+    CASE undecodable( iv_value ).
+      WHEN 'NUL'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
+      WHEN 'MALFORMED'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = iv_code message = |A malformed escape in { iv_where } is not accepted|.
+    ENDCASE.
     rv_value = cl_http_utility=>unescape_url( iv_value ).
   ENDMETHOD.
 
-  METHOD refuse_escaped_nul.
-* read off the text rather than off cl_http_utility's last error: a host
-* may decode natively (osgo does) and set none. An escaped NUL is %00, or
-* two characters that are not hex digits, which the decoder counts as one
-    FIND REGEX '%(00|[^0-9A-Fa-f][^0-9A-Fa-f])' IN iv_query.
-    IF sy-subrc = 0.
-      RAISE EXCEPTION TYPE zcx_stg_error
-        EXPORTING status = 400 code = 'STG/BAD_QUERY' message = 'A NUL character in the query string is not accepted'.
+  METHOD refuse_undecodable.
+    CASE undecodable( iv_query ).
+      WHEN 'NUL'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = 'STG/BAD_QUERY' message = 'A NUL character in the query string is not accepted'.
+      WHEN 'MALFORMED'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = 'STG/BAD_QUERY'
+                    message = 'A malformed escape in the query string is not accepted (a % takes two hex digits, escaped bytes UTF-8)'.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD undecodable.
+    CONSTANTS lc_hex TYPE string VALUE '0123456789ABCDEF'.
+    DATA lv_len   TYPE i.
+    DATA lv_pos   TYPE i.
+    DATA lv_high  TYPE i.
+    DATA lv_low   TYPE i.
+    DATA lv_value TYPE i.
+* the continuation bytes the UTF-8 sequence begun still needs
+    DATA lv_more  TYPE i.
+
+    lv_len = strlen( iv_text ).
+    WHILE lv_pos < lv_len.
+      IF substring( val = iv_text off = lv_pos len = 1 ) <> '%'.
+        IF lv_more > 0.
+          rv_fault = 'MALFORMED'.
+          RETURN.
+        ENDIF.
+        lv_pos = lv_pos + 1.
+        CONTINUE.
+      ENDIF.
+      IF lv_len - lv_pos < 3.
+        rv_fault = 'MALFORMED'.
+        RETURN.
+      ENDIF.
+      lv_high = find( val = lc_hex sub = to_upper( substring( val = iv_text off = lv_pos + 1 len = 1 ) ) ).
+      lv_low = find( val = lc_hex sub = to_upper( substring( val = iv_text off = lv_pos + 2 len = 1 ) ) ).
+      IF lv_high < 0 OR lv_low < 0.
+        rv_fault = 'MALFORMED'.
+        RETURN.
+      ENDIF.
+      lv_value = lv_high * 16 + lv_low.
+      IF lv_value = 0.
+        rv_fault = 'NUL'.
+        RETURN.
+      ENDIF.
+      IF lv_more > 0.
+        IF lv_value < 128 OR lv_value > 191.
+          rv_fault = 'MALFORMED'.
+          RETURN.
+        ENDIF.
+        lv_more = lv_more - 1.
+      ELSEIF lv_value >= 194 AND lv_value <= 223.
+        lv_more = 1.
+      ELSEIF lv_value >= 224 AND lv_value <= 239.
+        lv_more = 2.
+      ELSEIF lv_value >= 240 AND lv_value <= 244.
+        lv_more = 3.
+      ELSEIF lv_value >= 128.
+        rv_fault = 'MALFORMED'.
+        RETURN.
+      ENDIF.
+      lv_pos = lv_pos + 3.
+    ENDWHILE.
+    IF lv_more > 0.
+      rv_fault = 'MALFORMED'.
     ENDIF.
   ENDMETHOD.
 

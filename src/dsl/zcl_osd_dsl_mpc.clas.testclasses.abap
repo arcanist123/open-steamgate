@@ -90,7 +90,7 @@ CLASS ltcl_dsl_mpc IMPLEMENTATION.
                                 iv_mpc = 'ZCL_ZSTG_SEGW_MPC_EXT'
                                 iv_dpc = 'ZCL_ZSTG_SEGW_DPC_EXT' ).
     zcl_stg_model_info=>clear( ).
-    ls_response = zcl_stg_dispatcher=>dispatch(
+    ls_response = zcl_stg_dispatcher=>dispatch_decoded(
       iv_method = 'POST'
       iv_path = '/sap/opu/odata/sap/ZSTG_SEGW_SRV/ImportSet'
       iv_body = `{"Content":"` && zcl_stg_json=>escape( fixture( ) ) && `"}` ).
