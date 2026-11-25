@@ -1,4 +1,4 @@
-import {readJSONFile, readTraceMap} from "./trace-reader.mjs";
+import {readJSONFile as readStoredJSONFile, readTraceMap} from "./trace-reader.mjs";
 // DSL L2, slices 1 and 2 (docs/dsl-l2.md): a rule compiled to L1, rendered to
 // ABAP as one query, proven by its own examples and by cases derived from its
 // conditions, each run against the nested reference form. The committed class
@@ -13,6 +13,7 @@ import {existsSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirS
 import {tmpdir} from "node:os";
 import {basename, dirname, join, relative, sep} from "node:path";
 import {pathToFileURL} from "node:url";
+import {readTrace} from "../tools/dsl-trace.mjs";
 import {DEFAULT_DDIC, registryFor} from "../tools/dsl-ddic.mjs";
 import {buildRule, capWarning, checkRule, compileRule, describeCases, evaluate, misfit, parseCondition, renderRule, RuleError, rulePath, stepValue} from "../tools/dsl-l2.mjs";
 import {ruleKeys} from "../tools/dsl-l2-range.mjs";
@@ -109,16 +110,26 @@ function traceLineMismatch(entry, template, output) {
 describe("DSL L2: a rule, its generated check, its examples and its derived cases", function () {
   this.timeout(180000);
   let scratch, registry;
+  const demoMetadata = new Map();
+  const readJSONFile = (file, encoding = "utf8") => {
+    const metaFile = file.replace(/\.json$/, ".meta.json");
+    const meta = demoMetadata.get(metaFile);
+    if (!meta || existsSync(metaFile)) return readStoredJSONFile(file, encoding);
+    // Read the committed stable trace and validate the in-memory navigation
+    // companion against the committed ABAP, just as readTraceFile does.
+    const outputs = Object.fromEntries(JSON.parse(meta).outputs.map(({file: output}) =>
+      [output, readFileSync(join(dirname(file), basename(output)), "utf8")]));
+    return readTrace(readFileSync(file, encoding), meta, outputs);
+  };
   before(async () => {
     scratch = mkdtempSync(join(tmpdir(), "dsl-l2-test-"));
     registry = registryFor(DEFAULT_DDIC, []);
-    // A fresh checkout has no optional navigation companions. Render them
-    // without rewriting the committed code/traces checked by the suite.
+    // A fresh checkout lacks ignored navigation companions. Keep them in
+    // memory: test fixtures must not add files to the source tree.
     for (const rule of DEMO_RULES) {
       const {files} = await renderRule(compileRule(rule, {registry, out: OUT}));
       for (const [name, text] of Object.entries(files)) {
-        const file = join(OUT, name);
-        if (name.endsWith('.trace.meta.json') && !existsSync(file)) writeFileSync(file, text);
+        if (name.endsWith(".trace.meta.json")) demoMetadata.set(join(OUT, name), text);
       }
     }
   });
