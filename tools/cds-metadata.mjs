@@ -13,13 +13,23 @@
 // module file; exporting it is a one-line upstream change (drafted, not sent).
 // What #2264 does not give stays in cds2ddic.mjs and its helpers, each place
 // marked "not in #2264" (the list is in docs/cds-publish.md).
+import {createRequire} from "node:module";
+
 let CDSMetadata;
 let missing;
+// the @abaplint/core the transpiler itself resolves, when it can be asked
+let transpilerCore;
 try {
   ({CDSMetadata} = (await import("@abaplint/transpiler/build/src/cds_metadata.js")).default);
+  try {
+    transpilerCore = createRequire(import.meta.resolve("@abaplint/transpiler/build/src/cds_metadata.js"))("@abaplint/core");
+  } catch {
+    transpilerCore = undefined; // a bundle: one module graph, one core
+  }
 } catch (error) {
   missing = error;
 }
+const mirrors = new WeakMap();
 const KNOWN = new Set(["VIEW", "VIEW_ENTITY", "PROJECTION_VIEW", "ABSTRACT_ENTITY", "CUSTOM_ENTITY",
   "TABLE_FUNCTION", "HIERARCHY", "TABLE_ENTITY", "EXTERNAL_ENTITY"]);
 const readers = new WeakMap();
@@ -33,9 +43,28 @@ export function cdsMetadataOf(obj, reg) {
     throw new Error("cds2ddic: needs @abaplint/transpiler 2.14.38 or later, whose CDSMetadata " +
       `(build/src/cds_metadata.js) this reads; see the transpiler pin, node tools/osd-transpiler-pin.mjs (${missing?.message ?? "no CDSMetadata export"})`);
   }
-  let reader = readers.get(reg);
-  if (reader === undefined) readers.set(reg, reader = new CDSMetadata(reg));
-  return checkedDefinition(obj.getName(), reader.build(obj));
+  // a tree whose two packages each carry a copy of @abaplint/core (a copied
+  // node_modules, as the image has) parses with one and reads with the
+  // other: the DDLS sources are parsed again with the transpiler's own
+  const own = transpilerCore === undefined || obj instanceof transpilerCore.Objects.DataDefinition;
+  const source = own ? reg : mirrorOf(reg);
+  let reader = readers.get(source);
+  if (reader === undefined) readers.set(source, reader = new CDSMetadata(source));
+  return checkedDefinition(obj.getName(), reader.build(own ? obj : source.getObject("DDLS", obj.getName())));
+}
+
+/** the DDLS objects of `reg`, parsed by the transpiler's copy of @abaplint/core */
+function mirrorOf(reg) {
+  let mirror = mirrors.get(reg);
+  if (mirror === undefined) {
+    mirror = new transpilerCore.Registry();
+    for (const ddls of reg.getObjectsByType("DDLS")) {
+      for (const file of ddls.getFiles()) mirror.addFile(new transpilerCore.MemoryFile(file.getFilename(), file.getRaw()));
+    }
+    mirror.parse();
+    mirrors.set(reg, mirror);
+  }
+  return mirror;
 }
 
 /** CDSMetadata tells the node types apart with instanceof: a registry parsed by

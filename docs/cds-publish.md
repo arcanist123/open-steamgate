@@ -108,8 +108,10 @@ links the pin). One workaround: #2264 writes a namespaced redirected target as i
 text, `/ DMO / C_X`, so `cds-metadata.mjs` takes the blanks out
 (ANORMALIES `ANOMALY-2026-11-25-cds-metadata-redirect-namespace`). A
 registry parsed by another copy of `@abaplint/core` than the transpiler's
-would give no annotations and no fields without a word; `cdsMetadataOf`
-refuses it instead. Moving to the metadata changed no generated file: the
+(a copied `node_modules`, as the image has, carries two) would give no
+annotations and no fields without a word, so `cdsMetadataOf` parses the
+DDLS sources again with the transpiler's own copy, and refuses only a
+definition type it still cannot name. Moving to the metadata changed no generated file: the
 whole of `gen/` (cds2ddic, bdef-gen, stg-compile; every view under `src/`
 and the packs) is byte-identical before and after.
 

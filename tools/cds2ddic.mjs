@@ -136,9 +136,13 @@ export function parseDDLS(obj, reg, depth = 0) {
     // after the read (@ObjectModel.virtualElement + virtualElementCalculatedBy,
     // written as cast( '' as abap.<type> ) as <Name>)
     const cast = firstDirect(el, "CDSCast");
-    if (cast && annotationValue(field?.annotations, "ObjectModel.virtualElement") === true) {
+    // not in #2264: an element without a name (no alias, no column) is not in
+    // its fields, so its own annotation text says whether it is virtual
+    const virtual = field ? annotationValue(field.annotations, "ObjectModel.virtualElement") === true
+      : annos.some((x) => /@ObjectModel\.virtualElement:\s*true/i.test(x));
+    if (cast && virtual) {
       const fieldName = (alias ?? "").toUpperCase();
-      const by = /^ABAP:\s*(.+)$/i.exec(String(annotationValue(field.annotations, "ObjectModel.virtualElementCalculatedBy") ?? ""))?.[1]?.trim();
+      const by = /^ABAP:\s*(.+)$/i.exec(String(annotationValue(field?.annotations, "ObjectModel.virtualElementCalculatedBy") ?? ""))?.[1]?.trim();
       if (!fieldName || !by) {
         return {name, skip: `virtual element without an alias or a calculating class`};
       }
