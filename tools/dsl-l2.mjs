@@ -20,7 +20,7 @@ import {dirname, join, relative, resolve as resolvePath, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import yaml from "js-yaml";
 import {DEFAULT_DDIC, DDIC_PROVIDER, Refusal, registryFor, unresolvedDeep} from "./dsl-ddic.mjs";
-import {assignmentNode, literalNodes} from "./dsl-l2-assignments.mjs";
+import {assignmentNode, continuationNodes, literalNodes} from "./dsl-l2-assignments.mjs";
 import {compileParams} from "./dsl-l2-params.mjs";
 import {compileKeys, compileRange, exampleRange, keysCheck} from "./dsl-l2-range.mjs";
 import {caseSelopt, exampleSelopt, inComparison} from "./dsl-l2-selopt.mjs";
@@ -1281,13 +1281,14 @@ export async function renderRule(compiled) {
   // through one template; the list is made here, so the trace and the model
   // hash are those of what was rendered
   const model = renderModel(compiled);
+  const data = continuationNodes(model);
   const {renderRecipe} = await import("./dsl-abap.mjs");
   const quiet = console.log;
   let check, test;
   try {
     console.log = (...items) => console.error(...items); // runtime bootstrap diagnostics
-    check = await renderRecipe(model, CHECK_TEMPLATE, {profile: "abap"});
-    test = await renderRecipe(model, TEST_TEMPLATE, {profile: "abap"});
+    check = await renderRecipe(data, CHECK_TEMPLATE, {profile: "abap"});
+    test = await renderRecipe(data, TEST_TEMPLATE, {profile: "abap"});
   } finally {
     console.log = quiet;
   }

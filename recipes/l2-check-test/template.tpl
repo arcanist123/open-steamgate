@@ -24,8 +24,7 @@ CLASS ltcl_examples DEFINITION FOR TESTING RISK LEVEL DANGEROUS DURATION SHORT F
                 {{ref}} TYPE {{class}}=>{{selopt_type}} OPTIONAL
 {{/is_selopt}}
 {{^is_selopt}}
-                {{ref}} TYPE {{type_name}}{{#default}} DEFAULT {{#default_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/default_pieces}}{{^default_pieces}}{{default | literal}}{{/default_pieces}}{{/default}}
+                {{ref}} TYPE {{type_name}}{{#default}} DEFAULT {{#default_pieces}}{{{continuation}}}{{value | literal}}{{/default_pieces}}{{^default_pieces}}{{default | literal}}{{/default_pieces}}{{/default}}
 {{/is_selopt}}
 {{/params}}
       RETURNING VALUE(rt_alerts) TYPE string_table.
@@ -109,15 +108,11 @@ CLASS ltcl_examples IMPLEMENTATION.
     ELSE.
 {{#default_rows}}
       CLEAR {{row}}.
-      {{row}}-sign = {{#sign_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
-      {{row}}-option = {{#option_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
-      {{row}}-low = {{#low_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
+      {{row}}-sign = {{#sign_pieces}}{{{continuation}}}{{value | literal}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
+      {{row}}-option = {{#option_pieces}}{{{continuation}}}{{value | literal}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
+      {{row}}-low = {{#low_pieces}}{{{continuation}}}{{value | literal}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
 {{#high}}
-      {{row}}-high = {{#high_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
+      {{row}}-high = {{#high_pieces}}{{{continuation}}}{{value | literal}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
 {{/high}}
       APPEND {{row}} TO {{use}}.
 {{/default_rows}}
@@ -130,8 +125,7 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{#limit_reference}}
     SELECT * FROM {{outer.table}} INTO TABLE {{outer.itab}}
 {{#outer.where}}
-{{pre}}{{#is_cmp}}{{column}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{ref}}{{/is_literal}}{{/is_cmp}}{{post}}
+{{pre}}{{#is_cmp}}{{column}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{ref}}{{/is_literal}}{{/is_cmp}}{{post}}
 {{/outer.where}}
       ORDER BY PRIMARY KEY.
     LOOP AT {{outer.itab}} INTO {{outer.wa}}.
@@ -142,14 +136,12 @@ CLASS ltcl_examples IMPLEMENTATION.
       SELECT {{inner.select_column}} FROM {{inner.table}} INTO TABLE {{inner.value_itab}}
 {{/threshold.is_count}}
 {{#inner.where}}
-{{pre}}{{#is_cmp}}{{column}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{ref}}{{/is_literal}}{{/is_cmp}}{{post}}
+{{pre}}{{#is_cmp}}{{column}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{ref}}{{/is_literal}}{{/is_cmp}}{{post}}
 {{/inner.where}}
         ORDER BY PRIMARY KEY.
 {{#threshold.is_count}}
       DESCRIBE TABLE {{inner.itab}} LINES lv_count.
-      IF lv_count {{threshold.op}} {{#threshold.value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/threshold.value_pieces}}{{^threshold.value_pieces}}{{threshold.value | literal}}{{/threshold.value_pieces}}.
+      IF lv_count {{threshold.op}} {{#threshold.value_pieces}}{{{continuation}}}{{value | literal}}{{/threshold.value_pieces}}{{^threshold.value_pieces}}{{threshold.value | literal}}{{/threshold.value_pieces}}.
         lv_count_text = lv_count.
         CONDENSE lv_count_text NO-GAPS.
 {{/threshold.is_count}}
@@ -173,12 +165,10 @@ CLASS ltcl_examples IMPLEMENTATION.
         lv_aggregate_seen = 'X'.
       ENDLOOP.
 {{#threshold.aggregate.is_sum}}
-      IF lv_aggregate {{threshold.op}} {{#threshold.value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/threshold.value_pieces}}{{^threshold.value_pieces}}{{threshold.value | literal}}{{/threshold.value_pieces}}.
+      IF lv_aggregate {{threshold.op}} {{#threshold.value_pieces}}{{{continuation}}}{{value | literal}}{{/threshold.value_pieces}}{{^threshold.value_pieces}}{{threshold.value | literal}}{{/threshold.value_pieces}}.
 {{/threshold.aggregate.is_sum}}
 {{^threshold.aggregate.is_sum}}
-      IF lv_aggregate_seen = 'X' AND lv_aggregate {{threshold.op}} {{#threshold.value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/threshold.value_pieces}}{{^threshold.value_pieces}}{{threshold.value | literal}}{{/threshold.value_pieces}}.
+      IF lv_aggregate_seen = 'X' AND lv_aggregate {{threshold.op}} {{#threshold.value_pieces}}{{{continuation}}}{{value | literal}}{{/threshold.value_pieces}}{{^threshold.value_pieces}}{{threshold.value | literal}}{{/threshold.value_pieces}}.
 {{/threshold.aggregate.is_sum}}
 {{#threshold.aggregate.is_integer}}
         IF lv_aggregate = -9223372036854775807 - 1.
@@ -210,8 +200,7 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{/threshold.aggregate.is_integer}}
 {{/threshold.is_count}}
 {{#alert_parts}}
-{{lead}}{{#is_text}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{ref}}{{/is_text}}{{stop}}
+{{lead}}{{#is_text}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{ref}}{{/is_text}}{{stop}}
 {{/alert_parts}}
         APPEND lv_alert TO rt_alerts.
       ENDIF.
@@ -221,8 +210,7 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{#levels}}
 {{indent}}SELECT * FROM {{table}} INTO TABLE {{itab}}
 {{#where}}
-{{pre}}{{#is_cmp}}{{column}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{ref}}{{/is_literal}}{{/is_cmp}}{{post}}
+{{pre}}{{#is_cmp}}{{column}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{ref}}{{/is_literal}}{{/is_cmp}}{{post}}
 {{/where}}
 {{indent}}  ORDER BY PRIMARY KEY.
 {{#is_loop}}
@@ -233,8 +221,7 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{/is_loop}}
 {{/levels}}
 {{#alert_parts}}
-{{lead}}{{#is_text}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{ref}}{{/is_text}}{{stop}}
+{{lead}}{{#is_text}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{ref}}{{/is_text}}{{stop}}
 {{/alert_parts}}
 {{indent}}APPEND lv_alert TO rt_alerts.
 {{#closes}}
@@ -277,15 +264,11 @@ CLASS ltcl_examples IMPLEMENTATION.
     DATA ls_range LIKE LINE OF lt_range.
 {{#range_args}}
     CLEAR ls_range.
-    ls_range-sign = {{#sign_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
-    ls_range-option = {{#option_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
-    ls_range-low = {{#low_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
+    ls_range-sign = {{#sign_pieces}}{{{continuation}}}{{value | literal}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
+    ls_range-option = {{#option_pieces}}{{{continuation}}}{{value | literal}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
+    ls_range-low = {{#low_pieces}}{{{continuation}}}{{value | literal}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
 {{#high}}
-    ls_range-high = {{#high_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
+    ls_range-high = {{#high_pieces}}{{{continuation}}}{{value | literal}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
 {{/high}}
     APPEND ls_range TO lt_range.
 {{/range_args}}
@@ -300,15 +283,11 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{#is_selopt}}
 {{#rows}}
     CLEAR {{row}}.
-    {{row}}-sign = {{#sign_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
-    {{row}}-option = {{#option_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
-    {{row}}-low = {{#low_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
+    {{row}}-sign = {{#sign_pieces}}{{{continuation}}}{{value | literal}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
+    {{row}}-option = {{#option_pieces}}{{{continuation}}}{{value | literal}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
+    {{row}}-low = {{#low_pieces}}{{{continuation}}}{{value | literal}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
 {{#high}}
-    {{row}}-high = {{#high_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
+    {{row}}-high = {{#high_pieces}}{{{continuation}}}{{value | literal}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
 {{/high}}
     APPEND {{row}} TO {{var}}.
 {{/rows}}
@@ -324,8 +303,7 @@ CLASS ltcl_examples IMPLEMENTATION.
     {{wa}}-{{client}} = sy-mandt.
 {{/client}}
 {{#fields}}
-    {{wa}}-{{column}} = {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+    {{wa}}-{{column}} = {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
 {{/fields}}
     APPEND {{wa}} TO {{itab}}.
 {{/rows}}
@@ -333,8 +311,7 @@ CLASS ltcl_examples IMPLEMENTATION.
 {{/tables}}
 {{#expect}}
 {{#single}}
-    APPEND {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}} TO lt_exp.
+    APPEND {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}} TO lt_exp.
 {{/single}}
 {{^single}}
 {{#pieces}}
@@ -343,30 +320,20 @@ CLASS ltcl_examples IMPLEMENTATION.
     APPEND lv_exp TO lt_exp.
 {{/single}}
 {{/expect}}
-    lt_act = {{date.call}}( iv_date = {{#date.value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/date.value_pieces}}{{^date.value_pieces}}{{date.value | literal}}{{/date.value_pieces}}{{#range}} it_range = lt_range{{/range}}{{#param_args}}{{#is_selopt}} {{ref}} = {{var}}{{/is_selopt}}{{^is_selopt}} {{ref}} = {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_selopt}}{{/param_args}} ).
-    lt_ref = check_reference( iv_date = {{#date.value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/date.value_pieces}}{{^date.value_pieces}}{{date.value | literal}}{{/date.value_pieces}}{{#range}} it_range = lt_range{{/range}}{{#param_args}}{{#is_selopt}} {{ref}} = {{var}}{{/is_selopt}}{{^is_selopt}} {{ref}} = {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_selopt}}{{/param_args}} ).
-    assert_same_as_reference( it_act = lt_act it_ref = lt_ref iv_example = {{#ref_label_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/ref_label_pieces}}{{^ref_label_pieces}}{{ref_label | literal}}{{/ref_label_pieces}} ).
-    assert_alerts( it_act = lt_act it_exp = lt_exp iv_example = {{#label_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/label_pieces}}{{^label_pieces}}{{label | literal}}{{/label_pieces}} ).
+    lt_act = {{date.call}}( iv_date = {{#date.value_pieces}}{{{continuation}}}{{value | literal}}{{/date.value_pieces}}{{^date.value_pieces}}{{date.value | literal}}{{/date.value_pieces}}{{#range}} it_range = lt_range{{/range}}{{#param_args}}{{#is_selopt}} {{ref}} = {{var}}{{/is_selopt}}{{^is_selopt}} {{ref}} = {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_selopt}}{{/param_args}} ).
+    lt_ref = check_reference( iv_date = {{#date.value_pieces}}{{{continuation}}}{{value | literal}}{{/date.value_pieces}}{{^date.value_pieces}}{{date.value | literal}}{{/date.value_pieces}}{{#range}} it_range = lt_range{{/range}}{{#param_args}}{{#is_selopt}} {{ref}} = {{var}}{{/is_selopt}}{{^is_selopt}} {{ref}} = {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_selopt}}{{/param_args}} ).
+    assert_same_as_reference( it_act = lt_act it_ref = lt_ref iv_example = {{#ref_label_pieces}}{{{continuation}}}{{value | literal}}{{/ref_label_pieces}}{{^ref_label_pieces}}{{ref_label | literal}}{{/ref_label_pieces}} ).
+    assert_alerts( it_act = lt_act it_exp = lt_exp iv_example = {{#label_pieces}}{{{continuation}}}{{value | literal}}{{/label_pieces}}{{^label_pieces}}{{label | literal}}{{/label_pieces}} ).
 {{#keys_check}}
     " keys( ): the driving keys of the same rows, sorted, each once
 {{#values}}
     ls_key-sign = 'I'.
     ls_key-option = 'EQ'.
-    ls_key-low = {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+    ls_key-low = {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
     APPEND ls_key TO lt_keys_exp.
 {{/values}}
-    lt_keys = {{call}}( iv_date = {{#date.value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/date.value_pieces}}{{^date.value_pieces}}{{date.value | literal}}{{/date.value_pieces}}{{#range}} it_range = lt_range{{/range}}{{#param_args}}{{#is_selopt}} {{ref}} = {{var}}{{/is_selopt}}{{^is_selopt}} {{ref}} = {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_selopt}}{{/param_args}} ).
-    cl_abap_unit_assert=>assert_equals( act = lt_keys exp = lt_keys_exp msg = {{#label_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/label_pieces}}{{^label_pieces}}{{label | literal}}{{/label_pieces}} ).
+    lt_keys = {{call}}( iv_date = {{#date.value_pieces}}{{{continuation}}}{{value | literal}}{{/date.value_pieces}}{{^date.value_pieces}}{{date.value | literal}}{{/date.value_pieces}}{{#range}} it_range = lt_range{{/range}}{{#param_args}}{{#is_selopt}} {{ref}} = {{var}}{{/is_selopt}}{{^is_selopt}} {{ref}} = {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_selopt}}{{/param_args}} ).
+    cl_abap_unit_assert=>assert_equals( act = lt_keys exp = lt_keys_exp msg = {{#label_pieces}}{{{continuation}}}{{value | literal}}{{/label_pieces}}{{^label_pieces}}{{label | literal}}{{/label_pieces}} ).
 {{/keys_check}}
   ENDMETHOD.
 {{/tests}}

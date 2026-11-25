@@ -20,8 +20,7 @@ CLASS {{class}} DEFINITION PUBLIC FINAL CREATE PUBLIC.
                 {{ref}} TYPE {{selopt_type}} OPTIONAL
 {{/is_selopt}}
 {{^is_selopt}}
-                {{ref}} TYPE {{type_name}}{{#default}} DEFAULT {{#default_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/default_pieces}}{{^default_pieces}}{{default | literal}}{{/default_pieces}}{{/default}}
+                {{ref}} TYPE {{type_name}}{{#default}} DEFAULT {{#default_pieces}}{{{continuation}}}{{value | literal}}{{/default_pieces}}{{^default_pieces}}{{default | literal}}{{/default_pieces}}{{/default}}
 {{/is_selopt}}
 {{/params}}
       RETURNING VALUE(rt_alerts) TYPE string_table.
@@ -35,8 +34,7 @@ CLASS {{class}} DEFINITION PUBLIC FINAL CREATE PUBLIC.
                 {{ref}} TYPE {{selopt_type}} OPTIONAL
 {{/is_selopt}}
 {{^is_selopt}}
-                {{ref}} TYPE {{type_name}}{{#default}} DEFAULT {{#default_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/default_pieces}}{{^default_pieces}}{{default | literal}}{{/default_pieces}}{{/default}}
+                {{ref}} TYPE {{type_name}}{{#default}} DEFAULT {{#default_pieces}}{{{continuation}}}{{value | literal}}{{/default_pieces}}{{^default_pieces}}{{default | literal}}{{/default_pieces}}{{/default}}
 {{/is_selopt}}
 {{/params}}
       RETURNING VALUE(rt_keys) TYPE tt_range.
@@ -123,15 +121,11 @@ CLASS {{class}} IMPLEMENTATION.
     ELSE.
 {{#default_rows}}
       CLEAR {{row}}.
-      {{row}}-sign = {{#sign_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
-      {{row}}-option = {{#option_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
-      {{row}}-low = {{#low_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
+      {{row}}-sign = {{#sign_pieces}}{{{continuation}}}{{value | literal}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
+      {{row}}-option = {{#option_pieces}}{{{continuation}}}{{value | literal}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
+      {{row}}-low = {{#low_pieces}}{{{continuation}}}{{value | literal}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
 {{#high}}
-      {{row}}-high = {{#high_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
+      {{row}}-high = {{#high_pieces}}{{{continuation}}}{{value | literal}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
 {{/high}}
       APPEND {{row}} TO {{use}}.
 {{/default_rows}}
@@ -154,8 +148,7 @@ CLASS {{class}} IMPLEMENTATION.
 {{/from}}
       INTO CORRESPONDING FIELDS OF TABLE lt_for
 {{#where}}
-      {{pre}}{{#is_cmp}}{{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}{{/is_cmp}}{{^is_cmp}}{{text}}{{/is_cmp}}{{post}}
+      {{pre}}{{#is_cmp}}{{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}{{/is_cmp}}{{^is_cmp}}{{text}}{{/is_cmp}}{{post}}
 {{/where}}
       ORDER BY
 {{#order}}
@@ -188,14 +181,12 @@ CLASS {{class}} IMPLEMENTATION.
 {{#joins}}
         {{#one_outer}}LEFT OUTER{{/one_outer}}{{^one_outer}}INNER{{/one_outer}} JOIN {{table}} AS {{alias}}
 {{#on}}
-          {{#@first}}ON{{/@first}}{{^@first}} AND{{/@first}} {{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}
+          {{#@first}}ON{{/@first}}{{^@first}} AND{{/@first}} {{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}
 {{/on}}
 {{/joins}}
       INTO CORRESPONDING FIELDS OF TABLE {{itab}}
 {{#where}}
-      {{pre}}{{#is_cmp}}{{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}{{/is_cmp}}{{^is_cmp}}{{text}}{{/is_cmp}}{{post}}
+      {{pre}}{{#is_cmp}}{{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}{{/is_cmp}}{{^is_cmp}}{{text}}{{/is_cmp}}{{post}}
 {{/where}}
       ORDER BY
 {{#order}}
@@ -251,8 +242,7 @@ CLASS {{class}} IMPLEMENTATION.
       IF sy-subrc = 0.
         lv_count = ls_count-cnt.
       ENDIF.
-      IF lv_count {{op}} {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+      IF lv_count {{op}} {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
         lv_count_text = lv_count.
         CONDENSE lv_count_text NO-GAPS.
 {{/is_count}}
@@ -262,8 +252,7 @@ CLASS {{class}} IMPLEMENTATION.
       IF sy-subrc = 0.
         lv_aggregate = ls_count-aggregate_value.
       ENDIF.
-      IF lv_aggregate {{op}} {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+      IF lv_aggregate {{op}} {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
 {{#is_integer}}
         IF lv_aggregate = -9223372036854775807 - 1.
           lv_aggregate_text = '9223372036854775808'.
@@ -295,8 +284,7 @@ CLASS {{class}} IMPLEMENTATION.
 {{/is_count}}
 {{/aggregate}}
 {{#alert_parts}}
-        {{#@first}}lv_alert = {{/@first}}{{^@first}}  && {{/@first}}{{#is_text}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{jref}}{{/is_text}}{{#@last}}.{{/@last}}
+        {{#@first}}lv_alert = {{/@first}}{{^@first}}  && {{/@first}}{{#is_text}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{jref}}{{/is_text}}{{#@last}}.{{/@last}}
 {{/alert_parts}}
         APPEND lv_alert TO rt_alerts.
 {{#aggregate}}
@@ -318,15 +306,13 @@ CLASS {{class}} IMPLEMENTATION.
 {{#aggregate}}
 {{#is_count}}
       IF lv_count > 0 AND ( {{key_change}} ).
-        IF lv_count {{op}} {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+        IF lv_count {{op}} {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
           lv_count_text = lv_count.
           CONDENSE lv_count_text NO-GAPS.
 {{/is_count}}
 {{^is_count}}
       IF lv_aggregate_seen = 'X' AND ( {{key_change}} ).
-        IF lv_aggregate {{op}} {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+        IF lv_aggregate {{op}} {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
 {{#is_integer}}
           IF lv_aggregate = -9223372036854775807 - 1.
             lv_aggregate_text = '9223372036854775808'.
@@ -359,8 +345,7 @@ CLASS {{class}} IMPLEMENTATION.
 {{/aggregate}}
 {{/limit}}
 {{#alert_parts}}
-{{#limit}}    {{/limit}}      {{#@first}}lv_alert = {{/@first}}{{^@first}}  && {{/@first}}{{#is_text}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{jref}}{{/is_text}}{{#@last}}.{{/@last}}
+{{#limit}}    {{/limit}}      {{#@first}}lv_alert = {{/@first}}{{^@first}}  && {{/@first}}{{#is_text}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{jref}}{{/is_text}}{{#@last}}.{{/@last}}
 {{/alert_parts}}
 {{#limit}}
 {{#aggregate}}
@@ -403,14 +388,12 @@ CLASS {{class}} IMPLEMENTATION.
 {{#limit}}
 {{#aggregate}}
 {{#is_count}}
-    IF lv_count {{op}} {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+    IF lv_count {{op}} {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
       lv_count_text = lv_count.
       CONDENSE lv_count_text NO-GAPS.
 {{/is_count}}
 {{^is_count}}
-    IF lv_aggregate_seen = 'X' AND lv_aggregate {{op}} {{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
+    IF lv_aggregate_seen = 'X' AND lv_aggregate {{op}} {{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}.
 {{#is_integer}}
       IF lv_aggregate = -9223372036854775807 - 1.
         lv_aggregate_text = '9223372036854775808'.
@@ -442,8 +425,7 @@ CLASS {{class}} IMPLEMENTATION.
 {{/is_count}}
 {{/aggregate}}
 {{#alert_parts}}
-      {{#@first}}lv_alert = {{/@first}}{{^@first}}  && {{/@first}}{{#is_text}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{jref}}{{/is_text}}{{#@last}}.{{/@last}}
+      {{#@first}}lv_alert = {{/@first}}{{^@first}}  && {{/@first}}{{#is_text}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_text}}{{^is_text}}{{jref}}{{/is_text}}{{#@last}}.{{/@last}}
 {{/alert_parts}}
       APPEND lv_alert TO rt_alerts.
     ENDIF.
@@ -479,15 +461,11 @@ CLASS {{class}} IMPLEMENTATION.
     ELSE.
 {{#default_rows}}
       CLEAR {{row}}.
-      {{row}}-sign = {{#sign_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
-      {{row}}-option = {{#option_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
-      {{row}}-low = {{#low_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
+      {{row}}-sign = {{#sign_pieces}}{{{continuation}}}{{value | literal}}{{/sign_pieces}}{{^sign_pieces}}{{sign | literal}}{{/sign_pieces}}.
+      {{row}}-option = {{#option_pieces}}{{{continuation}}}{{value | literal}}{{/option_pieces}}{{^option_pieces}}{{option | literal}}{{/option_pieces}}.
+      {{row}}-low = {{#low_pieces}}{{{continuation}}}{{value | literal}}{{/low_pieces}}{{^low_pieces}}{{low | literal}}{{/low_pieces}}.
 {{#high}}
-      {{row}}-high = {{#high_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
+      {{row}}-high = {{#high_pieces}}{{{continuation}}}{{value | literal}}{{/high_pieces}}{{^high_pieces}}{{high | literal}}{{/high_pieces}}.
 {{/high}}
       APPEND {{row}} TO {{use}}.
 {{/default_rows}}
@@ -505,14 +483,12 @@ CLASS {{class}} IMPLEMENTATION.
 {{#joins}}
         INNER JOIN {{table}} AS {{alias}}
 {{#on}}
-          {{#@first}}ON{{/@first}}{{^@first}} AND{{/@first}} {{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}
+          {{#@first}}ON{{/@first}}{{^@first}} AND{{/@first}} {{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}
 {{/on}}
 {{/joins}}
       APPENDING TABLE lt_keys
 {{#where}}
-      {{pre}}{{#is_cmp}}{{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{value | literal}}{{^@last}} &
-        {{/@last}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}{{/is_cmp}}{{^is_cmp}}{{text}}{{/is_cmp}}{{post}}
+      {{pre}}{{#is_cmp}}{{lhs}} {{op}} {{#is_literal}}{{#value_pieces}}{{{continuation}}}{{value | literal}}{{/value_pieces}}{{^value_pieces}}{{value | literal}}{{/value_pieces}}{{/is_literal}}{{^is_literal}}{{sref}}{{/is_literal}}{{/is_cmp}}{{^is_cmp}}{{text}}{{/is_cmp}}{{post}}
 {{/where}}
       ORDER BY {{driving_keys.source}}.
 {{/queries}}

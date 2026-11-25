@@ -375,8 +375,8 @@
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note", "selector": "/column"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/table/zosd_l2_note", "selector": "/wa"}
           ],
           "locations": [
@@ -387,9 +387,9 @@
         {
           "line": 76,
           "sources": [
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"}
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"}
           ],
           "locations": [
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
@@ -400,11 +400,10 @@
           "line": 77,
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/value"}
           ],
           "locations": [
-            {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 1}
           ]
         },
@@ -613,8 +612,8 @@
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note", "selector": "/column"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/table/zosd_l2_note", "selector": "/wa"}
           ],
           "locations": [
@@ -625,9 +624,9 @@
         {
           "line": 100,
           "sources": [
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"}
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"}
           ],
           "locations": [
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
@@ -638,11 +637,10 @@
           "line": 101,
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_eq/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/value"}
           ],
           "locations": [
-            {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 1}
           ]
         },
@@ -855,8 +853,8 @@
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note", "selector": "/column"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/table/zosd_l2_note", "selector": "/wa"}
           ],
           "locations": [
@@ -867,9 +865,9 @@
         {
           "line": 124,
           "sources": [
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"}
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"}
           ],
           "locations": [
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
@@ -880,11 +878,10 @@
           "line": 125,
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_ne/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/value"}
           ],
           "locations": [
-            {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 1}
           ]
         },
@@ -1054,8 +1051,8 @@
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note", "selector": "/column"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/table/zosd_l2_note", "selector": "/wa"}
           ],
           "locations": [
@@ -1066,9 +1063,9 @@
         {
           "line": 144,
           "sources": [
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/1", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"}
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/continuation"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/value"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"}
           ],
           "locations": [
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
@@ -1079,11 +1076,10 @@
           "line": 145,
           "sources": [
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note", "selector": "/"},
-            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/continuation"},
             {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/case/b_status_blank/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/value"}
           ],
           "locations": [
-            {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 0},
             {"recipe": "recipes/l2-check-test/template.tpl", "anchor": "<partial>", "offset": 1}
           ]
         },

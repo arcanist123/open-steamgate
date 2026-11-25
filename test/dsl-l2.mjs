@@ -7,6 +7,7 @@ import {readJSONFile as readStoredJSONFile, readTraceMap} from "./trace-reader.m
 // cases test the rule; type errors name the rule file and line; the trace
 // reaches the rule line.
 import {expect} from "chai";
+import {createHash} from "node:crypto";
 import yaml from "js-yaml";
 import {spawnSync} from "node:child_process";
 import {existsSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
@@ -15,7 +16,7 @@ import {basename, dirname, join, relative, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import {readTrace} from "../tools/dsl-trace.mjs";
 import {DEFAULT_DDIC, registryFor} from "../tools/dsl-ddic.mjs";
-import {buildRule, capWarning, checkRule, compileRule, describeCases, evaluate, misfit, parseCondition, renderRule, RuleError, rulePath, stepValue} from "../tools/dsl-l2.mjs";
+import {buildRule, capWarning, checkRule, compileRule, describeCases, evaluate, misfit, parseCondition, renderModel, renderRule, RuleError, rulePath, stepValue} from "../tools/dsl-l2.mjs";
 import {ruleKeys} from "../tools/dsl-l2-range.mjs";
 import {bump, caseDiscriminates, compareValues, conditionOf, defaultValue, shiftDate, staleDiscriminates, structureDiscriminates, thresholdDiscriminates, windowOffsetDiscriminates} from "../tools/dsl-l2-eval.mjs";
 import {modulesOf} from "../tools/osd-transpile.mjs";
@@ -104,6 +105,13 @@ function traceLineMismatch(entry, template, output) {
   // can come from it: an entry naming one is wrong (a whole sidecar pointed at
   // `{{/fields}}` used to pass)
   if (pattern === null) return `output line ${entry.line} names a tag-only template line ${entry.template_line}`;
+  // A multiline piece value emits continuation lines from the same tag.
+  if (source.includes("{{{continuation}}}") && /_pieces\/\d+\//.test(entry.path)
+      && /^        `(?:[^`]|``)*`/.test(rendered)) return null;
+  if (source.includes("{{{continuation}}}") && rendered.endsWith(" &")) {
+    const prefix = source.slice(0, source.search(/{{#[\w.]+_pieces}}/));
+    if (templateLinePattern(prefix + "{{piece}}").test(rendered)) return null;
+  }
   return pattern.test(rendered) ? null : `output ${JSON.stringify(rendered)} does not match template ${JSON.stringify(source)}`;
 }
 
@@ -134,6 +142,40 @@ describe("DSL L2: a rule, its generated check, its examples and its derived case
     }
   });
   after(() => rmSync(scratch, {recursive: true, force: true}));
+
+  it("keeps every original recipe line in place for consumers' stored template_line", () => {
+    // origin/main before L2 row literals: pin all original text, plus the exact
+    // sites allowed to expand inline. No Git refs are needed by the test runner.
+    const baselines = [
+      ["l2-check", 505, "9e5dc7ba26806efb39c4220085dde8aec6a912b5f85cac3c265637b9cd91f9c1",
+        [23, 37, 124, 125, 126, 128, 151, 184, 189, 245, 255, 287, 309, 315, 348, 391, 396, 428, 464, 465, 466, 468, 486, 491]],
+      ["l2-check-test", 340, "c8106ab931430b21d35a6a0ba3e404187c4bd64f9839f454de7009d9584074e1",
+        [27, 111, 112, 113, 115, 128, 139, 144, 168, 171, 203, 213, 224, 267, 268, 269, 271, 286, 287, 288, 290, 306, 314, 323, 324, 325, 326, 332, 335, 336]],
+    ];
+    for (const [recipe, count, hash, sites] of baselines) {
+      const text = readFileSync(`recipes/${recipe}/template.tpl`, "utf8");
+      const lines = text.split("\n");
+      expect(lines.length - 1, recipe).to.be.at.least(count);
+      const changed = [];
+      const original = lines.slice(0, count).map((line, index) => {
+        const restored = line.replace(/{{#([\w.]+)_pieces}}{{{continuation}}}{{value \| literal}}{{\/\1_pieces}}{{\^\1_pieces}}{{\1 \| literal}}{{\/\1_pieces}}/g,
+          "{{$1 | literal}}");
+        if (restored !== line) changed.push(index + 1);
+        return restored;
+      }).join("\n") + "\n";
+      expect(changed, recipe).to.deep.equal(sites);
+      expect(createHash("sha256").update(original).digest("hex"), `${recipe}: original lines in original order`).to.equal(hash);
+    }
+  });
+
+  it("a stored consumer date WHERE location still names an sref recipe line", () => {
+    // Recorded by origin/main for maintenance_ship, independent of rendering.
+    const template = readFileSync("recipes/l2-check/template.tpl", "utf8").split("\n");
+    const stored = {line: 34, template_line: 189};
+    const abap = readFileSync(join(OUT, `${CLASS}.clas.abap`), "utf8").split("\n");
+    expect(abap[stored.line - 1]).to.match(/AND voy~dep_date > iv_date/);
+    expect(template[stored.template_line - 1]).to.contain("sref");
+  });
 
   // a copy of the committed rule with one line replaced
   const variant = (name, from, to) => {
@@ -2970,6 +3012,41 @@ examples:
         }
       });
     }
+
+    it("G23: continuation lines trace to their own piece and the original literal site", async () => {
+      const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));
+      const value = doc.examples[0].rows.ZOSD_L2_NOTE[0].note;
+      doc.boundaries = [];
+      doc.params = {note: {type: "ZOSD_L2_NOTE-NOTE", default: value}};
+      doc.when += ` and ship.note = '${value}' and ship.note = $note`;
+      const compiled = compileRule(writeRule("continuation-trace", yaml.dump(doc)), {registry});
+      const model = renderModel(compiled);
+      const {files} = await renderRule(compiled);
+      let count = 0;
+      for (const kind of ["clas", "clas.testclasses"]) {
+        const meta = JSON.parse(files[`${compiled.class}.${kind}.trace.meta.json`]);
+        const output = files[`${compiled.class}.${kind}.abap`].split("\n");
+        const recipe = kind === "clas" ? "l2-check" : "l2-check-test";
+        const template = readFileSync(`recipes/${recipe}/template.tpl`, "utf8").split("\n");
+        let continuations = 0;
+        for (const entry of meta.lines) {
+          if (!/_pieces\/[2-9]\d*\/continuation$/.test(entry.path)) continue;
+          const parts = entry.path.split("/").filter(Boolean).slice(0, -1);
+          const piece = parts.reduce((node, key) => Array.isArray(node) ? node[Number(key) - 1] : node[key], model);
+          expect(output[entry.line - 1]).to.contain("`" + piece.value.replaceAll("`", "``") + "`");
+          expect(entry.node).to.equal(piece["@id"]);
+          expect(entry.rule_line).to.equal(piece.rule_line);
+          expect(template[entry.template_line - 1]).to.contain("{{{continuation}}}");
+          const contributor = entry.contributors.find((c) => c.path === "/" + parts.join("/") + "/value");
+          expect(contributor, `piece value contributes to line ${entry.line}`).to.exist;
+          expect(contributor.template_line).to.equal(entry.template_line);
+          continuations++;
+        }
+        expect(continuations, recipe).to.be.greaterThan(0);
+        count += continuations;
+      }
+      console.log(`L2 continuation trace: ${count} exact piece locations`);
+    });
 
     it("G23: a note longer than CHAR 255 is still refused", () => {
       const doc = yaml.load(readFileSync(WIDE_NOTE, "utf8"));

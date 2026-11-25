@@ -196,7 +196,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
           "template": "main",
-          "template_line": 27
+          "template_line": 26
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -205,7 +205,43 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 27
+      "template_line": 26
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
+          "template": "main",
+          "template_line": 42
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 10,
+      "node": "rule/ship-cargo-limit",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 42
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
+          "template": "main",
+          "template_line": 43
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 11,
+      "node": "rule/ship-cargo-limit",
+      "path": "/",
+      "rule_line": 1,
+      "template": "main",
+      "template_line": 43
     },
     {
       "contributors": [
@@ -215,12 +251,19 @@
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
           "template": "main",
           "template_line": 44
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/class"},
+          "template": "main",
+          "template_line": 44
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 10,
+      "line": 12,
       "node": "rule/ship-cargo-limit",
-      "path": "/",
+      "path": "/class",
       "rule_line": 1,
       "template": "main",
       "template_line": 44
@@ -236,7 +279,7 @@
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 11,
+      "line": 13,
       "node": "rule/ship-cargo-limit",
       "path": "/",
       "rule_line": 1,
@@ -254,53 +297,10 @@
         },
         {
           "invocation": 1,
-          "path": "/class",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/class"},
-          "template": "main",
-          "template_line": 46
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 12,
-      "node": "rule/ship-cargo-limit",
-      "path": "/class",
-      "rule_line": 1,
-      "template": "main",
-      "template_line": 46
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
-          "template": "main",
-          "template_line": 47
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 13,
-      "node": "rule/ship-cargo-limit",
-      "path": "/",
-      "rule_line": 1,
-      "template": "main",
-      "template_line": 47
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
-          "template": "main",
-          "template_line": 48
-        },
-        {
-          "invocation": 1,
           "path": "/comment",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/comment"},
           "template": "main",
-          "template_line": 48
+          "template_line": 46
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -309,7 +309,7 @@
       "path": "/comment",
       "rule_line": 1,
       "template": "main",
-      "template_line": 48
+      "template_line": 46
     },
     {
       "contributors": [
@@ -318,14 +318,14 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 50
+          "template_line": 48
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/type"},
           "template": "main",
-          "template_line": 50
+          "template_line": 48
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -334,7 +334,7 @@
       "path": "/queries/1/type",
       "rule_line": 6,
       "template": "main",
-      "template_line": 50
+      "template_line": 48
     },
     {
       "contributors": [
@@ -343,28 +343,28 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/column",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/column"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/table",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/table"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -373,7 +373,7 @@
       "path": "/queries/1/fields/1/name",
       "rule_line": 4,
       "template": "main",
-      "template_line": 52
+      "template_line": 50
     },
     {
       "contributors": [
@@ -382,28 +382,28 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/column",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/column"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/table",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/table"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -411,6 +411,31 @@
       "node": "rule/ship-cargo-limit/join/field/2",
       "path": "/queries/1/fields/2/name",
       "rule_line": 7,
+      "template": "main",
+      "template_line": 50
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
+          "template": "main",
+          "template_line": 52
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 52
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 18,
+      "node": "rule/ship-cargo-limit/join",
+      "path": "/queries/1/type",
+      "rule_line": 6,
       "template": "main",
       "template_line": 52
     },
@@ -421,46 +446,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 54
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/type",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/type"},
-          "template": "main",
-          "template_line": 54
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 18,
-      "node": "rule/ship-cargo-limit/join",
-      "path": "/queries/1/type",
-      "rule_line": 6,
-      "template": "main",
-      "template_line": 54
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
-          "template": "main",
-          "template_line": 55
+          "template_line": 53
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 55
+          "template_line": 53
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/type"},
           "template": "main",
-          "template_line": 55
+          "template_line": 53
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -469,7 +469,7 @@
       "path": "/queries/1/itab",
       "rule_line": 6,
       "template": "main",
-      "template_line": 55
+      "template_line": 53
     },
     {
       "contributors": [
@@ -478,21 +478,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 56
+          "template_line": 54
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/type"},
           "template": "main",
-          "template_line": 56
+          "template_line": 54
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 56
+          "template_line": 54
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -501,7 +501,7 @@
       "path": "/queries/1/wa",
       "rule_line": 6,
       "template": "main",
-      "template_line": 56
+      "template_line": 54
     },
     {
       "contributors": [
@@ -510,14 +510,14 @@
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 58
+          "template_line": 56
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/type"},
           "template": "main",
-          "template_line": 58
+          "template_line": 56
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -526,7 +526,7 @@
       "path": "/queries/1/type",
       "rule_line": 6,
       "template": "main",
-      "template_line": 58
+      "template_line": 56
     },
     {
       "contributors": [
@@ -535,7 +535,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
           "template": "main",
-          "template_line": 89
+          "template_line": 87
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -544,7 +544,50 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 89
+      "template_line": 87
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 99
+        },
+        {
+          "invocation": 1,
+          "path": "/aggregate/accumulator_type",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/accumulator_type"},
+          "template": "main",
+          "template_line": 99
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 23,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/aggregate/accumulator_type",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 99
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 100
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 24,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 100
     },
     {
       "contributors": [
@@ -554,19 +597,12 @@
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
           "template_line": 101
-        },
-        {
-          "invocation": 1,
-          "path": "/aggregate/accumulator_type",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/accumulator_type"},
-          "template": "main",
-          "template_line": 101
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 23,
+      "line": 25,
       "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/aggregate/accumulator_type",
+      "path": "/aggregate",
       "rule_line": 7,
       "template": "main",
       "template_line": 101
@@ -578,50 +614,14 @@
           "path": "/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 102
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 24,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 102
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 103
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 25,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 103
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 108
+          "template_line": 106
         },
         {
           "invocation": 1,
           "path": "/aggregate/decimals",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/decimals"},
           "template": "main",
-          "template_line": 108
+          "template_line": 106
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -630,7 +630,7 @@
       "path": "/aggregate/decimals",
       "rule_line": 7,
       "template": "main",
-      "template_line": 108
+      "template_line": 106
     },
     {
       "contributors": [
@@ -639,7 +639,7 @@
           "path": "/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 110
+          "template_line": 108
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -648,7 +648,7 @@
       "path": "/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 110
+      "template_line": 108
     },
     {
       "contributors": [
@@ -657,7 +657,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 167
+          "template_line": 160
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -666,7 +666,7 @@
       "path": "/queries/1",
       "rule_line": 6,
       "template": "main",
-      "template_line": 167
+      "template_line": 160
     },
     {
       "contributors": [
@@ -675,21 +675,21 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/source",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/1", "selector": "/source"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -698,7 +698,7 @@
       "path": "/queries/1/fields/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 182
+      "template_line": 175
     },
     {
       "contributors": [
@@ -707,21 +707,21 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/source",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/field/2", "selector": "/source"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -730,7 +730,7 @@
       "path": "/queries/1/fields/2/source",
       "rule_line": 7,
       "template": "main",
-      "template_line": 182
+      "template_line": 175
     },
     {
       "contributors": [
@@ -739,21 +739,21 @@
           "path": "/queries/1/from",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/for", "selector": "/"},
           "template": "main",
-          "template_line": 186
+          "template_line": 179
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/alias",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/for", "selector": "/alias"},
           "template": "main",
-          "template_line": 186
+          "template_line": 179
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/table",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/for", "selector": "/table"},
           "template": "main",
-          "template_line": 186
+          "template_line": 179
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -762,7 +762,7 @@
       "path": "/queries/1/from/table",
       "rule_line": 4,
       "template": "main",
-      "template_line": 186
+      "template_line": 179
     },
     {
       "contributors": [
@@ -771,21 +771,21 @@
           "path": "/queries/1/joins/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/alias",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/alias"},
           "template": "main",
-          "template_line": 189
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/table",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/table"},
           "template": "main",
-          "template_line": 189
+          "template_line": 182
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -794,7 +794,7 @@
       "path": "/queries/1/joins/1/table",
       "rule_line": 7,
       "template": "main",
-      "template_line": 189
+      "template_line": 182
     },
     {
       "contributors": [
@@ -803,28 +803,28 @@
           "path": "/queries/1/joins/1/on/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/where/1", "selector": "/"},
           "template": "main",
-          "template_line": 191
+          "template_line": 184
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/lhs",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/where/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 191
+          "template_line": 184
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/op",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/where/1", "selector": "/op"},
           "template": "main",
-          "template_line": 191
+          "template_line": 184
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/sref",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/where/1", "selector": "/sref"},
           "template": "main",
-          "template_line": 192
+          "template_line": 184
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -833,7 +833,7 @@
       "path": "/queries/1/joins/1/on/1/lhs",
       "rule_line": 8,
       "template": "main",
-      "template_line": 191
+      "template_line": 184
     },
     {
       "contributors": [
@@ -842,14 +842,14 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 195
+          "template_line": 187
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 195
+          "template_line": 187
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -858,7 +858,7 @@
       "path": "/queries/1/itab",
       "rule_line": 6,
       "template": "main",
-      "template_line": 195
+      "template_line": 187
     },
     {
       "contributors": [
@@ -867,42 +867,42 @@
           "path": "/queries/1/where/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/range", "selector": "/"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/is_cmp",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/range", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/lhs",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/range", "selector": "/lhs"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/op",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/range", "selector": "/op"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/pre",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/range", "selector": "/pre"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/sref",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/range", "selector": "/sref"},
           "template": "main",
-          "template_line": 198
+          "template_line": 189
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -911,7 +911,7 @@
       "path": "/queries/1/where/1/pre",
       "rule_line": 5,
       "template": "main",
-      "template_line": 197
+      "template_line": 189
     },
     {
       "contributors": [
@@ -920,7 +920,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 200
+          "template_line": 191
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -929,7 +929,7 @@
       "path": "/queries/1",
       "rule_line": 6,
       "template": "main",
-      "template_line": 200
+      "template_line": 191
     },
     {
       "contributors": [
@@ -938,14 +938,14 @@
           "path": "/queries/1/order/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/order/1", "selector": "/"},
           "template": "main",
-          "template_line": 202
+          "template_line": 193
         },
         {
           "invocation": 1,
           "path": "/queries/1/order/1/source",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join/order/1", "selector": "/source"},
           "template": "main",
-          "template_line": 202
+          "template_line": 193
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -954,7 +954,7 @@
       "path": "/queries/1/order/1/source",
       "rule_line": 4,
       "template": "main",
-      "template_line": 202
+      "template_line": 193
     },
     {
       "contributors": [
@@ -963,21 +963,21 @@
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 314
+          "template_line": 302
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 314
+          "template_line": 302
         },
         {
           "invocation": 1,
           "path": "/queries/1/sort_by",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/sort_by"},
           "template": "main",
-          "template_line": 314
+          "template_line": 302
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -986,7 +986,7 @@
       "path": "/queries/1/itab",
       "rule_line": 6,
       "template": "main",
-      "template_line": 314
+      "template_line": 302
     },
     {
       "contributors": [
@@ -995,21 +995,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 316
+          "template_line": 304
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 316
+          "template_line": 304
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 316
+          "template_line": 304
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1018,7 +1018,7 @@
       "path": "/queries/1/itab",
       "rule_line": 6,
       "template": "main",
-      "template_line": 316
+      "template_line": 304
     },
     {
       "contributors": [
@@ -1027,14 +1027,14 @@
           "path": "/queries/1/key_change",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/key_change"},
           "template": "main",
-          "template_line": 327
+          "template_line": 314
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 327
+          "template_line": 314
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1043,7 +1043,7 @@
       "path": "/queries/1/key_change",
       "rule_line": 6,
       "template": "main",
-      "template_line": 327
+      "template_line": 314
     },
     {
       "contributors": [
@@ -1052,21 +1052,21 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 328
+          "template_line": 315
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/op",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/op"},
           "template": "main",
-          "template_line": 328
+          "template_line": 315
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/value",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/value"},
           "template": "main",
-          "template_line": 329
+          "template_line": 315
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1075,7 +1075,7 @@
       "path": "/queries/1/limit/op",
       "rule_line": 9,
       "template": "main",
-      "template_line": 328
+      "template_line": 315
     },
     {
       "contributors": [
@@ -1084,7 +1084,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 347
+          "template_line": 333
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1093,7 +1093,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 347
+      "template_line": 333
     },
     {
       "contributors": [
@@ -1102,7 +1102,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 348
+          "template_line": 334
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1110,6 +1110,278 @@
       "node": "rule/ship-cargo-limit/limit/sum",
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
+      "template": "main",
+      "template_line": 334
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 335
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 44,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 335
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 336
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 45,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 336
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 337
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 46,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 337
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 338
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 47,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 338
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 339
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 48,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 339
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 340
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 49,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 340
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 341
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 50,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 341
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 342
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 51,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 342
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/hole/1", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/1/jref",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/hole/1", "selector": "/jref"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 52,
+      "node": "rule/ship-cargo-limit/alert/hole/1",
+      "path": "/queries/1/alert_parts/1/jref",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/1", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/2/value",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/1", "selector": "/value"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 53,
+      "node": "rule/ship-cargo-limit/alert/text/1",
+      "path": "/queries/1/alert_parts/2/value",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/3",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/3/jref",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/sum", "selector": "/jref"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 54,
+      "node": "rule/ship-cargo-limit/alert/sum",
+      "path": "/queries/1/alert_parts/3/jref",
+      "rule_line": 10,
+      "template": "main",
+      "template_line": 348
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/4",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/2", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/alert_parts/4/value",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/2", "selector": "/value"},
+          "template": "main",
+          "template_line": 348
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
+          "template": "main",
+          "template_line": 348
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 55,
+      "node": "rule/ship-cargo-limit/alert/text/2",
+      "path": "/queries/1/alert_parts/4/value",
+      "rule_line": 10,
       "template": "main",
       "template_line": 348
     },
@@ -1120,279 +1392,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 349
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 44,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 349
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 350
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 45,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 350
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 351
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 46,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 351
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 352
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 47,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 352
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 353
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 48,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 353
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 354
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 49,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 354
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 355
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 50,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 355
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 356
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 51,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 356
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/1",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/hole/1", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/1/jref",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/hole/1", "selector": "/jref"},
-          "template": "main",
-          "template_line": 363
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 52,
-      "node": "rule/ship-cargo-limit/alert/hole/1",
-      "path": "/queries/1/alert_parts/1/jref",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 362
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/2",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/1", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/2/value",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/1", "selector": "/value"},
-          "template": "main",
-          "template_line": 363
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 53,
-      "node": "rule/ship-cargo-limit/alert/text/1",
-      "path": "/queries/1/alert_parts/2/value",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 362
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/3",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/3/jref",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/sum", "selector": "/jref"},
-          "template": "main",
-          "template_line": 363
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 54,
-      "node": "rule/ship-cargo-limit/alert/sum",
-      "path": "/queries/1/alert_parts/3/jref",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 362
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/4",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/2", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/alert_parts/4/value",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/2", "selector": "/value"},
-          "template": "main",
-          "template_line": 363
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
-          "template": "main",
-          "template_line": 362
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 55,
-      "node": "rule/ship-cargo-limit/alert/text/2",
-      "path": "/queries/1/alert_parts/4/value",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 362
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 376
+          "template_line": 361
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1401,7 +1401,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 376
+      "template_line": 361
     },
     {
       "contributors": [
@@ -1410,7 +1410,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 377
+          "template_line": 362
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1419,7 +1419,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 377
+      "template_line": 362
     },
     {
       "contributors": [
@@ -1428,7 +1428,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 378
+          "template_line": 363
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1437,7 +1437,75 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 378
+      "template_line": 363
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 364
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 59,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 364
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
+          "template": "main",
+          "template_line": 365
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 60,
+      "node": "rule/ship-cargo-limit/limit/sum",
+      "path": "/queries/1/limit/aggregate",
+      "rule_line": 7,
+      "template": "main",
+      "template_line": 365
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate/is_sum",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/is_sum"},
+          "template": "main",
+          "template_line": 367
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/limit/aggregate/result_field",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/result_field"},
+          "template": "main",
+          "template_line": 367
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/wa",
+          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/wa"},
+          "template": "main",
+          "template_line": 367
+        }
+      ],
+      "file": "zcl_l2_ship_cargo_limit.clas.abap",
+      "line": 61,
+      "node": "rule/ship-cargo-limit/join",
+      "path": "/queries/1/wa",
+      "rule_line": 6,
+      "template": "main",
+      "template_line": 367
     },
     {
       "contributors": [
@@ -1450,7 +1518,7 @@
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 59,
+      "line": 62,
       "node": "rule/ship-cargo-limit/limit/sum",
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
@@ -1465,81 +1533,13 @@
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
           "template_line": 380
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 60,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 380
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate/is_sum",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/is_sum"},
-          "template": "main",
-          "template_line": 382
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate/result_field",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/result_field"},
-          "template": "main",
-          "template_line": 382
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 382
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 61,
-      "node": "rule/ship-cargo-limit/join",
-      "path": "/queries/1/wa",
-      "rule_line": 6,
-      "template": "main",
-      "template_line": 382
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 394
-        }
-      ],
-      "file": "zcl_l2_ship_cargo_limit.clas.abap",
-      "line": 62,
-      "node": "rule/ship-cargo-limit/limit/sum",
-      "path": "/queries/1/limit/aggregate",
-      "rule_line": 7,
-      "template": "main",
-      "template_line": 394
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1/limit/aggregate",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
-          "template": "main",
-          "template_line": 395
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/wa",
-          "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/wa"},
-          "template": "main",
-          "template_line": 395
+          "template_line": 380
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1548,7 +1548,7 @@
       "path": "/queries/1/wa",
       "rule_line": 6,
       "template": "main",
-      "template_line": 395
+      "template_line": 380
     },
     {
       "contributors": [
@@ -1557,7 +1557,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/join", "selector": "/"},
           "template": "main",
-          "template_line": 402
+          "template_line": 387
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1566,7 +1566,7 @@
       "path": "/queries/1",
       "rule_line": 6,
       "template": "main",
-      "template_line": 402
+      "template_line": 387
     },
     {
       "contributors": [
@@ -1575,21 +1575,21 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 412
+          "template_line": 396
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/op",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/op"},
           "template": "main",
-          "template_line": 412
+          "template_line": 396
         },
         {
           "invocation": 1,
           "path": "/queries/1/limit/value",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/value"},
           "template": "main",
-          "template_line": 413
+          "template_line": 396
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1598,7 +1598,7 @@
       "path": "/queries/1/limit/op",
       "rule_line": 9,
       "template": "main",
-      "template_line": 412
+      "template_line": 396
     },
     {
       "contributors": [
@@ -1607,7 +1607,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 431
+          "template_line": 414
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1616,7 +1616,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 431
+      "template_line": 414
     },
     {
       "contributors": [
@@ -1625,7 +1625,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 432
+          "template_line": 415
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1634,7 +1634,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 432
+      "template_line": 415
     },
     {
       "contributors": [
@@ -1643,7 +1643,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 433
+          "template_line": 416
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1652,7 +1652,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 433
+      "template_line": 416
     },
     {
       "contributors": [
@@ -1661,7 +1661,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 434
+          "template_line": 417
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1670,7 +1670,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 434
+      "template_line": 417
     },
     {
       "contributors": [
@@ -1679,7 +1679,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 435
+          "template_line": 418
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1688,7 +1688,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 435
+      "template_line": 418
     },
     {
       "contributors": [
@@ -1697,7 +1697,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 436
+          "template_line": 419
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1706,7 +1706,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 436
+      "template_line": 419
     },
     {
       "contributors": [
@@ -1715,7 +1715,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 437
+          "template_line": 420
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1724,7 +1724,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 437
+      "template_line": 420
     },
     {
       "contributors": [
@@ -1733,7 +1733,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 438
+          "template_line": 421
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1742,7 +1742,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 438
+      "template_line": 421
     },
     {
       "contributors": [
@@ -1751,7 +1751,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 439
+          "template_line": 422
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1760,7 +1760,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 439
+      "template_line": 422
     },
     {
       "contributors": [
@@ -1769,7 +1769,7 @@
           "path": "/queries/1/limit/aggregate",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/sum", "selector": "/"},
           "template": "main",
-          "template_line": 440
+          "template_line": 423
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1778,7 +1778,7 @@
       "path": "/queries/1/limit/aggregate",
       "rule_line": 7,
       "template": "main",
-      "template_line": 440
+      "template_line": 423
     },
     {
       "contributors": [
@@ -1787,14 +1787,14 @@
           "path": "/queries/1/alert_parts/1",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/hole/1", "selector": "/"},
           "template": "main",
-          "template_line": 445
+          "template_line": 428
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/1/jref",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/hole/1", "selector": "/jref"},
           "template": "main",
-          "template_line": 446
+          "template_line": 428
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1803,7 +1803,7 @@
       "path": "/queries/1/alert_parts/1/jref",
       "rule_line": 10,
       "template": "main",
-      "template_line": 445
+      "template_line": 428
     },
     {
       "contributors": [
@@ -1812,14 +1812,14 @@
           "path": "/queries/1/alert_parts/2",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/1", "selector": "/"},
           "template": "main",
-          "template_line": 445
+          "template_line": 428
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/2/value",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/1", "selector": "/value"},
           "template": "main",
-          "template_line": 446
+          "template_line": 428
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1828,7 +1828,7 @@
       "path": "/queries/1/alert_parts/2/value",
       "rule_line": 10,
       "template": "main",
-      "template_line": 445
+      "template_line": 428
     },
     {
       "contributors": [
@@ -1837,14 +1837,14 @@
           "path": "/queries/1/alert_parts/3",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/sum", "selector": "/"},
           "template": "main",
-          "template_line": 445
+          "template_line": 428
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/3/jref",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/sum", "selector": "/jref"},
           "template": "main",
-          "template_line": 446
+          "template_line": 428
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1853,7 +1853,7 @@
       "path": "/queries/1/alert_parts/3/jref",
       "rule_line": 10,
       "template": "main",
-      "template_line": 445
+      "template_line": 428
     },
     {
       "contributors": [
@@ -1862,14 +1862,14 @@
           "path": "/queries/1/alert_parts/4",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/2", "selector": "/"},
           "template": "main",
-          "template_line": 445
+          "template_line": 428
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/4/value",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/alert/text/2", "selector": "/value"},
           "template": "main",
-          "template_line": 446
+          "template_line": 428
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1878,7 +1878,7 @@
       "path": "/queries/1/alert_parts/4/value",
       "rule_line": 10,
       "template": "main",
-      "template_line": 445
+      "template_line": 428
     },
     {
       "contributors": [
@@ -1887,7 +1887,7 @@
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 448
+          "template_line": 430
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1896,7 +1896,7 @@
       "path": "/queries/1/limit",
       "rule_line": 9,
       "template": "main",
-      "template_line": 448
+      "template_line": 430
     },
     {
       "contributors": [
@@ -1905,7 +1905,7 @@
           "path": "/queries/1/limit",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit/limit/more_than", "selector": "/"},
           "template": "main",
-          "template_line": 449
+          "template_line": 431
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1914,7 +1914,7 @@
       "path": "/queries/1/limit",
       "rule_line": 9,
       "template": "main",
-      "template_line": 449
+      "template_line": 431
     },
     {
       "contributors": [
@@ -1923,7 +1923,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
           "template": "main",
-          "template_line": 457
+          "template_line": 439
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1932,7 +1932,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 457
+      "template_line": 439
     },
     {
       "contributors": [
@@ -1941,7 +1941,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/ship_cargo_limit.l2.yaml", "node": "rule/ship-cargo-limit", "selector": "/"},
           "template": "main",
-          "template_line": 529
+          "template_line": 505
         }
       ],
       "file": "zcl_l2_ship_cargo_limit.clas.abap",
@@ -1950,7 +1950,7 @@
       "path": "/",
       "rule_line": 1,
       "template": "main",
-      "template_line": 529
+      "template_line": 505
     }
   ],
   "model": "sha256:85e96ae3fa817522ecb9141d874a5109bc21e78a8106bf0deb3f2651b338d782",
@@ -1960,5 +1960,5 @@
   ],
   "rule": "src/l2demo/ship_cargo_limit.l2.yaml",
   "template": "recipes/l2-check/template.tpl",
-  "templates": {"recipes/l2-check/template.tpl": "sha256:dd979ef4c734cbacc2e6902bd0c4a4d964f373c348b491655881775143f89b06"}
+  "templates": {"recipes/l2-check/template.tpl": "sha256:0c78088f1afb165f0a95164bbd0c8a0dc7e3db70a793672df7cc00af9b55c5d7"}
 }

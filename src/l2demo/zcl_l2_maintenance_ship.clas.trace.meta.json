@@ -196,7 +196,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
           "template": "main",
-          "template_line": 27
+          "template_line": 26
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -205,7 +205,43 @@
       "path": "/",
       "rule_line": 4,
       "template": "main",
-      "template_line": 27
+      "template_line": 26
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
+          "template": "main",
+          "template_line": 42
+        }
+      ],
+      "file": "zcl_l2_maintenance_ship.clas.abap",
+      "line": 10,
+      "node": "rule/maintenance-ship-no-future-voyage",
+      "path": "/",
+      "rule_line": 4,
+      "template": "main",
+      "template_line": 42
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/",
+          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
+          "template": "main",
+          "template_line": 43
+        }
+      ],
+      "file": "zcl_l2_maintenance_ship.clas.abap",
+      "line": 11,
+      "node": "rule/maintenance-ship-no-future-voyage",
+      "path": "/",
+      "rule_line": 4,
+      "template": "main",
+      "template_line": 43
     },
     {
       "contributors": [
@@ -215,12 +251,19 @@
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
           "template": "main",
           "template_line": 44
+        },
+        {
+          "invocation": 1,
+          "path": "/class",
+          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/class"},
+          "template": "main",
+          "template_line": 44
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
-      "line": 10,
+      "line": 12,
       "node": "rule/maintenance-ship-no-future-voyage",
-      "path": "/",
+      "path": "/class",
       "rule_line": 4,
       "template": "main",
       "template_line": 44
@@ -236,7 +279,7 @@
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
-      "line": 11,
+      "line": 13,
       "node": "rule/maintenance-ship-no-future-voyage",
       "path": "/",
       "rule_line": 4,
@@ -254,53 +297,10 @@
         },
         {
           "invocation": 1,
-          "path": "/class",
-          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/class"},
-          "template": "main",
-          "template_line": 46
-        }
-      ],
-      "file": "zcl_l2_maintenance_ship.clas.abap",
-      "line": 12,
-      "node": "rule/maintenance-ship-no-future-voyage",
-      "path": "/class",
-      "rule_line": 4,
-      "template": "main",
-      "template_line": 46
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
-          "template": "main",
-          "template_line": 47
-        }
-      ],
-      "file": "zcl_l2_maintenance_ship.clas.abap",
-      "line": 13,
-      "node": "rule/maintenance-ship-no-future-voyage",
-      "path": "/",
-      "rule_line": 4,
-      "template": "main",
-      "template_line": 47
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/",
-          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
-          "template": "main",
-          "template_line": 48
-        },
-        {
-          "invocation": 1,
           "path": "/comment",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/comment"},
           "template": "main",
-          "template_line": 48
+          "template_line": 46
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -309,7 +309,7 @@
       "path": "/comment",
       "rule_line": 4,
       "template": "main",
-      "template_line": 48
+      "template_line": 46
     },
     {
       "contributors": [
@@ -318,14 +318,14 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 50
+          "template_line": 48
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/type"},
           "template": "main",
-          "template_line": 50
+          "template_line": 48
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -334,7 +334,7 @@
       "path": "/queries/1/type",
       "rule_line": 10,
       "template": "main",
-      "template_line": 50
+      "template_line": 48
     },
     {
       "contributors": [
@@ -343,28 +343,28 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/column",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/column"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/table",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/table"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -373,7 +373,7 @@
       "path": "/queries/1/fields/1/name",
       "rule_line": 7,
       "template": "main",
-      "template_line": 52
+      "template_line": 50
     },
     {
       "contributors": [
@@ -382,28 +382,28 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/column",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/column"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/table",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/table"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -412,7 +412,7 @@
       "path": "/queries/1/fields/2/name",
       "rule_line": 11,
       "template": "main",
-      "template_line": 52
+      "template_line": 50
     },
     {
       "contributors": [
@@ -421,28 +421,28 @@
           "path": "/queries/1/fields/3",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/3/column",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/column"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/3/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/name"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/3/table",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/table"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -451,7 +451,7 @@
       "path": "/queries/1/fields/3/name",
       "rule_line": 13,
       "template": "main",
-      "template_line": 52
+      "template_line": 50
     },
     {
       "contributors": [
@@ -460,28 +460,28 @@
           "path": "/queries/1/fields/4",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/4/column",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/column"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/4/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/name"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/4/table",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/table"},
           "template": "main",
-          "template_line": 52
+          "template_line": 50
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -490,6 +490,31 @@
       "path": "/queries/1/fields/4/name",
       "rule_line": 13,
       "template": "main",
+      "template_line": 50
+    },
+    {
+      "contributors": [
+        {
+          "invocation": 1,
+          "path": "/queries/1",
+          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
+          "template": "main",
+          "template_line": 52
+        },
+        {
+          "invocation": 1,
+          "path": "/queries/1/type",
+          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/type"},
+          "template": "main",
+          "template_line": 52
+        }
+      ],
+      "file": "zcl_l2_maintenance_ship.clas.abap",
+      "line": 20,
+      "node": "rule/maintenance-ship-no-future-voyage/join",
+      "path": "/queries/1/type",
+      "rule_line": 10,
+      "template": "main",
       "template_line": 52
     },
     {
@@ -499,46 +524,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 54
-        },
-        {
-          "invocation": 1,
-          "path": "/queries/1/type",
-          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/type"},
-          "template": "main",
-          "template_line": 54
-        }
-      ],
-      "file": "zcl_l2_maintenance_ship.clas.abap",
-      "line": 20,
-      "node": "rule/maintenance-ship-no-future-voyage/join",
-      "path": "/queries/1/type",
-      "rule_line": 10,
-      "template": "main",
-      "template_line": 54
-    },
-    {
-      "contributors": [
-        {
-          "invocation": 1,
-          "path": "/queries/1",
-          "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
-          "template": "main",
-          "template_line": 55
+          "template_line": 53
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 55
+          "template_line": 53
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/type"},
           "template": "main",
-          "template_line": 55
+          "template_line": 53
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -547,7 +547,7 @@
       "path": "/queries/1/itab",
       "rule_line": 10,
       "template": "main",
-      "template_line": 55
+      "template_line": 53
     },
     {
       "contributors": [
@@ -556,21 +556,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 56
+          "template_line": 54
         },
         {
           "invocation": 1,
           "path": "/queries/1/type",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/type"},
           "template": "main",
-          "template_line": 56
+          "template_line": 54
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 56
+          "template_line": 54
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -579,7 +579,7 @@
       "path": "/queries/1/wa",
       "rule_line": 10,
       "template": "main",
-      "template_line": 56
+      "template_line": 54
     },
     {
       "contributors": [
@@ -588,7 +588,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
           "template": "main",
-          "template_line": 89
+          "template_line": 87
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -597,7 +597,7 @@
       "path": "/",
       "rule_line": 4,
       "template": "main",
-      "template_line": 89
+      "template_line": 87
     },
     {
       "contributors": [
@@ -606,7 +606,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 167
+          "template_line": 160
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -615,7 +615,7 @@
       "path": "/queries/1",
       "rule_line": 10,
       "template": "main",
-      "template_line": 167
+      "template_line": 160
     },
     {
       "contributors": [
@@ -624,21 +624,21 @@
           "path": "/queries/1/fields/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/name"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/1/source",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/1", "selector": "/source"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -647,7 +647,7 @@
       "path": "/queries/1/fields/1/source",
       "rule_line": 7,
       "template": "main",
-      "template_line": 182
+      "template_line": 175
     },
     {
       "contributors": [
@@ -656,21 +656,21 @@
           "path": "/queries/1/fields/2",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/name"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/2/source",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/2", "selector": "/source"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -679,7 +679,7 @@
       "path": "/queries/1/fields/2/source",
       "rule_line": 11,
       "template": "main",
-      "template_line": 182
+      "template_line": 175
     },
     {
       "contributors": [
@@ -688,21 +688,21 @@
           "path": "/queries/1/fields/3",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/3/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/name"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/3/source",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/3", "selector": "/source"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -711,7 +711,7 @@
       "path": "/queries/1/fields/3/source",
       "rule_line": 13,
       "template": "main",
-      "template_line": 182
+      "template_line": 175
     },
     {
       "contributors": [
@@ -720,21 +720,21 @@
           "path": "/queries/1/fields/4",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/4/name",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/name"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         },
         {
           "invocation": 1,
           "path": "/queries/1/fields/4/source",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/field/4", "selector": "/source"},
           "template": "main",
-          "template_line": 182
+          "template_line": 175
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -743,7 +743,7 @@
       "path": "/queries/1/fields/4/source",
       "rule_line": 13,
       "template": "main",
-      "template_line": 182
+      "template_line": 175
     },
     {
       "contributors": [
@@ -752,21 +752,21 @@
           "path": "/queries/1/from",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/for", "selector": "/"},
           "template": "main",
-          "template_line": 186
+          "template_line": 179
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/alias",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/for", "selector": "/alias"},
           "template": "main",
-          "template_line": 186
+          "template_line": 179
         },
         {
           "invocation": 1,
           "path": "/queries/1/from/table",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/for", "selector": "/table"},
           "template": "main",
-          "template_line": 186
+          "template_line": 179
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -775,7 +775,7 @@
       "path": "/queries/1/from/table",
       "rule_line": 7,
       "template": "main",
-      "template_line": 186
+      "template_line": 179
     },
     {
       "contributors": [
@@ -784,21 +784,21 @@
           "path": "/queries/1/joins/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid", "selector": "/"},
           "template": "main",
-          "template_line": 189
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/alias",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid", "selector": "/alias"},
           "template": "main",
-          "template_line": 189
+          "template_line": 182
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/table",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid", "selector": "/table"},
           "template": "main",
-          "template_line": 189
+          "template_line": 182
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -807,7 +807,7 @@
       "path": "/queries/1/joins/1/table",
       "rule_line": 10,
       "template": "main",
-      "template_line": 189
+      "template_line": 182
     },
     {
       "contributors": [
@@ -816,28 +816,28 @@
           "path": "/queries/1/joins/1/on/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/1", "selector": "/"},
           "template": "main",
-          "template_line": 191
+          "template_line": 184
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/lhs",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 191
+          "template_line": 184
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/op",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/1", "selector": "/op"},
           "template": "main",
-          "template_line": 191
+          "template_line": 184
         },
         {
           "invocation": 1,
           "path": "/queries/1/joins/1/on/1/sref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/1", "selector": "/sref"},
           "template": "main",
-          "template_line": 192
+          "template_line": 184
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -846,7 +846,7 @@
       "path": "/queries/1/joins/1/on/1/lhs",
       "rule_line": 12,
       "template": "main",
-      "template_line": 191
+      "template_line": 184
     },
     {
       "contributors": [
@@ -855,14 +855,14 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 195
+          "template_line": 187
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 195
+          "template_line": 187
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -871,7 +871,7 @@
       "path": "/queries/1/itab",
       "rule_line": 10,
       "template": "main",
-      "template_line": 195
+      "template_line": 187
     },
     {
       "contributors": [
@@ -880,42 +880,42 @@
           "path": "/queries/1/where/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/when/1", "selector": "/"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/is_cmp",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/when/1", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/lhs",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/when/1", "selector": "/lhs"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/op",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/when/1", "selector": "/op"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/pre",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/when/1", "selector": "/pre"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/1/value",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/when/1", "selector": "/value"},
           "template": "main",
-          "template_line": 198
+          "template_line": 189
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -924,7 +924,7 @@
       "path": "/queries/1/where/1/pre",
       "rule_line": 9,
       "template": "main",
-      "template_line": 197
+      "template_line": 189
     },
     {
       "contributors": [
@@ -933,42 +933,42 @@
           "path": "/queries/1/where/2",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/2", "selector": "/"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/is_cmp",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/2", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/lhs",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/2", "selector": "/lhs"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/op",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/2", "selector": "/op"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/pre",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/2", "selector": "/pre"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/2/sref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/forbid/where/2", "selector": "/sref"},
           "template": "main",
-          "template_line": 198
+          "template_line": 189
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -977,7 +977,7 @@
       "path": "/queries/1/where/2/pre",
       "rule_line": 12,
       "template": "main",
-      "template_line": 197
+      "template_line": 189
     },
     {
       "contributors": [
@@ -986,42 +986,42 @@
           "path": "/queries/1/where/3",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/range", "selector": "/"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/is_cmp",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/range", "selector": "/is_cmp"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/lhs",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/range", "selector": "/lhs"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/op",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/range", "selector": "/op"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/pre",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/range", "selector": "/pre"},
           "template": "main",
-          "template_line": 197
+          "template_line": 189
         },
         {
           "invocation": 1,
           "path": "/queries/1/where/3/sref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/range", "selector": "/sref"},
           "template": "main",
-          "template_line": 198
+          "template_line": 189
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1030,7 +1030,7 @@
       "path": "/queries/1/where/3/pre",
       "rule_line": 8,
       "template": "main",
-      "template_line": 197
+      "template_line": 189
     },
     {
       "contributors": [
@@ -1039,7 +1039,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 200
+          "template_line": 191
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1048,7 +1048,7 @@
       "path": "/queries/1",
       "rule_line": 10,
       "template": "main",
-      "template_line": 200
+      "template_line": 191
     },
     {
       "contributors": [
@@ -1057,14 +1057,14 @@
           "path": "/queries/1/order/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/order/1", "selector": "/"},
           "template": "main",
-          "template_line": 202
+          "template_line": 193
         },
         {
           "invocation": 1,
           "path": "/queries/1/order/1/source",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/order/1", "selector": "/source"},
           "template": "main",
-          "template_line": 202
+          "template_line": 193
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1073,7 +1073,7 @@
       "path": "/queries/1/order/1/source",
       "rule_line": 7,
       "template": "main",
-      "template_line": 202
+      "template_line": 193
     },
     {
       "contributors": [
@@ -1082,14 +1082,14 @@
           "path": "/queries/1/order/2",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/order/2", "selector": "/"},
           "template": "main",
-          "template_line": 202
+          "template_line": 193
         },
         {
           "invocation": 1,
           "path": "/queries/1/order/2/source",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join/order/2", "selector": "/source"},
           "template": "main",
-          "template_line": 202
+          "template_line": 193
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1098,7 +1098,7 @@
       "path": "/queries/1/order/2/source",
       "rule_line": 11,
       "template": "main",
-      "template_line": 202
+      "template_line": 193
     },
     {
       "contributors": [
@@ -1107,21 +1107,21 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 316
+          "template_line": 304
         },
         {
           "invocation": 1,
           "path": "/queries/1/itab",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/itab"},
           "template": "main",
-          "template_line": 316
+          "template_line": 304
         },
         {
           "invocation": 1,
           "path": "/queries/1/wa",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/wa"},
           "template": "main",
-          "template_line": 316
+          "template_line": 304
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1130,7 +1130,7 @@
       "path": "/queries/1/itab",
       "rule_line": 10,
       "template": "main",
-      "template_line": 316
+      "template_line": 304
     },
     {
       "contributors": [
@@ -1139,14 +1139,14 @@
           "path": "/queries/1/alert_parts/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/1", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/1/jref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/1", "selector": "/jref"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1155,7 +1155,7 @@
       "path": "/queries/1/alert_parts/1/jref",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1164,14 +1164,14 @@
           "path": "/queries/1/alert_parts/2",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/text/1", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/2/value",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/text/1", "selector": "/value"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1180,7 +1180,7 @@
       "path": "/queries/1/alert_parts/2/value",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1189,14 +1189,14 @@
           "path": "/queries/1/alert_parts/3",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/2", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/3/jref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/2", "selector": "/jref"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1205,7 +1205,7 @@
       "path": "/queries/1/alert_parts/3/jref",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1214,14 +1214,14 @@
           "path": "/queries/1/alert_parts/4",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/text/2", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/4/value",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/text/2", "selector": "/value"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1230,7 +1230,7 @@
       "path": "/queries/1/alert_parts/4/value",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1239,14 +1239,14 @@
           "path": "/queries/1/alert_parts/5",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/3", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/5/jref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/3", "selector": "/jref"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1255,7 +1255,7 @@
       "path": "/queries/1/alert_parts/5/jref",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1264,14 +1264,14 @@
           "path": "/queries/1/alert_parts/6",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/text/3", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/6/value",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/text/3", "selector": "/value"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1280,7 +1280,7 @@
       "path": "/queries/1/alert_parts/6/value",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1289,14 +1289,14 @@
           "path": "/queries/1/alert_parts/7",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/4", "selector": "/"},
           "template": "main",
-          "template_line": 362
+          "template_line": 348
         },
         {
           "invocation": 1,
           "path": "/queries/1/alert_parts/7/jref",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/alert/hole/4", "selector": "/jref"},
           "template": "main",
-          "template_line": 363
+          "template_line": 348
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1305,7 +1305,7 @@
       "path": "/queries/1/alert_parts/7/jref",
       "rule_line": 13,
       "template": "main",
-      "template_line": 362
+      "template_line": 348
     },
     {
       "contributors": [
@@ -1314,7 +1314,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 400
+          "template_line": 385
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1323,7 +1323,7 @@
       "path": "/queries/1",
       "rule_line": 10,
       "template": "main",
-      "template_line": 400
+      "template_line": 385
     },
     {
       "contributors": [
@@ -1332,7 +1332,7 @@
           "path": "/queries/1",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/join", "selector": "/"},
           "template": "main",
-          "template_line": 402
+          "template_line": 387
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1341,7 +1341,7 @@
       "path": "/queries/1",
       "rule_line": 10,
       "template": "main",
-      "template_line": 402
+      "template_line": 387
     },
     {
       "contributors": [
@@ -1350,7 +1350,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
           "template": "main",
-          "template_line": 457
+          "template_line": 439
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1359,7 +1359,7 @@
       "path": "/",
       "rule_line": 4,
       "template": "main",
-      "template_line": 457
+      "template_line": 439
     },
     {
       "contributors": [
@@ -1368,7 +1368,7 @@
           "path": "/",
           "source": {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage", "selector": "/"},
           "template": "main",
-          "template_line": 529
+          "template_line": 505
         }
       ],
       "file": "zcl_l2_maintenance_ship.clas.abap",
@@ -1377,7 +1377,7 @@
       "path": "/",
       "rule_line": 4,
       "template": "main",
-      "template_line": 529
+      "template_line": 505
     }
   ],
   "model": "sha256:44dac8cf4f02744f207591d59ab67f90ec0108133257850d785acf7c43a0687f",
@@ -1387,5 +1387,5 @@
   ],
   "rule": "src/l2demo/maintenance_ship.l2.yaml",
   "template": "recipes/l2-check/template.tpl",
-  "templates": {"recipes/l2-check/template.tpl": "sha256:dd979ef4c734cbacc2e6902bd0c4a4d964f373c348b491655881775143f89b06"}
+  "templates": {"recipes/l2-check/template.tpl": "sha256:0c78088f1afb165f0a95164bbd0c8a0dc7e3db70a793672df7cc00af9b55c5d7"}
 }

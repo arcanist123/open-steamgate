@@ -26,3 +26,13 @@ export function literalNodes(node, pieces) {
   }
   return out;
 }
+
+// Presentation only: keep continuation whitespace out of the versioned model.
+export function continuationNodes(node) {
+  if (!node || typeof node !== "object") return node;
+  if (Array.isArray(node)) return node.map(continuationNodes);
+  return Object.fromEntries(Object.entries(node).map(([key, value]) => [key,
+    key.endsWith("_pieces") && Array.isArray(value)
+      ? value.map((piece, k) => ({...piece, continuation: k > 0 ? " &\n        " : ""}))
+      : continuationNodes(value)]));
+}
