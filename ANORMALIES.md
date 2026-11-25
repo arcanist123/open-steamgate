@@ -4463,8 +4463,9 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
   Nothing imports it and nothing runs the program, so no suite had noticed;
   found by reading every module of the output with acorn
   (`test/output-parses.mjs`, 2026-11-08), which carries the module as a
-  dated exception until it is fixed. Upstream: abaplint/transpiler, needs an
-  issue.
+  dated exception until it is fixed. Fixed upstream in transpiler 2.14.20
+  (a program runs in its exported `$main`, and the `RETURN` returns from
+  it); the exception went with the pin `local/osd-build-4m` (2026-11-25).
 - Seed files of a namespaced table (`#dmo#travel.tabu.json`, abapGit's form,
   because a slash cannot be in a file name) were inserted into a table
   named `#dmo#travel`, which no statement of the runtime reads, and the

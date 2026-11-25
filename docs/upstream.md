@@ -269,7 +269,8 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     `CLEAR text_stream[]`; open-abap/open-abap-gui#231). The pins moved onto
     upstream: `oisee/open-abap-core` `osd/core-rebase-2026-11-25` is
     upstream main plus the three commits open-steamgate still holds
-    (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook), which
+    (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook) and
+    `hex_digit` of a named `x LENGTH 1` (gogen compiles no generic `x`), which
     stay candidates; `oisee/open-abap-gui` keeps its base (upstream's
     converter is TypeScript now) with #231 picked and the other findings
     fixed as upstream fixed them, so nothing of it is a candidate either.

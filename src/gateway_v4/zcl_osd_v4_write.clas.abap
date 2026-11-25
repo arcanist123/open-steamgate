@@ -264,6 +264,10 @@ CLASS zcl_osd_v4_write IMPLEMENTATION.
         lo_json = zcl_ajson=>parse( iv_body ).
       CATCH zcx_ajson_error INTO lx_json.
         zcl_osd_v4_query=>fail( |The request body is not valid JSON: { lx_json->get_text( ) }| ).
+* a member named twice: ajson's tree has a unique key, and the runtime
+* refuses the duplicate as a system does (CX_SY_ITAB_DUPLICATE_KEY)
+      CATCH cx_sy_itab_duplicate_key.
+        zcl_osd_v4_query=>fail( 'A property is given more than once' ).
     ENDTRY.
     IF lo_json->get_node_type( '/' ) <> zif_ajson_types=>node_type-object.
       zcl_osd_v4_query=>fail( 'The request body must be a JSON object' ).

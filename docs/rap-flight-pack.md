@@ -213,7 +213,8 @@ not); `cds2ddic` now updates such tables `FROM TABLE @lt_rows`, and
 `test/output-parses.mjs` parses every module the build wrote with acorn,
 which is how the same reading found one more broken module on `main`
 (`zl3_fleet2.prog.mjs`, a top-level `RETURN`), carried there as a dated
-exception.
+exception until transpiler 2.14.20 put a program's statements in `$main`
+(pin `local/osd-build-4m`).
 
 ## The seed: the scenario's own generator, run once per build
 

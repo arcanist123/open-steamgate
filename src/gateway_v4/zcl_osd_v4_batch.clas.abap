@@ -103,6 +103,10 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
         lo_json = zcl_ajson=>parse( iv_body ).
       CATCH zcx_ajson_error.
         zcl_osd_v4_query=>fail( 'The batch body is not valid JSON' ).
+* a member named twice: ajson's tree has a unique key, and the runtime
+* refuses the duplicate as a system does (CX_SY_ITAB_DUPLICATE_KEY)
+      CATCH cx_sy_itab_duplicate_key.
+        zcl_osd_v4_query=>fail( 'The batch body names a member more than once' ).
     ENDTRY.
     READ TABLE lt_nested INTO ls_pair WITH KEY name = 'requests'.
     IF sy-subrc <> 0.

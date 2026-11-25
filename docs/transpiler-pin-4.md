@@ -268,11 +268,14 @@ matches a system, not a defect:
   `CLEAR text_stream[]` (#1334, #1336), the super constructor calls (#1331,
   #1337), `ddlanguage TYPE c LENGTH 1` (#1345); open-abap-gui's
   `zcl_gg_host_list` (#231). So the pins move onto upstream:
-  - `oisee/open-abap-core` `8af2fe38` (branch `osd/core-rebase-2026-11-25`)
+  - `oisee/open-abap-core` `2e898a68` (branch `osd/core-rebase-2026-11-25`)
     is upstream main `01ac867e` plus the three commits open-steamgate still
     holds (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook of
-    `WWWDATA_IMPORT`, two benchmark commits); abaplint 2.120.118 over it:
-    0 issues.
+    `WWWDATA_IMPORT`, two benchmark commits) and one new one:
+    `cl_http_utility`'s private `hex_digit` takes a named `x LENGTH 1`, since
+    a generic `TYPE x` is outside what gogen compiles and every escape of
+    `unescape_url` and `string_to_fields` goes through it (osgo's ADT cases
+    with a `%` in their query). abaplint 2.120.118 over it: 0 issues.
   - `oisee/open-abap-gui` `8b239c23` (branch `osd/abaplint-2.120.118`):
     upstream main has moved on too far to pin (the converter is TypeScript
     now, express 5), so the fork keeps its base `b65c4431` with upstream's
@@ -307,6 +310,14 @@ matches a system, not a defect:
   as `NaN`, and is now left out like any constant gogen cannot write; and
   `cl_abap_tstmp=>subtract` returns a `TZNTSTMPL`, so the Go host function
   returns the difference with its seven decimals instead of an `i`.
+- **The runtime of 2.14.38 behaves as a system** in three more places
+  this tree met: assigning a table with a duplicate into a unique key
+  raises `CX_SY_ITAB_DUPLICATE_KEY`, which is what ajson does with a JSON
+  object naming a member twice, so the V4 action, write and batch bodies
+  catch it and answer the 400 they did; `n` against `c` compares as
+  numbers (#2216, `test/lift-r3.mjs`); and a program runs in its exported
+  `$main` (2.14.20), which `tools/osd-transpile.mjs` now calls when the
+  module is executed directly, as the CLI does.
 - the leak-scan workflow installs the same parser.
 
 Measured on 4m in this tree, with the library pins above: `npm run
