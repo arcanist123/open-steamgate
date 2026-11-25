@@ -75,14 +75,15 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_value) TYPE string
       RAISING
         zcx_stg_error.
-* the query options as the HTTP layer decoded them, with an escaped NUL
-* put back where the decoder (cl_http_utility, as on a system) left the
-* value empty, so that the option's own check refuses it with a 400
-    CLASS-METHODS keep_escaped_nul
+* fail closed: a query string with an escaped NUL anywhere is a 400 before
+* any option is read. The decoder (cl_http_utility, as on a system) answers
+* nothing for such a field and drops the fields after it, so a filter or an
+* order that followed it would silently be gone
+    CLASS-METHODS refuse_escaped_nul
       IMPORTING
-        iv_query  TYPE string
-      CHANGING
-        ct_fields TYPE tihttpnvp.
+        iv_query TYPE string
+      RAISING
+        zcx_stg_error.
 * a NUL cannot reach the database (the SQL text ends at it): a value
 * holding one is a 400 with the code and the words of the caller
     CLASS-METHODS refuse_nul
@@ -131,7 +132,7 @@ CLASS zcl_stg_url IMPLEMENTATION.
           code    = 'STG/NOT_ODATA'
           message = |Not an OData path: { iv_path }|.
     ENDIF.
-    rs_request-service = cl_http_utility=>unescape_url( rs_request-service ).
+    rs_request-service = unescape( iv_value = rs_request-service iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
 * "sap" in any case is the one /sap/ prefix, spelled lower case in the
 * answers; any other segment is a namespace and is repeated as given
     IF to_lower( lv_ns ) = 'sap'.
@@ -194,7 +195,7 @@ CLASS zcl_stg_url IMPLEMENTATION.
               IF ls_more-nav_prop IS INITIAL.
                 EXIT.
               ENDIF.
-              ls_more-nav_prop = cl_http_utility=>unescape_url( ls_more-nav_prop ).
+              ls_more-nav_prop = unescape( iv_value = ls_more-nav_prop iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
               APPEND ls_more TO rs_request-nav_more.
             ENDIF.
           ENDWHILE.
@@ -208,8 +209,8 @@ CLASS zcl_stg_url IMPLEMENTATION.
           code    = 'STG/BAD_RESOURCE_PATH'
           message = |Unsupported resource path: { lv_rest }|.
     ENDIF.
-    rs_request-entity_set = cl_http_utility=>unescape_url( lv_segment ).
-    rs_request-nav_prop = cl_http_utility=>unescape_url( rs_request-nav_prop ).
+    rs_request-entity_set = unescape( iv_value = lv_segment iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
+    rs_request-nav_prop = unescape( iv_value = rs_request-nav_prop iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
   ENDMETHOD.
 
   METHOD segment.
@@ -334,40 +335,16 @@ CLASS zcl_stg_url IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD keep_escaped_nul.
+  METHOD refuse_escaped_nul.
     CONSTANTS lc_null_character TYPE i VALUE 3.
-    DATA lt_pairs TYPE string_table.
-    DATA lt_parts TYPE string_table.
-    DATA lv_pair  TYPE string.
-    DATA lv_name  TYPE string.
-    DATA lv_value TYPE string.
-    DATA lv_part  TYPE string.
-    DATA lv_fixed TYPE string.
-    DATA lv_nul   TYPE string.
-    FIELD-SYMBOLS <ls_field> LIKE LINE OF ct_fields.
-
-    lv_nul = cl_abap_conv_in_ce=>uccp( '0000' ).
-    SPLIT iv_query AT '&' INTO TABLE lt_pairs.
-    LOOP AT lt_pairs INTO lv_pair.
-      SPLIT lv_pair AT '=' INTO lv_name lv_value.
-      cl_http_utility=>unescape_url( lv_value ).
-      IF cl_http_utility=>get_last_error( ) <> lc_null_character.
-        CONTINUE.
-      ENDIF.
-      SPLIT lv_value AT '%00' INTO TABLE lt_parts.
-      CLEAR lv_fixed.
-      LOOP AT lt_parts INTO lv_part.
-        IF sy-tabix > 1.
-          lv_fixed = lv_fixed && lv_nul.
-        ENDIF.
-        lv_fixed = lv_fixed && cl_http_utility=>unescape_url( lv_part ).
-      ENDLOOP.
-      lv_name = cl_http_utility=>unescape_url( lv_name ).
-      LOOP AT ct_fields ASSIGNING <ls_field> WHERE name = lv_name AND value IS INITIAL.
-        <ls_field>-value = lv_fixed.
-        EXIT.
-      ENDLOOP.
-    ENDLOOP.
+    IF iv_query IS INITIAL.
+      RETURN.
+    ENDIF.
+    cl_http_utility=>unescape_url( iv_query ).
+    IF cl_http_utility=>get_last_error( ) = lc_null_character.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING status = 400 code = 'STG/BAD_QUERY' message = 'A NUL character in the query string is not accepted'.
+    ENDIF.
   ENDMETHOD.
 
   METHOD refuse_nul.

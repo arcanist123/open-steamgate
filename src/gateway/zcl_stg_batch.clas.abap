@@ -481,6 +481,7 @@ CLASS zcl_stg_batch IMPLEMENTATION.
                                                 iv_host    = iv_host
                                                 iv_body    = is_request-body
                                                 iv_body_x  = is_request-body_x
+                                                iv_query   = lv_query
                                                 iv_content_type = header( it_headers = is_request-headers
                                                                           iv_name = 'content-type' )
 * the part's own headers travel with it: a changeset's MERGE/DELETE carries

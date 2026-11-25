@@ -269,13 +269,16 @@ matches a system, not a defect:
   #1337), `ddlanguage TYPE c LENGTH 1` (#1345); open-abap-gui's
   `zcl_gg_host_list` (#231). So the pins move onto upstream:
   - `oisee/open-abap-core` `2e898a68` (branch `osd/core-rebase-2026-11-25`)
-    is upstream main `01ac867e` plus the three commits open-steamgate still
-    holds (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook of
-    `WWWDATA_IMPORT`, two benchmark commits) and one new one:
-    `cl_http_utility`'s private `hex_digit` takes a named `x LENGTH 1`, since
-    a generic `TYPE x` is outside what gogen compiles and every escape of
-    `unescape_url` and `string_to_fields` goes through it (osgo's ADT cases
-    with a `%` in their query). abaplint 2.120.118 over it: 0 issues.
+    is upstream main `01ac867e` plus four commits open-steamgate holds: one
+    with `GENERAL_GET_RANDOM_INT`, `INT4_TABLE` and the `W3MI_LOADER` hook of
+    `WWWDATA_IMPORT` (`3d0cea7`), two benchmark commits (`bb4b483`,
+    `8af2fe3`), and a new one, `2e898a6`: `cl_http_utility`'s private
+    `hex_digit` takes a named `x LENGTH 1`. That one is a workaround for a
+    gogen limit, not an open-abap-core defect: a generic `TYPE x` parameter
+    is outside what gogen compiles, and every escape of `unescape_url` and
+    `string_to_fields` goes through it (osgo's ADT cases with a `%` in their
+    query). It is held, not sent; the fix belongs in gogen (AGENDA, "gogen:
+    a generic `x` parameter"). abaplint 2.120.118 over it: 0 issues.
   - `oisee/open-abap-gui` `8b239c23` (branch `osd/abaplint-2.120.118`):
     upstream main has moved on too far to pin (the converter is TypeScript
     now, express 5), so the fork keeps its base `b65c4431` with upstream's
@@ -291,10 +294,15 @@ matches a system, not a defect:
   `ZCL_OSD_ADT_REENTRANCE` reads the difference in milliseconds; and
   `cl_http_utility=>unescape_url` (and `string_to_fields`, which the ICF
   shim decodes the query with) answers nothing for an escaped NUL and
-  reports error 3 (#1352, #1356), so `ZCL_STG_URL=>UNESCAPE` asks for that
-  error and `ZCL_STG_URL=>KEEP_ESCAPED_NUL` puts the NUL back into a query
-  option the decoder emptied: a NUL in a key or a `$filter` literal stays
-  the 400 it has been, in V2 and V4.
+  reports error 3 (#1352, #1356); `string_to_fields` also drops every field
+  after it. So the rule fails closed, in one place every front calls
+  (`ZCL_STG_URL=>REFUSE_ESCAPED_NUL`, from the V2 and V4 dispatchers, with
+  the raw query of a request or of a `$batch` part): a query string with an
+  escaped NUL anywhere is a 400 before any option is read, and a path
+  segment or a key with one is a 400 too (`ZCL_STG_URL=>UNESCAPE`). Before,
+  a filter or an order behind the NUL was dropped and every row came back.
+  What a real ICF hands the application for the fields after such a NUL is
+  not measured (ANORMALIES `ANOMALY-2026-11-25-query-escaped-nul`).
 - **gogen.** Two refusal fixtures are now refused by abaplint's own syntax
   check (`zcl_gogen_t_rf_sort` line 54, as on A4H), which `semantics.mjs`
   takes as the refusal, like `ZCL_GOGEN_T_RF_OWN`; `zcl_gogen_t_rf_wherei8`

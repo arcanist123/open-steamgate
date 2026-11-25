@@ -421,7 +421,8 @@ CLASS zcl_osd_v4_batch IMPLEMENTATION.
       lt_options = zcl_osd_form=>parse( lv_query ).
     ENDIF.
     rs_response = zcl_osd_v4_http=>dispatch( iv_method = is_request-method iv_path = lv_path
-      it_options = lt_options iv_origin = iv_origin iv_body = is_request-body it_headers = is_request-headers ).
+      it_options = lt_options iv_origin = iv_origin iv_body = is_request-body it_headers = is_request-headers
+      iv_query = lv_query ).
   ENDMETHOD.
 
   METHOD result_json.

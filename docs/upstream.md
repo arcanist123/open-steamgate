@@ -268,10 +268,17 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     #1337, #1345, including `CONVERT_ITF_TO_STREAM_TEXT`'s
     `CLEAR text_stream[]`; open-abap/open-abap-gui#231). The pins moved onto
     upstream: `oisee/open-abap-core` `osd/core-rebase-2026-11-25` is
-    upstream main plus the three commits open-steamgate still holds
-    (`GENERAL_GET_RANDOM_INT`, `INT4_TABLE`, the `W3MI_LOADER` hook) and
-    `hex_digit` of a named `x LENGTH 1` (gogen compiles no generic `x`), which
-    stay candidates; `oisee/open-abap-gui` keeps its base (upstream's
+    upstream main plus four commits held here, each with its rule:
+    - `3d0cea7` `GENERAL_GET_RANDOM_INT`, `INT4_TABLE` and the `W3MI_LOADER`
+      hook of `WWWDATA_IMPORT`: candidates, one small PR each to
+      open-abap-core after a critic pass (the random int as measured on A4H,
+      the table type, the host hook for a browser or a binary);
+    - `bb4b483`, `8af2fe3`: benchmark commits of `test/sxml-heavy.mjs`;
+      held, not sent (they measure our feeds, not the library);
+    - `2e898a6` `hex_digit` of a named `x LENGTH 1`: a workaround for a gogen
+      limit (no generic `x` parameter), held, not sent; it goes when gogen
+      compiles a generic `x` (AGENDA, "gogen: a generic `x` parameter").
+    `oisee/open-abap-gui` keeps its base (upstream's
     converter is TypeScript now) with #231 picked and the other findings
     fixed as upstream fixed them, so nothing of it is a candidate either.
 

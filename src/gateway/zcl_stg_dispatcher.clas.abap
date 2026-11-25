@@ -21,6 +21,9 @@ CLASS zcl_stg_dispatcher DEFINITION PUBLIC CREATE PUBLIC.
         iv_body_x          TYPE xstring OPTIONAL
         iv_content_type    TYPE string OPTIONAL
         it_headers         TYPE tihttpnvp OPTIONAL
+* the raw query string the options were decoded from: an escaped NUL in it
+* is a 400 before any option is read (ZCL_STG_URL=>REFUSE_ESCAPED_NUL)
+        iv_query           TYPE string OPTIONAL
       RETURNING
         VALUE(rs_response) TYPE ty_response.
   PRIVATE SECTION.
@@ -417,6 +420,17 @@ CLASS zcl_stg_dispatcher IMPLEMENTATION.
 * one request, one container: what a DPC added while serving the last one
 * must not reach this one's error response (each $batch part runs dispatch)
     /iwbep/cl_mgw_msg_container=>reset( ).
+    TRY.
+        zcl_stg_url=>refuse_escaped_nul( iv_query ).
+      CATCH zcx_stg_error INTO lx_stg.
+        rs_response = error_response( iv_status  = lx_stg->status
+                                      iv_code    = lx_stg->code
+                                      iv_message = lx_stg->message
+                                      iv_path    = iv_path
+                                      it_options = it_options
+                                      it_headers = it_headers ).
+        RETURN.
+    ENDTRY.
 * sap-language (else Accept-Language): the request runs in that language
 * and the session's own comes back after it (ZCL_OSD_SESSION_LANGU)
     lv_langu = zcl_osd_session_langu=>requested( it_options = it_options

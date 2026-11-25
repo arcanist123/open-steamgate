@@ -218,6 +218,34 @@ describe("wire", () => {
     expect(all.d.results.map((t) => t.TravelId).filter((id) => id.startsWith("a"))).to.deep.equal([]);
   });
 
+  // fail closed: the decoder answers nothing for a field with an escaped NUL
+  // and drops the fields after it, so a filter or an order behind it would be
+  // gone and every row would come back; the whole request is a 400 instead
+  it("an escaped NUL anywhere in the query is a 400 before an option is read, also in a $batch part and in V4", async () => {
+    const v4 = `http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV`;
+    for (const query of ["$format=json&foo=%00&$filter=TravelId%20eq%20'ZZZZ'", "$orderby=TravelId%00&$filter=TravelId%20eq%20'ZZZZ'&$format=json",
+      "$filter=TravelId%20eq%20'a%00b'&$format=json"]) {
+      expect((await fetch(`${BASE}/TravelSet?${query}`)).status, query).to.equal(400);
+      expect((await fetch(`${v4}/TravelSet?${query.replace("&$format=json", "")}`)).status, "V4 " + query).to.equal(400);
+    }
+    const crlf = "\r\n";
+    const part = (url) => ["--b", "Content-Type: application/http", "Content-Transfer-Encoding: binary", "", `GET ${url} HTTP/1.1`, "Accept: application/json", "", ""];
+    const body = [...part("TravelSet?$filter=TravelId%20eq%20'a%00b'"), ...part("TravelSet?$format=json&foo=%00&$filter=TravelId%20eq%20'ZZZZ'"), "--b--", ""].join(crlf);
+    const res = await fetch(BASE + "/$batch", {method: "POST", headers: {"content-type": "multipart/mixed; boundary=b", "x-csrf-token": "open-steamgate"}, body});
+    const text = await res.text();
+    expect((text.match(/HTTP\/1\.1 400/g) || []).length, text).to.equal(2);
+    expect(text).to.not.contain("T0001");
+    const json = await fetch(v4 + "/$batch", {method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({requests: [{id: "1", method: "GET", url: "TravelSet?$orderby=TravelId%00&$filter=TravelId%20eq%20'ZZZZ'"}]})});
+    expect((await json.json()).responses[0].status).to.equal(400);
+  });
+
+  it("an escaped NUL in a path segment is a 400, not the segment without it", async () => {
+    expect((await fetch(`${BASE}/TravelSet('T0001')/To%00Bookings?$format=json`)).status).to.equal(400);
+    expect((await fetch(`${BASE}/Travel%00Set?$format=json`)).status).to.equal(400);
+    expect((await fetch(`http://localhost:${PORT}/sap/opu/odata4/sap/ZSTG_DEMO_SRV/Travel%00Set`)).status).to.equal(400);
+  });
+
   // CHAR semantics: trailing blanks of a CHAR key are not part of it, so
   // 'T0001 ' is T0001 in V2 and V4 alike.
   it("a trailing blank in a CHAR key: V2 and V4 find the same row", async () => {

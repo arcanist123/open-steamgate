@@ -183,7 +183,8 @@ CLASS zcl_osg_json_matcher IMPLEMENTATION.
               ct_nodes   = et_nodes
               cv_ok      = ev_ok ).
         ENDIF.
-      CATCH zcx_ajson_error.
+* a member named twice is CX_SY_ITAB_DUPLICATE_KEY in ajson's tree
+      CATCH zcx_ajson_error cx_sy_itab_duplicate_key.
         CLEAR et_nodes.
         ev_ok = abap_false.
     ENDTRY.

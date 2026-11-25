@@ -15,8 +15,8 @@
  ],
  "budgets": {
   "go:abap": {
-   "lines": 12802,
-   "reason": "ADR 0010 slice 5: the kernel's lent step (stepconn.go) and InWriteStep PR #900 review: the WAIT closes the SELECT loop's open cursors (DBIF_RSQL_INVALID_CURSOR after) and the step's ROLLBACK runs on the connection's own context; kernel transaction glue for the lent step, beside DialogStepOn."
+   "lines": 12780,
+   "reason": "Transpiler pin 4m: TstmpSubtract (22 lines) left sysinfo.go for tstmpsecs.Subtract. ADR 0010 slice 5: the kernel's lent step (stepconn.go) and InWriteStep PR #900 review: the WAIT closes the SELECT loop's open cursors (DBIF_RSQL_INVALID_CURSOR after) and the step's ROLLBACK runs on the connection's own context; kernel transaction glue for the lent step, beside DialogStepOn."
   },
   "go:abaperr": {
    "lines": 19,
