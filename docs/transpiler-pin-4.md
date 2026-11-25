@@ -218,3 +218,59 @@ All of these ran on one machine, one at a time under the shared lock:
   oracles; `node tools/gogen/lint-engine.test.mjs` with
   `tools/step3/checkrun-diff.test.mjs` and `npx tsc -p tsconfig.gogen.json`
   stay clean, and `semantics.mjs`/`unit.mjs` above were rerun and pass.
+
+## 4m (2026-11-25): back onto an upstream release
+
+`local/osd-build-4m` at `21edc6890405e4eecf6c27719396349ee02beb2d` is
+upstream 2.14.38 (`1c768652`, abaplint/transpiler#2264: the CDS metadata in
+`abap.DDIC`) with the fork commits of 4k cherry-picked onto it. The two
+commits of 4l are gone, because upstream merged them: `EXPORT`/`IMPORT` TO
+SHARED MEMORY / SHARED BUFFER (#2134, `73e33f03`) and `decfloat16` (#2135,
+`5813c035`, rounded to 16 digits by #2244), both ancestors of `1c768652`.
+`8a6eee2e` (core 2.120.94 exactly) is replaced by the same alignment at
+2.120.118, the parser 2.14.38 requires.
+
+**It is not a pure upstream pin**, and could not be one: 26 fork commits are
+in no release -- the `only` option and registry reuse the build gate needs
+(`tools/osd-ci-transpiler-build.sh`), `SELECT SINGLE FOR UPDATE` as the
+SELECT, the packed / int8 / type `i` overflow commits, the SELECT loop over a
+join, the `[]` suffix, the class-pool and class-constructor load order,
+interface constants from constants, the dynamic ORDER BY and SQL literals.
+On plain 2.14.38 `SELECT SINGLE FOR UPDATE` throws again and warm compile has
+no `only`.
+
+Conflicts resolved on the way, all where upstream had since moved the same
+lines: the built-in types next to upstream's `unknownTypes = runtimeError`;
+FOR UPDATE's test next to upstream's new runtime-error tests; the packed move
+inside upstream's `CORRESPONDING` into a generic target; int8 from hex kept as
+upstream wrote it (the same two's complement); the overflow positions with
+upstream's float formatting; class constructors with upstream's early DDIC
+imports. One adaptation commit moves the template overflow check into the
+`Integer` branch upstream added (#2219) and re-pins the packed-consumer cases
+from upstream main (f in 17 digits, #2212; f right-aligned in c, #2211);
+three fork unit tests whose names upstream had taken were renumbered.
+Transpiler repository on 4m: packages/transpiler 532 passing, runtime 226,
+the root suite 3831 passing, eslint clean.
+
+The parser move to 2.120.118 cost four things in this tree, each a stricter
+check or a corrected runtime behaviour, not a defect:
+
+- **`APPEND ... TO itab[ ... ]-comp` is refused** (check_syntax): the
+  converted-report registry (`tools/osd-gui-convert.mjs`) and
+  `oisee/open-abap-gui` (`d7422fec`, branch `osd/core-2.120.118`) assign the
+  row to a field symbol first.
+- **A block `INSERT LINES OF` into a unique key raises on a duplicate**
+  (#2089, as on a system): the rap-flight seed makes its codes unique first.
+- **`CLEAR` of a `TABLES` parameter clears its header line** (#2082): in
+  `oisee/open-abap-core` (`70940117`, branch `osd/tables-clear`)
+  `WWWDATA_IMPORT` and `DOCU_GET` clear the rows (`mime[]`), which is what
+  they meant; the caller's table has no header line and the old form failed
+  at `getHeader`.
+- **Three syntax errors in open-abap-core itself** (a `c` without `LENGTH`
+  in an OO context, two exception constructors without the super call),
+  which gogen's frontend checks: fixed on the same branch.
+
+Measured on 4m in this tree: `npm run transpile` green, ABAP Unit 1154
+methods with 0 failures (`ZCL_OSD_SHARED_MEMORY_TEST` 5 of 5), gogen's
+frontend tests 406 of 406, `npm run lint` without errors, and `gen/cds`
+byte-identical between the old and the new parser.

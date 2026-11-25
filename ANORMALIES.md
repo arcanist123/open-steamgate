@@ -4992,7 +4992,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-18-export-import-shared-memory -- `EXPORT`/`IMPORT ... SHARED MEMORY` transpile to a throw
 
-- Status: `fixed in the pin` for SHARED MEMORY and SHARED BUFFER (oisee/transpiler `local/osd-build-4l`, `8aafdd71` + `c2b0b584` on 4k); every other medium still throws. Not upstream yet
+- Status: `fixed upstream: abaplint/transpiler#2134` for SHARED MEMORY and SHARED BUFFER (merged 2026-11-19 as `73e33f03`, released in 2.14.38; the pin `local/osd-build-4m` is built on it and dropped the fork's `8aafdd71` + `c2b0b584` of 4l)
 - Discovery date: `2026-11-18`
 - Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`statements/export.ts` and `statements/import.ts` return `throw new Error("Export, transpiler todo")` / `"Import, transpiler todo"` for every form of the statement)
 - Affected ABAP statement, runtime API or adapter: `EXPORT name = dobj TO SHARED MEMORY dbtab(ar) ID id` and `IMPORT name = dobj FROM SHARED MEMORY dbtab(ar) ID id` (every other `EXPORT`/`IMPORT` medium alike)
@@ -5002,13 +5002,13 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Actual open-abap behaviour: the statement compiles and the method throws a plain `Error` the moment it reaches it -- here, the first message of every push-channel connection
 - Impact on open-steamgate: rescued code that keeps state across sessions this way cannot run its push channel (Zork's APC, stage 2 of serving it over HANA); the HTTP route of stage 1 does not reach it
 - Smallest safe workaround: none in OSG -- fixed in the transpiler instead: the runtime keeps one store per medium for the process (the application server's shared memory), keyed by dbtab, client (`sy-mandt` unless `CLIENT` is given), area and ID; `EXPORT` stores copies and replaces the cluster, `IMPORT` of a key without a cluster sets `sy-subrc` 4. Not modelled: the ID cut to the dbtab key length, displacement of SHARED BUFFER, refusal of references in an exported value, and the type check of `IMPORT` (no `CX_SY_IMPORT_MISMATCH_ERROR`: a target of another type is set with the ordinary MOVE conversion). The store is the process's: a recycled process (a warm-compile recycle, a restart) starts with no clusters, like an application server after a restart
-- Upstream issue: needs a PR (abaplint/transpiler), a feature (`main` at `a64f380e`, 2026-11-18, still throws `transpiler todo` for both statements), branch prepared on upstream main, after a critic pass
-- Regression-test location: `test/unit/zcl_osd_shared_memory_test` (5 methods: fail with the 4k pin, pass with 4l); in the transpiler, `test/statements/export_import.ts`
-- Upstream version containing a fix: unknown
+- Upstream issue: abaplint/transpiler#2134 (a feature: `main` at `a64f380e`, 2026-11-18, still threw `transpiler todo` for both statements), from the branch `shared-memory` inside abaplint/transpiler, after a critic pass
+- Regression-test location: `test/unit/zcl_osd_shared_memory_test` (5 methods: fail with the 4k pin, pass with 4l and with 4m, the upstream form); in the transpiler, `test/statements/export_import.ts`
+- Upstream version containing a fix: 2.14.38
 
 ### ANOMALY-2026-11-18-decfloat16-type-todo -- `TYPE decfloat16` transpiles to a constructor that does not exist
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4l`, `e9958256` + `b2998ada`): `decfloat16` runs on the runtime's `DecFloat34`. Not upstream yet
+- Status: `fixed upstream: abaplint/transpiler#2135` (merged 2026-11-19 as `5813c035`, released in 2.14.38): `decfloat16` runs on the runtime's `DecFloat34`, rounded to 16 significant digits since #2244; the pin `local/osd-build-4m` dropped the fork's `e9958256` + `b2998ada` of 4l
 - Discovery date: `2026-11-18`
 - Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`transpile_types.ts` maps every type it does not know to `new abap.types.typeTodo<abaplint class name>()`)
 - Affected ABAP statement, runtime API or adapter: `DATA x TYPE decfloat16` (a method local, an attribute), `CONV decfloat16( ... )`
@@ -5017,7 +5017,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Expected SAP behaviour: a decimal floating point number of 16 digits
 - Actual open-abap behaviour: the method throws `TypeError` at the declaration
 - Impact on open-steamgate: rescued code with a `decfloat16` local dies at its first line; here every push-channel connection
-- Smallest safe workaround: none in OSG -- the transpiler maps the type to the runtime's `DecFloat34`, an exact decimal. Not modelled: the 16 digit rounding and the range of `decfloat16` (a value with more than 16 significant digits is kept, not rounded), and RTTI: `cl_abap_typedescr` describes such a field as a `decfloat34` (type kind, length)
-- Upstream issue: needs a PR (abaplint/transpiler), branch `decfloat16` prepared on upstream main, after a critic pass
+- Smallest safe workaround: none in OSG -- the transpiler maps the type to the runtime's `DecFloat34` and, since #2244, rounds to 16 significant digits. Not modelled in the fork's form (4l): the 16 digit rounding; still not modelled upstream: the range of `decfloat16`, and RTTI: `cl_abap_typedescr` describes such a field as a `decfloat34` (type kind, length)
+- Upstream issue: abaplint/transpiler#2135, branch `decfloat16` inside abaplint/transpiler, after a critic pass
 - Regression-test location: in the transpiler, `test/types/decfloat16.ts`; in OSG, the push channel served over HANA (docs/hana-serve-icf.md)
-- Upstream version containing a fix: unknown
+- Upstream version containing a fix: 2.14.38

@@ -55,13 +55,14 @@ CLASS zcl_osd_rapflight_seed IMPLEMENTATION.
     DATA lv_code  TYPE i_currency-currency.
     DATA ls_row   TYPE i_currency.
 
+* A block INSERT into a unique key raises on the first duplicate, as on a
+* system (transpiler 2.14.38 checks it), so the codes are made unique first.
     SELECT DISTINCT currency_code FROM /dmo/flight INTO TABLE @lt_more.
-    INSERT LINES OF lt_more INTO TABLE lt_codes.
-    SELECT DISTINCT currency_code FROM /dmo/supplement INTO TABLE @lt_more.
-    INSERT LINES OF lt_more INTO TABLE lt_codes.
-    SELECT DISTINCT currency_code FROM /dmo/travel INTO TABLE @lt_more.
-    INSERT LINES OF lt_more INTO TABLE lt_codes.
-    SELECT DISTINCT currency_code FROM /dmo/carrier INTO TABLE @lt_more.
+    SELECT DISTINCT currency_code FROM /dmo/supplement APPENDING TABLE @lt_more.
+    SELECT DISTINCT currency_code FROM /dmo/travel APPENDING TABLE @lt_more.
+    SELECT DISTINCT currency_code FROM /dmo/carrier APPENDING TABLE @lt_more.
+    SORT lt_more.
+    DELETE ADJACENT DUPLICATES FROM lt_more.
     INSERT LINES OF lt_more INTO TABLE lt_codes.
     DELETE FROM i_currency.
     LOOP AT lt_codes INTO lv_code WHERE table_line IS NOT INITIAL.
@@ -82,8 +83,9 @@ CLASS zcl_osd_rapflight_seed IMPLEMENTATION.
     DATA ls_row   TYPE i_country.
 
     SELECT DISTINCT country_code FROM /dmo/agency INTO TABLE @lt_more.
-    INSERT LINES OF lt_more INTO TABLE lt_codes.
-    SELECT DISTINCT country_code FROM /dmo/customer INTO TABLE @lt_more.
+    SELECT DISTINCT country_code FROM /dmo/customer APPENDING TABLE @lt_more.
+    SORT lt_more.
+    DELETE ADJACENT DUPLICATES FROM lt_more.
     INSERT LINES OF lt_more INTO TABLE lt_codes.
     DELETE FROM i_country.
     LOOP AT lt_codes INTO lv_code WHERE table_line IS NOT INITIAL.

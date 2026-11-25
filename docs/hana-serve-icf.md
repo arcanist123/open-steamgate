@@ -202,7 +202,8 @@ handler. A path is matched without regard to case, as the ICF matches it.
   `mountChannels`). The channels are mounted before the listener opens.
 
 Two transpiler gaps stood between Zork's channel class and a socket; both
-are fixed in the pin (`local/osd-build-4l`), neither is upstream yet:
+are fixed upstream since 2.14.38 (abaplint/transpiler#2134 and #2135, in the
+pin `local/osd-build-4m`):
 `EXPORT`/`IMPORT ... SHARED MEMORY` / `SHARED BUFFER`, which the class uses
 to count its connections (ANORMALIES
 `ANOMALY-2026-11-18-export-import-shared-memory`, test

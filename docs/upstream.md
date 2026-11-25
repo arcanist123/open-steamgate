@@ -8,7 +8,10 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81`
+The current transpiler and runtime build is `local/osd-build-4m` at `21edc6890405e4eecf6c27719396349ee02beb2d`
+(upstream 2.14.38 `1c768652`, parser 2.120.118, with items 20 and 21 merged upstream and the CDS metadata of #2264)
+with the fork commits ported onto it ([transpiler-pin-4.md](transpiler-pin-4.md), "4m"). Until 2026-11-25 it was
+`local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81`
 (upstream main `8824945a`, 2.14.19 plus the EML lowering #2049 and the SQL escape #2050, parser 2.120.94) with
 fourteen fork commits: the `only` option and registry reuse, the built-in and "four fixes" commits, `SELECT SINGLE
 FOR UPDATE` run as the SELECT, and the numeric ones ported onto upstream main (exact packed arithmetic, int8 and
@@ -241,10 +244,11 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     10 failing on `main` (the 11th checks the other media still throw);
     `npm test` 3156 passing. Regression: 17 of 17 downstream repositories
     green, the performance table green (read off the bot comment's rows).
-    Here `test/unit/zcl_osd_shared_memory_test`. The pin
-    `local/osd-build-4l` carries the earlier form (a module-level store,
-    `8aafdd71` + `c2b0b584`); it stays until Lars merges and releases, then
-    the pin moves to the npm release and the fork commits go.
+    Here `test/unit/zcl_osd_shared_memory_test`. **Merged 2026-11-19
+    (`73e33f03`), released in 2.14.38.** The pin `local/osd-build-4m` is
+    built on 2.14.38 and no longer carries the fork's earlier form
+    (`8aafdd71` + `c2b0b584` of 4l); the other fork commits keep it a fork
+    pin, not npm.
 
 21. **transpiler: `TYPE decfloat16`** -- `ANOMALY-2026-11-18-decfloat16-type-todo`.
     **Sent 2026-11-19: abaplint/transpiler#2135**, branch `decfloat16`
@@ -254,8 +258,9 @@ The three below came out of milestone 3 B5.2 (#952, search helps).
     it now runs on the runtime's `DecFloat34`. Test
     `test/types/decfloat16.ts`, 3 cases, all failing on `main` with
     `typeTodoDecFloat16Type is not a constructor`; `npm test` 3148 passing.
-    Regression: 17 of 17 green, performance green. In the pin as `e9958256`
-    + `b2998ada`; like item 20, the pin moves to npm once Lars releases.
+    Regression: 17 of 17 green, performance green. **Merged 2026-11-19
+    (`5813c035`), released in 2.14.38**, with #2244 rounding to 16 digits;
+    `local/osd-build-4m` drops the fork's `e9958256` + `b2998ada`.
 
 ## What we carry, and what we wait for
 

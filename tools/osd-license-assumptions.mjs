@@ -11,7 +11,10 @@ const approved = new Map([
   // (open-abap/open-abap-gui#182); LICENSE and package.json unchanged.
   // b65c443 = 9b3b985 + the converter's field-symbol check skipping backquoted
   // literals (ABAPiti 041); LICENSE and package.json unchanged.
-  ["oisee/open-abap-gui", "b65c4431d71c7b23468d08bd955b18785fd2ca6c"],
+  // d7422fe = b65c443 + APPEND into a table expression's component through a
+  // field symbol (abaplint 2.120.118, the transpiler pin 4m); LICENSE and
+  // package.json unchanged.
+  ["oisee/open-abap-gui", "d7422fec471ed010e697feb52a1add0f96137462"],
 ]);
 
 export function approvedLicenseAssumption(source) {

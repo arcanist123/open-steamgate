@@ -36,7 +36,8 @@ without the AI library. Open, and not Zork's to fix:
 - **gogen: `EXPORT`/`IMPORT` are refused** (`NOT_COMPILED`, "statement
   Export"), so `test/unit/zcl_osd_shared_memory_test` stays in the Go
   inventory's gap list (advisory) until the Go runtime has the two shared
-  media; the JS runtime has them in the pin `local/osd-build-4l`.
+  media; the JS runtime has them upstream since 2.14.38 (abaplint/transpiler#2134), in the pin
+  `local/osd-build-4m`.
 
 ## CI isolation for ADT pull requests, temporary (2026-10-03)
 
