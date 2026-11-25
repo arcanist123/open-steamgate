@@ -44,7 +44,7 @@ func TestDispatcherProfileRoutes(t *testing.T) {
 				func() {
 					defer func() { _ = recover() }()
 					if strings.HasPrefix(tc.path, odataBase) {
-						ZCL_STG_DISPATCHER_DISPATCH(s, tc.method, tc.path, new([]*IHTTPNVP), "", "", "", "", new([]*IHTTPNVP))
+						ZCL_STG_DISPATCHER_DISPATCH(s, tc.method, tc.path, new([]*IHTTPNVP), "", "", "", "", new([]*IHTTPNVP), "")
 					} else {
 						req := ZIF_OSD_ADT_ROUTE__TY_REQUEST{Method: tc.method, Path: tc.path}
 						ZCL_OSD_ADT_ROUTER_DISPATCH(s, &req, new([]ZCL_OSD_ADT_ROUTER__TY_ROUTE))

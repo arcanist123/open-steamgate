@@ -299,7 +299,9 @@ matches a system, not a defect:
   (`ZCL_STG_URL=>REFUSE_ESCAPED_NUL`, from the V2 and V4 dispatchers, with
   the raw query of a request or of a `$batch` part): a query string with an
   escaped NUL anywhere is a 400 before any option is read, and a path
-  segment or a key with one is a 400 too (`ZCL_STG_URL=>UNESCAPE`). Before,
+  segment or a key with one is a 400 too (`ZCL_STG_URL=>UNESCAPE`). Both
+  read the escape off the text (`%00`, or two non-hex characters), not off
+  the decoder's last error, which osgo's native `unescape_url` does not set. Before,
   a filter or an order behind the NUL was dropped and every row came back.
   What a real ICF hands the application for the fields after such a NUL is
   not measured (ANORMALIES `ANOMALY-2026-11-25-query-escaped-nul`).

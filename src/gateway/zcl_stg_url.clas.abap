@@ -63,9 +63,9 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
         VALUE(rv_value) TYPE string
       RAISING
         zcx_stg_error.
-* a URL part unescaped; an escaped NUL is a 400 like a NUL in a literal:
-* unescape_url answers nothing for it and says so as its last error 3, as
-* on a system (open-abap-core #1352, #1356), so it is asked
+* a URL part unescaped; an escaped NUL is a 400 like a NUL in a literal
+* (unescape_url answers nothing for it on a system, open-abap-core #1352,
+* #1356, and a host decoding natively answers the NUL itself)
     CLASS-METHODS unescape
       IMPORTING
         iv_value        TYPE string
@@ -327,21 +327,21 @@ CLASS zcl_stg_url IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD unescape.
-    CONSTANTS lc_null_character TYPE i VALUE 3.
-    rv_value = cl_http_utility=>unescape_url( iv_value ).
-    IF cl_http_utility=>get_last_error( ) = lc_null_character.
+* the same reading as REFUSE_ESCAPED_NUL, before the decoder is asked
+    FIND REGEX '%(00|[^0-9A-Fa-f][^0-9A-Fa-f])' IN iv_value.
+    IF sy-subrc = 0.
       RAISE EXCEPTION TYPE zcx_stg_error
         EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
     ENDIF.
+    rv_value = cl_http_utility=>unescape_url( iv_value ).
   ENDMETHOD.
 
   METHOD refuse_escaped_nul.
-    CONSTANTS lc_null_character TYPE i VALUE 3.
-    IF iv_query IS INITIAL.
-      RETURN.
-    ENDIF.
-    cl_http_utility=>unescape_url( iv_query ).
-    IF cl_http_utility=>get_last_error( ) = lc_null_character.
+* read off the text rather than off cl_http_utility's last error: a host
+* may decode natively (osgo does) and set none. An escaped NUL is %00, or
+* two characters that are not hex digits, which the decoder counts as one
+    FIND REGEX '%(00|[^0-9A-Fa-f][^0-9A-Fa-f])' IN iv_query.
+    IF sy-subrc = 0.
       RAISE EXCEPTION TYPE zcx_stg_error
         EXPORTING status = 400 code = 'STG/BAD_QUERY' message = 'A NUL character in the query string is not accepted'.
     ENDIF.

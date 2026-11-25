@@ -269,10 +269,11 @@ func main() {
 	}
 	// one dialog step: its database LUW is committed when it ends and rolled
 	// back when it dumps (abap.DialogStep, the kernel's rule); a read carries
-	// no request headers, so it_headers is the empty table
+	// no request headers, so it_headers is the empty table; the raw query
+	// goes too (an escaped NUL in it is a 400 before an option is read)
 	var res ZCL_STG_DISPATCHER__TY_RESPONSE
 	abap.DialogStep(s, func() {
-		res = ZCL_STG_DISPATCHER_DISPATCH(s, "GET", path, &opts, ${JSON.stringify(process.env.GW_HOST ?? "http://localhost:3091")}, "", "", "", &[]*IHTTPNVP{})
+		res = ZCL_STG_DISPATCHER_DISPATCH(s, "GET", path, &opts, ${JSON.stringify(process.env.GW_HOST ?? "http://localhost:3091")}, "", "", "", &[]*IHTTPNVP{}, query)
 	})
 	fmt.Printf("%d %s\\n%s\\n%s\\n", res.status, res.reason, res.content_type, res.body)
 }
