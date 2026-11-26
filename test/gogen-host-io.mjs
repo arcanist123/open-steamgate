@@ -59,16 +59,24 @@ const exceptions = {
   "tools/gogen/frontend-v3-queries.mjs": {"node:module": ["createRequire"]},
 };
 // The npm parser exports its downport rule too; that leaf uses SHA-1 only.
+// So does its ICF service renamer since @abaplint/core 2.120.121 (the hash
+// in a renamed node's name, crypto.createHash("sha1") twice and nothing
+// else of the module): the parser's index exports the renamer, the compiler
+// never calls it.
 // Matched by path suffix, not exactly: since 789170ef the gogen job links the
 // pinned transpiler build, and @abaplint/core then resolves inside that
 // build's own node_modules (../.cache/osd/transpiler-<sha>/packages/
 // transpiler/node_modules/...). Same upstream file, same import; gogen's own
 // closure is unchanged, and every other exception stays exact.
-const coreDownport = "node_modules/@abaplint/core/build/src/rules/downport.js";
-const coreDownportImports = {crypto: ["*"]};
-function exceptionsOf(file) {
+const coreLeaves = ["node_modules/@abaplint/core/build/src/rules/downport.js",
+  "node_modules/@abaplint/core/build/src/objects/rename/rename_icf_service.js"];
+const coreLeafImports = {crypto: ["*"]};
+const coreLeafOf = (file) => {
   const posix = file.split(path.sep).join("/");
-  return posix === coreDownport || posix.endsWith(`/${coreDownport}`) ? coreDownportImports : exceptions[file];
+  return coreLeaves.find((leaf) => posix === leaf || posix.endsWith(`/${leaf}`));
+};
+function exceptionsOf(file) {
+  return coreLeafOf(file) ? coreLeafImports : exceptions[file];
 }
 const hostImports = {"node:fs": ["readFileSync", "readdirSync", "writeFileSync"],
   "node:path": ["*"], "node:child_process": ["execFileSync"]};
@@ -144,7 +152,7 @@ describe("gogen compiler host boundary", () => {
     assert.ok(seen.has("tools/gogen/host-io.ts"));
     assert.deepEqual(forbidden(imports), []);
     for (const file of Object.keys(exceptions)) assert.ok(seen.has(file), `stale exception: ${file}`);
-    assert.ok([...seen].some((file) => exceptionsOf(file) === coreDownportImports), `stale exception: ${coreDownport}`);
+    for (const leaf of coreLeaves) assert.ok([...seen].some((file) => coreLeafOf(file) === leaf), `stale exception: ${leaf}`);
   });
 
   it("finds forbidden static imports, reexports, dynamic imports, require and bare builtins through transitive edges", () => {
@@ -161,13 +169,17 @@ describe("gogen compiler host boundary", () => {
     assert.deepEqual(vendorImports.map((i) => i.spec), ["node:net"]);
     assert.equal(forbidden(vendorImports).length, 1);
     assert.equal(forbidden([{file: "tools/gogen/frontend.mjs", spec: "node:fs", names: ["writeFileSync"], line: 1}]).length, 1);
-    // The downport exception follows the core's file wherever node_modules
-    // sits, and nowhere else: crypto in gogen's own code still fails.
-    const pinned = "../../../.cache/osd/transpiler-0/packages/transpiler/node_modules/@abaplint/core/build/src/rules/downport.js";
-    assert.deepEqual(forbidden([{file: pinned, spec: "crypto", names: ["*"], line: 38}]), []);
-    assert.deepEqual(forbidden([{file: coreDownport, spec: "crypto", names: ["*"], line: 38}]), []);
-    assert.equal(forbidden([{file: pinned, spec: "node:fs", names: ["*"], line: 1}]).length, 1);
-    for (const file of ["tools/gogen/frontend.mjs", "tools/gogen/downport.js", "tools/gogen/rules/downport.js", `${coreDownport}.bak`])
+    // The two parser leaves keep their exception wherever node_modules
+    // sits, and nowhere else: crypto in gogen's own code still fails, and
+    // so does any other builtin in the leaves themselves.
+    for (const leaf of coreLeaves) {
+      const pinned = `../../../.cache/osd/transpiler-0/packages/transpiler/${leaf}`;
+      assert.deepEqual(forbidden([{file: pinned, spec: "crypto", names: ["*"], line: 38}]), []);
+      assert.deepEqual(forbidden([{file: leaf, spec: "crypto", names: ["*"], line: 38}]), []);
+      assert.equal(forbidden([{file: pinned, spec: "node:fs", names: ["*"], line: 1}]).length, 1);
+    }
+    for (const file of ["tools/gogen/frontend.mjs", "tools/gogen/downport.js", "tools/gogen/rules/downport.js", "tools/gogen/rename_icf_service.js",
+      "node_modules/@abaplint/core/build/src/objects/rename/renamer.js", ...coreLeaves.map((leaf) => `${leaf}.bak`)])
       for (const spec of ["crypto", "node:crypto"])
         assert.equal(forbidden([{file, spec, names: ["createHash"], line: 1}]).length, 1, `${file}: ${spec}`);
   });
