@@ -32,7 +32,7 @@ What remains, twelve commits and two of glue, and why each is still here:
 | fork commits | state upstream |
 | --- | --- |
 | the `only` option; registry reuse with `only` (2) | #1900 and #1921 were closed unmerged; the build gate and warm compile need both |
-| `SELECT SINGLE FOR UPDATE` runs as the SELECT (1) | #2273 and #2290 open |
+| `SELECT SINGLE FOR UPDATE` runs as the SELECT (1) | #2290 was merged on 2026-11-26 as `33997ef0`, one commit past this build's base and in no release; the fork commit goes when the base next moves. #2273 is the question it settles |
 | a literal in SQL text is a value (1, item 18) | #2287 open |
 | class constructors: targets loaded first, no import cycle, dependency order, wait-cycles said (4, items 6 and 12) | #1849 and #2201 open |
 | constant chains: class constants fold (1) | waits on abaplint/abaplint#4765; the interface half is upstream |
