@@ -343,3 +343,49 @@ passing (the refused sort and wherei8 rows included),
 osgo-host gateway built and answering `$metadata` (14 objects with syntax
 errors in the whole-tree front end, 15 on main), `npm run lint` without
 errors, and `gen/cds` byte-identical between the old and the new parser.
+
+## 41 (2026-11-26): fourteen fork commits on upstream main
+
+`local/osd-build-41` at `766af26dc369e1b82d4c050b91b5600df4149f2e` is
+upstream main `51f69195` (two commits after the 2.14.41 release `3c0b1862`:
+#2288 and #2289) with fourteen fork commits. `package.json` asks for
+`@abaplint/transpiler`, `runtime` and `transpiler-cli` 2.14.41 and
+`@abaplint/core` and `cli` 2.120.121, the parser 2.14.41 requires; the
+leak-scan workflow installs the same parser.
+
+Of the 28 commits of 4m, upstream merged what fourteen of them carried
+between 2026-11-25 and 2026-11-26: the packed, int8 and type `i` overflow
+commits (#1962, #1964, #1955), the `[]` suffix (#2274), the local class
+inheriting from its global class (#2275), the commas of a dynamic ORDER BY
+(#2276), interface constants (#2277, #2281, #2286), the SELECT loop over a
+join (#2278, #2279, #2282, #2284), a structure component as a host variable
+(#2283), `sy-subrc` after FOR ALL ENTRIES (#2288) and namespaced names in
+declarations (#2289). The table of what was merged and what remains, with
+the state of each upstream, is at the top of [upstream.md](upstream.md).
+
+**Still not a pure upstream pin**: the `only` option and registry reuse
+(the build gate, `tools/osd-ci-transpiler-build.sh`), `SELECT SINGLE FOR
+UPDATE` as the SELECT, SQL literals, the class-constructor order, the fold
+of class constants, a PRIMARY KEY inside a dynamic ORDER BY, the two
+built-in commits, and two glue commits (a parser guard test; core aligned
+exactly, `only` without the plugin guard, unique test names).
+
+The rebase onto `51f69195` had no conflicts; #2289 touches the declaration
+and constant code the fork's constant commit also touches, and both sets of
+tests pass together. Transpiler repository on 41: `npm test` 3757 passing,
+38 pending, 0 failing, eslint clean.
+
+One workaround left this tree with the move: the CDS metadata writes a
+namespaced redirected target as one name since #2269 (2.14.40), so
+`tools/cds-metadata.mjs` no longer takes blanks out and the canary test
+that waited for the fix is gone (ANORMALIES
+`ANOMALY-2026-11-25-cds-metadata-redirect-namespace`, closed).
+
+Measured on 41 in this tree, the fork build linked as CI links it
+(`tools/osd-ci-transpiler-build.sh rebuild`, `tools/osd-link.mjs`): `npm run
+transpile` green (3096 objects), ABAP Unit 1164 methods with 0 failures,
+`test/mocha.mjs` 41 passing, `test/store-destination.mjs` 89,
+`test/cds-metadata.mjs` 11, `test/warm.mjs` 66, `test/pins.mjs` 15,
+`test/transpiler-pin.mjs` 18, `npm run lint` without errors (129 warnings),
+`npm run leak` clean. The HANA suites, gogen, the preview and Playwright were
+not run for this move and are left to CI.

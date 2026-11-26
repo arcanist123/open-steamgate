@@ -43,11 +43,11 @@ jobs:
       - run: npm ci
       - name: Load the tracked source pins
         run: node tools/osd-lock.mjs github-env >> "$GITHUB_ENV"
-      # The integration build is upstream 2.14.38 (CDS metadata in abap.DDIC,
-      # shared memory, decfloat16) and keeps the fork's builtin,
-      # incremental-build, FOR UPDATE, packed and overflow commits, the class
-      # constructor order, SQL literal and ORDER BY fixes. Parser 2.120.118
-      # is shared with OSG and checked by the build gate. See
+      # The integration build is upstream main two commits after 2.14.41 and
+      # keeps the fork's builtin, incremental-build, FOR UPDATE, class
+      # constructor order, class-constant fold, SQL literal and ORDER BY
+      # PRIMARY KEY commits (the numeric and SELECT loop ones are upstream).
+      # Parser 2.120.121 is shared with OSG and checked by the build gate. See
       # docs/transpiler-pin-4.md for the reviewed pin set.
       #
       # So the deployment is pinned to a commit of an integration branch,
