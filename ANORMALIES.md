@@ -32,7 +32,7 @@ Format adapted from `larshp/hithub` (MIT).
 
 ### ANOMALY-2026-11-13-select-loop-join-into-list -- A SELECT loop over a join INTO (list) cannot run, assigns one target and pages wrong
 
-- Status: `workaround` (the pinned fork `oisee/transpiler` `local/osd-build-4e` `4e9b744d` = `local/osd-build-4c` plus two commits, `d8525705` and `4e9b744d`, also on branch `fix/select-loop-join-into-list` for the upstream PR)
+- Status: `fixed upstream: abaplint/transpiler#2278, #2279, #2282, #2284` (merged 2026-11-26, released in 2.14.41; `sy-subrc` after FOR ALL ENTRIES, #2288, merged the same day and not yet in a release; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
 - Discovery date: `2026-11-13` (a probe class with the read shape of a code-based SEGW sample's GET_ENTITYSET, transpiled with the pin)
 - Affected versions: `@abaplint/transpiler` and `@abaplint/runtime` on the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff`, and upstream main of the same date (`packages/transpiler/src/structures/select.ts` is unchanged there)
 - Affected ABAP statement, runtime API or adapter: `SELECT ... INTO (v1, v2, ...) FROM ( ta AS a INNER JOIN tb AS b ON ... ) ... ENDSELECT`, and any SELECT loop INTO a list or over an alias; `packages/transpiler/src/structures/select.ts`
@@ -46,7 +46,7 @@ Format adapted from `larshp/hithub` (MIT).
 - Smallest safe workaround: rewrite the read as `SELECT ... INTO TABLE` and page over the table; not applicable to service code read from a system, hence the transpiler fix.
 - Upstream issue: none yet; the fix goes upstream as a branch inside `abaplint/transpiler` after the critic pass (CLAUDE.md, "A transpiler PR comes from a branch inside abaplint/transpiler").
 - Regression-test location: `test/unit/zcl_osd_select_loop_test.clas.testclasses.abap` (five cases, `same_named_columns` among them); in the transpiler, `test/database.ts` ("SELECT loop, join ...", "... same-named columns ...", "... refused, not misassigned")
-- Upstream version containing a fix: `unknown`
+- Upstream version containing a fix: 2.14.41 (#2288: not yet released)
 
 ### ANOMALY-2026-11-10-wait-in-select-loop -- A WAIT inside SELECT ... ENDSELECT reads on (Node, OSGo with one connection) where a system dumps DBIF_RSQL_INVALID_CURSOR
 
@@ -2274,7 +2274,7 @@ for `zosd_status_app`, which has been deployed for a day.
 
 ### ANOMALY-2026-09-23-epoch-ms-overflow — `ZCL_STG_JSON=>EPOCH_MS` overflows `i` on a system, and the transpiler runtime lets it through
 
-- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
+- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (merged 2026-11-25 as `77d71cba`, released in 2.14.41), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-23`
 - Affected versions: `@abaplint/transpiler` 2.13.89 (npm) runtime; OSG's own `src/gateway/zcl_stg_json.clas.abap`
 - Affected ABAP statement, runtime API or adapter: an arithmetic expression of `i` operands embedded in a string template, `rv_ms = |{ ( lv_days * 86400 + lv_seconds ) * 1000 }|` in `EPOCH_MS`, which every `Edm.DateTime` of a JSON answer goes through
@@ -2882,7 +2882,7 @@ The same run also showed an `INSERT` taking `mandt` from the work area (999 writ
 
 ### ANOMALY-2026-09-24-packed-decimals — the transpiler runtime computes packed numbers with decimals in floating point and rounds, converts and overflows them differently from a system
 
-- Status: `partly fixed upstream: abaplint/transpiler#1885, #1923 and #1924 cover pieces; the rest remains`; before: workaround
+- Status: `partly fixed upstream: abaplint/transpiler#1885, #1923 and #1924 cover pieces; the rest remains`; before: workaround; `+ - *` and MOD with p operands on BigInt: abaplint/transpiler#1962 (merged 2026-11-26 as `75175597`, released in 2.14.41)
 - Discovery date: `2026-09-24`
 - Affected versions: `@abaplint/transpiler` 2.13.89, `@abaplint/runtime` 2.13.89 (`types/packed.js`, `operators/*`, `types/integer8.js`, `templateFormatting`)
 - Affected ABAP statement, runtime API or adapter: every statement with a `p LENGTH n DECIMALS d` operand or target: moves into and out of p, arithmetic of calculation type p, `DIV` / `MOD`, string templates of p (`DECIMALS =`, `ALIGN`), `abs( )` / `frac( )` of p
@@ -3198,7 +3198,7 @@ point approximation and is format-checked before masking in wire tests.
 
 ### ANOMALY-2026-09-25-zip-read-int4 — open-abap-core's `CL_ABAP_ZIP=>LOAD` overflows `i` in `LCL_STREAM=>READ_INT4`, and the transpiler runtime lets it through
 
-- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
+- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (merged 2026-11-25 as `77d71cba`, released in 2.14.41), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-25`
 - Affected versions: open-abap-core (`src/abap/cl_abap_zip.clas.locals_imp.abap`, as cloned in `.local/lars/open-abap-core`); `@abaplint/runtime` 2.13.89
 - Affected ABAP statement, runtime API or adapter: `LCL_STREAM=>READ_INT4` (and `READ_INT2`'s pattern): `DO 4 TIMES. ... lv_factor = lv_factor * 256. ENDDO.`, which after the fourth byte computes 256 ** 4 into an `i`; `CL_ABAP_ZIP=>LOAD` calls it for every header
@@ -4104,7 +4104,7 @@ SNAPSHOT_MISMATCH and the doctor retry.
 
 ### ANOMALY-2026-10-03-int8-hex-conversion - int8 byte assignments keep the wrong bytes
 
-- Status: `fixed via pin f3611417; upstream PR #1964 still open`
+- Status: `fixed upstream: abaplint/transpiler#1964` (merged 2026-11-25 as `e18b1213`, released in 2.14.40; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
 - Discovery date: `2026-10-03`
 - Affected version: `@abaplint/runtime` 2.13.96
 - Affected path: int8 -> x, x -> int8, int8 -> xstring; i -> xstring for negative values
@@ -4115,7 +4115,7 @@ SNAPSHOT_MISMATCH and the doctor retry.
 - Command: `OSD_HEAVY_RANGE=50-59 tools/osd-heavy.sh npm run osgjs:unit -- .local/abapiti/int8 --json` in a disposable checkout with locally linked packages; shared node_modules is untouched.
 - Upstream: [abaplint/transpiler#1964](https://github.com/abaplint/transpiler/pull/1964), branch `fix/int8-hex-conversion`; still open.
 - Regression tests: upstream `packages/runtime/test/integer_hex.ts`; OSG `test/osgjs-int8.mjs` and `test/fixtures/osgjs-unit-int8/`. Existing `it.skip` upstream-pending convention; `OSD_INT8_UPSTREAM=1` runs the full test against a local build.
-- Upstream version containing a fix: fork pin `f36114179f6f39e5abb42d021f2cf5dcc50b45b9` in `libs.lock.json` (packed #1962 plus int8 #1964); no published upstream release yet.
+- Upstream version containing a fix: 2.14.40
 - Verification: int8 folder 10/10 SUCCESS; OSG opt-in harness 1 pass (default 1 pending); upstream 154 new tests, 192 runtime passes, 99 affected ABAP passes with 4 existing pending. All 26 supplied xstring conversion methods pass. Folder 007 is 12/17 overall: five of seven byte/integer equality methods fail in the separate comparison path; folder 008 is 16/16. This fix does not change comparison operators.
 - Dependency isolation: proof used core 2.120.64 (declared upstream minimum); 2.120.65 changes CREATE DATA TYPE HANDLE operand nodes and breaks the unchanged compiler on the library tree. The original shared dependencies were already a local 2.13.93 build, not published; their symlink and contents were preserved, and the disposable copy was removed.
 
@@ -4294,7 +4294,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-10-08-zip-read-int4 - cl_abap_zip's read_int4 overflows type i, and only the Go runtime notices
 
-- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
+- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (merged 2026-11-25 as `77d71cba`, released in 2.14.41), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery: abapiti's case 033, `cl_abap_zip=>load` raising `CX_SY_ARITHMETIC_OVERFLOW` on osgo for an ordinary 50-file ZIP, while OSG-JS loaded it.
 - Affected path: open-abap-core `lcl_stream=>read_int4` (`cl_abap_zip.clas.locals_imp.abap`) before #1282: `rv_int = rv_int + lv_val * lv_factor`, then `lv_factor = lv_factor * 256`, all in `i`; the factor reaches 2^32 after the fourth byte for any input.
 - Expected SAP behaviour (7.58): the same method body dumps `COMPUTE_INT_TIMES_OVERFLOW` for both `01020304` and `01020380` (measured on A4H by abapiti on 2026-10-08 in a throwaway package, removed after). SAP's own `cl_abap_zip` is not affected; this is open-abap-core's implementation.
@@ -4664,7 +4664,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-14-table-body-suffix-js -- `it_x[] IS SUPPLIED` and `RESULT (lt_x[])` reach JavaScript with the `[]`
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4f` `d2e9f22c`, the commit `84015656` there; not upstream)
+- Status: `fixed upstream: abaplint/transpiler#2274` (merged 2026-11-25 as `7c97afc2`, released in 2.14.40; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
 - Discovery date: `2026-11-14`
 - Affected versions: the pinned transpiler up to oisee/transpiler 4e9b744d
 - Affected ABAP statement, runtime API or adapter: `IF it_x[] IS SUPPLIED`, `boolc( et_x[] IS SUPPLIED )`, `CALL TRANSFORMATION ... RESULT (lt_x[])`
@@ -4676,11 +4676,11 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: none needed in this tree with the 4f pin; the build now refuses a generation with a module that does not parse (`tools/osd-generation-check.mjs`)
 - Upstream issue: branch inside abaplint/transpiler after a critic pass
 - Regression-test location: the transpiler's own tests (above)
-- Upstream version containing a fix: unknown
+- Upstream version containing a fix: 2.14.40
 
 ### ANOMALY-2026-11-14-local-inherits-owner -- a local class inheriting from its own global class deadlocks the module load
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4f` `d2e9f22c`; not upstream)
+- Status: `fixed upstream: abaplint/transpiler#2275` (merged 2026-11-25 as `7ce5616b`, released in 2.14.40; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
 - Discovery date: `2026-11-14`
 - Affected versions: the pinned transpiler up to oisee/transpiler 4e9b744d (packages/transpiler/src/requires.ts with handlers/handle_abap.ts)
 - Affected ABAP statement, runtime API or adapter: `CLASS lcx_x DEFINITION INHERITING FROM zcx_x` in the locals of `zcx_x`
@@ -4694,11 +4694,11 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Residual: two global classes each with a local subclass of the OTHER one still form a cycle (`a.locals -> b -> b.locals -> a`); not looked for in a corpus yet, and the check names it if a build meets it
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass
 - Regression-test location: `test/generation-check.mjs`, the ABAP unit class above, transpiler test/unit.ts test-71..73
-- Upstream version containing a fix: unknown
+- Upstream version containing a fix: 2.14.40
 
 ### ANOMALY-2026-11-14-intf-const-from-const -- an interface constant whose VALUE is another object's constant throws at load
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4i` `28b6944e` (the fix is `c84497b4`), on `9437debe` of `local/osd-build-4g`; not upstream)
+- Status: `fixed upstream: abaplint/transpiler#2277, #2281, #2286` (merged 2026-11-26, released in 2.14.41) for interface constants; the fold of class constants stays a fork commit of the pin `local/osd-build-41`, waiting on abaplint/abaplint#4765
 - Discovery date: `2026-11-14`
 - Affected versions: the pinned transpiler up to oisee/transpiler d2e9f22c (packages/transpiler/src/structures/interface.ts, requires.ts)
 - Affected ABAP statement, runtime API or adapter: `CONSTANTS y TYPE string VALUE zif_c=>x.` in an interface
@@ -4712,7 +4712,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: none needed with the 4h pin
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass
 - Regression-test location: the ABAP unit class above, the transpiler's unit and requires tests
-- Upstream version containing a fix: unknown
+- Upstream version containing a fix: 2.14.41 (interface constants)
 
 ### ANOMALY-2026-11-14-class-constructor-targets -- a class constructor runs at load before the class it creates
 
@@ -4895,7 +4895,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-14-dynamic-order-by-blanks -- a dynamic ORDER BY whose columns are separated by blanks reaches SQL without commas
 
-- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4k` 05b8d3b5: `dd8696f6`, runtime `abap.dynamicOrderBy` used by the generated dynamic ORDER BY; a PRIMARY KEY inside a longer list stays one item since the 4k follow-up). The host-side workaround is removed; not upstream
+- Status: `fixed upstream: abaplint/transpiler#2276` (merged 2026-11-25 as `39252cb2`, released in 2.14.40); a PRIMARY KEY inside a longer list staying one item is still a fork commit of the pin `local/osd-build-41`, not sent. The host-side workaround is removed
 - Discovery date: `2026-11-14`
 - Affected versions: the pinned transpiler (oisee/transpiler 28b6944e, local/osd-build-4i) and every database client of it
 - Affected ABAP statement, runtime API or adapter: `SELECT ... ORDER BY (lv_order)` with lv_order = `s~so_id i~so_item_pos`, or `a DESCENDING b` -- the form a SEGW-generated sample builds with `CONCATENATE ... SEPARATED BY space` from the technical order
@@ -4907,7 +4907,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Smallest safe workaround: none needed with the 4k pin. Until then `tools/osd-order-by.mjs` put the commas into the trailing ORDER BY of a SELECT on its way into any client (installed in `test/setup.mjs`); removed with the pin move (#954), and the ABAP tests below pass through the pin alone
 - Upstream issue: needs a branch in abaplint/transpiler after a critic pass (docs/upstream.md item 19)
 - Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); the transpiler's `packages/runtime/test/dynamic_order_by.ts` and `test/database.ts` "dynamic ORDER BY, columns separated by blanks" (the cases `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY alone and inside a list)
-- Upstream version containing a fix: unknown
+- Upstream version containing a fix: 2.14.40 (the commas; not the PRIMARY KEY follow-up)
 
 ### ANOMALY-2026-11-14-message-t100-english-only -- `MESSAGE ID ... INTO` reads the T100 text in English whatever sy-langu is
 
@@ -5041,16 +5041,16 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-11-25-cds-metadata-redirect-namespace -- a namespaced redirected target keeps its blanks in the CDS metadata
 
-- Status: `workaround` (`tools/cds-metadata.mjs` removes the blanks of every target it reads)
+- Status: `fixed upstream: abaplint/transpiler#2269` (merged 2026-11-25 as `58a45603`, released in 2.14.40; the pin `local/osd-build-41` is built on 2.14.41, and the blank removal in `tools/cds-metadata.mjs` and its canary test are gone)
 - Discovery date: `2026-11-25`
-- Affected versions: `@abaplint/transpiler` 2.14.38 (#2264, `packages/transpiler/src/cds_metadata.ts`, `redirection()`), in the pin `local/osd-build-4m`
+- Affected versions: `@abaplint/transpiler` 2.14.38 and 2.14.39 (#2264, `packages/transpiler/src/cds_metadata.ts`, `redirection()`), in the pin `local/osd-build-4m`
 - Affected ABAP statement, runtime API or adapter: the `cds.associations[].target` the transpiler writes into `abap.DDIC["<ENTITY>"]` for an element `_X : redirected to [parent | composition child] /NS/TARGET` of a projection
 - Minimal ABAP reproducer: `define root view entity /DMO/C_T as projection on /DMO/I_T { key TravelID, _Booking : redirected to composition child /DMO/C_B }` with `/DMO/I_T` declaring `composition [0..*] of /DMO/I_B as _Booking`
 - Exact command used to run it: `CDSMetadata.build()` of 2.14.38 over a registry holding the packs/rap-flight managed views (public SAP-samples flight reference scenario); `tools/cds2ddic.mjs` with the blank removal taken out writes the projections' composition children without their `ZIF_STG_CDS_COMPOSITION` (the target `/ DMO / C_...` matches no view)
 - Expected SAP behaviour: the target is the entity name, `/DMO/C_B`
 - Actual open-abap behaviour: `/ DMO / C_B`, the name's tokens joined with blanks (`concatTokens()`); `association()` removes them, `redirection()` does not
 - Impact on open-steamgate: a projection's redirected composition is not found, so delete cascades and the composition interface are lost for namespaced RAP projections; un-namespaced names are unaffected
-- Smallest safe workaround: a CDS name has no blanks, so `cds-metadata.mjs` (`nameOf`) removes them from every target before comparing
-- Upstream issue: needs a PR (abaplint/transpiler): the same `replace(/ /g, "")` in `redirection()`, test in `packages/transpiler/test/cds_metadata.ts`; drafted beside the export of `CDSMetadata` from the package entry, after a critic pass
-- Regression-test location: `test/cds-metadata.mjs`; the whole of `gen/` byte-identical over packs/rap-flight
-- Upstream version containing a fix: unknown
+- Smallest safe workaround: none since the pin `local/osd-build-41`; until then `cds-metadata.mjs` (`nameOf`) removed the blanks from every target before comparing, a CDS name having none
+- Upstream issue: abaplint/transpiler#2269 (the same `replace(/ /g, "")` in `redirection()`)
+- Regression-test location: `test/cds-metadata.mjs` (the redirected target read as the transpiler writes it); the whole of `gen/` byte-identical over packs/rap-flight
+- Upstream version containing a fix: 2.14.40

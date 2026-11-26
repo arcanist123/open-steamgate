@@ -47,9 +47,7 @@ const KNOWN = new Set(["VIEW", "VIEW_ENTITY", "PROJECTION_VIEW", "ABSTRACT_ENTIT
 // lives on and is edited in place (the ADT store's) gets new ones when any
 // DDLS source differs, so an edit is never answered from the old source
 const readers = new WeakMap();
-// #2264 writes a redirected target as its token text, `/ DMO / C_X` for a
-// namespaced one (ANORMALIES cds-metadata-redirect-namespace); a name has no blanks
-const nameOf = (target) => String(target).replace(/\s+/g, "").toUpperCase();
+const nameOf = (target) => String(target).toUpperCase();
 
 /** the #2264 metadata of a DDLS object of `reg` */
 export function cdsMetadataOf(obj, reg) {

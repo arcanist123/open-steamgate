@@ -8,7 +8,39 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-4m` at `a272f3c96ad43bda22ab2ad7eff6349cf01cd5cf`
+The current transpiler and runtime build is `local/osd-build-41` at `766af26dc369e1b82d4c050b91b5600df4149f2e`:
+upstream main `51f69195` (two commits after 2.14.41, parser 2.120.121) with fourteen fork commits
+([transpiler-pin-4.md](transpiler-pin-4.md), "41"). The 28 commits of `local/osd-build-4m` (`a272f3c9`, on 2.14.38)
+became 14 because upstream merged the rest between 2026-11-25 and 2026-11-26:
+
+| what the fork carried | upstream | in a release? |
+| --- | --- | --- |
+| exact packed arithmetic (`+ - *`, MOD on BigInt) | #1962 | 2.14.41 |
+| int8 and integer byte conversions | #1964 | 2.14.40 |
+| type `i` overflow raises | #1955 | 2.14.41 |
+| a table named with its `[]` suffix | #2274 | 2.14.40 |
+| a local class inheriting from its own global class | #2275 | 2.14.40 |
+| blank-separated dynamic ORDER BY (item 19, the commas) | #2276 | 2.14.40 |
+| interface constants from constants, components, cycles, `IS INITIAL` | #2277, #2281, #2286 | 2.14.41 |
+| SELECT loop over a join, INTO a list, `sy-dbcnt`, PACKAGE SIZE, same-named columns | #2278, #2279, #2282, #2284 | 2.14.41 |
+| `alias~field = structure-component` as a host variable | #2283 | 2.14.41 |
+| FOR ALL ENTRIES: `sy-subrc` 0 when rows were found | #2288 | after 2.14.41 |
+| namespaced names in declarations | #2289 | after 2.14.41 |
+
+What remains, twelve commits and two of glue, and why each is still here:
+
+| fork commits | state upstream |
+| --- | --- |
+| the `only` option; registry reuse with `only` (2) | #1900 and #1921 were closed unmerged; the build gate and warm compile need both |
+| `SELECT SINGLE FOR UPDATE` runs as the SELECT (1) | #2290 was merged on 2026-11-26 as `33997ef0`, one commit past this build's base and in no release; the fork commit goes when the base next moves. #2273 is the question it settles |
+| a literal in SQL text is a value (1, item 18) | #2287 open |
+| class constructors: targets loaded first, no import cycle, dependency order, wait-cycles said (4, items 6 and 12) | #1849 and #2201 open |
+| constant chains: class constants fold (1) | waits on abaplint/abaplint#4765; the interface half is upstream |
+| a PRIMARY KEY inside a dynamic ORDER BY list stays one item (1, item 19's follow-up) | not sent |
+| "four fixes" and a built-in's argument by name (2) | not sent |
+| glue (2): the `CREATE DATA ... TYPE HANDLE` parser guard test; core 2.120.121 aligned exactly, `only` without the plugin guard, unique test names | stays with the fork |
+
+Until 2026-11-26 the build was `local/osd-build-4m` at `a272f3c96ad43bda22ab2ad7eff6349cf01cd5cf`
 (upstream 2.14.38 `1c768652`, parser 2.120.118, with items 20 and 21 merged upstream and the CDS metadata of #2264)
 with the fork commits ported onto it ([transpiler-pin-4.md](transpiler-pin-4.md), "4m"). Until 2026-11-25 it was
 `local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81`

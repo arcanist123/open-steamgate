@@ -126,11 +126,11 @@ ENDCLASS.`,
   // so it is broken and leaves `wanted` while staying resolvable for the
   // syntax pass and for the subclass below -- which is wanted but referenced
   // by nobody the closure walks, so a fast build's registry does not hold it
-  "app/zcl_incr_root.clas.abap": `CLASS zcl_incr_root DEFINITION PUBLIC FINAL CREATE PUBLIC.
+  "app/cx_root.clas.abap": `CLASS cx_root DEFINITION PUBLIC ABSTRACT CREATE PUBLIC.
 ENDCLASS.
-CLASS zcl_incr_root IMPLEMENTATION.
+CLASS cx_root IMPLEMENTATION.
 ENDCLASS.`,
-  "app/zcx_incr_lib.clas.abap": `CLASS zcx_incr_lib DEFINITION PUBLIC INHERITING FROM zcl_incr_root.
+  "app/zcx_incr_lib.clas.abap": `CLASS zcx_incr_lib DEFINITION PUBLIC INHERITING FROM cx_root.
   PUBLIC SECTION.
     METHODS mark RETURNING VALUE(r) TYPE i.
 ENDCLASS.

@@ -72,16 +72,8 @@ describe("cds-metadata: the transpiler's CDS metadata, read for cds2ddic", () =>
   it("gives a projection's redirected target as one name (ANORMALIES cds-metadata-redirect-namespace)", () => {
     const meta = metaOf(reg, "/NS/C_ROOT");
     expect(meta.definitionType).to.equal("PROJECTION_VIEW");
-    // the transpiler's own text has the blanks of the tokens; ours has none
-    expect(meta.associations.find((a) => a.name === "_Item").target.replace(/\s+/g, "")).to.equal("/NS/C_ITEM");
+    expect(meta.associations.find((a) => a.name === "_Item").target).to.equal("/NS/C_ITEM");
     expect(redirectsOf(meta).get("_ITEM")).to.equal("/NS/C_ITEM");
-  });
-
-  it("canary: the transpiler still writes a namespaced redirected target with blanks", () => {
-    // when this fails, abaplint/transpiler fixed redirection(): drop nameOf's
-    // workaround and close ANORMALIES ANOMALY-2026-11-25-cds-metadata-redirect-namespace
-    const raw = metaOf(reg, "/NS/C_ROOT").associations.find((a) => a.name === "_Item").target;
-    expect(raw, "ANOMALY-2026-11-25-cds-metadata-redirect-namespace is still open").to.match(/\s/);
   });
 
   it("refuses a definition type it does not know, naming both causes", () => {

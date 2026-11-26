@@ -103,10 +103,10 @@ the code:
   children.
 
 `cds-metadata.mjs` needs `@abaplint/transpiler` 2.14.38 or later and says
-so when the module is not there (`package.json` asks for 2.14.38; the build
-links the pin). One workaround: #2264 writes a namespaced redirected target as its token
-text, `/ DMO / C_X`, so `cds-metadata.mjs` takes the blanks out
-(ANORMALIES `ANOMALY-2026-11-25-cds-metadata-redirect-namespace`). A
+so when the module is not there (`package.json` asks for 2.14.41; the build
+links the pin). A namespaced redirected target is one name since 2.14.40
+(abaplint/transpiler#2269; before it `cds-metadata.mjs` took the blanks out,
+ANORMALIES `ANOMALY-2026-11-25-cds-metadata-redirect-namespace`). A
 registry parsed by another copy of `@abaplint/core` than the transpiler's
 (a copied `node_modules`, as the image has, carries two) would give no
 annotations and no fields without a word, so `cdsMetadataOf` parses the
