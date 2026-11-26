@@ -923,8 +923,12 @@ export function incrAssemble({root, folders, objects, hidden, includeTests, proo
   {
     const superOf = (name) => {
       const ir = classes.find((c) => c.name === name);
-      if (ir !== undefined) return ir.super ?? null;
-      return index.supers[name] ?? null;
+      // a lowered class names its superclass only when that one is compiled
+      // too (frontend.mjs: `super` is null under a superclass outside
+      // `wanted`, a broken or a library class); the full build walks the
+      // registry there, so this walk goes on over the registry's own map
+      if (ir !== undefined && ir.super) return ir.super;
+      return program2.rtti.classSupers.get(name) ?? index.supers[name] ?? null;
     };
     const out = {};
     for (const c of classes) {
