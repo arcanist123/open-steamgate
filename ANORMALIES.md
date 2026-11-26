@@ -5039,3 +5039,18 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Regression-test location: `test/mocha.mjs` ("an escaped NUL anywhere in the query is a 400 ...", "a malformed escape anywhere in the query is a 400 too ...", "an escaped NUL in a path segment is a 400")
 - Upstream version containing a fix: n/a
 
+### ANOMALY-2026-11-25-cds-metadata-redirect-namespace -- a namespaced redirected target keeps its blanks in the CDS metadata
+
+- Status: `workaround` (`tools/cds-metadata.mjs` removes the blanks of every target it reads)
+- Discovery date: `2026-11-25`
+- Affected versions: `@abaplint/transpiler` 2.14.38 (#2264, `packages/transpiler/src/cds_metadata.ts`, `redirection()`), in the pin `local/osd-build-4m`
+- Affected ABAP statement, runtime API or adapter: the `cds.associations[].target` the transpiler writes into `abap.DDIC["<ENTITY>"]` for an element `_X : redirected to [parent | composition child] /NS/TARGET` of a projection
+- Minimal ABAP reproducer: `define root view entity /DMO/C_T as projection on /DMO/I_T { key TravelID, _Booking : redirected to composition child /DMO/C_B }` with `/DMO/I_T` declaring `composition [0..*] of /DMO/I_B as _Booking`
+- Exact command used to run it: `CDSMetadata.build()` of 2.14.38 over a registry holding the packs/rap-flight managed views (public SAP-samples flight reference scenario); `tools/cds2ddic.mjs` with the blank removal taken out writes the projections' composition children without their `ZIF_STG_CDS_COMPOSITION` (the target `/ DMO / C_...` matches no view)
+- Expected SAP behaviour: the target is the entity name, `/DMO/C_B`
+- Actual open-abap behaviour: `/ DMO / C_B`, the name's tokens joined with blanks (`concatTokens()`); `association()` removes them, `redirection()` does not
+- Impact on open-steamgate: a projection's redirected composition is not found, so delete cascades and the composition interface are lost for namespaced RAP projections; un-namespaced names are unaffected
+- Smallest safe workaround: a CDS name has no blanks, so `cds-metadata.mjs` (`nameOf`) removes them from every target before comparing
+- Upstream issue: needs a PR (abaplint/transpiler): the same `replace(/ /g, "")` in `redirection()`, test in `packages/transpiler/test/cds_metadata.ts`; drafted beside the export of `CDSMetadata` from the package entry, after a critic pass
+- Regression-test location: `test/cds-metadata.mjs`; the whole of `gen/` byte-identical over packs/rap-flight
+- Upstream version containing a fix: unknown

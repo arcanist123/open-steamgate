@@ -54,6 +54,67 @@ Three details worth knowing:
   are part of the service (`docs/virtual-elements.md`). The YAML grammar
   gained `struct:` next to a source for that.
 
+### Where the metadata comes from
+
+Since `abaplint/transpiler#2264` (2.14.38) the transpiler registers every
+DDLS in `abap.DDIC` with its metadata, and `cds2ddic` reads the same
+metadata rather than parsing it a second time: `tools/cds-metadata.mjs`
+calls the transpiler's `CDSMetadata` over the registry `cds2ddic` has
+already parsed (the generator runs before the transpile, so there is no
+`abap.DDIC` to read yet; the class is not exported from the package entry,
+so the module file is imported). Taken from it: the definition type (is it
+a projection), the view's label, `@OData.publish`, the `@ObjectModel`
+write switches and `@Analytics.dataCategory`; per element the key flag, the
+label, `@ObjectModel.virtualElement` with its calculating class and
+`@Semantics.language`; the associations and compositions a view declares,
+with target, cardinality, ON pairs, exposure, to-parent and the
+`@ObjectModel.association.type` of the exposing element; a projection's
+redirected targets. Annotation values are values there, so a record form
+(`@ObjectModel: {writeEnabled: true}`) is read like the flat one.
+
+What #2264 does not give stays ours, each place marked "not in #2264" in
+the code:
+
+- **The annotations as text.** The registry carries every annotation as its
+  source text, which is what the SADL runtime reads; #2264 has their values.
+- **What an element reads**: the column, a `cast( )` and its type, a
+  literal, an aggregate, a path. #2264 lists name, key, virtual and
+  annotations.
+- **A projection's types.** The transpiler's row type of a projection is
+  void (core resolves its fields so); the fields are typed through the base
+  view down to its table (`projectionBase`).
+- **Which elements are exposed associations**: told by the leading
+  underscore, compared case-insensitively, one rule for the association's
+  `exposed` and for the list the projections and publishing read. #2264's
+  flag also counts an exposure without an underscore (an association named
+  by its target), which this reads as a column as it always did, and it
+  lists an exposure whose source it cannot read as a field; where the flag
+  and the underscore differ the build says so.
+- **Pairs it has no condition for**: a composition's (the reverse of the
+  child's to-parent, `resolveCompositions`) and a projected association's
+  (renamed through both projections, `resolveProjections`; #2264 keeps the
+  source's ON text).
+- **Sources, joins, WHERE, the singleton root**, the write chain and the
+  client field: nothing in the metadata describes them.
+- **DDLX and view parameters**: neither reads them. A union is not
+  generated (its sources are two), and an association declared in a union
+  branch after the first is refused by name: #2264 reads the first select's
+  associations only, so the declared ones are counted as its direct
+  children.
+
+`cds-metadata.mjs` needs `@abaplint/transpiler` 2.14.38 or later and says
+so when the module is not there (`package.json` asks for 2.14.38; the build
+links the pin). One workaround: #2264 writes a namespaced redirected target as its token
+text, `/ DMO / C_X`, so `cds-metadata.mjs` takes the blanks out
+(ANORMALIES `ANOMALY-2026-11-25-cds-metadata-redirect-namespace`). A
+registry parsed by another copy of `@abaplint/core` than the transpiler's
+(a copied `node_modules`, as the image has, carries two) would give no
+annotations and no fields without a word, so `cdsMetadataOf` parses the
+DDLS sources again with the transpiler's own copy, and refuses only a
+definition type it still cannot name. Moving to the metadata changed no generated file: the
+whole of `gen/` (cds2ddic, bdef-gen, stg-compile; every view under `src/`
+and the packs) is byte-identical before and after.
+
 A CDS entity is also a DDIC object of its own now: next to the SQL view
 (`ZVSTGTRAVEL`) `cds2ddic` writes the view under the CDS name
 (`ZC_STG_TRAVEL`), because that is the name ABAP code selects from and

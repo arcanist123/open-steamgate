@@ -11,15 +11,13 @@
 // child's to-parent association (resolveCompositions, once every view is
 // parsed). A projection's association is its base's, re-pointed where it is
 // redirected, its pairs renamed through the projections at both ends
-// (resolveProjections). parseDDLS stays the one reader of a view; this
-// module only knows the shapes above.
+// (resolveProjections). The declarations themselves -- target, cardinality,
+// redirection -- are the transpiler's CDS metadata (tools/cds-metadata.mjs);
+// this module only knows how the views connect.
 
-/** abaplint's token text spells a namespace `/ DMO / I_X`: one name again */
-export function namespaced(text) {
-  return String(text).replace(/\/\s*(\w+)\s*\/\s*/g, "/$1/");
-}
-
-/** the base of a projection view, parsed (or a skip naming why not) */
+/** the base of a projection view, parsed (or a skip naming why not). Not in
+ *  #2264: a projection's fields are typed through its base here, where the
+ *  transpiler's row type of a projection is void */
 export function projectionBase(tree, reg, name, depth, parseDDLS) {
   const names = (tree.getChildren?.() ?? []).filter((c) => c.get?.().constructor?.name === "CDSName");
   const base = (names[1]?.concatTokens?.() ?? "").replace(/\s+/g, "").toUpperCase();
@@ -30,37 +28,22 @@ export function projectionBase(tree, reg, name, depth, parseDDLS) {
   return parsed;
 }
 
-/** `_X : redirected to [parent|composition child] ZC_Y` -> ZC_Y */
-export function redirectOf(text) {
-  return /:\s*redirected\s+to\s+(?:parent\s+|composition\s+child\s+)?([\w/]+)/i.exec(namespaced(text))?.[1]?.toUpperCase();
-}
-
-/** the compositions a view declares, from the token text of each */
-export function compositionsOf(texts, exposed) {
-  return texts.map((text) => {
-    const toks = namespaced(text).replace(/\s+/g, " ");
-    const m = /\[\s*(\d+)\s*\.\s*\.\s*(\d+|\*)\s*\]/.exec(toks);
-    const rel = /\bof\s+([\w/]+)(?:\s+as\s+([\w/]+))?/i.exec(toks.replace(/\bof\s+\[[^\]]*\]/i, "of"));
-    const target = rel?.[1]?.toUpperCase();
-    const alias = rel?.[2] ?? target;
-    return {alias, target, min: m?.[1] ?? "0", max: m?.[2] ?? "*", pairs: [], exposed: exposed.includes(alias), composition: "CHILD"};
-  });
-}
-
 /** a projection's associations: its base's, by the elements it exposes */
 export function projectedAssociations(base, exposed, redirects, own) {
   const out = [];
   for (const alias of exposed) {
-    if (own.some((a) => a.alias === alias)) continue;
-    const a = base.associations.find((x) => x.alias === alias);
+    const same = (x) => String(x.alias).toUpperCase() === alias.toUpperCase();
+    if (own.some(same)) continue;
+    const a = base.associations.find(same);
     if (a === undefined) continue;
-    out.push({...a, target: redirects.get(alias) ?? a.target, pairs: [], exposed: true,
+    out.push({...a, target: redirects.get(alias.toUpperCase()) ?? a.target, pairs: [], exposed: true,
       projectedFrom: {view: base.name, target: a.target}});
   }
   return out;
 }
 
-/** the pairs of each composition: the reverse of the child's way up. A
+/** not in #2264 (a composition has no ON condition there either): the pairs
+ *  of each composition, the reverse of the child's way up. A
  *  composition whose child declares no association to parent back to this
  *  view keeps none, and nothing navigates or cascades over it */
 export function resolveCompositions(views, byName) {
@@ -75,7 +58,8 @@ export function resolveCompositions(views, byName) {
   return views;
 }
 
-/** the pairs of each projected association, renamed through both ends: a
+/** not in #2264 (it keeps the source's ON text): the pairs of each projected
+ *  association, renamed through both ends: a
  *  pair names base elements, each projection says which of its elements a
  *  base element became. One that is not exposed leaves the association
  *  unresolved (unresolvedAssociations), not half-renamed */
