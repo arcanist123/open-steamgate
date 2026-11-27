@@ -17,7 +17,12 @@ export function checkDemoCopies(here, home) {
 
 export {compileClosedProgram as compileSemantics} from "./frontend-closure.mjs";
 
-export const SEMANTICS_ORACLE_EXPECT = {...DYNAMIC_EXPECT, ...FIND_SUBSTRING_EXPECT};
+// #1012, unmeasured (ABAP type rules): structures that share their component
+// names and differ in a component's type are types of their own, as are two
+// types of one name in two methods, or in the class and in a method. One
+// technical type under two type names stays one type (the last group).
+const STRUCT_SHAPE_EXPECT = {ZCL_GOGEN_T_STRUCTSHAPE: "5/11 71/8 ab/abcdefghij 1.75/2 3/4 6/51 cx/self 5/11 5/11 1x/2y ABCD/S900/6"};
+export const SEMANTICS_ORACLE_EXPECT = {...DYNAMIC_EXPECT, ...FIND_SUBSTRING_EXPECT, ...STRUCT_SHAPE_EXPECT};
 export async function checkSemanticsOracles(selected, home, core, fixtures) {
   await checkDynamicCallOracle(selected, home, core, fixtures);
   await checkFindSubstringOracle(selected, home, core, fixtures);

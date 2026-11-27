@@ -2,6 +2,7 @@
 import {abaplint, BasicTypes, Unsupported, I, F, INT8, S, C, X, XS, upper, goName} from "./frontend-base.mjs";
 import {ddicOutputLength, REG, clasDef} from "./frontend.mjs";
 import {P_GENERIC} from "./frontend-classes-native.mjs";
+import {structShape, nameForShape} from "./struct-shape.mjs";
 
 /** the RTTI type kind (cl_abap_typedescr=>typekind_*) of an abaplint type */
 /** @param {import("@abaplint/core").AbstractType | undefined} t @returns {string} */ function typeKindOf(t) {
@@ -134,11 +135,9 @@ import {P_GENERIC} from "./frontend-classes-native.mjs";
       if (seen !== undefined) go = seen;
       else program.anonStructs.set(t, go);
     }
-    const shape = comps.map((c) => upper(c.name)).join(",");
-    // @ts-expect-error -- abapiti form pending
-    for (let n = 2; program.structs.has(go) && program.structs.get(go).shape !== undefined && program.structs.get(go).shape !== shape; n += 1) {
-      go = `${go.replace(/_V\d+$/, "")}_V${n}`;
-    }
+    // two structures of one name are told apart by their components AND the components' types (#1012)
+    const shape = structShape(t);
+    go = nameForShape(program.structs, go, shape);
     if (program.badStructs?.has(go)) throw new Unsupported(program.badStructs.get(go));
     if (!program.structs.has(go)) {
       /** @type {import("./frontend-types.ts").StructType} */ const st = {k: "struct", go, fields: [], shape, ...(q ? {qname: upper(q)} : {})};

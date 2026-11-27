@@ -590,7 +590,7 @@ export function incrAssemble({root, folders, objects, hidden, includeTests, proo
       referencers.get(name).add(key);
     }
   }
-  const seeds = new Map(); // component names -> go name
+  const seeds = new Map(); // shape (struct-shape.mjs) -> go name
   for (const [shape, names] of namesOfShape) {
     if (names.size !== 1) continue;
     const name = [...names][0];
