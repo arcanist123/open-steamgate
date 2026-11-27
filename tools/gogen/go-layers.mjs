@@ -248,6 +248,18 @@ export function writeLayers(program, plan, {mainDir, pkgDir, importPath, unitBui
   // the whole-program analyses (ownership, table moves) are the same for
   // every tier: computed by the first emission, reused by the others
   const analysis = {};
+  // A class referred to but not compiled is an empty struct. referencedClasses
+  // reads every structure and interface of the program whichever tier is
+  // written, so each tier would declare the same one, and the tiers above
+  // dot-import it twice (#847). Each tier declares the ones it refers to that
+  // no tier below declares; that is computed for a skipped tier too, from the
+  // same inputs its emission had, so the tiers above stay in step with it.
+  const declaredBelow = new Set();
+  const placeholdersOf = layerClasses.map((classes) => {
+    const own = new Set([...referencedClasses({...program, classes})].filter((n) => !allClassNames.has(n) && !declaredBelow.has(n)));
+    for (const n of own) declaredBelow.add(n);
+    return own;
+  });
   for (let i = 0; i <= last; i++) {
     if (skip.has(i)) {
       sources.push(undefined);
@@ -271,6 +283,7 @@ export function writeLayers(program, plan, {mainDir, pkgDir, importPath, unitBui
       interfaces: new Set([...interfaceLayer].filter(([, t]) => t === i).map(([name]) => name)),
       events: new Map([...program.events].filter(([, ev]) => (layer.get(ev.decl) ?? interfaceLayer.get(ev.decl) ?? 0) === i)),
       externalClasses: new Set([...allClassNames].filter((n) => i === last ? layer.get(n) < last : !own.has(n))),
+      placeholders: placeholdersOf[i],
       ...(below.length ? {imports: below.map(importPath), importMarkers: below.map(markerOf)} : {}),
       ...(i === last ? {} : {marker: markerOf(i)}), analysis,
     }, unitBuild, symbols, i === last ? "main" : importPath(i)));
