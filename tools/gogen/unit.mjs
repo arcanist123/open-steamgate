@@ -36,12 +36,13 @@ const extraInputs = values("--input").map((folder) => {
 const config = JSON.parse(readFileSync(join(home, "abap_transpile.json"), "utf8"));
 const skipped = new Set((config.options?.skip ?? config.skip ?? []).map((s) =>
   `${s.object}/${s.class}/${s.method}`.toUpperCase()));
-const walk = (dir) => !existsSync(dir) ? [] : readdirSync(dir, {withFileTypes: true}).sort((a, b) => a.name.localeCompare(b.name))
-  .flatMap((e) => e.isDirectory() ? walk(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
 // This file splits and compares paths on "/" (f.split("/"), dir + "/"). On
 // Windows path.join writes "\", and Node takes "/" there too, so the paths
 // are used with "/" here; unitInputs' skip is asked in its own form.
 const slash = (path) => sep === "\\" ? path.replaceAll("\\", "/") : path;
+// join( ) normalises a --fixture typed as ./x or x/ the way unitInputs( ) does
+const walk = (dir) => !existsSync(dir) ? [] : readdirSync(dir, {withFileTypes: true}).sort((a, b) => a.name.localeCompare(b.name))
+  .flatMap((e) => e.isDirectory() ? walk(slash(join(dir, e.name))) : [slash(join(dir, e.name))]);
 const inputs = unitInputs({home, config, fixture, extraInputs, extraPacks: !args.includes("--no-extra-packs")});
 const {overrides} = inputs;
 const [sources, folders, libDirs] = [inputs.sources, inputs.folders, inputs.libDirs].map((paths) => paths.map(slash));

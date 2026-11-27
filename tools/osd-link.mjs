@@ -32,7 +32,9 @@ mkdirSync(dirname(at), {recursive: true});
 if (existsSync(at) || lstatSync(at, {throwIfNoEntry: false})) {
   rmSync(at, {recursive: true, force: true});
 }
-symlinkSync(realpathSync(target), at);
+// "junction" is read on Windows only: a directory junction needs neither
+// administrator rights nor developer mode; elsewhere the type is ignored
+symlinkSync(realpathSync(target), at, "junction");
 console.log(`@abaplint/${name} -> ${realpathSync(at)}`);
 
 const {describeBuild} = await import("./osd-transpiler.mjs");
