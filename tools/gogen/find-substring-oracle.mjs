@@ -9,6 +9,12 @@ import {modulesOf} from "../osd-transpile.mjs";
 export const FIND_SUBSTRING_EXPECT = {
   ZCL_GOGEN_T_FINDSUB: "plain:0/1/2 first:0/3/2 case:0/3/2 miss:4/99/98 result:0/0/1/2/0 results:0/2 count:0/2 countmiss:4/0 table:0/1/2 section:0/5/2 sectionmiss:4/5/2",
   ZCL_GOGEN_T_FINDSUBBYTE: "plain:0/1 first:0/2 section:0/4 miss:4/99 results:0/2 allmiss:4/0",
+  // #989, not a FIND case, checked on Node by the same run: a sign belongs to
+  // the operand it stands before, with the priority of a multiplication
+  // (keyword documentation, arith_exp); only ** binds tighter. A4H unmeasured.
+  ZCL_GOGEN_T_SIGNPRIO: "add:-5,-9,-8 mul:-14,-4,-4,1 plus:9,5 paren:-9,-8,1 lit:1,1,1,1 three:-4,-10,2,1,-13,-1,-13 inner:9,5,10,-13,1,1,-8"
+    + " p:-4.75,-9.75,-2.90,0.25,-5.25 f:-5.50,-9.50 i8:-1,-8999999998,-1,2 s:-5,1,-5 const:-5,1,5 if:y,y,3 arg:-5,1 tmpl:-5,1 plain:-4 append:-5 fn:5 cond:-9"
+    + " pow:-49,-48,-12,49",
 };
 
 export async function checkFindSubstringOracle(selected, home, core, fixtures) {
