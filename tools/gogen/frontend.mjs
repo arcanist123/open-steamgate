@@ -4093,7 +4093,8 @@ function localInterfaceConstant(id, attr, local, reg) {
  * initial value), and the expression is a data reference to it.
  */
 /** @param {import("./frontend-types.ts").ConstructorItem} c @param {import("./ir.ts").Type} to @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./frontend-types.ts").ValueExpr} */ function newData(c, to, ctx) {
-  const inner = to.k === "dref" ? to.to : to;
+  // only NEW #( ) takes its type from a REF TO target; an explicit name is the new object's own type
+  const inner = c.typeNode.concatTokens() === "#" && to.k === "dref" ? to.to : to;
   if (inner === undefined) throw new Unsupported(`NEW for a generic data reference: ${c.text}`);
   if (["ref", "exc", "data", "dref"].includes(inner.k)) throw new Unsupported(`NEW of a ${inner.k}: ${c.text}`);
   // @ts-expect-error -- abapiti form pending

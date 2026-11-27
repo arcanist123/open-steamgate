@@ -51,7 +51,10 @@ const EXPECT = {
   // Unmeasured: ABAP value semantics; a forwarded row reference must not alias the copy.
   ZCL_GOGEN_T_MOVFWD: "1",
   // Unmeasured: ABAP keyword documentation, NEW for a data reference (#997).
-  ZCL_GOGEN_T_NEWDREF: "5/6/n6/1x/3/0/s/2z",
+  ZCL_GOGEN_T_NEWDREF: {Go: "5/6/n6/1x/3/0/s/2z",
+    JS: "ERROR NOT_COMPILED in ZCL_GOGEN_T_NEWDREF=>RUN: field symbol <T> of a table: the JS emitter holds only rows of structures"},
+  // Unmeasured: the same, read through ref->comp only, so IR-JS runs it too.
+  ZCL_GOGEN_T_NEWDREFP: "11q/3x11/0",
   // TASK5: initial NUMC(3) and character message fields.
   ZCL_GOGEN_T_MSGINITIAL: "000//////",
   // TASK5 supplied CS oracle; other operators follow SAP character comparison rules.
