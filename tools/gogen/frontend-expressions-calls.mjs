@@ -131,7 +131,14 @@ import {textLiteral} from "./frontend-literals.ts";
     if (calc === undefined) throw new Unsupported(`arithmetic without a calculation type: ${node.concatTokens()}`);
     if (op === "**" && calc.k !== "f") throw new Unsupported(`** with calculation type ${calc.k}`);
     if (BIT_OPS.has(op) !== (calc.k === "x" || calc.k === "xstring")) throw new Unsupported(`${op} with calculation type ${calc.k}`);
-    expr = {e: "bin", op, l: value(its[0], calc), r: value(its[2], calc), type: calc};
+    // A sign has the priority of a multiplication (keyword documentation,
+    // arith_exp: it works like -1 * in its place), so it belongs to its operand:
+    // - a + b is ( - a ) + b, and the same for - * / DIV MOD. Only ** binds
+    // tighter: - a ** 2 is - ( a ** 2 ), negated as a whole below (#989).
+    const own = negate && op !== "**" && !BIT_OPS.has(op);
+    if (own) negate = false;
+    const l = value(its[0], calc);
+    expr = {e: "bin", op, l: own ? {e: "neg", x: l, type: calc} : l, r: value(its[2], calc), type: calc};
   } else if (its.length === 1) {
     // a lone constructor takes its # from where the value goes
     expr = value({...its[0], hint}, calc);
