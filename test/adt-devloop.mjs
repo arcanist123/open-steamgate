@@ -14,6 +14,7 @@ import {SESSION_COOKIE} from "../tools/adt-session.mjs";
 import {activeFixture} from "./helpers/source-snapshot.mjs";
 import {ActivationJournal} from "../tools/osd-activation-journal.mjs";
 import {liveHash} from "../tools/osd-build.mjs";
+import {snapshotTree, restoreTree} from "./helpers/tree-snapshot.mjs";
 
 // The state-changing half of the façade: lock, write, unlock, activate.
 //
@@ -60,9 +61,17 @@ describe("tools/adt-facade: the development loop", () => {
   let context;
   let data;
   let journalRoot;
+  // A PUT marks the scratch class inactive, and the store keeps its name in
+  // build/inactive/inactive.json and its active copy under
+  // build/inactive/active/. Left there, the next host that builds a
+  // generation builds over that overlay (test/adt-preview.mjs did), so the
+  // folder is put back as this file found it, with the scratch files.
+  const INACTIVE = join("build", "inactive");
+  let inactiveBefore;
 
   before(async function () {
     this.timeout(120000);
+    inactiveBefore = snapshotTree(INACTIVE);
     // Q3's readers route reads the database through `data` (tools/adt-facade.mjs
     // xref/readers, ~1310), and a façade built with no `data` of its own gets
     // tools/osd-store.mjs ObjectStore#data's default: a bare `new Data({root})`
@@ -137,6 +146,7 @@ describe("tools/adt-facade: the development loop", () => {
         rmSync(entry.file);
       }
     }
+    if (inactiveBefore !== undefined) restoreTree(INACTIVE, inactiveBefore);
   };
   let dropUndo = () => {};
 

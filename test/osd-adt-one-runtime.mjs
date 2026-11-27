@@ -48,7 +48,10 @@ const until = async (work) => {
 describe("ADT one runtime B1/B2: remote wire and STORE IPC", function () {
   this.timeout(60000);
   let root, runtime, store, servers, remote, node, nodeSessions;
-  before(async () => {
+  // a cold build of the copied tree plus the runtime's boot: about 53 s on a
+  // CI runner before the read record, which adds ~13 % to a cold build
+  before(async function () {
+    this.timeout(180000);
     root = mkdtempSync(join(tmpdir(), "osd-one-runtime-"));
     mkdirSync(join(root, "src"));
     symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir");

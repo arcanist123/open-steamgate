@@ -14,6 +14,11 @@ CLASS zcl_osd_adt_scan DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CLASS-METHODS blocks IMPORTING iv_xml TYPE string iv_element TYPE string RETURNING VALUE(rt_blocks) TYPE tt_block.
     CLASS-METHODS first_tag_value IMPORTING iv_xml TYPE string iv_tag TYPE string
       EXPORTING ev_value TYPE string ev_found TYPE abap_bool.
+    "! every text value of <tag>...</tag>, in document order, raw (not
+    "! decoded); a tag whose content holds markup is passed over, as in
+    "! first_tag_value
+    CLASS-METHODS tag_values IMPORTING iv_xml TYPE string iv_tag TYPE string
+      RETURNING VALUE(rt_values) TYPE string_table.
   PRIVATE SECTION.
     CLASS-METHODS word IMPORTING iv_char TYPE string RETURNING VALUE(rv_word) TYPE abap_bool.
     CLASS-METHODS opening IMPORTING iv_xml TYPE string iv_element TYPE string iv_start TYPE i DEFAULT 0
@@ -196,6 +201,35 @@ CLASS zcl_osd_adt_scan IMPLEMENTATION.
       IF ls_object-found = abap_true.
         APPEND ls_object TO rt_objects.
       ENDIF.
+    ENDWHILE.
+  ENDMETHOD.
+  METHOD tag_values.
+    DATA lv_open TYPE string.
+    DATA lv_close TYPE string.
+    DATA lv_rest TYPE string.
+    DATA lv_start TYPE i.
+    DATA lv_end TYPE i.
+    DATA lv_off TYPE i.
+    DATA lv_value TYPE string.
+    lv_open = `<` && iv_tag && `>`.
+    lv_close = `</` && iv_tag && `>`.
+    WHILE lv_off < strlen( iv_xml ).
+      lv_rest = substring( val = iv_xml off = lv_off ).
+      FIND FIRST OCCURRENCE OF lv_open IN lv_rest MATCH OFFSET lv_start.
+      IF sy-subrc <> 0.
+        RETURN.
+      ENDIF.
+      lv_off = lv_off + lv_start + strlen( lv_open ).
+      lv_rest = substring( val = iv_xml off = lv_off ).
+      FIND FIRST OCCURRENCE OF lv_close IN lv_rest MATCH OFFSET lv_end.
+      IF sy-subrc <> 0.
+        RETURN.
+      ENDIF.
+      lv_value = lv_rest(lv_end).
+      IF lv_value NA `<`.
+        APPEND lv_value TO rt_values.
+      ENDIF.
+      lv_off = lv_off + lv_end + strlen( lv_close ).
     ENDWHILE.
   ENDMETHOD.
 ENDCLASS.

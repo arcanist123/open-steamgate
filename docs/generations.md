@@ -153,6 +153,9 @@ build/
     abap_transpile.json         the config that built it (output_folder points here)
     output/                     what the child imports
     manifest.json               inputs hash, schema hash, transpiler version, built at, ms
+    reads.json                  what the build read: path, real path, digest, privacy
+                                (docs/oci-layers.md, "The read record"); a read the
+                                hash did not name makes the generation unknown
   live -> by-input/<gen-hash>   the pointer; `output` at the root is a symlink to live/output
 db/
   base/<schema-hash>.sqlite     a base image: schema + mandatory rows, stamped

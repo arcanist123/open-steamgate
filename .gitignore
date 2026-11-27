@@ -61,6 +61,11 @@ packs/*/upstream
 packs/*/games
 packs/*/.osd-fetched.json
 packs/*/.osd-fetch-*
+
+# rap-flight's seed rows are generator output (made at build by
+# tools/rap-flight/seed-capture.mjs, not tracked: derived content of the
+# fetched upstream, and the build remakes them when the generator changed)
+packs/rap-flight/data
 docker/workbench/ide-password.txt
 
 # Trace navigation companions are generated locally. Only L3 operational
@@ -83,3 +88,15 @@ docker/workbench/ide-password.txt
 !/src/l2demo/zcl_l2_ship_max_cargo.clas.trace.meta.json
 !/src/l2demo/zcl_l2_ship_busy.clas.trace.meta.json
 !/src/l2demo/zcl_l2_ship_restricted.clas.trace.meta.json
+
+# Public RAP oracle sources remain local, never bundled
+corpus-rap/
+
+# the osd-hana-dump sidecars tools/osd-hana/fetch-sidecar.mjs places per
+# target for scripts/package-vsix-platforms.mjs: build output, never tracked
+editors/vscode/bin/
+
+# L2 check versions referenced by proof_demo.l3.yaml.
+!/src/l2demo/zcl_l2_proof_ship.clas.trace.meta.json
+!/src/l2demo/zcl_l2_ship_note.clas.trace.meta.json
+!/src/l2demo/zcl_l2_ship_min_captains.clas.trace.meta.json

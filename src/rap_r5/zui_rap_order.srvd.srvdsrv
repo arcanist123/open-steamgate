@@ -1,0 +1,5 @@
+@EndUserText.label: 'RAP order demo service (R5)'
+define service ZUI_RAP_ORDER {
+  expose ZC_RAP_ORDER as Order;
+  expose ZC_RAP_ORDITEM as Item;
+}

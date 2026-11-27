@@ -1,0 +1,6 @@
+@EndUserText.label: 'RAP tour demo service (R7)'
+define service ZUI_RAP_TOUR {
+  expose ZI_RAP_TOUR as Tour;
+  expose ZI_RAP_TOURSTOP as Stop;
+  expose ZI_RAP_TOURLOG as Log;
+}

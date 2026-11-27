@@ -50,10 +50,13 @@ export async function fetchSystem(root, ref, options = {}) {
   const target = join(parent, "system"), old = stage.replace("-stage-", "-old-");
   try {
     const layers = [], paths = new Set();
+    let unresolved = 0, hasClosure = false;
     for (const d of descriptors) {
       const layer = await load(d), files = validateLayer(layer), c = layer.config;
       if (layer.manifest.bytes.length !== d.size) fail("SIZE_MISMATCH", "index layer size differs");
       if (c.name !== d.annotations["org.osd.layer.name"] || c.kind !== d.annotations["org.osd.layer.kind"]) fail("BAD_LAYER", "index identity differs from layer config");
+      if (d.annotations["org.osd.layer.private"] !== (c.private === true ? "true" : undefined)) fail("BAD_LAYER", "index private marker differs from layer config");
+      if (c.closure !== undefined) { hasClosure = true; unresolved += c.closure.unresolved; log(`layer ${c.name}: unresolved ${c.closure.unresolved}`); }
       const path = systemPath(c.kind, c.name);
       if (paths.has(path)) fail("BAD_SYSTEM", `duplicate layer destination ${path}`);
       paths.add(path);
@@ -64,10 +67,13 @@ export async function fetchSystem(root, ref, options = {}) {
         writeFileSync(join(dir, f.path), f.bytes);
       }
       if (!existsSync(sourceFolder(dir, repositoryConfig(dir))) && ["input", "customer"].includes(c.kind)) fail("BAD_LAYER", `${c.name}: starting folder is absent`);
-      const entry = {order: layers.length, name: c.name, kind: c.kind, digest: layer.manifest.digest, treeDigest: c.treeDigest, path};
+      const entry = {order: layers.length, name: c.name, kind: c.kind, digest: layer.manifest.digest, treeDigest: c.treeDigest, path,
+        ...(c.private === true ? {private: true} : {})};
       writeFileSync(join(dir, LAYER_ID), JSON.stringify(entry));
       layers.push(entry);
     }
+    if (hasClosure && (!Number.isSafeInteger(unresolved) || index.json.annotations?.["org.osd.system.unresolved"] !== String(unresolved))
+      || !hasClosure && index.json.annotations?.["org.osd.system.unresolved"] !== undefined) fail("BAD_SYSTEM", "system unresolved annotation differs from layer closures");
     const identity = {digest: index.digest, annotations: index.json.annotations ?? {}, layers};
     writeFileSync(join(stage, SYSTEM_ID), JSON.stringify(identity, null, 2) + "\n");
     let moved = false;
@@ -79,6 +85,7 @@ export async function fetchSystem(root, ref, options = {}) {
       catch (error) { log(`warning: installed system; cleanup left ${old}: ${error.message}`); }
     }
     warnSystemToolchain(root, identity, log);
+    if (hasClosure) log(`system: unresolved ${unresolved}`);
     log(`system ${identity.digest}: ${layers.length} layers`);
     return identity;
   } finally { rmSync(stage, {recursive: true, force: true}); }

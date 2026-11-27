@@ -30,6 +30,136 @@ Format adapted from `larshp/hithub` (MIT).
 
 ## Open anomalies
 
+### ANOMALY-2026-11-13-select-loop-join-into-list -- A SELECT loop over a join INTO (list) cannot run, assigns one target and pages wrong
+
+- Status: `fixed upstream: abaplint/transpiler#2278, #2279, #2282, #2284` (merged 2026-11-26, released in 2.14.41; `sy-subrc` after FOR ALL ENTRIES, #2288, merged the same day and not yet in a release; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
+- Discovery date: `2026-11-13` (a probe class with the read shape of a code-based SEGW sample's GET_ENTITYSET, transpiled with the pin)
+- Affected versions: `@abaplint/transpiler` and `@abaplint/runtime` on the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff`, and upstream main of the same date (`packages/transpiler/src/structures/select.ts` is unchanged there)
+- Affected ABAP statement, runtime API or adapter: `SELECT ... INTO (v1, v2, ...) FROM ( ta AS a INNER JOIN tb AS b ON ... ) ... ENDSELECT`, and any SELECT loop INTO a list or over an alias; `packages/transpiler/src/structures/select.ts`
+- Minimal ABAP reproducer: `SELECT t~travel_id s~status_text INTO (lv_id, lv_text) FROM ( zstg_demo AS t INNER JOIN zstg_status AS s ON t~status = s~status ) ORDER BY t~travel_id. ... ENDSELECT.`
+- Exact command used to run it: `npm run unit` (test class `ZCL_OSD_SELECT_LOOP_TEST`)
+- Expected SAP behaviour: every target of the list takes its column per row; inside the loop sy-dbcnt is the number of rows read so far (1, 2, 3 ...) and sy-subrc 0; after ENDSELECT sy-dbcnt is the number of rows read and sy-subrc is 4 when there was none.
+- Actual open-abap behaviour: the generated code builds its buffer with `abap.DDIC["ZSTG_DEMO AS T"].type()`, the text of the first FROM source, which is undefined for an alias or a join (TypeError at the first call); for a single table it assigns only the first target, from the whole row; and it sets sy-dbcnt once, to the total, before the first row, so `IF sy-dbcnt > skip` is true on every row and `$skip` is silently ignored.
+- Impact on open-steamgate: every GET_ENTITYSET of a code-based SEGW service written in this 7.02 style (the HANA bed's sample service reads all five business sets so) dumps; with the dump fixed alone, paging would return wrong rows without an error.
+- Fixed with it (critic round, `4e9b744d`): two columns of one name in the list (`t~status s~status`) came back from every database client as one key, and the first fix's fill by position then put each later column into the wrong target without an error; the loop now aliases its list by position (`AS "p0"`, ...). PACKAGE SIZE ... INTO TABLE over a join crashed with "Table, set error"; FOR ALL ENTRIES over a join turned `a~f = itab-f` into an arithmetic `'value' - f` (zero rows or an SQL error). Both run now.
+- Residual edges, known: a list that cannot be aliased (`*`, a dynamic `(lv_fields)`, a host variable or constant in the list) with two columns of one name is refused at run time ("SELECT INTO list: n columns for m targets") rather than filled; `INTO wa` and `INTO TABLE` over a join still fill by name (the transpiler treats every INTO as CORRESPONDING), so two same-named columns there leave one component initial where the system fills left to right; a SELECT loop still reads its whole result into memory before the first row (no cursor, the WAIT entry above).
+- Smallest safe workaround: rewrite the read as `SELECT ... INTO TABLE` and page over the table; not applicable to service code read from a system, hence the transpiler fix.
+- Upstream issue: none yet; the fix goes upstream as a branch inside `abaplint/transpiler` after the critic pass (CLAUDE.md, "A transpiler PR comes from a branch inside abaplint/transpiler").
+- Regression-test location: `test/unit/zcl_osd_select_loop_test.clas.testclasses.abap` (five cases, `same_named_columns` among them); in the transpiler, `test/database.ts` ("SELECT loop, join ...", "... same-named columns ...", "... refused, not misassigned")
+- Upstream version containing a fix: 2.14.41 (#2288: not yet released)
+
+### ANOMALY-2026-11-10-wait-in-select-loop -- A WAIT inside SELECT ... ENDSELECT reads on (Node, OSGo with one connection) where a system dumps DBIF_RSQL_INVALID_CURSOR
+
+- Status: `open` (OSGo's work-process steps behave as the system; the Node host and OSGo's classic one-connection path do not)
+- Discovery date: `2026-11-10` (PR #900 review: the open cursor kept its read snapshot on the work process the WAIT gave up)
+- Affected versions: `@abaplint/runtime` (pinned; a SELECT loop reads the whole result before the loop body runs), OSGo `go/abap` `DialogStep` (one connection)
+- Affected ABAP statement, runtime API or adapter: `WAIT UP TO n SECONDS` between `SELECT` and `ENDSELECT` (the same holds for `OPEN CURSOR` / `FETCH`, which this subset does not compile)
+- Minimal ABAP reproducer: `SELECT id FROM r INTO lv. WAIT UP TO 1 SECONDS. ENDSELECT.` over two rows; the Go form is `tools/gogen/go/abap/stepconn_test.go` `TestWaitInsideSelectLeavesNoSnapshotBehind`
+- Exact command used to run it: `cd tools/gogen/go && go test -race -run TestWaitInsideSelectLeavesNoSnapshotBehind ./abap/`
+- Expected SAP behaviour: WAIT UP TO triggers a database commit, a database commit closes the open cursors (except WITH HOLD), and the next row of the loop is the runtime error DBIF_RSQL_INVALID_CURSOR (ABAP keyword documentation, WAIT UP TO and database commit). Not measured on A4H.
+- Actual open-abap behaviour: the Node runtime has the whole result in memory and the loop goes on with the rows read before the commit; OSGo's one-connection step kept the cursor open across its COMMIT likewise.
+- Impact on open-steamgate: on OSGo's work processes (ADR 0010 slice 5) the WAIT gives the connection to another step, so the open cursor would have pinned its snapshot there (another request read stale rows); the WAIT now closes the step's cursors before it commits and the loop dumps with the system's runtime error. A program that relied on Node's buffered loop sees that dump only on OSGo with work processes. COMMIT WORK inside a loop keeps the cursor on every host (it does not move the connection).
+- Smallest safe workaround: none needed in programs (the system dumps too); in OSGo `Session.closeCursors` before the WAIT's commit and `cursorValid` after each row (`go/abap` `stepconn.go`, `select.go`)
+- Upstream issue: none; Node's buffering is the runtime's design, not a defect worth an issue for a construct the system refuses
+- Regression-test location: `tools/gogen/go/abap/stepconn_test.go` (`TestWaitInsideSelectLeavesNoSnapshotBehind`)
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-09-modify-in-loop-by-key -- `MODIFY itab FROM wa` inside a LOOP over itab no longer changes the row
+
+- Status: `workaround` (the L3 set template builds the dry report's rows into a new table instead of MODIFY in the loop; `recipes/l3-set/template.tpl`, `src/l2demo/zcl_l3_fleet2.clas.abap`)
+- Discovery date: `2026-11-09` (the first completed `tests` run of the 4c pin, job `suites (5)` of run 42629576810; reproduced locally on the pin)
+- Affected versions: `@abaplint/runtime` 2.14.14 onwards (upstream #2041, the same release as the FOR UPDATE refusal above); the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff` carries it
+- Affected ABAP statement, runtime API or adapter: `MODIFY itab FROM wa` without INDEX inside `LOOP AT itab`, `packages/runtime/src/statements/modify_internal.ts` with `packages/runtime/src/statements/read_table.ts` and `packages/runtime/src/primary_key.ts`
+- Minimal ABAP reproducer: a `STANDARD TABLE OF ty_rule WITH DEFAULT KEY` whose `status TYPE c LENGTH 16` is a character component (so it is part of the default key), then `LOOP AT lt INTO ls WHERE status = 'DONE'. ls-status = 'DRY'. MODIFY lt FROM ls. ENDLOOP.`
+- Exact command used to run it: `flock /tmp/osg-nov-heavy.lock npx mocha test/dsl-l3-resilience.mjs` -- "a dry run writes nothing and finalises nothing..." fails with `rules ["DONE","DONE",...]`
+- Expected SAP behaviour: inside a LOOP the work area overwrites the current row; no key search happens at all, so changing a key component of the work area still lands in the row the loop is on.
+- Actual open-abap behaviour: `modifyInternal` looks the row up by the table's primary key values taken from the work area (`readTable` with `from`), and since 2.14.14 it modifies that row in place or does nothing when the lookup misses. A `WITH DEFAULT KEY` table serialises as `keyFields: []`, which `primaryKeyValues` expands to every character-like component, `status` included; the loop has already written `DRY` there, so the lookup finds nothing and the statement is a silent no-op (`sy-subrc` 4). Up to 2.14.13 the same lookup missed too, but the old code then inserted the work area unconditionally, which for this loop shape produced the table the SAP rule expects.
+- Impact on open-steamgate: the L3 fleet's dry run reported every rule `DONE` instead of `DRY` (`test/dsl-l3-resilience.mjs`); a real dry run still wrote nothing, so the wrong statuses were the whole of it.
+- Smallest safe workaround: build the rows into a fresh table in the loop (`APPEND`) and assign it once, which both runtimes and a real system run the same way; no other in-tree shape MODIFYs an internal table from a loop while changing a key component (the rest are database-table MODIFYs, `MODIFY TABLE`, or carry INDEX).
+- Upstream issue: needs an issue in `abaplint/transpiler` (after the critic pass): the statement should modify the current row when it sits inside a LOOP over the table -- the loop index the runtime already tracks -- and only fall back to the key search outside a loop; the append-on-miss behaviour of 2.14.13 was itself not the SAP rule for sorted and hashed keys.
+- Regression-test location: `test/dsl-l3-resilience.mjs` ("a dry run writes nothing and finalises nothing, and its report holds what a real run writes; every row says DRY")
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-09-select-for-update-refused -- `SELECT SINGLE FOR UPDATE` stops with "not supported" since transpiler 2.14.14
+
+- Status: `workaround` (the pinned fork `oisee/transpiler` `local/osd-build-4c` `a0d80fff`, commit `1ea248fd`, runs it as the plain SELECT again)
+- Discovery date: `2026-11-09` (moving the pin from `f34e9bf4` to upstream main `62931245`)
+- Affected versions: `@abaplint/transpiler` 2.14.14 (refused at transpile time, #2041) and 2.14.15 onwards (`throw new Error("SELECT SINGLE FOR UPDATE, not supported, transpiler")` in the generated code, #2043); upstream main `62931245`
+- Affected ABAP statement, runtime API or adapter: `SELECT SINGLE FOR UPDATE`, `packages/transpiler/src/statements/select.ts`
+- Minimal ABAP reproducer: `SELECT SINGLE FOR UPDATE * FROM t100 INTO ls_row WHERE sprsl = 'E'.`
+- Exact command used to run it: `node tools/osd-unit-run.mjs` after `npm run transpile` on the unpatched pin: 845 methods, 9 failed, all in `ZCL_L3_FLEET_PROOF`, every one at a `SELECT SINGLE FOR UPDATE` of `zcl_l3_fleet2`
+- Expected SAP behaviour: the row is read and a database lock is held on it until the end of the LUW.
+- Actual open-abap behaviour: the statement raises a plain JavaScript `Error` instead of reading; up to 2.14.13 it read the row and took no lock.
+- Impact on open-steamgate: the L3 job fleet (`src/l2demo/zcl_l3_fleet*.clas.abap`, 16 statements) reads its piles, budgets, watches and settings FOR UPDATE; with the refusal every L3 run dumps. Locally a lock is not needed: every dialog step, APC event and job step takes the one work-process lock (`tools/osd-dialog-step.mjs`), so nothing runs beside the step that read the row.
+- Smallest safe workaround: the fork commit restores the 2.14.13 behaviour (the SELECT runs, no lock). Correct for OSG's single work process; not correct for a host that runs steps in parallel on one database.
+- Upstream: needs an issue in abaplint/transpiler (after the critic pass): upstream's refusal is a deliberate "fail rather than pretend to lock"; the question for Lars is whether a host may declare that it serializes (a runtime option), or whether the statement may run as `SELECT ... FOR UPDATE` on the clients that have it (PostgreSQL) and as the plain SELECT on SQLite, which has no row locks and serializes writers anyway.
+- Regression-test location: `ZCL_L3_FLEET_PROOF` (ABAP Unit); in the fork `packages/transpiler/test/multiple_lines.ts` "SELECT SINGLE FOR UPDATE runs as the SELECT"
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-09-space-eq-string-substring -- `x+off(1) = space` is false for a blank: a String substring never equals the Character constant
+
+- Status: `open`
+- Discovery date: `2026-11-09` (dell, keylen2, `zcl_stg_model_info=>check_length` measuring a value without its trailing blanks, PR #889)
+- Affected versions: the pinned runtime (oisee/transpiler `9792b3c8`), `compare/eq.ts`
+- Affected ABAP statement, runtime API or adapter: `=` / `<>` between `space` and a substring of a `string`
+- Minimal ABAP reproducer: `DATA lv TYPE string VALUE 'A '. IF lv+1(1) = space.` -- false here
+- Exact command used to run it: `TravelCount?Status='A '` answered 400 `STG/VALUE_TOO_LONG`, the measured length 2 and not 1, so the blank-strip loop broke on its first character
+- Expected SAP behaviour: true (unmeasured; the substring is c length 1 and blank, `space` is c length 1 and blank, and a c comparison of equal lengths is a character comparison)
+- Actual open-abap behaviour: `String#getOffset` returns a `String`, `space` is a `Character`, and the mixed branch of `eq` compares `right.getTrimEnd() === left.get()`: the constant's only blank is trimmed to the empty string and cannot equal any character
+- Impact on open-steamgate: any blank test written `x+off(1) = space` over a string silently takes the non-blank branch. `zcl_stg_json=>skip_blanks` compares with a backtick literal instead (found independently, before this entry); `zcl_stg_batch` compares `lv_first = space` on a `c LENGTH 1` field, which takes the Character fast path and is correct
+- Smallest safe workaround: compare with the string literal `` ` ` `` (backticks), which is a `String` and hits the fast path: `x+off(1) <> ` ``
+- Upstream issue: needs an issue in abaplint/transpiler (the mixed `eq` branch trims the `Character` side before comparing it with a one-character `String`; either compare untrimmed, or make `space` a `String`)
+- Regression-test location: `test/mocha.mjs` ("trailing blanks never make a key or a parameter too long ...")
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-08-escape-url-multibyte -- `cl_http_utility=>escape_url` writes one `%` before all UTF-8 bytes of a character
+
+- Status: `open`
+- Discovery date: `2026-11-08` (dell, the V2 Location header of a key outside Latin-1, PR fix/json-key-escape)
+- Affected versions: open-abap-core `src/http/cl_http_utility.clas.abap` at the pinned commit
+- Affected ABAP statement, runtime API or adapter: `cl_http_utility=>escape_url( )` (`if_http_utility~escape_url`)
+- Minimal ABAP reproducer: `lv = cl_http_utility=>escape_url( 'Жук' ).`
+- Exact command used to run it: `POST /sap/opu/odata4/sap/ZSTG_DEMO_SRV/TravelSet` with `TravelId` `Жук2`; the Location header read `TravelSet('%d096%d183%d0ba2')`
+- Expected SAP behaviour: each UTF-8 byte is its own escape, `%D0%96%D1%83%D0%BA2` (unmeasured; measure on A4H, case of the hex digits included)
+- Actual open-abap behaviour: `'%' && to_lower( cl_abap_codepage=>convert_to( lv_char ) )` per character, so a two-byte character becomes `%d096`, which a client decodes as byte D0 followed by the text `96`
+- Impact on open-steamgate: the V4 `Location` and `OData-EntityId` of a key outside ASCII (`zcl_osd_v4_json=>key_predicate`) cannot be decoded at all: byte D0 followed by the text `96` is not UTF-8, so a strict client (`decodeURIComponent`) throws and a lenient one gets U+FFFD, never the key. The V2 Location does not use `escape_url` (`zcl_stg_url=>escape_key`, which encodes byte by byte and keeps the key predicate's own characters)
+- Smallest safe workaround: `zcl_osd_v4_json=>key_predicate` escapes each `Edm.String` key value itself (`escape_key_value`): an ASCII byte keeps exactly what `escape_url` wrote, a character outside ASCII becomes its UTF-8 bytes as `%XX` (branch fix/v4-location-utf8), so an ASCII key's Location is byte for byte the old one; the ETag header still calls `escape_url`, an opaque token the client echoes back, so its encoding never has to be decoded
+- Upstream issue: needs an issue — draft in hand
+- Regression-test location: V4 in `test/odata-v4.mjs` ("the Location of a created entity keeps an ASCII key's bytes and reads back a key outside ASCII"); V2 in `test/mocha.mjs` ("the Location of a created row with a key outside Latin-1 is a URI")
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-09-rap-implicit-handler-params -- A RAP handler method declared in the system's form has no parameters
+
+- Status: `workaround`
+- Discovery date: `2026-11-09` (dell, RAP R3, probing the parser before writing the lowering)
+- Affected versions: `@abaplint/core` 2.120.73 (pinned), syntax versions `open-abap` and `v757`
+- Affected ABAP statement, runtime API or adapter: `METHODS m FOR DETERMINE ON MODIFY IMPORTING keys FOR ent~det.`, and likewise `FOR VALIDATE ON SAVE`, `FOR MODIFY ... FOR ACTION ent~act RESULT result`, `FOR READ ... RESULT result`, `FOR LOCK`, `FOR INSTANCE FEATURES`, `FOR GLOBAL AUTHORIZATION`, `FOR NUMBERING`
+- Minimal ABAP reproducer: the declarations of `src/rap_demo/zbp_rap_note_sf.clas.locals_imp.abap` without the lowering; a class pool `FOR BEHAVIOR OF` a BDEF and a local class inheriting `cl_abap_behavior_handler`
+- Exact command used to run it: an abaplint `Registry` over the two class files, `getInfo().listClassDefinitions()` per method (probe not tracked)
+- Expected SAP behaviour: the declaration has the parameters its form implies -- `keys` / `entities` typed with the BDEF's derived type, `result`, and the implicit `failed`, `reported`, `mapped` -- and the body uses them (public ABAP keyword documentation, RAP handler methods)
+- Actual open-abap behaviour: the statement parses without an issue, but the method has no parameters at all; a body that reads `keys` or appends to `reported-ent` would not compile, and the transpiler emits a method without them
+- Impact on open-steamgate: a behavior pool as written on a system could not be built; until R3 the demo pool was written in explicit derived signatures with an OSG-only `entities` table
+- Smallest safe workaround: `tools/rap/lower-derived.mjs` rewrites the declaration in the source loader into explicit `IMPORTING ... CHANGING ...` parameters over the BDEF's generated types (pool-scoped bindings from `bdef-gen.mjs`), keeping the rows; `docs/rap-derived-types.md`, "Handler declarations (R3)"
+- Upstream issue: needs an issue in `abaplint/abaplint` (implicit RAP handler parameters typed from the behavior definition); none filed, our fork rule for abaplint applies (`npm run parked`)
+- Regression-test location: `test/rap-derived-types.mjs` ("lowers the handler declarations of the system's form"), `test/unit/zcl_osd_rap_test` (`ltcl_system_form`)
+- Upstream version containing a fix: `unknown`
+
+### ANOMALY-2026-11-08-eml-inline-target-void -- An inline DATA( ) target of an EML statement has no type
+
+- Status: `open`
+- Discovery date: `2026-11-08` (dell, reading the EML lowering of RAP R2a; reproduced in the transpiler clone)
+- Affected versions: `@abaplint/core` 2.120.73 (pinned) and 2.120.94; `@abaplint/transpiler` 2.14.3 (pinned) and 2.14.19 with the local EML lowering
+- Affected ABAP statement, runtime API or adapter: `READ ENTITIES ... RESULT DATA(lt) FAILED DATA(ls)`, `MODIFY ENTITIES ... MAPPED DATA(ls)` (every inline declaration in an EML target position)
+- Minimal ABAP reproducer: a program with `READ ENTITIES OF zi_note ENTITY Note ALL FIELDS WITH lt_keys RESULT DATA(lt_result) FAILED DATA(ls_failed).` beside a BDEF `zi_note`
+- Exact command used to run it: `new Transpiler().run(registry)` over the two files in the clone (`scratchpad/void3.cjs`, not tracked)
+- Expected SAP behaviour: the inline targets are typed from the behavior definition (`TABLE FOR READ RESULT zi_note`, `RESPONSE FOR FAILED EARLY zi_note`) and the statement fills them
+- Actual open-abap behaviour: abaplint's syntax step gives the inline targets a void type, so the transpiler emits **no declaration** for them (default options: `lt_result` is then a JavaScript `ReferenceError` at the statement) and with `unknownTypes: compileError`, as OSG builds, refuses the object with `Void type: ReadEntities`
+- Impact on open-steamgate: EML code must declare its targets (`TYPE TABLE FOR READ RESULT ...`, `TYPE RESPONSE FOR ... EARLY ...`), which R1's lowering then resolves; `docs/rap-eml.md` says so
+- Smallest safe workaround: declare the targets; nothing to do in the runtime
+- Upstream issue: needs an issue in `abaplint/abaplint` (the inferred type of an EML target is the derived type of the BDEF named in the statement); none filed, and our fork rule for abaplint applies (`npm run parked`)
+- Regression-test location: none yet; the demo `src/rap_demo/zcl_rap_note_eml` uses declared targets on purpose
+- Upstream version containing a fix: `unknown`
+
 ### ANOMALY-2026-10-17-list-position -- Converted ULINE adds positioning absent from the direct Node oracle
 
 - Status: `workaround`; osabap repairs the pinned converter's redundant ULINE
@@ -248,6 +378,7 @@ Format adapted from `larshp/hithub` (MIT).
 - Actual open-abap behaviour: DEC beyond 15 significant digits is stored as REAL by the SQLite seam; equality and ranges at the 16th digit collapse. The transpiled JS class through `@abaplint/database-sqlite` stores both rows as REAL `20261008100000.125` and returns `2, 0, 2, 2`; the same ABAP/table fixture on Go returns identical counts. Local measurement: `.local/hostcls/dec-measure.txt`, scripts `measure-dec.mjs` and `measure-dec-go.mjs` beside it.
 - Impact: DEC 15 timestamps remain exact; full DEC 21,7 timestamp precision is unavailable in SQLite comparisons on both hosts.
 - Smallest safe workaround: compare values within 15 significant digits when exactness is required; storage is unchanged.
+- Second impact, found 2026-11-10 (RAP R4 ETag): the runtime already loses the digits before SQLite sees them -- `UPDATE`/`INSERT` render a packed value through `Packed.get()`, a double, into the SQL text, so DuckDB's exact `DECIMAL(21,7)` gets the same rounded value. A RAP `etag master` over a TIMESTAMPL `last_changed_at` therefore resolves about 4 ms (2^-8 s at that size): two writes of one entity inside that window stored the same stamp, the ETag did not move, and a PATCH with the first write's tag was accepted after the second (lost update; reproduced on V2 and V4 with the clock held still, `test/rap-r4.mjs`). Workaround: `ZCL_OSD_RAP_RUNTIME=>APART` steps a new stamp (100 ns, 200 ns, 400 ns ...) until its double is above the old stamp's, so every write moves the ETag; under a burst a stamp may run a few milliseconds ahead of the clock. It is removed when the seam stores DEC beyond 15 digits exactly (the runtime's write path and the SQLite column type both).
 - Upstream issue: not reported; this round is local only.
 - Regression: the fixture asserts DEC 15 exactly, adjacent DEC 21,7 values `20261008.1234567` / `20261008.1234568` exactly, and measured high-precision host parity.
 - Upstream version containing a fix: unknown.
@@ -579,7 +710,7 @@ Format adapted from `larshp/hithub` (MIT).
 - Exact command: `node --test tools/gogen/session-statics.test.mjs` (Go driver runs with `-race`)
 - Expected behaviour: each session reads 42 after initialization and finishes its own 10,000 increments
 - Actual behaviour before the fix: package globals shared values and constructor flags; the race detector reports concurrent access in `Ensure_ZCL_RACE_INIT`
-- Fix: stable class storage and constructor flags in lazy `abap.Statics` slots selected by `Session.Statics`, inherited attributes in the declaring class's slot. Nil selects private state; serialized HTTP/APC hosts select `ProcessStatics` to retain caches across requests. The host regression test observes counter values 1 then 2 on separate connections.
+- Fix: stable class storage and constructor flags in lazy `abap.Statics` slots selected by `Session.Statics`, inherited attributes in the declaring class's slot. Nil selects private state; serialized HTTP/APC hosts mint every step's Session from one `abap.Instance` (ADR 0010 slice 2; `ProcessStatics` before it), whose statics retain caches across requests. The host regression test observes counter values 1 then 2 on separate connections. Since ADR 0010 slice 5 the osgo host mints one store per **logical internal session** (a stateful ADT session's cookie, a push channel; stateless requests borrow one of a free list of stores, one per concurrent stateless step, kept across requests -- a fresh store per request cost the OData read 32-54 % on i10), with the runtime's own caches in slots marked instance-wide (`abap.RegisterSharedStatics`, `emit-go.mjs` `SHARED_STATICS`); the Node host still shares one store per process.
 - Regression location: `tools/gogen/session-statics.test.mjs` and its generated-code Go driver; wired into `gogen.yml`
 - Upstream issue: none; this is our Go emitter
 
@@ -1197,7 +1328,7 @@ ENDIF.
 - Expected SAP behaviour: a service definition is an ordinary repository object; abaplint knows the type
 - Actual open-abap behaviour: `Error: allowed_object_types, Object type SRVD not allowed` — `SRVD` is absent from the transpiler's `defaultAllowedObjectTypes`
 - Impact on open-steamgate: the `$ZTEST` demo package cannot hold a service definition; the ADT façade lists the type (`osd-store.mjs` TYPES) but no object can exist behind it
-- Smallest safe workaround: `none` — the object files were removed from `src/ztest/`
+- Smallest safe workaround: `none` — the object files were removed from `src/ztest/`. Since 2026-11-08 (RAP R2c) `\.srvd\.` is in the transpile `exclude_filter`, as `\.bdef\.` is, and `tools/rap/srvd-gen.mjs` reads the source into a service model (`docs/rap-runtime.md`, "Serving"); `src/rap_demo/zui_rap_note.srvd.*` is the first such object. The transpiler itself still refuses the type
 - Upstream issue: needs an issue in `abaplint/transpiler` (not yet filed)
 - Regression-test location: none yet
 - Upstream version containing a fix: `unknown`
@@ -1215,6 +1346,7 @@ ENDIF.
 - Actual open-abap behaviour: 4 rows; no client predicate is generated, `INSERT`/`UPDATE`/`DELETE` likewise touch every client
 - Impact on open-steamgate: every real business table is client-dependent; a seeded multi-client capture leaks rows across clients, and any DPC that branches on `sy-mandt` sees `123`
 - Smallest safe workaround: seed captures with a single client and set every row's `mandt` to `123`; do not rely on client isolation in tests
+- 2026-11-12 (H3): existing-schema mode on HANA has client isolation by a different mechanism now — per-connection `OSD_CLIENT` passed as the node-hdb `SESSIONVARIABLE:CLIENT`, and shadow views in our own schema filtered by `SESSION_CONTEXT('CLIENT')` (docs/db-backends.md, "Shadow schema: the client lives in HANA"). The anomaly stands for the transpiler runtime itself: SQLite seed rows and any host that never sets `OSD_CLIENT` still run in client `123` with no implicit MANDT
 - Upstream issue: **[abaplint/transpiler#606](https://github.com/abaplint/transpiler/issues/606)**, open since 2022 and phrased as a question. larshp's own answer on it is "or ignore it? as the client feature is not needed in the transpiler/runtime, just spin up multiple" — which is what our workaround already does, so this is a settled design decision rather than a missing fix. Measured and added to the issue on 2026-09-14: a `CLNT`-keyed table with rows under 123, 456 and 789 returns 3 rows here and 1 on a system. Documented rather than implemented, in [abaplint/transpiler#1850](https://github.com/abaplint/transpiler/pull/1850), because the README's `SY-MANDT = 123` line reads as though the client is handled and merely constant
 - Regression-test location: `test/unit/zcl_stg_phase0_test.clas.testclasses.abap` `entityset_reads_sqlite` pins the current 4-row result and will fail when the runtime starts filtering
 - Upstream version containing a fix: `unknown`
@@ -1875,6 +2007,14 @@ twice out loud before reading the code that answers it.
 - Upstream version containing a fix: `unknown`
 
 
+- V4 addendum (2026-11-07): the same name/plus decoding gap affects GET
+  queries generated by `URLSearchParams`: `%24filter=Day+eq+2026-11-07`
+  reaches `get_form_fields_cs` with name `%24filter` and literal plus signs.
+  `test/odata-v4.mjs` reproduces this over HTTP. The V4 handler parses the
+  raw `~query_string` through the existing `zcl_osd_form=>parse` decoder,
+  before using the form-fields fallback. This also preserves `%2B` in
+  timestamp offsets and avoids double-decoding filter literals. V2 is unchanged.
+
 ### ANOMALY-2026-09-19-form-field-name-case — `get_form_field` lower-cases the question and not the answer
 
 - Status: `fixed upstream: open-abap/open-abap-core#1253, merged 2026-09-19`
@@ -2134,7 +2274,7 @@ for `zosd_status_app`, which has been deployed for a day.
 
 ### ANOMALY-2026-09-23-epoch-ms-overflow — `ZCL_STG_JSON=>EPOCH_MS` overflows `i` on a system, and the transpiler runtime lets it through
 
-- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits.
+- Status: `fixed in OSG` (EPOCH_MS computes in p); the transpiler runtime's missing range check is still open The transpiler runtime's `i` range check: abaplint/transpiler#1955 (merged 2026-11-25 as `77d71cba`, released in 2.14.41), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-23`
 - Affected versions: `@abaplint/transpiler` 2.13.89 (npm) runtime; OSG's own `src/gateway/zcl_stg_json.clas.abap`
 - Affected ABAP statement, runtime API or adapter: an arithmetic expression of `i` operands embedded in a string template, `rv_ms = |{ ( lv_days * 86400 + lv_seconds ) * 1000 }|` in `EPOCH_MS`, which every `Edm.DateTime` of a JSON answer goes through
@@ -2742,7 +2882,7 @@ The same run also showed an `INSERT` taking `mandt` from the work area (999 writ
 
 ### ANOMALY-2026-09-24-packed-decimals — the transpiler runtime computes packed numbers with decimals in floating point and rounds, converts and overflows them differently from a system
 
-- Status: `partly fixed upstream: abaplint/transpiler#1885, #1923 and #1924 cover pieces; the rest remains`; before: workaround
+- Status: `partly fixed upstream: abaplint/transpiler#1885, #1923 and #1924 cover pieces; the rest remains`; before: workaround; `+ - *` and MOD with p operands on BigInt: abaplint/transpiler#1962 (merged 2026-11-26 as `75175597`, released in 2.14.41)
 - Discovery date: `2026-09-24`
 - Affected versions: `@abaplint/transpiler` 2.13.89, `@abaplint/runtime` 2.13.89 (`types/packed.js`, `operators/*`, `types/integer8.js`, `templateFormatting`)
 - Affected ABAP statement, runtime API or adapter: every statement with a `p LENGTH n DECIMALS d` operand or target: moves into and out of p, arithmetic of calculation type p, `DIV` / `MOD`, string templates of p (`DECIMALS =`, `ALIGN`), `abs( )` / `frac( )` of p
@@ -3058,7 +3198,7 @@ point approximation and is format-checked before masking in wire tests.
 
 ### ANOMALY-2026-09-25-zip-read-int4 — open-abap-core's `CL_ABAP_ZIP=>LOAD` overflows `i` in `LCL_STREAM=>READ_INT4`, and the transpiler runtime lets it through
 
-- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits.
+- Status: `open` The transpiler runtime's `i` range check: abaplint/transpiler#1955 (merged 2026-11-25 as `77d71cba`, released in 2.14.41), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery date: `2026-09-25`
 - Affected versions: open-abap-core (`src/abap/cl_abap_zip.clas.locals_imp.abap`, as cloned in `.local/lars/open-abap-core`); `@abaplint/runtime` 2.13.89
 - Affected ABAP statement, runtime API or adapter: `LCL_STREAM=>READ_INT4` (and `READ_INT2`'s pattern): `DO 4 TIMES. ... lv_factor = lv_factor * 256. ENDDO.`, which after the fourth byte computes 256 ** 4 into an `i`; `CL_ABAP_ZIP=>LOAD` calls it for every header
@@ -3964,7 +4104,7 @@ SNAPSHOT_MISMATCH and the doctor retry.
 
 ### ANOMALY-2026-10-03-int8-hex-conversion - int8 byte assignments keep the wrong bytes
 
-- Status: `fixed via pin f3611417; upstream PR #1964 still open`
+- Status: `fixed upstream: abaplint/transpiler#1964` (merged 2026-11-25 as `e18b1213`, released in 2.14.40; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
 - Discovery date: `2026-10-03`
 - Affected version: `@abaplint/runtime` 2.13.96
 - Affected path: int8 -> x, x -> int8, int8 -> xstring; i -> xstring for negative values
@@ -3975,7 +4115,7 @@ SNAPSHOT_MISMATCH and the doctor retry.
 - Command: `OSD_HEAVY_RANGE=50-59 tools/osd-heavy.sh npm run osgjs:unit -- .local/abapiti/int8 --json` in a disposable checkout with locally linked packages; shared node_modules is untouched.
 - Upstream: [abaplint/transpiler#1964](https://github.com/abaplint/transpiler/pull/1964), branch `fix/int8-hex-conversion`; still open.
 - Regression tests: upstream `packages/runtime/test/integer_hex.ts`; OSG `test/osgjs-int8.mjs` and `test/fixtures/osgjs-unit-int8/`. Existing `it.skip` upstream-pending convention; `OSD_INT8_UPSTREAM=1` runs the full test against a local build.
-- Upstream version containing a fix: fork pin `f36114179f6f39e5abb42d021f2cf5dcc50b45b9` in `libs.lock.json` (packed #1962 plus int8 #1964); no published upstream release yet.
+- Upstream version containing a fix: 2.14.40
 - Verification: int8 folder 10/10 SUCCESS; OSG opt-in harness 1 pass (default 1 pending); upstream 154 new tests, 192 runtime passes, 99 affected ABAP passes with 4 existing pending. All 26 supplied xstring conversion methods pass. Folder 007 is 12/17 overall: five of seven byte/integer equality methods fail in the separate comparison path; folder 008 is 16/16. This fix does not change comparison operators.
 - Dependency isolation: proof used core 2.120.64 (declared upstream minimum); 2.120.65 changes CREATE DATA TYPE HANDLE operand nodes and breaks the unchanged compiler on the library tree. The original shared dependencies were already a local 2.13.93 build, not published; their symlink and contents were preserved, and the disposable copy was removed.
 
@@ -4154,7 +4294,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 
 ### ANOMALY-2026-10-08-zip-read-int4 - cl_abap_zip's read_int4 overflows type i, and only the Go runtime notices
 
-- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (open), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits.
+- Status: `fixed upstream` (open-abap/open-abap-core#1282, ce4ddaad, 2026-10-02); pinned 2026-10-08 The transpiler runtime's `i` range check: abaplint/transpiler#1955 (merged 2026-11-25 as `77d71cba`, released in 2.14.41), pinned 2026-10-08 as `libs.lock.json` transpiler oisee/transpiler `local/osd-build-2026-10-08b` 753230cb = the previous pin e2a459b1 plus its four commits. Since 2026-11-09 the pin is `local/osd-build-4c` `a0d80fff`: upstream main `8824945a` with the #1955 commits and the exact packed arithmetic ported onto it, their own tests passing (docs/transpiler-pin-4.md).
 - Discovery: abapiti's case 033, `cl_abap_zip=>load` raising `CX_SY_ARITHMETIC_OVERFLOW` on osgo for an ordinary 50-file ZIP, while OSG-JS loaded it.
 - Affected path: open-abap-core `lcl_stream=>read_int4` (`cl_abap_zip.clas.locals_imp.abap`) before #1282: `rv_int = rv_int + lv_val * lv_factor`, then `lv_factor = lv_factor * 256`, all in `i`; the factor reaches 2^32 after the fourth byte for any input.
 - Expected SAP behaviour (7.58): the same method body dumps `COMPUTE_INT_TIMES_OVERFLOW` for both `01020304` and `01020380` (measured on A4H by abapiti on 2026-10-08 in a throwaway package, removed after). SAP's own `cl_abap_zip` is not affected; this is open-abap-core's implementation.
@@ -4184,3 +4324,733 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Critic round 2: GET_TEXT_FOR_MESSAGE bypassed the metadata guard and returned the generic fallback for widened kernel errors. Both native helpers now return carried kernel text first; interface fields and generic bindings also guard the runtime object. Named refusals replace message-helper ASSERT-todo metadata lookups. The complete field/helper/RTTI audit and two-host tests are listed in tools/gogen/testdata/exception-previous-notes.md.
 - Critic round 1: materialized kernel attribute reads refuse by name (SAP TEXTID/KERNEL_ERRID values unmeasured; measure on A4H). Initial EXC GET_TEXT/class-name/PREVIOUS reads dump OBJECTS_OBJREF_NOT_ASSIGNED, matching initial CX references; compiled constructor-populated attributes remain readable.
 - Tests: generic testdata ABAP Unit contains only successful methods, including ordinary class descriptor INTERFACES. Registered test/osgo-exc-previous.mjs stages negative methods locally and checks both hosts for metadata refusals and initial dereferences; semantics.mjs and frontend-exception.test.mjs cover output and refusal boundaries.
+
+### ANOMALY-2026-11-08-sql-host-variable-inlined -- a host variable in Open SQL is inlined into the SQL text unescaped, so a quote in its value ends the literal (SQL injection through an OData key)
+
+- Status: `fixed upstream: abaplint/transpiler#2050` (merged 2026-11-09 as `8824945a`, not yet in a release); the pin `local/osd-build-4c` is based on upstream main `8824945a`, which contains it
+- Discovery date: `2026-11-08` (post-merge critic of #856/#858, probing the V4 writes with keys that carry a quote)
+- Affected versions: `@abaplint/transpiler` 2.14.3 at the previously pinned `f34e9bf4` (`local/osd-build-3b`), `abaplint/transpiler` main at `37132489` (2.14.19), and every published version: `packages/transpiler/src/expressions/sql_cond.ts` emits `'" + lv.get() + "'` for a host variable (`sqlHost`, `basicConditionNew`, `sourceWithComponents`, the interface-constant and conversion branches of `sqlSource`), `sql_field_and_value.ts` the same for `UPDATE ... SET f = lv`, `update_database.ts` for `UPDATE dbtab FROM wa`, `sql_field.ts` for a host variable in a field list, and the runtime's `expand_dynamic.ts` for a `<fs>-comp` substituted into a dynamic WHERE. `INSERT` and `IN seltab` were already escaped (`insert_database.ts`, `expand_in.ts`).
+- Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE f = lv` / `= @lv` / `LIKE lv` / `IN (lv1, lv2)` / `FOR ALL ENTRIES ... WHERE f = lt-comp`, `UPDATE ... SET ... WHERE`, `UPDATE dbtab FROM wa`, `DELETE FROM ... WHERE`, `MODIFY` (through update) -- any host variable whose value holds a `'`
+- Minimal ABAP reproducer (our own objects): `src/demo/zcl_zstg_demo_dpc_ext.clas.abap` `travelset_get_entity` / `travelset_update_entity` reached as `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('x'' OR ''1''=''1')`; in the transpiler's own suite, `test/database.ts` "host variables with quotes":
+  ```abap
+  DATA lv_key TYPE c LENGTH 20.
+  DATA lt_result TYPE STANDARD TABLE OF t100.
+  lv_key = 'x'' OR ''1''=''1'.
+  SELECT * FROM t100 INTO TABLE lt_result WHERE arbgb = lv_key.
+  " sy-subrc 4 and no rows on a system; every row of t100 here
+  ```
+- Exact command used to run it: `npx mocha test/mocha.mjs --grep "quote in a key"` and `npx mocha test/odata-v4.mjs --grep "round three"` after `npm run transpile`; the critic's probes before the fix: `GET TravelSet('x'' OR ''1''=''1')` answered 200 with T0001, `PATCH TravelSet('x'' OR ''1''=''1') {"Description":"oracle"}` answered 204 and changed **every** travel's Description (the DPC's `UPDATE zstg_demo FROM ls_row` after a `SELECT SINGLE ... WHERE travel_id = lv_travel_id` that matched the first row), `GET NoteSet('a''b')` was a 500 (SQL syntax error); V2 and V4 alike, INSERT unaffected.
+- Expected SAP behaviour: a host variable is bound, never spliced into the statement text; its value is data whatever characters it holds. `WHERE travel_id = lv` with `lv = x' OR '1'='1` finds nothing (sy-subrc 4), `a'b` is an ordinary key. Not measured on A4H: this is the definition of a host variable, not a corner of it.
+- Actual open-abap behaviour: the generated JavaScript concatenates the value between two quotes and the DatabaseClient executes the text, so a `'` in the value ends the literal; what follows is read as SQL. `'x' OR '1'='1'` reads every row and `UPDATE ... WHERE` writes every row; `'a'b'` is a syntax error (500 at the gateway).
+- Impact on open-steamgate: any OData key or `$filter` literal that reaches a hand-written DPC's Open SQL (the whole point of the runtime) can read or overwrite other rows. `zcl_stg_url=>unquote` is right to turn `''` into `'` (the gateway's contract is the OData one), so the gateway cannot fix this by itself without refusing legitimate keys such as `a'b`. The SADL path (`zcl_stg_sadl_dpc`) builds its own SQL and was not the measured path; the generated `zcl_stg_tab_<table>` classes use Open SQL host variables and are covered by the fix.
+- Smallest safe workaround: the fix itself, carried on the pinned fork: `abap.sqlEscape(value)` in `@abaplint/runtime` (`'` doubled, nothing else: a LIKE pattern keeps its `%`), called around every host variable the transpiler inlines (`select.ts` binds a FOR ALL ENTRIES row reference inside the call too); a backtick literal with a quote in a WHERE gets the same treatment at transpile time. Binding would be the right fix, but `DatabaseClient` (`packages/runtime/src/db/db.ts`) takes SQL as text with no parameter list, so binding is an interface change for all four clients (SQLite, PostgreSQL, HANA, Snowflake) -- escape now, bind later. Dynamic WHERE text built by a program (`SELECT ... WHERE (lv_where)`) stays the program's responsibility, as on a system; only the field-symbol substitution the runtime does inside it is escaped. That substitution first went in through `String.replace` with a string, so `$'`, `$&` or `` $` `` in a value were read as JavaScript replacement patterns (`$'` pasted the rest of the condition into the literal), and it rescanned what it had written, so a value holding ` <x>` was expanded again inside its own literal or looped forever; `local/osd-build-3d` does it in one pass with a replacer function. Inlined by design and not escaped, because they are not values: `UP TO n ROWS` (a number), and the dynamic FROM, ORDER BY, GROUP BY and field lists, which are SQL text the program supplies, as on a system. Doubling the quote is the standard-SQL spelling, which SQLite (what OSG runs on), PostgreSQL (standard_conforming_strings) and HANA read; DuckDB too. A dialect that reads backslash escapes inside literals (Snowflake) is not covered by this and would need its client to double the backslash as well.
+- Upstream: fixed upstream by abaplint/transpiler#2050 (a branch inside the repository, merged 2026-11-09 as `8824945a`), which carries both the escape and the one-pass `$`-safe substitution in `expand_dynamic.ts`; in the pin since `local/osd-build-4c` `a0d80fff` (based on `8824945a`, docs/transpiler-pin-4.md), so the fork no longer carries it. Before that it was pinned as fork commits on `local/osd-build-3c` `1d78e3662545` and `local/osd-build-3d` `9792b3c87997`; the PR branch is merged and nothing is owed.
+- Regression-test location: `test/mocha.mjs` ("a quote in a key stays in the key"), `test/odata-v4.mjs` ("review fixes, round three"); in the transpiler `test/database.ts` "host variables with quotes" (SELECT, LIKE, IN, FOR ALL ENTRIES, UPDATE SET, UPDATE FROM, DELETE, backtick literal, a dynamic WHERE with `$'`, `$&` and ` <x>` in field-symbol values) and `packages/transpiler/test/single_statements.ts`
+- Upstream version containing a fix: main `8824945a` (#2050); no release yet
+
+## RAP derived types cannot transpile (R1)
+
+- Status: local generator bridge; no upstream changes.
+- Reproducer: `TYPE TABLE FOR CREATE` and response declarations in the original
+  `src/rap_demo/` behavior pool.
+- Expected: BDEF/CDS-derived rows have typed entity fields and RAP components.
+- Installed abaplint: `rapTableFor` yields `VoidType("RAP-TODO")`; structure and
+  response forms are void. The transpiler cannot emit concrete row layouts.
+- Workaround: `tools/rap/bdef-gen.mjs` emits ordinary ABAP interfaces in
+  `gen/rap/`; the source loader lowers explicit derived declarations in memory.
+  Runtime behavior, EML and implicit handler signatures remain outside R1.
+
+## RAP saver phases and RESULT in handler signatures (R2)
+
+- Status: worked around locally; no upstream changes.
+- Discovery: R2 managed runtime (`src/rap/`, docs/rap-runtime.md), 2026-11-08.
+- Expected: a saver's `finalize` / `check_before_save` carry implicit FAILED
+  and REPORTED (LATE); a handler method may name its parameter types with
+  `TYPE TABLE FOR READ RESULT` / `TYPE TABLE FOR ACTION RESULT` in the
+  `METHODS` statement.
+- Installed abaplint: `MethodParameters.workaroundRAP` makes every parameter of
+  a method of a class named `CL_ABAP_BEHAVIOR_SAVER` a
+  `VoidType("RapMethodParameter")`, and the transpiled redefinition then
+  dumps "Void type: RapMethodParameter" when it is called. In a `METHODS`
+  statement it reads the name after `RESULT` as a result parameter, so
+  `entities TYPE TABLE FOR READ RESULT zi_x` is not a table to `abaplint`
+  (the in-memory lowering hides this from the build, not from the CLI lint).
+- Workaround: the clean-room `CL_ABAP_BEHAVIOR_SAVER` phases take no
+  parameters (a saver reports nothing back in R2); the demo pool names the
+  RESULT forms with `TYPES` in the handler class and uses those names in its
+  `METHODS` statements.
+- Upstream: none filed. It belongs with implicit RAP handler signatures in
+  abaplint; explicit signatures are this project's interim form.
+
+- R7 (2026-11-10): `save_modified` is lowered the same way. Its
+  `METHODS save_modified REDEFINITION.` is rewritten by
+  `tools/rap/lower-derived.mjs` into a declaration of the saver's own
+  (`create` / `update` `TYPE REQUEST FOR CHANGE`, `delete` `TYPE REQUEST FOR
+  DELETE`, `reported` `TYPE RESPONSE FOR REPORTED LATE`, all over the BDEF's
+  generated types), because the voided parameters of the base class cannot
+  be typed by a BDEF; the generated adapter calls it by name.
+  `adjust_numbers` and `save` join the parameterless phases.
+
+## The RAP flight reference scenario as a pack (packs/rap-flight)
+
+- Status: measured; worked around in the pack's overlay only, nothing
+  stubbed silently. The counts and the ranked walls are in
+  docs/rap-flight-pack.md. Discovery 2026-11-08, `@abaplint/core 2.120.73`,
+  `@abaplint/transpiler 2.14.3`.
+- EML: `READ ENTITIES`, `MODIFY ENTITIES`, `COMMIT ENTITIES` parse (abaplint)
+  and transpile to `throw new Error("ReadEntities, not supported, transpiler")`
+  (`@abaplint/transpiler/build/src/statements/read_entities.js`). The single
+  `READ ENTITY` form, `GET PERMISSIONS`, `SET LOCKS` and `RAISE ENTITY EVENT`
+  do not parse. Expected: the statements run against the business object.
+  Workaround: none; the 9 behavior pools and 5 test consumers are excluded
+  by pattern.
+- `bdef-gen.mjs` refuses every BDEF of the scenario (projection `use`,
+  associations / compositions, draft, determine actions, unparsed
+  extensions) and a refusal fails the build. Expected on a system: all 15
+  activate. Workaround: `\.bdef\.` excluded in the manifest; measured per
+  file in the document.
+- abaplint parser (open-abap version) refuses `CLASS x DEFINITION DEFERRED
+  FOR TESTING` (8 objects), `CORRESPONDING #( t DISCARDING DUPLICATES ... )`
+  (7), the lookup form `CORRESPONDING #( a FROM b USING k = k MAPPING ...
+  EXCEPT * )` (1), `MAPPING %fail = DEFAULT VALUE #( ... )` (2), `TYPES ...
+  WITH INDICATORS` and `UPDATE ... INDICATORS SET STRUCTURE` (1), a `SWITCH`
+  whose operands are `REDUCE ... LET ... IN` (1). Expected: all are 7.5x
+  syntax a system accepts. Workaround: the two data generators are copied
+  into the overlay with those statements spelled out as loops; the pools are
+  excluded. Upstream: not filed yet (abaplint issues with one-line
+  reproducers each; see the document's wall 8).
+- open-abap-core number ranges: `cl_numberrange_intervals` has `create`
+  only (a no-op) and no `read` / `update` / `delete`, `nr_nriv_line` has no
+  `nrlevel`, there is no `nr_subobject`; `cl_numberrange_runtime=>number_get`
+  has no `quantity` / `returncode` / `returned_quantity`, and
+  `kernel_numberrange` counts in memory from 1 per session. Expected: NRIV
+  intervals, a block of `quantity` numbers whose last one is returned.
+  Workaround in the overlay generators: the reset is a no-op and a block
+  starts at the interval's lower bound. Upstream: open-abap-core, not filed.
+- `CL_ABAP_RANDOM_INT8` and `CL_ABAP_RANDOM_FLOAT` are absent from
+  open-abap-core. Workaround: nine-digit `cl_abap_random_int` for the phone
+  numbers; the float user is in the excluded extensibility chapter.
+- `GET BADI` / `CALL BADI` are not transpiled and a BAdI definition (ENHS)
+  is not an object the registry types. Workaround: the one implementation is
+  constructed and called directly in the overlay copy.
+- Released DDIC absent from open-abap-core: `ABP_LOCINST_LASTCHANGE_USER`
+  (CHAR 12), `SDRAFT_UUID` (RAW 16), the views `I_Currency`, `I_Country`,
+  `I_CountryText`. Workaround: stand-ins in `packs/rap-flight/src/ddic/`
+  (the two data elements as they are documented, the two views as plain
+  tables with the columns the scenario reads); to send to open-abap-core
+  per the DDIC rule and then drop here.
+- `tools/cds2ddic.mjs` with a namespaced view: wrote `gen/cds/dmo/...`
+  (ENOENT) and would have named a class `zcl_stg_cds_/dmo/...`. Fixed:
+  `tools/cds-names.mjs`. Still open in the generator: a namespaced
+  association target (`association to /DMO/I_Agency`) parses as `/`, and a
+  view over a stand-in table with no fields yields 0 fields
+  (`/DMO/CURRENCY_HELPER`).
+- The transpiler lowers `UPDATE dbtab FROM wa` to one JS property access per
+  component of the row (`ls_row.get().<name>.get()`), which is not JavaScript
+  when a component is named `/dmo/...` (an append structure, `/dmo/agency`'s
+  slogan field) or `%admin` (a draft table's CDS admin include): the module
+  does not parse. Expected: an update of such a table is ordinary ABAP.
+  Measured: six generated `zcl_stg_tab_*` modules of packs/rap-flight were
+  unloadable while the build was green -- the build transpiles and never
+  loads what it wrote; the first failure was the runtime's init importing
+  every module, with an error that named no file (2026-11-08, found by
+  `tools/rap-flight/seed-capture.mjs`). Workaround: `tools/cds2ddic.mjs`
+  updates such tables `FROM TABLE @lt_rows`, which the transpiler hands to
+  the runtime as rows. Upstream: abaplint/transpiler, needs an issue.
+- A `RETURN.` at the top level of a program (legal ABAP: it ends the
+  program) is written by the transpiler as a top-level JS `return`, which
+  ESM forbids, so `output/zl3_fleet2.prog.mjs` cannot be loaded at all.
+  Nothing imports it and nothing runs the program, so no suite had noticed;
+  found by reading every module of the output with acorn
+  (`test/output-parses.mjs`, 2026-11-08), which carries the module as a
+  dated exception until it is fixed. Fixed upstream in transpiler 2.14.20
+  (a program runs in its exported `$main`, and the `RETURN` returns from
+  it); the exception went with the pin `local/osd-build-4m` (2026-11-25).
+- Seed files of a namespaced table (`#dmo#travel.tabu.json`, abapGit's form,
+  because a slash cannot be in a file name) were inserted into a table
+  named `#dmo#travel`, which no statement of the runtime reads, and the
+  reseed refused them outright ("invalid seed table"). Expected: the rows
+  land in `/dmo/travel`, the name the runtime's `buildDbTableName` uses.
+  Fixed: `test/seed.mjs` maps the file form to the ABAP name
+  (`dbTableName`). Found with packs/rap-flight's captured seed, 2026-11-08.
+- `INSERT dbtab FROM TABLE @itab` where the source row is wider than the
+  table (upstream's own connection generator inserts a type carrying a
+  `weekday` beside the columns of `/dmo/connection`): a system maps the
+  components the table has; the runtime writes every component of the row as
+  a column, the statement fails, and the exception's text guesses "duplicate
+  key?" for any failed row (2026-11-08, found by the pack's seed capture).
+  Workaround in the overlay: the `CORRESPONDING` table upstream builds and
+  leaves unused is the one inserted. Upstream: abaplint/runtime, needs an
+  issue.
+- `SELECT ... FROM @itab AS alias` (an internal table as the select's source,
+  7.50): the statement transpiles and the `@` reaches the SQL the runtime
+  builds -- SQLite answers `unrecognized token: "@"` wrapped as
+  CX_SY_DYNAMIC_OSQL_SEMANTICS. Two statements of the flight data generator
+  (`get_flight_info`, the plane-type count). Workaround in the overlay: a
+  LOOP over the same table. Upstream: abaplint/transpiler, needs an issue.
+- A functional method call inside a table expression's key
+  (`gt_plane_types[ long_distance = lv index = lo_random->get_next( ) ]`):
+  a system evaluates the call once; the transpiler lowers the key to a
+  predicate over the rows and calls it **per row tried**, so a side-effecting
+  call (a fresh random each time) misses and CX_SY_ITAB_LINE_NOT_FOUND is
+  raised -- measured, the first seed capture died there. Workaround in the
+  overlay: the number is drawn into a variable before the bracket. Upstream:
+  abaplint/transpiler, needs an issue.
+- `cl_abap_random_int=>create( min = n max = n )` asserts in open-abap-core
+  (`ASSERT high > low` in `intinrange`, reached from every `get_next`): a
+  system takes min = max and returns that value. The address generator of the
+  flight scenario hits it for every country with one street (AT, BE, CH).
+  Workaround in the overlay: the index is drawn only when there is a choice.
+  Upstream: open-abap-core, needs an issue.
+- A string function given an integer (`replace( val =
+  lo_random_phone_number->get_next( ) off = 3 len = 1 ... )`, upstream's own
+  phone-number expression): a system converts the argument; the runtime's
+  `replace` calls `getOffset` on it and dies with a JS TypeError. Workaround
+  in the overlay: the digits go through a string template first. Upstream:
+  abaplint/runtime, needs an issue.
+
+### ANOMALY-2026-11-09-view-ddl-registry-order -- the transpiler writes view DDL in registry order, so a view over a view reaches DuckDB before its base
+
+- Status: worked around where the registry is fed (tools/osd-warm-order.mjs),
+  generally and not only for the pack that found it. Discovery 2026-11-09,
+  `@abaplint/transpiler 2.14.3`, found by the DuckDB review of
+  packs/rap-flight.
+- `DatabaseSetup` (`build/src/db/index.js`) writes `CREATE VIEW` for every
+  `View` object in registry order and its own comment asks "todo: what if the
+  view is based on another view?" -- and one is: the pack's generated DDIC
+  views include `/dmo/c_connection_r` over `/dmo/i_connection_r` and
+  `/dmo/c_flight_r` over `/dmo/i_flight_r`, and `c_` sorts before `i_`, which
+  is the walk order and so the registry order. SQLite checks a view's bases
+  at first read and starts fine; DuckDB checks at CREATE and refuses
+  ("Catalog Error: Table with name /dmo/i_connection_r does not exist"),
+  which killed every DuckDB start of a tree with the pack: `STG_DB=duckdb`,
+  `unit:duckdb`, consumer-smoke's DuckDB slice, and the DuckDB-Wasm preview
+  (where the C++ exception surfaces as a wasm crash, `_setThrew is not
+  defined`). Expected: the DDL a view-over-a-view tree produces is valid for
+  every backend, as the same tree is on SQLite and PostgreSQL.
+- Workaround: `orderRegistry` feeds the registry, so it now names a view
+  after every base of its own that is a view (the bases read off the view
+  XML, which the pass already holds); checked by `test/warm-update.mjs`
+  against the pinned transpiler's own DDL. A cycle cannot be ordered: the
+  waiting views keep their rank order and the pinned type resolver then
+  overflows its stack (`View.parseType` / `DDIC.lookupView`, a `RangeError`)
+  before any DDL reaches a database, so no error names the cycle's views --
+  an upstream type-resolution limitation, measured 2026-11-09.
+- Upstream: abaplint/transpiler, needs an issue.
+
+## RAP R7: the flight travel pools against this transpiler (packs/rap-flight overlay)
+
+- Status: worked around in the pack overlay (`packs/rap-flight/src/#dmo#bp_*_m.clas.locals_imp.abap`, each change marked `OSD overlay`); no upstream issue filed yet.
+- Discovery: RAP R7, building the managed travel BO's three pools, 2026-11-10.
+- Expected (public ABAP documentation): the pools compile and run unchanged.
+- Measured here, in the order the build met them:
+  - abaplint does not parse `CORRESPONDING ... DISCARDING DUPLICATES`, `CORRESPONDING #( k MAPPING %fail = DEFAULT VALUE #( ... ) )`, or `CLASS ... DEFINITION DEFERRED FOR TESTING` (known, R4 pack audit);
+  - the pinned transpiler stops at `CORRESPONDING #( DEEP x )` and `CORRESPONDING #( x EXCEPT f )` (`CorrespondingBodyTranspiler, todo`);
+  - an EML target declared inline (`RESULT DATA(x)`) is void (known, docs/rap-eml.md), and `BY \_assoc` / `LINK` are not lowered (known, R5);
+  - `VALUE #( FOR r IN rows ( %param = r ) )`, a move of a READ RESULT row into an action result's `%param` (a structure of the same fields without the `%data` / `%tky` groups), fails at run time with `value.get is not a function`; `%param = CORRESPONDING #( r )` works.
+- Workaround: the overlay copies of the three pools; every edit is listed in docs/rap-flight-pack.md ("R7: the travel pools").
+- Upstream: candidates for abaplint/transpiler (CORRESPONDING DEEP / EXCEPT; the structure move) -- needs an issue each, with a reproducer, after a critic pass.
+
+## RAP R10: the flight draft pools against this transpiler (packs/rap-flight overlay)
+
+### ANOMALY-2026-11-11-rap-augmenting-eml -- MODIFY AUGMENTING ENTITIES is not lowered
+
+- Status: `workaround`
+- Discovery date: `2026-11-11`
+- Affected versions: the pinned `@abaplint/transpiler` (libs.lock.json), its RAP EML lowering
+- Affected ABAP statement, runtime API or adapter: `MODIFY AUGMENTING ENTITIES OF b ENTITY e CREATE BY \_a FROM t RELATING TO r BY rel`, `READ ENTITIES ... BY \_a FROM k LINK DATA(l)`; derived-table secondary keys `draft`, `cid` (`t[ KEY draft %tky = ... ]`)
+- Minimal ABAP reproducer: upstream `reuse/supplement/#dmo#bp_c_supplement.clas.locals_imp.abap` (abap-platform-refscen-flight at 5353cbeb)
+- Exact command used to run it: `npm run transpile` with the upstream pool in place of the overlay
+- Expected SAP behaviour: the augment's requests join the original request (public BDEF documentation, "augment")
+- Actual open-abap behaviour: the augmenting form and `BY \_assoc` are not lowered onto `KERNEL_RAP_EML`; the derived tables carry no `draft` / `cid` keys
+- Impact on open-steamgate: the supplement projection's augment (the text child behind `SupplementDescription`) needs an overlay
+- Smallest safe workaround: the overlay writes the `ZCL_OSD_RAP_EML` calls the statements stand for (`create_by`, `read_by`, `modify`) and reads by the key fields; `RELATING TO` (message mapping) is not run: a failed augment fails the whole request (docs/rap-runtime.md "R10")
+- Upstream issue: needs an issue (abaplint/transpiler, beside the `BY \_assoc` lowering of R5) after a critic pass
+- Regression-test location: `test/rap-r10.mjs` ("creates a supplement draft with its description (augment)")
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-11-update-include-group -- UPDATE dbtab FROM TABLE of a table with a named include answers 4
+
+- Status: `workaround`
+- Discovery date: `2026-11-11`
+- Affected versions: the pinned `@abaplint/runtime` (libs.lock.json), `statements/update_database.js`
+- Affected ABAP statement, runtime API or adapter: `UPDATE dbtab FROM TABLE @rows` (and `FROM wa`) where the table's row has a named include group (`.INCLUDE ... AS %admin` of a draft table) or a namespaced append component
+- Minimal ABAP reproducer: the generated `ZCL_STG_TAB_DMO_SUPPL_D=>UPDATE` before R10 over `/DMO/SUPPL_D`
+- Exact command used to run it: `node tools/osd-unit.mjs CLAS ZCL_OSD_RAPFLIGHT_R10_TEST` (EDITS_AND_DISCARDS: "save of the draft of Supplement ... (U) failed")
+- Expected SAP behaviour: the row with the work area's key is updated, sy-subrc 0
+- Actual open-abap behaviour: `updateDatabase` makes a SET of every top-level component of the structure (`Object.keys`), the include group among them; the row is not updated and sy-subrc is 4 (not narrowed further: the generated `FROM wa` form does not even parse as JavaScript, see the R7 pack entry)
+- Impact on open-steamgate: every update of a flight draft (the draft tables include the admin structure) and of an active agency (its append) failed
+- Smallest safe workaround: `tools/cds2ddic.mjs` writes the update of such a table as `UPDATE dbtab SET col = wa-col ... WHERE key = wa-key` over its flattened columns (still one UPDATE for the database, its triggers and foreign keys); a first version replaced the row by DELETE + INSERT, which the #917 critic showed fires DELETE/INSERT triggers instead of UPDATE
+- Upstream issue: needs an issue (abaplint/transpiler runtime) with a reproducer, after a critic pass
+- Regression-test location: `ZCL_OSD_RAPFLIGHT_R10_TEST` (EDITS_AND_DISCARDS), `test/rap-r10.mjs`
+- Upstream version containing a fix: unknown
+
+## RAP R7: a namespaced service's V2 $metadata (open-abap-odata handler)
+
+- Status: open; the data requests work, `$metadata` over V2 does not.
+- Discovery: RAP R7, serving `/DMO/UI_TRAVEL_PROCESSOR_M`, 2026-11-10.
+- Expected: `GET /sap/opu/odata/sap/%2FDMO%2FUI_TRAVEL_PROCESSOR_M/$metadata` answers the model (this gateway takes the escaped name, `ZCL_STG_URL` unescapes it).
+- Measured: 500 `I:/IWBEP/CM_MGW_RT:032`. The dispatcher hands `$metadata` to `ZCL_OAO_HTTP_HANDLER=>HANDLE( path )` of open-abap-odata, which reads the service with `/sap/opu/odata/sap/([^/]+)` and does not unescape it, so `ZCL_OAO_REGISTRY=>GET` misses `%2FDMO%2F...` and raises `/IWBEP/CX_MGW_TECH_EXCEPTION` without a text. V4 `$metadata` of the same service works (this tree's own writer). The answer's `__metadata` URIs carry the name unescaped (`/sap//DMO/UI_...`), which is not a URL a client can follow back.
+- Workaround: none; `test/rap-flight-travel.mjs` does not read V2 `$metadata`.
+- Upstream: the unescape is a one-line change in open-abap-odata's handler (a PR in the fork staging area, then upstream); the URIs are this gateway's (a system serves a namespaced service at `/sap/opu/odata/<ns>/<name>/`).
+
+## Class statics outlive the HTTP request (LUW_HELD, PR #901)
+
+- Status: worked around locally; by design of the hosts, no upstream change.
+- Discovery: crit901-r2 review of RAP actions over V4, 2026-11-10.
+- Expected: on a system a stateless ICF request is an ABAP session of its
+  own, so a static set during the request is gone when it ends, whether it
+  ended normally, by an exception nobody caught, or by a short dump.
+- Here: the JS hosts keep one process of class statics across requests
+  (`tools/osd-dialog-step.mjs` rolls the database back after a dump, not
+  the statics). `ZCL_OSD_LUW_HOLD=>HELD`, set while a changeset or V4
+  atomicity group holds the LUW, stayed `X` after a group member dumped,
+  and the next RAP save outside any batch then left its COMMIT to a group
+  that no longer existed (`IV_END_LUW = ' '`).
+- Reproducer: `test/rap-serve.mjs`, "does not carry a dumped group's LUW
+  hold into the next request" (fails without the workaround).
+- Workaround: both batch loops clear the flag in `CLEANUP` (class-based
+  exceptions), and both OData fronts (`ZCL_STG_HTTP_HANDLER`,
+  `ZCL_OSD_V4_HTTP`) clear it at request entry, which is the only place a
+  dump can be answered for. A WAIT inside a group member would let another
+  request clear it early; WAIT already commits the step's LUW, so a group
+  with a WAIT in it is not atomic either way.
+- Upstream: none.
+
+## The /IWBEP/ members the SEGW sample calls are overlays over the pinned open-abap-odata (H5x-3)
+
+- Status: worked around locally; the same change sits in the lib clone's working tree (branch `feat/iwbep-members-h5x3`) as the upstream PRs to send, one per member group (`docs/upstream.md`).
+- Discovery: bed run 18 at #934 (framework-gaps.json, private evidence): six seed rows -- `get_navigation_path` (on `/IWBEP/IF_MGW_REQ_ENTITY` and `/IWBEP/IF_MGW_REQ_ENTITYSET`), `get_function_import_name` + `get_converted_parameters` (on `/IWBEP/IF_MGW_REQ_FUNC_IMPORT`), `get_message_container` (on `/IWBEP/IF_MGW_CONTEXT`), `add_message` (on `/IWBEP/IF_MESSAGE_CONTAINER`), and `content_id` / `content_id_ref` on the changeset request/response structures of `/IWBEP/IF_MGW_APPL_SRV_RUNTIME`.
+- Expected: a real Gateway's /IWBEP/ layer answers all six; the sample's DPC_EXT bodies compile against it.
+- Here: the pinned open-abap-odata (bd9f1fb) lacks every one. The extended interfaces and the implementing classes are carried under `src/gateway/compat/`, and the lib copies are excluded from both pulls (abap_transpile.json's lib exclude_filter, abaplint.jsonc's files glob). The runtime serves the getters from `zcl_stg_request_context`'s own data, `zcl_oao_context` serves the per-request container, and `zcl_stg_dispatcher` resets the container per request and reads it into the error response (`innererror.errordetails`).
+- Reproducer: `src/gateway/zcl_stg_request_context.clas.testclasses.abap`, `src/gateway/compat/zcl_oao_msg_container.clas.testclasses.abap`, the wire test in `test/mocha.mjs` (the demo DPC adds a message through the container on a business exception).
+- Smallest safe workaround: the overlays; removal is "when the pin carries the members, drop the overlays and both exclusions" (`src/gateway/compat/README.md`).
+- Upstream: open-abap-odata, one small PR per member group; the dossier with the branch and commits is in `docs/upstream.md`.
+- Regression-test location: the three reproducers above, plus the island rule's own tests in `test/hana-closure.mjs` (H5x-3).
+
+## The SEGW sample's read over the bed (H5x-4 B4)
+
+### ANOMALY-2026-11-14-packed-21-format -- a DEC 21,7 value formats through a double
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned `@abaplint/runtime` (libs.lock.json)
+- Affected ABAP statement, runtime API or adapter: `lv_string = iv_packed` / `|{ iv_packed }|` for `TYPE p LENGTH 11 DECIMALS 7` (a long timestamp, `TIMESTAMPL`)
+- Minimal ABAP reproducer: `DATA lv_p TYPE p LENGTH 11 DECIMALS 7 VALUE '20210102030405.0000000'. DATA lv_s TYPE string. lv_s = lv_p.`
+- Exact command used to run it: a node probe over the runtime's `abap.types.Packed({length: 11, decimals: 7})`, set from the string, read back as a String
+- Expected SAP behaviour: `20210102030405.0000000`
+- Actual open-abap behaviour: `20210102030404.9995776` -- 21 digits do not fit a double
+- Impact on open-steamgate: every Edm.DateTime over a long timestamp (a SEGW sample's created/changed fields) serialised one second early
+- Smallest safe workaround: `ZCL_STG_JSON=>VALUE` takes a packed timestamp's whole seconds by a rounding move to `p LENGTH 8 DECIMALS 0` before formatting (fractions of a second are not written either way)
+- Upstream issue: needs an issue (abaplint/transpiler runtime) after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ordered_page_with_address)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-select-single-connection -- SELECT SINGLE with CONNECTION before FROM parses as a SELECT loop
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: `@abaplint/core` 2.120.94
+- Affected ABAP statement, runtime API or adapter: `SELECT SINGLE f CONNECTION (lv_con) FROM t INTO v WHERE ...` (accepted by a system; the single-row grammar takes CONNECTION only after FROM)
+- Minimal ABAP reproducer: the class in test/hana-closure.mjs "a file abaplint cannot structure ..." (`ZCL_OSD_B4_CONN`)
+- Exact command used to run it: the island's control build (`npm run transpile`): `structure, Expected ENDMETHOD, <file>:1`
+- Expected SAP behaviour: one row read, no loop
+- Actual open-abap behaviour: the statement is a SelectLoop with no ENDSELECT; the class does not structure at all
+- Impact on open-steamgate: an island class pulled by the closure kept every bed control build red ("unclassified")
+- Smallest safe workaround: the closure's structure pre-pass stubs the methods whose blocks do not close (tools/hana-closure-stubs.mjs structureStubs), before the structural analysis
+- Upstream issue: needs an issue (abaplint/abaplint) after a critic pass
+- Regression-test location: test/hana-closure.mjs
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-table-body-suffix-js -- `it_x[] IS SUPPLIED` and `RESULT (lt_x[])` reach JavaScript with the `[]`
+
+- Status: `fixed upstream: abaplint/transpiler#2274` (merged 2026-11-25 as `7c97afc2`, released in 2.14.40; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler up to oisee/transpiler 4e9b744d
+- Affected ABAP statement, runtime API or adapter: `IF it_x[] IS SUPPLIED`, `boolc( et_x[] IS SUPPLIED )`, `CALL TRANSFORMATION ... RESULT (lt_x[])`
+- Minimal ABAP reproducer: transpiler test/operators/supplied.ts "a table parameter named with its body suffix"; single_statements.ts `RESULT (lt_rtab[])`
+- Exact command used to run it: `node --check` over the island's generated modules
+- Expected SAP behaviour: the suffix names the table body; the parameter is it_x
+- Actual open-abap behaviour: `INPUT.it_x[]` / `(lt_x[])` -- invalid JavaScript, the module does not load (V8 reports a private-field error elsewhere in the class)
+- Impact on open-steamgate: five island classes of the sample's dependency packages did not load
+- Smallest safe workaround: none needed in this tree with the 4f pin; the build now refuses a generation with a module that does not parse (`tools/osd-generation-check.mjs`)
+- Upstream issue: branch inside abaplint/transpiler after a critic pass
+- Regression-test location: the transpiler's own tests (above)
+- Upstream version containing a fix: 2.14.40
+
+### ANOMALY-2026-11-14-local-inherits-owner -- a local class inheriting from its own global class deadlocks the module load
+
+- Status: `fixed upstream: abaplint/transpiler#2275` (merged 2026-11-25 as `7ce5616b`, released in 2.14.40; the pin `local/osd-build-41` is built on upstream main after 2.14.41 and no longer carries the fork's form)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler up to oisee/transpiler 4e9b744d (packages/transpiler/src/requires.ts with handlers/handle_abap.ts)
+- Affected ABAP statement, runtime API or adapter: `CLASS lcx_x DEFINITION INHERITING FROM zcx_x` in the locals of `zcx_x`
+- Minimal ABAP reproducer: `test/unit/zcl_osd_local_sub_owner` and `test/unit/zcx_osd_local_sub_owner` (a class and an exception class, each with a local subclass of itself); transpiler unit tests test-71 and test-72
+- Exact command used to run it: `node tools/osd-generation-check.mjs output` (or importing `output/init.mjs`): node exits 13, "unsettled top-level await"; tools/hana-serve.mjs over the island generation never returned (the open connection keeps the event loop alive)
+- Expected SAP behaviour: legal ABAP, the class loads
+- Actual open-abap behaviour: `zcx_x.clas.mjs` awaited its locals module before defining the class; the locals module awaited `zcx_x.clas.mjs` (requires.ts adds the global super of a local class even when it is the owner) -- a top-level-await cycle, neither settles
+- The fix (4f): when the locals require their owner, the locals module takes it from `abap.Classes` and the owner module imports its locals right after registering itself, before its static values and class constructors (which may use the locals). Every other class pool is emitted byte for byte as before.
+- Impact on open-steamgate: the sample's generation could not load; milestone 2 was blocked here
+- Smallest safe workaround: none needed with the 4f pin. The build refuses a generation with a cycle of awaited imports and names it (`tools/osd-generation-check.mjs`, `test/generation-check.mjs`); hana-serve checks before it imports
+- Residual: two global classes each with a local subclass of the OTHER one still form a cycle (`a.locals -> b -> b.locals -> a`); not looked for in a corpus yet, and the check names it if a build meets it
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass
+- Regression-test location: `test/generation-check.mjs`, the ABAP unit class above, transpiler test/unit.ts test-71..73
+- Upstream version containing a fix: 2.14.40
+
+### ANOMALY-2026-11-14-intf-const-from-const -- an interface constant whose VALUE is another object's constant throws at load
+
+- Status: `fixed upstream: abaplint/transpiler#2277, #2281, #2286` (merged 2026-11-26, released in 2.14.41) for interface constants; the fold of class constants stays a fork commit of the pin `local/osd-build-41`, waiting on abaplint/abaplint#4765
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler up to oisee/transpiler d2e9f22c (packages/transpiler/src/structures/interface.ts, requires.ts)
+- Affected ABAP statement, runtime API or adapter: `CONSTANTS y TYPE string VALUE zif_c=>x.` in an interface
+- Minimal ABAP reproducer: `test/unit/zif_osd_iconst_a`, `zif_osd_iconst_b`, `zif_osd_iconst_c`, `zcl_osd_iconst_src`, tested by `zcl_osd_iconst_test` (a chain, a read-back, a component read and a component declared, a class constant set at load, a class constant two hops away); transpiler unit tests test-74..83
+- Exact command used to run it: `node tools/osd-generation-check.mjs output` over a build holding the reproducer
+- Expected SAP behaviour: the constant has the referenced constant's value
+- Actual open-abap behaviour: `zif_b.zif_b$y.set(abap.Classes['ZIF_C'].x)` -- an interface member is `zif_c$x`, so the read is undefined and the module throws a TypeError while init.mjs imports; and an interface module imports nothing, so the referenced object may load after it anyway. 27 such constants in 25 interfaces of the HANA island
+- The fix (4g): the VALUE chain is followed to the constant that declares the value. An interface literal is written as the literal (interfaces run no code, so it is the value, and no load-time edge exists, also between two interfaces naming each other's constants). A class constant, which a class may set at run time (the kernel's `cl_abap_char_utilities=>newline` is set in its class constructor), is read at load from that class, which the interface module now requires; a class module never imports an interface, so the edge cannot close a cycle
+- Fixed with it (critic round, 4h): a component chain (`VALUE zif_a=>gs-comp`) folds to the component's literal, or reads the component at load -- 4g read the whole structure, and a string target took every component's characters (`vw` for `v`). A chain that comes back to a constant it already passed never reaches a value: illegal ABAP that abaplint's syntax check accepts (only its opt-in `cyclic_oo` rule names it); 4g emitted two interfaces that await each other and the generation never loaded (exit 13); 4h refuses the transpile with the chain named (`constant chain ZIF_X=>C -> ZIF_Y=>D -> ZIF_X=>C never reaches a value`).
+- Same family, class side (4h): a CLASS constant whose VALUE chain runs further than abaplint follows (two interfaces out) got no value at all -- abaplint's resolver bottoms out and setValues writes nothing, so the constant stayed initial, silently (before this pin too). 4h folds it when the chain ends in an interface literal. The two sides still differ for a class constant set at run time: an interface constant reads it at load (the class constructor's value), a class constant with the same declaration keeps abaplint's compile-time value (the placeholder). Say so if the class side is ever unified.
+- Smallest safe workaround: none needed with the 4h pin
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass
+- Regression-test location: the ABAP unit class above, the transpiler's unit and requires tests
+- Upstream version containing a fix: 2.14.41 (interface constants)
+
+### ANOMALY-2026-11-14-class-constructor-targets -- a class constructor runs at load before the class it creates
+
+- Status: `fixed in a pin` (oisee/transpiler `local/osd-build-4h`, #941's head 7c59f51f; first written as the local commit 3cdb24b7 on top of pin 4g)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 9437debe, local/osd-build-4g)
+- Affected ABAP statement, runtime API or adapter: `CREATE OBJECT go TYPE zcl_later` (or `NEW`, `zcl_later=>m( )`) inside a CLASS_CONSTRUCTOR
+- Minimal ABAP reproducer: transpiler test/unit.ts "test-cc-load-order" (zcl_a_buffer's class constructor creates zcl_b_store)
+- Exact command used to run it: `node tools/osd-generation-check.mjs output --json` over the island: `abap.Classes.<class> is not a constructor`
+- Expected SAP behaviour: a class constructor runs at the class's first use, after every class it names is there
+- Actual open-abap behaviour: it runs when its module loads; a named class is not among the module's requires, so a build that loads modules by name ran it before the class existed
+- Impact on open-steamgate: the SEGW sample's island did not load
+- Smallest safe workaround: none needed with pin 4h; the pinned commit adds the classes a class constructor names to its module's requires
+- Upstream issue: branch inside abaplint/transpiler after a critic pass
+- Regression-test location: the transpiler test above
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-form-field-names-encoded -- a form field's name arrives undecoded
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned express-icf-shim / open-abap-core `get_form_fields_cs`
+- Affected ABAP statement, runtime API or adapter: `server->request->get_form_fields_cs( )` for `?%24top=2`
+- Minimal ABAP reproducer: `GET .../PartnerSet?%24top=1` against the gateway (ZCL_OSD_H5X_TEST encoded_option_names builds the options table by hand)
+- Exact command used to run it: curl against tools/hana-serve.mjs: `$top=2` answered 2 rows, `%24top=2` answered 21
+- Expected SAP behaviour: the name is decoded; `%24top` is `$top`
+- Actual open-abap behaviour: the name stays `%24top`; the option is ignored without a word and the whole set comes back
+- Impact on open-steamgate: a client that encodes `$` (URLSearchParams does) silently loses every system query option
+- Smallest safe workaround: `ZCL_STG_URL=>OPTION` decodes a name that is a well-formed escape (`%zz` is left alone and ignored)
+- Upstream issue: needs an issue (express-icf-shim or open-abap-core) after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` (encoded_option_names)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-default-association-set -- create_association ignores iv_def_assoc_set
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_model`
+- Affected ABAP statement, runtime API or adapter: `model->create_association( ... iv_def_assoc_set = abap_true )` (the interface's default), and a function import with only `set_return_entity_type`
+- Minimal ABAP reproducer: a SEGW-generated MPC that creates no association set of its own
+- Exact command used to run it: `$metadata` of the SEGW sample over the bed, diffed with tools/odata-metadata-diff.mjs against a system's
+- Expected SAP behaviour: one `<association>_AssocSet` (cut to 40 characters) per such association, between the types' entity sets; a function import's EntitySet is the return type's set
+- Actual open-abap behaviour: no AssociationSet at all (20 missing), no EntitySet on 4 function imports
+- Impact on open-steamgate: 24 structure differences in the sample's `$metadata`
+- Smallest safe workaround: the overlay `src/gateway/compat/zcl_oao_model.clas.abap` (compat README)
+- Upstream issue: one small PR to open-abap-odata after a critic pass
+- Regression-test location: `ZCL_OSD_H5X_TEST` (default_sets_in_metadata); the `$metadata` diff on the bed (structure 0)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-cctor-load-order -- a class constructor ran at load before the class it creates existed
+
+- Status: `fixed in the pin` (oisee/transpiler `local/osd-build-4j` `28a3c53a`: `5678066f` from the HANA track, made cycle-free by `17162d2c`, ordered by `28b6944e`, wait-cycles named by `28a3c53a`; not upstream)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler up to oisee/transpiler c84497b4
+- Affected ABAP statement, runtime API or adapter: `CREATE OBJECT ... TYPE zcl_b`, `NEW zcl_b( )`, `zcl_b=>m( )` inside a CLASS_CONSTRUCTOR
+- Minimal ABAP reproducer: transpiler unit tests test-cc-load-order, test-84 (two constructors naming each other's classes), test-85 (a constructor creating its own subclass), test-86 (a ring of three), test-87 (a subclass constructor reading its queued superclass's static), test-88/test-92 (another pool's constructor reading a queued pool's static, the reader sorted before the release), test-89 (each runs once), test-90 (a constructor reading an interface constant), test-91 (an interface constant from a queued class's constant), test-93 (critic q9: a superclass constructor reading a descendant whose constructor is queued -- a wait-cycle, its defined order and its notice)
+- Exact command used to run it: importing init.mjs of the HANA island generation
+- Expected SAP behaviour: a class constructor runs on first use of the class; the classes it names exist
+- Actual open-abap behaviour: the class constructor runs when its module loads, and a class it named whose module loads later was not there: `abap.Classes.<class> is not a constructor`. Requiring that module (5678066f) can close an import cycle -- mutual constructors, a constructor creating its subclass, a ring -- and then the modules await each other (exit 13)
+- The fix (4h): the requirement is decided once per run over the whole registry against the real load-time edges; one that would close a cycle is not taken, and that pool's class constructors wait in a queue and run at the end of the module of the class they named, once every class they name is registered
+- Critic round 2 (4i): the queue released a pool when the class it named had REGISTERED, not when the class constructors it depends on had RUN. Two silent wrong values followed: a subclass's class constructor ran before its queued superclass's and read the superclass's static unset (ABAP runs them top-down); another pool's class constructor read a queued pool's static before the queue released it. Now what depends on a queued class constructor waits for it to have run -- a subclass's constructor, a constructor naming the class, an interface constant read from that class's constant -- and the queue runs them in that order, each once. A class constructor naming an interface now requires it as well.
+- Critic round 3 (4j): a class constructor whose naming of a queued class was itself a cycle skip waited only for that class's module to register, and read its statics before its constructor ran, silently, with nothing left queued. The rule is now one rule: whoever reads a pool at load -- a class constructor naming it, a subclass's constructor, an interface constant -- waits for its class constructor to have RUN.
+- The remaining difference, deliberate: this runtime runs every class constructor whole, at load, in dependency order; ABAP runs it on first use and nests the inner one at the point of use. Where two pools genuinely wait for each other's constructor (a wait-cycle: two constructors naming each other, a constructor creating a subclass that has its own constructor, a superclass constructor reading a descendant), no whole-constructor order agrees with ABAP in every case, so one is defined: one wait of the cycle falls back to registration -- a cycle skip first, then a constructor naming the class, then an interface read, never a superclass, then by name -- and the run is deterministic. The first constructor then sees the other's statics as set so far. Such a generation is never silent about it: init.mjs carries the cycles and says them at load once (`globalThis.osdLoadNotice({kind: "cctor-cycle", pools})`, else one `console.warn`), and the build's generation check lists them (`cctor_cycles` in its JSON). A pool still queued after the last import is a load error naming it.
+- Smallest safe workaround: none needed with the 4j pin
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass
+- Regression-test location: the transpiler's unit tests above; `test/generation-check.mjs` (0 cycles)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-sql-literals-statement-text -- SQL literals re-read as statement text after the escaper
+
+- Status: `fixed in the pin` (runtime and database packages: oisee/transpiler `local/osd-build-4k`) and `workaround` (the clients this tree owns and the two published clients it extends: `tools/osd-sql-literals.mjs`)
+- Discovery date: `2026-11-14` (security review of the `$filter` path, finding 3)
+- Affected versions: the runtime's `expandDynamic` up to oisee/transpiler 28a3c53a; `@abaplint/database-sqlite` 2.13.83 and `@abaplint/database-pg` 2.11.83 `select()`/`openCursor()`; this tree's HANA, DuckDB, DuckDB-wasm, SQLite-file and PostgreSQL clients, the ADT data preview and the browser preview's SQL console
+- Affected ABAP statement, runtime API or adapter: `SELECT ... WHERE (lv_where)` (and `HAVING (lv)`), and every SELECT a client rewrites (static ones too)
+- Minimal ABAP reproducer: `lv_where = 'name = ''a~b'''. SELECT * FROM t INTO TABLE lt WHERE (lv_where).` against a table holding `a~b` and `a.b`
+- Exact command used to run it: the twin service `ZOSD_H5X_SRV` through `zcl_stg_dispatcher=>dispatch` on SQLite, the final SQL read off `sqlite.exec`; `test/sql-literals.mjs`; the transpiler's `test/database.ts` "literals in a dynamic WHERE are data"
+- Expected SAP behaviour: a literal is a value; nothing inside the quotes changes the statement
+- Actual open-abap behaviour: three layers ran regular expressions over the whole statement, literals included, after the gateway's escaper had done its job. Measured (condition from the gateway -> SQL sent):
+  `NAME = 'a~b'` -> `b.NAME = 'a.b'`; `NAME = 'A EQ B'` -> `'A = B'`; `NAME = 'x DESCENDING'` -> `'x DESC'`; `NAME = 'x LIMIT 0'` -> `'x'`; `BUYER_ID = 'x UP TO 9 ROWS'` -> `= 'x' ... LIMIT 9` (a row limit the value chose); with `ne` the excluded row came back. In a dynamic WHERE, `expandDynamic` substituted field symbols inside literals: with an assigned character-like `<fs>` holding `OR 1 = 1 OR NAME =`, `NAME = 'q <fs> r'` became `NAME = 'q 'OR 1 = 1 OR NAME =' r'` (a literal split open into SQL); an unassigned one named in a value was a JS `TypeError` no `CATCH` sees. Its `(?:(\w+) IN)?` step was quadratic: a 10 000-character literal took 95 ms, 100 000 took 9.7 s, 200 000 took 42.6 s, holding the one work process.
+- Impact on open-steamgate: a client-chosen value changed the predicate or appended a LIMIT; conditional injection where a DPC has an assigned field symbol in scope of its SELECT; one long `$filter` (in a `$batch` body, no header limit) stopped every other request
+- The fix: literals are found once and masked; every rewrite runs on the code only, and the literals go back byte for byte. In the runtime (`packages/runtime/src/sql_literals.ts`, `splitLiterals`/`outsideLiterals`): `expandDynamic` substitutes and rewrites EQ outside literals only, sends an Open SQL backtick literal on single-quoted, raises `CX_SY_DYNAMIC_OSQL_SEMANTICS` for an unassigned field symbol (or a missing component) outside a literal, and finds a `field IN` before a match by walking back, linear (200 000 characters: under 10 ms); the four database packages run their rewrites through the same function (a copy per package, held identical by a test, until a runtime release can carry it to them). Here: `tools/osd-sql-literals.mjs` (`abapSelectToSql`), used by every client; `tools/sqlite-heap-client.mjs` and `tools/postgres-client.mjs` replace the published `select()`/`openCursor()`, which rewrite and run in one method; `trimLiterals` reads the same scanner.
+- Smallest safe workaround: the pin plus `tools/osd-sql-literals.mjs`; binding values as parameters would be stronger, but the runtime hands a client one SQL text with the values inlined, so masking is what each layer can do
+- Upstream issue: one small PR to abaplint/transpiler from a branch inside it (runtime + the four database packages), after a critic pass (docs/upstream.md)
+- Regression-test location: `test/sql-literals.mjs` (every client, the driver channel of HANA and PostgreSQL, the preview console); `ZCL_OSD_H5X_TEST` `ltcl_literals` (`$filter=Name eq '<value>'` through the dispatcher on SQLite); the transpiler's `packages/runtime/test/expand_dynamic.ts`, `sql_literals.ts` and `test/database.ts`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-textpool-absent -- a class's text pool is not there at run time
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (READ TEXTPOOL transpiles to `throw new Error("ReadTextpool, transpiler todo")`); the pinned open-abap-odata (bd9f1fb) `zcl_oao_property`, whose `set_label_from_text_element` stores the symbol and nothing reads it
+- Affected ABAP statement, runtime API or adapter: `READ TEXTPOOL`; `/IWBEP/IF_MGW_ODATA_ITEM~SET_LABEL_FROM_TEXT_ELEMENT` (every SEGW-generated model provider labels its properties and parameters this way)
+- Minimal ABAP reproducer: the twin's `Item` type (`test/hana-m2/zcl_osd_h5x_mpc`, symbols 001/002 in the class XML's `<TPOOL>` and `<I18N_TPOOL>`)
+- Exact command used to run it: `$metadata` of the SEGW sample, diffed with tools/odata-metadata-diff.mjs against the system's
+- Expected SAP behaviour: `sap:label` is the text symbol in the session language; a symbol without a text in that language leaves the property without a label (measured: under `sap-language=DE` all 59 text-pool labels disappear, none falls back to the data element's German label)
+- Actual open-abap behaviour: the writer printed the ABAP field name (`BP_ID` for `Bus. Part. ID`), and under any language the same
+- Impact on open-steamgate: 59 property and 4 parameter labels of the sample; every stg-compile model's labels (those carry a `<TPOOL>`)
+- Smallest safe workaround: the build reads every `<TPOOL>` into `gen/textpool/zcl_osd_textpool_registry` (tools/osd-textpool-registry.mjs), `ZCL_OSD_TEXTPOOL` answers by container and symbol in `sy-langu`, the writer overlay `src/gateway/compat/zcl_oao_http_handler` asks it
+- Upstream issue: READ TEXTPOOL needs an issue in abaplint/transpiler (where the pool would come from is the question, not the statement); the label resolution is one small PR to open-abap-odata through a provider interface the runtime fills (docs/upstream.md, item 15)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: text_pool_labels, class_pool_container); `test/gateway-annotation-registries.mjs`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-bind-structure-ddic -- bind_structure takes nothing from the dictionary but a date
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_entity_typ`, `zcl_oao_cmplx_type`, `zcl_oao_http_handler`; RTTI of open-abap-core (no field labels, no reference fields)
+- Affected ABAP statement, runtime API or adapter: `/IWBEP/IF_MGW_ODATA_ENTITY_TYP~BIND_STRUCTURE`, `/IWBEP/IF_MGW_ODATA_CMPLX_TYPE~BIND_STRUCTURE`, the `$metadata` writer
+- Minimal ABAP reproducer: the twin's `Item` type bound to `ZOSD_H5X_S_ITEM` (an amount and a quantity with reference fields, a currency key, a unit, a date, an include) and `VH_Currency` bound to a type of the class
+- Exact command used to run it: as above
+- Expected SAP behaviour (measured on the SEGW sample against its system): a property with no label of its own gets the medium field label of its component's data element (44 of the sample's 103); an amount or quantity gets `sap:unit` = the property bound to its reference field (12, the model makes no unit call); a currency key gets `sap:semantics="currency-code"`, a unit `"unit-of-measure"` (11, also for a type of the class through its data elements); a DATS-bound `Edm.DateTime` gets **no** `sap:display-format`; `sap:unicode` only where the model adds the annotation (the sample's 7 complex-type properties get none); a property with no label anywhere gets none (not its ABAP field name)
+- Actual open-abap behaviour: bind_structure set `sap:display-format="Date"` and nothing else; the writer hard-coded `sap:unicode="false"`, fell back to the ABAP field name for the label, wrote no label on a parameter
+- Impact on open-steamgate: 44 labels, 12 units, 11 semantics, 7 unicode, 1 display format of the sample; on our own services, see docs/upstream.md item 13 (dates of SEGW-path models lose `sap:display-format`; services without labels lose the field-name label; SADL keeps both)
+- Smallest safe workaround: the overlays `src/gateway/compat/zcl_oao_{property,entity_typ,cmplx_type,http_handler}` and the build-time dictionary registry `gen/ddicinfo/zcl_osd_ddic_info_registry` (tools/osd-ddic-info-registry.mjs) read through `ZCL_OSD_DDIC_INFO`
+- Upstream issue: small PRs to open-abap-odata (docs/upstream.md, items 15-16)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_annotations: dictionary_labels, units_and_semantics, unicode_as_the_model_says); `test/gateway-annotation-registries.mjs`
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-set-locale-noop -- SET LOCALE LANGUAGE does nothing, and sap-language was not read
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler's runtime (`setLocale` is an empty function, "todo"); this Gateway (no reader of `sap-language`)
+- Affected ABAP statement, runtime API or adapter: `SET LOCALE LANGUAGE`; the `sap-language` URL parameter
+- Minimal ABAP reproducer: `SET LOCALE LANGUAGE 'D'. WRITE sy-langu.` prints `E`
+- Exact command used to run it: `$metadata?sap-language=DE` of the twin
+- Expected SAP behaviour: the request runs in the language the parameter names (ISO `DE` or SAP `D`); texts follow it
+- Actual open-abap behaviour: every request runs in the boot language
+- Impact on open-steamgate: labels (and every language-dependent read of a DPC) ignore `sap-language`
+- Smallest safe workaround: `ZCL_STG_DISPATCHER=>DISPATCH` sets `sy-langu` from `sap-language` (ISO through `CONVERSION_EXIT_ISOLA_INPUT`) for the request and restores it after, also when the request ends in an exception, through `ZCL_OSD_SESSION_LANGU` (`REQUESTED`: sap-language, else the first tag of Accept-Language; `SWITCH`) -- only when the request names a language, because the Go host's compiler does not carry `sy-langu` (a request with a language dumps NOT_COMPILED there, in `SWITCH`; the ISO mapping goes through `CL_I18N_LANGUAGES` directly, since the compiler also refused `CONVERSION_EXIT_ISOLA_INPUT`'s untyped IMPORTING parameter). `xml:lang` of `$metadata` follows the session language (`ISO`). A language the system does not know is ignored, not refused: lenient on purpose, unmeasured
+- Upstream issue: needs an issue in abaplint/transpiler for `SET LOCALE LANGUAGE` (setting `sy-langu` is the visible half)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (labels_in_the_request_language)
+
+### ANOMALY-2026-11-14-help-view-schema -- a help view becomes a database view
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28a3c53a), `DatabaseSchemaReuse.buildVIEW`
+- Affected ABAP statement, runtime API or adapter: the database setup of a `.view.xml` whose `DD25V-VIEWCLASS` is `H`
+- Minimal ABAP reproducer: `test/hana-m2/zosd_h5x_uv.view.xml` (a help view over two tables, its second table joined by a foreign key, `DD26V-FORDIR I`, and no `DD28J` row)
+- Exact command used to run it: `npm run transpile` with `dropHelpViews` taken out; the generation's init.mjs then carries `CREATE VIEW 'zosd_h5x_uv' AS SELECT 'zosd_h5x_un'.client ..., 'zosd_h5x_unt'.ltxt AS ltxt ... FROM 'zosd_h5x_un'`
+- Expected SAP behaviour: a help view has no database object; only its search helps read it, as an outer join with the text in the logon language
+- Actual open-abap behaviour: every VIEW of the registry becomes `CREATE VIEW` from its `DD28J` rows as inner joins; a help view's joins are foreign keys, not `DD28J` rows, so its columns name tables the `FROM` lacks. SQLite accepts the statement (it resolves a view's columns when the view is read, measured: the twin's unit run stays green with the view in the schema) and any read of the view fails; an engine that checks at CREATE (PostgreSQL) fails the schema
+- Impact on open-steamgate: a converted dump's help view in the build input would put a broken database object in every SQLite generation and fail the schema on PostgreSQL; nothing reads it, its search helps read the generated join
+- Smallest safe workaround: `dropHelpViews` (`tools/osd-warm-order.mjs`, called by `orderRegistry`, so the cold transpile, the warm compiler and its verifier all drop it) takes a help view out of the registry before the run; its search helps read it through the join `tools/segw-shlp.mjs` generates
+- Upstream issue: needs an issue (abaplint/transpiler: skip `VIEWCLASS H` in the schema) after a critic pass
+- Regression-test location: `test/segw-shlp.mjs` ("removes a help view from the transpiler's registry"), `ZCL_OSD_H5X_TEST` (ltcl_value_help)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-create-data-table-of-class-type -- CREATE DATA ... TYPE STANDARD TABLE OF a class's type is no table
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler and runtime (oisee/transpiler 28a3c53a)
+- Affected ABAP statement, runtime API or adapter: `CREATE DATA lr TYPE STANDARD TABLE OF zcl_x=>ts_row.` followed by `ASSIGN lr->* TO <lt> .` with `<lt> TYPE STANDARD TABLE`
+- Minimal ABAP reproducer: the twin DPC's first value help read (test/hana-m2/zcl_osd_h5x_dpc.clas.abap) in its first form; the transpiled call is `createData(rr_rows,{"typeName": "ZCL_OSD_H5X_MPC=>TS_VH_CATEGORY","table": true})`
+- Exact command used to run it: `ZCL_OSD_H5X_TEST` ltcl_value_help with the unit bootstrap
+- Expected SAP behaviour: the data object is a standard table of that row type and the ASSIGN succeeds
+- Actual open-abap behaviour: `ASSIGN_TYPE_CONFLICT` at the ASSIGN (six test methods)
+- Impact on open-steamgate: a DPC that creates its result table this way dumps; the SEGW sample does not, our twin did
+- Smallest safe workaround: a named table type (`TYPES tt_x TYPE STANDARD TABLE OF ts_x ...`, `CREATE DATA lr TYPE zcl_x=>tt_x`)
+- Upstream issue: needs an issue (abaplint/transpiler) after a reduced reproducer and a critic pass
+- Regression-test location: none yet (the twin uses the workaround)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-shlp-joins -- the search help provider selects from one table only
+
+- Status: `workaround`
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned open-abap-odata (bd9f1fb) `zcl_oao_shlp_ddic`
+- Affected ABAP statement, runtime API or adapter: `/iwbep/if_sb_gendpc_shlp_data~get_search_help_values` for a search help with a text table (`DD30V-TEXTTAB`), a help view (`SELMTYPE H`), a list field that is not exported, or a literal default value (`DD32P-DEFAULTTYP L`)
+- Minimal ABAP reproducer: the twin's three value help sets, `test/hana-m2` (ZOSD_H5X_SH_CTY, ZOSD_H5X_SH_UN)
+- Exact command used to run it: `ZCL_OSD_H5X_TEST` ltcl_value_help against the lib copy
+- Expected SAP behaviour: the text table joined in the logon language, the help view read as its outer join, list fields shown whether exported or not, a default restricting its field unless the caller does
+- Actual open-abap behaviour: `SELECT * FROM (selmethod)` only: no texts, a help view (no database object) fails, a list field without the export flag is not returned, defaults are ignored
+- Impact on open-steamgate: the SEGW sample's value help sets over a text table or a help view do not serve
+- Smallest safe workaround: the overlay `src/gateway/compat/zcl_oao_shlp_ddic.clas.abap` + `zif_oao_shlp_source.intf.abap` (compat README), reading through the join class `tools/segw-shlp.mjs` generates
+- Upstream issue: one small PR to open-abap-odata after a critic pass (docs/upstream.md item 15)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (ltcl_value_help), `ZCL_STG_SHLP_TEST`, `test/segw-shlp.mjs`
+
+### ANOMALY-2026-11-14-dynamic-order-by-blanks -- a dynamic ORDER BY whose columns are separated by blanks reaches SQL without commas
+
+- Status: `fixed upstream: abaplint/transpiler#2276` (merged 2026-11-25 as `39252cb2`, released in 2.14.40); a PRIMARY KEY inside a longer list staying one item is still a fork commit of the pin `local/osd-build-41`, not sent. The host-side workaround is removed
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28b6944e, local/osd-build-4i) and every database client of it
+- Affected ABAP statement, runtime API or adapter: `SELECT ... ORDER BY (lv_order)` with lv_order = `s~so_id i~so_item_pos`, or `a DESCENDING b` -- the form a SEGW-generated sample builds with `CONCATENATE ... SEPARATED BY space` from the technical order
+- Minimal ABAP reproducer: `lv_order = 'name id'. SELECT id name INTO (lv_id, lv_name) FROM zjhead ORDER BY (lv_order). ENDSELECT.` (transpiler test/database.ts "dynamic ORDER BY, columns separated by blanks")
+- Exact command used to run it: the SEGW sample's line-item set over the bed (M3-B0, RC5): HANA error 257 (syntax error near the second column), caught by the sample as `cx_sy_dynamic_osql_*` and answered as a business exception, 400. SQLite answers its own syntax error the same way
+- Expected SAP behaviour: Open SQL accepts columns separated by blanks or by commas in a dynamic ORDER BY, each optionally followed by ASCENDING / DESCENDING; the rows come back in that order
+- Actual open-abap behaviour: the transpiler emits `"ORDER BY " + lv_order` verbatim for a string (a table's rows are joined with ", ", a static clause gets its commas from SQLOrderByTranspiler); the database clients translate ASCENDING / DESCENDING and `~` and insert no comma, so the database sees `ORDER BY s.so_id i.so_item_pos`
+- Impact on open-steamgate: every read of the sample's line-item set (its default order has two columns), every `$orderby` of two properties on the sample's sets, and every path through them: 4 requests on the bed directly, 7 more behind the navigation fixes
+- Smallest safe workaround: none needed with the 4k pin. Until then `tools/osd-order-by.mjs` put the commas into the trailing ORDER BY of a SELECT on its way into any client (installed in `test/setup.mjs`); removed with the pin move (#954), and the ABAP tests below pass through the pin alone
+- Upstream issue: needs a branch in abaplint/transpiler after a critic pass (docs/upstream.md item 19)
+- Regression-test location: `ZCL_OSD_H5X_TEST` (order items, two-column default order and `$orderby` of two properties); the transpiler's `packages/runtime/test/dynamic_order_by.ts` and `test/database.ts` "dynamic ORDER BY, columns separated by blanks" (the cases `f1 f2`, `f1 DESCENDING f2`, `a~f1 b~f2`, already comma-separated, PRIMARY KEY alone and inside a list)
+- Upstream version containing a fix: 2.14.40 (the commas; not the PRIMARY KEY follow-up)
+
+### ANOMALY-2026-11-14-message-t100-english-only -- `MESSAGE ID ... INTO` reads the T100 text in English whatever sy-langu is
+
+- Status: `open` (no workaround: the Gateway's business-error text, M3 B3, is the English text of the message in every session language)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned runtime (oisee/transpiler 28a3c53a), `packages/runtime/src/statements/message.ts` `findText`
+- Affected ABAP statement, runtime API or adapter: `MESSAGE ID id TYPE t NUMBER n WITH v1 v2 v3 v4 INTO text`, and every exception text read through `cl_message_helper=>get_text_for_message`
+- Minimal ABAP reproducer: a message class with an E and a D text for 001; `sy-langu = 'D'. MESSAGE ID 'ZX' TYPE 'E' NUMBER '001' INTO lv_text.` answers the E text
+- Exact command used to run it: read off the source: `SELECT * FROM t100 WHERE sprsl='E' AND ...`, then `abap.MSAG[...]`, which holds one language
+- Expected SAP behaviour: the text in the session language, falling back to the class's original language
+- Actual open-abap behaviour: always the E row of T100 (or the one language the transpiled message class carries)
+- Impact on open-steamgate: a business error of a request with `sap-language=DE` carries the English text where the system answers the German one (M3 oracle has no DE error capture; the E texts are equal)
+- Smallest safe workaround: none taken; the text is right in the logon language E
+- Upstream issue: needs an issue in abaplint/transpiler after a critic pass (read `sprsl = sy-langu` first, then the master language)
+- Regression-test location: none yet
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-14-modify-itab-as-database -- `MODIFY itab FROM wa` (no INDEX) in a LOOP is transpiled as a database MODIFY
+
+- Status: `workaround` (the twin's provider loops with ASSIGNING instead)
+- Discovery date: `2026-11-14`
+- Affected versions: the pinned transpiler (oisee/transpiler 28a3c53a)
+- Affected ABAP statement, runtime API or adapter: `MODIFY lt_rows FROM ls_row.` inside `LOOP AT lt_rows INTO ls_row`, lt_rows a local `STANDARD TABLE` of a structure declared in another class
+- Minimal ABAP reproducer: `DATA lt TYPE zcl_x=>tt_rows. DATA ls LIKE LINE OF lt. LOOP AT lt INTO ls. MODIFY lt FROM ls. ENDLOOP.` in a method
+- Exact command used to run it: `node tools/osd-unit.mjs CLAS ZCL_OSD_H5X_TEST` before the twin's loop was changed: `CX_SY_DYNAMIC_OSQL_SEMANTICS`, the generated code calls `abap.statements.modifyDatabase("lt_entityset", ...)`
+- Expected SAP behaviour: the short form of MODIFY on an internal table changes the current row of the loop
+- Actual open-abap behaviour: the statement is read as `MODIFY dbtab FROM wa` and sent to the database as a table named like the variable
+- Impact on open-steamgate: none in tree code found; hit while growing the twin
+- Smallest safe workaround: `LOOP AT itab ASSIGNING <fs>` (or `MODIFY itab FROM wa INDEX sy-tabix`)
+- Upstream issue: needs an issue in abaplint/transpiler after a critic pass (whether abaplint's statement parse or the transpiler's choice)
+- Regression-test location: none
+- Upstream version containing a fix: unknown
+
+## The SEGW sample's read over the bed, milestone 3 tail
+
+### ANOMALY-2026-11-15-cunit-missing -- open-abap-core has no CONVERSION_EXIT_CUNIT_OUTPUT / _INPUT
+
+- Status: `workaround`
+- Discovery date: `2026-11-15`
+- Affected versions: open-abap-core at the pin (libs.lock.json); its function group carries ALPHA and ISOLA, no CUNIT
+- Affected ABAP statement, runtime API or adapter: `CALL FUNCTION 'CONVERSION_EXIT_CUNIT_OUTPUT'` / `'CONVERSION_EXIT_CUNIT_INPUT'` (the exit of a Gateway property with `set_conversion_exit( 'CUNIT' )`, a unit of measure)
+- Minimal ABAP reproducer: `test/unit/zcl_osd_cunit_test` without `src/cunit` (the call is CX_SY_DYN_CALL_ILLEGAL_FUNC)
+- Exact command used to run it: the second measured pass of milestone 3 (private): the unit help sets answered the internal unit key where the system answers the external one
+- Expected SAP behaviour: the unit's commercial form in the logon language out (MSEH3 of the unit text table), the internal key back in; UNIT_NOT_FOUND for a unit without a row
+- Actual open-abap behaviour: no such function module; the gateway caught the dynamic call's exception and wrote the unit as stored -- two value-help answers silently wrong (other keys, another order) and a single read by the external key a 404
+- Impact on open-steamgate: every unit whose external form differs from its key, in a body, in an entry's URI, in a value help's order and as a key in a URL
+- Smallest safe workaround: a clean-room pair in `src/cunit` (`ZCL_OSD_CUNIT`, the unit text table T006A, a twin's table in tests); the gateway calls exits through `ZCL_OSD_CONV_EXIT`
+- Upstream issue: needs an issue (open-abap-core: the function pair) after a critic pass; until then the pair stays here
+- Regression-test location: `test/unit/zcl_osd_cunit_test`, `test/unit/zcl_osd_h5x_test` (ltcl_value_help: external_unit_key_and_order, external_unit_key_single)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-15-up-to-zero-rows -- `UP TO 0 ROWS` reads no row through the SQLite adapter
+
+- Status: `workaround`
+- Discovery date: `2026-11-15`
+- Affected versions: `@abaplint/database-sqlite` at the pin (its `select` rewrites ` UP TO (\d+) ROWS` into `LIMIT $1`)
+- Affected ABAP statement, runtime API or adapter: `SELECT ... UP TO lv_n ROWS ...` with `lv_n = 0`
+- Minimal ABAP reproducer: `DATA lv_n TYPE i. SELECT * FROM t000 INTO TABLE lt UP TO lv_n ROWS.` (any table with rows)
+- Exact command used to run it: read off the adapter's source (`build/index.js`, `select` and `openCursor`), not run against a system
+- Expected SAP behaviour: 0 is no limit -- every row (the ABAP keyword documentation of `UP TO n ROWS`)
+- Actual open-abap behaviour: `LIMIT 0`, no row
+- Impact on open-steamgate: a search help read without `$top` (the generated DPC passes `iv_maxrows = 0`) would answer an empty list once the read honours the row limit
+- Smallest safe workaround: `ZCL_OAO_SHLP_DDIC` and the join classes `tools/segw-shlp.mjs` writes pass `ZCL_OAO_SHLP_DDIC=>C_ALL_ROWS` (the largest `i`) for 0
+- Upstream issue: needs an issue (abaplint/database-sqlite, and the other adapters checked alike) after a critic pass
+- Regression-test location: `test/unit/zcl_osd_h5x_test` (ltcl_value_help: external_unit_key_and_order reads the whole list without `$top`)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-15-order-by-primary-key-dynamic -- `ORDER BY PRIMARY KEY` over a dynamic FROM is dropped
+
+- Status: `workaround`
+- Discovery date: `2026-11-15`
+- Affected versions: the pinned `@abaplint/transpiler` (statements/select.ts passes `primaryKey` only for a table it knows at transpile time) with `@abaplint/database-sqlite` (an absent `primaryKey` turns the clause into nothing)
+- Affected ABAP statement, runtime API or adapter: `SELECT * FROM (lv_table) ... ORDER BY PRIMARY KEY`
+- Minimal ABAP reproducer: `test/unit/zcl_osd_h5x_test` ltcl_value_help->plain_table_sorted_page with the registry's `iv_order_by` removed (rows come in insertion order)
+- Exact command used to run it: `npm run unit`; on the bed the milestone-3 pass-3 SQL trace shows the one-table help read `WHERE 1 = 1` with no ORDER BY
+- Expected SAP behaviour: the rows in the table's key order
+- Actual open-abap behaviour: no ORDER BY; the database's order
+- Impact on open-steamgate: a value help read with a row limit ($top) takes ANY rows before it sorts them, not the first keys
+- Smallest safe workaround: `tools/segw-shlp.mjs` writes the table's key fields as `iv_order_by` and `ZCL_OAO_SHLP_DDIC` orders by them by name
+- Upstream issue: needs an issue (abaplint/transpiler) after a critic pass
+- Regression-test location: `test/unit/zcl_osd_h5x_test` (ltcl_value_help: plain_table_sorted_page, entry_uri_key_encoded)
+- Upstream version containing a fix: unknown
+
+### ANOMALY-2026-11-18-export-import-shared-memory -- `EXPORT`/`IMPORT ... SHARED MEMORY` transpile to a throw
+
+- Status: `fixed upstream: abaplint/transpiler#2134` for SHARED MEMORY and SHARED BUFFER (merged 2026-11-19 as `73e33f03`, released in 2.14.38; the pin `local/osd-build-4m` is built on it and dropped the fork's `8aafdd71` + `c2b0b584` of 4l)
+- Discovery date: `2026-11-18`
+- Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`statements/export.ts` and `statements/import.ts` return `throw new Error("Export, transpiler todo")` / `"Import, transpiler todo"` for every form of the statement)
+- Affected ABAP statement, runtime API or adapter: `EXPORT name = dobj TO SHARED MEMORY dbtab(ar) ID id` and `IMPORT name = dobj FROM SHARED MEMORY dbtab(ar) ID id` (every other `EXPORT`/`IMPORT` medium alike)
+- Minimal ABAP reproducer: a class with one method holding `DATA lt TYPE STANDARD TABLE OF i WITH DEFAULT KEY.`, `EXPORT tab = lt TO SHARED MEMORY indx(zk) ID 'B3'.` and `IMPORT tab = lt FROM SHARED MEMORY indx(zk) ID 'B3'.`
+- Exact command used to run it: the reproducer transpiled alone with the pinned CLI (`abap_transpile`, `ignoreSyntaxCheck`); the generated method body is the two throws. First seen on Zork's push-channel class (`zork-abap`, src/zork_02), whose session bookkeeping in `on_start` does both, rescued out of a HANA tenant (docs/hana-serve-icf.md)
+- Expected SAP behaviour: the data objects are written to / read from the application server's shared memory under the area and ID; `IMPORT` sets `sy-subrc = 4` when nothing is stored there
+- Actual open-abap behaviour: the statement compiles and the method throws a plain `Error` the moment it reaches it -- here, the first message of every push-channel connection
+- Impact on open-steamgate: rescued code that keeps state across sessions this way cannot run its push channel (Zork's APC, stage 2 of serving it over HANA); the HTTP route of stage 1 does not reach it
+- Smallest safe workaround: none in OSG -- fixed in the transpiler instead: the runtime keeps one store per medium for the process (the application server's shared memory), keyed by dbtab, client (`sy-mandt` unless `CLIENT` is given), area and ID; `EXPORT` stores copies and replaces the cluster, `IMPORT` of a key without a cluster sets `sy-subrc` 4. Not modelled: the ID cut to the dbtab key length, displacement of SHARED BUFFER, refusal of references in an exported value, and the type check of `IMPORT` (no `CX_SY_IMPORT_MISMATCH_ERROR`: a target of another type is set with the ordinary MOVE conversion). The store is the process's: a recycled process (a warm-compile recycle, a restart) starts with no clusters, like an application server after a restart
+- Upstream issue: abaplint/transpiler#2134 (a feature: `main` at `a64f380e`, 2026-11-18, still threw `transpiler todo` for both statements), from the branch `shared-memory` inside abaplint/transpiler, after a critic pass
+- Regression-test location: `test/unit/zcl_osd_shared_memory_test` (5 methods: fail with the 4k pin, pass with 4l and with 4m, the upstream form); in the transpiler, `test/statements/export_import.ts`
+- Upstream version containing a fix: 2.14.38
+
+### ANOMALY-2026-11-18-decfloat16-type-todo -- `TYPE decfloat16` transpiles to a constructor that does not exist
+
+- Status: `fixed upstream: abaplint/transpiler#2135` (merged 2026-11-19 as `5813c035`, released in 2.14.38): `decfloat16` runs on the runtime's `DecFloat34`, rounded to 16 significant digits since #2244; the pin `local/osd-build-4m` dropped the fork's `e9958256` + `b2998ada` of 4l
+- Discovery date: `2026-11-18`
+- Affected versions: `@abaplint/transpiler` 2.14.19 up to the 4k pin and upstream main at 2.14.33 (`transpile_types.ts` maps every type it does not know to `new abap.types.typeTodo<abaplint class name>()`)
+- Affected ABAP statement, runtime API or adapter: `DATA x TYPE decfloat16` (a method local, an attribute), `CONV decfloat16( ... )`
+- Minimal ABAP reproducer: a static method holding `DATA lv TYPE decfloat16.` and `lv = 30 * 60.`, called once
+- Exact command used to run it: the transpiler's own mocha, `test/types/decfloat16.ts` (fails with `abap.types.typeTodoDecFloat16Type is not a constructor` before, passes after). First seen on Zork's push channel, whose session expiry check computes in `decfloat16` (docs/hana-serve-icf.md, "APC")
+- Expected SAP behaviour: a decimal floating point number of 16 digits
+- Actual open-abap behaviour: the method throws `TypeError` at the declaration
+- Impact on open-steamgate: rescued code with a `decfloat16` local dies at its first line; here every push-channel connection
+- Smallest safe workaround: none in OSG -- the transpiler maps the type to the runtime's `DecFloat34` and, since #2244, rounds to 16 significant digits. Not modelled in the fork's form (4l): the 16 digit rounding; still not modelled upstream: the range of `decfloat16`, and RTTI: `cl_abap_typedescr` describes such a field as a `decfloat34` (type kind, length)
+- Upstream issue: abaplint/transpiler#2135, branch `decfloat16` inside abaplint/transpiler, after a critic pass
+- Regression-test location: in the transpiler, `test/types/decfloat16.ts`; in OSG, the push channel served over HANA (docs/hana-serve-icf.md)
+- Upstream version containing a fix: 2.14.38
+
+### ANOMALY-2026-11-25-query-escaped-nul -- a query string escape the decoder cannot turn into text empties its field and drops the fields after it
+
+- Status: `workaround` (fail closed: `ZCL_STG_URL=>REFUSE_UNDECODABLE` answers 400 for the whole request)
+- Discovery date: `2026-11-25`
+- Affected versions: open-abap-core since #1352 / #1356 (`cl_http_utility=>unescape_url` and `string_to_fields` as on a system), in the pin `osd/core-rebase-2026-11-25`
+- Affected ABAP statement, runtime API or adapter: `cl_http_utility=>string_to_fields` over a query string with an escape it cannot decode in a value: an escaped NUL (`%00`, error 3), a `%` without two hex digits after it (`%4`, `%4g`, a literal `100%`, error 29), escaped bytes that are not UTF-8 (`%C3` alone, error 512). The ICF shim decodes every request's query with it, the V2 `$batch` its parts' queries; `zcl_osd_form=>parse` (V4) goes through `unescape_url` alike
+- Minimal ABAP reproducer: `lt = cl_http_utility=>string_to_fields( `foo=%4&$filter=x` ).` -- `foo` has no value and `$filter` is not in `lt`; `cl_http_utility=>get_last_error( )` is not 0. Inside one option, `$filter=TravelId%20eq%20'ZZZZ'%4` decodes to an empty `$filter`
+- Exact command used to run it: `GET /sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet?$format=json&foo=%00&$filter=TravelId%20eq%20'ZZZZ'` and `...TravelSet?foo=%4&$filter=TravelId%20eq%20'ZZZZ'` answered 200 with every row before the workaround (critic of #1014, rounds 2 and 3); an empty filter is no filter
+- Expected SAP behaviour: unmeasured -- what a real ICF hands the application in `get_form_fields` for a field it cannot decode and for the fields after it has not been run on A4H
+- Actual open-abap behaviour: the field is empty and every later field is missing
+- Impact on open-steamgate: a filter, an order or a `$top` in or behind such a field is silently gone, so a request answers more rows than it asked for
+- Smallest safe workaround: the V2 and V4 dispatchers take the raw query (of a request and of a `$batch` part, required, not optional) and answer 400 when any part of it does not decode (`ZCL_STG_URL=>UNDECODABLE`, read off the text so that osgo, which decodes natively, is held to the same), before any option is read: "NUL" for `%00`, "malformed escape" for the rest. Path segments and keys go through `ZCL_STG_URL=>UNESCAPE` with the same rule. `%2500` and `+` decode and are accepted
+- Upstream issue: none until measured; the rule may be right on a system too
+- Regression-test location: `test/mocha.mjs` ("an escaped NUL anywhere in the query is a 400 ...", "a malformed escape anywhere in the query is a 400 too ...", "an escaped NUL in a path segment is a 400")
+- Upstream version containing a fix: n/a
+
+### ANOMALY-2026-11-25-cds-metadata-redirect-namespace -- a namespaced redirected target keeps its blanks in the CDS metadata
+
+- Status: `fixed upstream: abaplint/transpiler#2269` (merged 2026-11-25 as `58a45603`, released in 2.14.40; the pin `local/osd-build-41` is built on 2.14.41, and the blank removal in `tools/cds-metadata.mjs` and its canary test are gone)
+- Discovery date: `2026-11-25`
+- Affected versions: `@abaplint/transpiler` 2.14.38 and 2.14.39 (#2264, `packages/transpiler/src/cds_metadata.ts`, `redirection()`), in the pin `local/osd-build-4m`
+- Affected ABAP statement, runtime API or adapter: the `cds.associations[].target` the transpiler writes into `abap.DDIC["<ENTITY>"]` for an element `_X : redirected to [parent | composition child] /NS/TARGET` of a projection
+- Minimal ABAP reproducer: `define root view entity /DMO/C_T as projection on /DMO/I_T { key TravelID, _Booking : redirected to composition child /DMO/C_B }` with `/DMO/I_T` declaring `composition [0..*] of /DMO/I_B as _Booking`
+- Exact command used to run it: `CDSMetadata.build()` of 2.14.38 over a registry holding the packs/rap-flight managed views (public SAP-samples flight reference scenario); `tools/cds2ddic.mjs` with the blank removal taken out writes the projections' composition children without their `ZIF_STG_CDS_COMPOSITION` (the target `/ DMO / C_...` matches no view)
+- Expected SAP behaviour: the target is the entity name, `/DMO/C_B`
+- Actual open-abap behaviour: `/ DMO / C_B`, the name's tokens joined with blanks (`concatTokens()`); `association()` removes them, `redirection()` does not
+- Impact on open-steamgate: a projection's redirected composition is not found, so delete cascades and the composition interface are lost for namespaced RAP projections; un-namespaced names are unaffected
+- Smallest safe workaround: none since the pin `local/osd-build-41`; until then `cds-metadata.mjs` (`nameOf`) removed the blanks from every target before comparing, a CDS name having none
+- Upstream issue: abaplint/transpiler#2269 (the same `replace(/ /g, "")` in `redirection()`)
+- Regression-test location: `test/cds-metadata.mjs` (the redirected target read as the transpiler writes it); the whole of `gen/` byte-identical over packs/rap-flight
+- Upstream version containing a fix: 2.14.40

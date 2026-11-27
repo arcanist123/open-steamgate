@@ -36,9 +36,11 @@ import {fileURLToPath} from "node:url";
 import {generatorIdentity, hashOf, inputsOf, layout, liveHash, lock, linkRoots, ownConfig, prepare, rootsWanted, switchTo} from "./osd-build.mjs";
 import {sourceBuildOverlay, sourceBuildStore} from "./osd-source-build-view.mjs";
 import {assertToolchain} from "./osd-transpiler.mjs";
+import {generationSystem} from "./osd-system.mjs";
 import {mapStatementStarts} from "./osd-source-map-starts.mjs";
 import {runsAs} from "./osd-main.mjs";
 import {isBinaryFilename, listFiles, loadLibs, selectedModules, outputFiles, readAll} from "./osd-transpile.mjs";
+import {lowerDerived, readRapBindings} from "./rap/lower-derived.mjs";
 import {lowerNarrowSubmit} from "./osd-narrow-submit.mjs";
 import {orderRegistry} from "./osd-warm-order.mjs";
 import {updateRegistry} from "./osd-warm-update.mjs";
@@ -75,9 +77,16 @@ export class NotWarm extends Error {
 //   - osd-gui-convert (2026-09-26): a report's source (*.prog.abap), which
 //     the rule below already sends cold -- only a class or an interface is
 //     ever warm;
+//   - rap/bdef-gen (2026-11-08, R2): a behavior pool's local handler and
+//     saver classes, their methods and parameter names, which bind the
+//     runtime adapter -- any class inheriting CL_ABAP_BEHAVIOR_HANDLER or
+//     _SAVER is cold;
 //   - cds2ddic, stg-compile, segw-*, osd-bsp-registry, osd-fm-registry:
 //     other object types (DDLS, TABL, IWSV, WAPA, FUGR, YAML), and which
-//     class files exist.
+//     class files exist;
+//   - osd-textpool-registry, osd-ddic-info-registry: the class and program
+//     XML (<TPOOL>) and TABL/DTEL/DOMA -- never a .abap source, so a source
+//     edit leaves both registries as they were.
 // So an edit is warm when it changes the content of a class or interface
 // that already exists, outside gen/, with no AMDP body before or after, the
 // same INTERFACES lines, and -- for an interface -- no AMDP class naming it.
@@ -85,9 +94,10 @@ export class NotWarm extends Error {
 // page or a generator is cold. test/warm.mjs pins the generator list this
 // was read against, so a new generator makes somebody read this again.
 export const GENERATORS_READ = [
-  "osd-transpiler.mjs", "osd-inputs.mjs", "osd-ddic-binary.mjs", "cds2ddic.mjs", "stg-compile.mjs",
+  "osd-transpiler.mjs", "osd-inputs.mjs", "osd-ddic-binary.mjs", "cds2ddic.mjs", "rap/bdef-gen.mjs", "stg-compile.mjs",
   "segw-registry.mjs", "segw-shlp.mjs", "osd-bsp-registry.mjs", "amdp-gen.mjs", "amdp-tablefunc.mjs",
   "osd-fm-registry.mjs", "osd-gui-convert.mjs", "osd-tran-registry.mjs",
+  "osd-textpool-registry.mjs", "osd-ddic-info-registry.mjs",
 ];
 
 const SOURCE = /\.(clas(\.(locals_imp|locals_def|testclasses|macros))?\.abap|intf\.abap|prog\.abap)$/i;
@@ -107,6 +117,12 @@ export function warmRule({path, before, after, amdpText = ""}) {
   }
   if (/\bSUBMIT\b/i.test(before + "\n" + after)) {
     return `${name}: a SUBMIT source is lowered during a cold build`;
+  }
+  if (/\bTYPE\s+(TABLE|STRUCTURE|RESPONSE|REQUEST)\s+FOR\b/i.test(before + "\n" + after)) {
+    return `${name}: RAP derived types are lowered during a cold build`;
+  }
+  if (/\bINHERITING\s+FROM\s+cl_abap_behavior_(handler|saver)\b/i.test(before + "\n" + after)) {
+    return `${name}: a behavior pool's handler or saver (rap-runtime-gen reads its methods)`;
   }
   if (AMDP.test(before) || AMDP.test(after)) {
     return `${name}: an AMDP body (amdp-gen reads it)`;
@@ -330,8 +346,9 @@ export class WarmCompiler {
     const view = this.#view(overlay, raw, config, stack);
     const wanted = view.wanted;
     const digests = view.digests;
+    const rapBindings = readRapBindings(root, checkRead(this.compileView));
     const read = await readAll(wanted, resolve(root, own.output_folder),
-      (source, filename) => lowerNarrowSubmit(source, filename, core), checkRead(this.compileView));
+      (source, filename) => lowerDerived(lowerNarrowSubmit(source, filename, core), filename, rapBindings), checkRead(this.compileView));
     this.files = new Map(wanted.map((path, i) => [this.#logical(path, overlay), read[i]]));
     this.actual = new Map(view.actual);
     // where the live generation read each copied file from: its copy, when
@@ -839,6 +856,7 @@ export class WarmCompiler {
           writeFileSync(join(tmp, "manifest.json"), JSON.stringify({
             hash, builtAt: new Date().toISOString(), ms: Date.now() - started, objects: manifest.objects,
             transpiler, toolchain: this.loaded.identity, inputs: manifest.inputs, gen: manifest.gen, overridden: manifest.overridden,
+            ...generationSystem(root, manifest.inputs),
           }, null, 2));
           const sharedSources = keepSourceInputs(root, tmp, digests, actual, overlay,
             {generation: join(paths.byInput, from), digests: this.digests});

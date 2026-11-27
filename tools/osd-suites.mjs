@@ -319,7 +319,11 @@ try {
     result = runWithRetries(selected, (runFiles, phase) => {
       const path = join(scratch, `${attempt++}.json`);
       console.log(`osd-suites: ${phase}: ${runFiles.length} file(s)`);
-      const child = spawnSync("npx", ["mocha", ...runFiles,
+      // Shared CI runners are slower than a desk: on 2026-11-08 four unrelated
+      // cases hit mocha's default 2 s. A suite that sets its own timeout keeps it;
+      // an explicit --timeout in the arguments wins over this default.
+      const timeout = extra.some((arg) => arg === "-t" || /^--timeout(?:=|$)/.test(arg)) ? [] : ["--timeout", "10000"];
+      const child = spawnSync("npx", ["mocha", ...runFiles, ...timeout,
         ...extra, "--require", fileURLToPath(new URL("./osd-test-isolation.cjs", import.meta.url)), "--require", fileURLToPath(new URL("./osd-suite-no-retries.cjs", import.meta.url)), "--retries", "0", "--reporter", fileURLToPath(new URL("./osd-suite-timing-reporter.cjs", import.meta.url))],
         {stdio: "inherit", env: {...process.env, OSD_SUITE_TIMINGS_FILE: path}});
       const metadata = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};

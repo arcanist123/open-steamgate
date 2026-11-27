@@ -339,7 +339,7 @@ const MPC_BANNER = `*&----------------------------------------------------------
 `;
 const STARS = "***********************************************************************************************************************************";
 
-function propertyCode(pr, opts) {
+function propertyCode(pr, opts, struct = "") {
   const lines = [];
   if (pr.complexType) {
     return `lo_complex_type = lo_entity_type->create_complex_property( iv_property_name = '${pr.name}'
@@ -377,6 +377,12 @@ function propertyCode(pr, opts) {
   if (pr.asEtag) {
     lines.push("lo_property->set_as_etag( ).");
   }
+  // a date is shown as a date only when the model says so (a system derives no
+  // sap:display-format, milestone 3 B4): stg-compile's option, not SEGW's own
+  const isDate = pr.typeKind === "D" || (typeof opts.dateDisplayFormat === "function" && opts.dateDisplayFormat(struct, pr.abapField));
+  if (opts.dateDisplayFormat && isDate && pr.edmType === "Edm.DateTime") {
+    lines.push("lo_property->/iwbep/if_mgw_odata_annotatabl~create_annotation( 'sap' )->add(\n      EXPORTING\n        iv_key      = 'display-format'\n        iv_value    = 'Date' ).");
+  }
   // SEGW takes labels from the class's text elements (set_label_from_text_element);
   // without a text pool the label goes in as the sap:label annotation (stg-compile)
   if (opts.labelAnnotations && pr.label && !pr.textElement) {
@@ -407,7 +413,7 @@ ${STARS}
 ${STARS}
 
 `;
-  s += et.properties.map((pr) => propertyCode(pr, opts)).join("\n") + "\n";
+  s += et.properties.map((pr) => propertyCode(pr, opts, et.abapStruct)).join("\n") + "\n";
   if (et.abapStruct) {
     s += `
 lo_entity_type->bind_structure( iv_structure_name   = '${et.abapStruct}'
@@ -693,7 +699,7 @@ ${types}
 protected section.
 private section.
 `;
-  if (textElements.length > 0) {
+  if (textElements.length > 0 || m.functionImports.some((fi) => fi.textElement || fi.parameters.some((fp) => fp.textElement))) { // each names it
     s += `\n  constants GC_INCL_NAME type STRING value '${cls.padEnd(30, "=")}CP' ##NO_TEXT.\n`;
   }
   s += "\n";

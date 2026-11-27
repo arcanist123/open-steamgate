@@ -51,6 +51,19 @@ function quoteRegExp(value) {
 }
 
 /**
+ * The launchpad tile whose target is `intent` ("Travel-manage"), and only that
+ * one.  A tile is picked by where it goes, not by its title: a title match is
+ * a prefix or substring match, and "Travels" also matched the V4 app's tile.
+ * The sandbox renders each tile's content asynchronously, so `.first()` over
+ * both landed on whichever had rendered first and opened #TravelV4-manage now
+ * and then.  `$=` on the href is exact: "#Travel-manage" is not a suffix of
+ * "#TravelV4-manage", and the prefix (origin, Pages mount, query) is free.
+ */
+function launchpadTile(page, intent) {
+  return page.locator(".sapUshellTile", {has: page.locator(`a[href$="#${intent}"]`)});
+}
+
+/**
  * Register the same launchpad smoke checks for either hosting shape.
  *
  * `openLaunchpad` owns the host-specific setup (the Node server can navigate
@@ -63,10 +76,9 @@ export function registerLaunchpadNavigationTests({test, expect, openLaunchpad, p
   const run = async (page, app) => {
     await openLaunchpad(page);
 
-    const tile = page.getByRole("link", {name: new RegExp(`^${quoteRegExp(app.title)}\\b`)}).or(
-      page.locator(".sapMGT, .sapUshellTile", {hasText: app.title}),
-    ).first();
+    const tile = launchpadTile(page, app.intent);
     await expect(tile).toBeVisible({timeout: 60_000});
+    await expect(tile).toContainText(app.title);
     await tile.click();
 
     await expect(page).toHaveURL(new RegExp(`#${quoteRegExp(app.intent)}(?:$|[?&])`), {timeout: 60_000});
@@ -91,4 +103,4 @@ export function registerLaunchpadNavigationTests({test, expect, openLaunchpad, p
   }
 }
 
-export {CORE_APPS};
+export {CORE_APPS, launchpadTile};

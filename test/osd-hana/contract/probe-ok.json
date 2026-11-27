@@ -1,0 +1,1 @@
+{"exit": 0, "document": {"ok":true,"db":"tenant","abap_schemas":[{"schema":"TESTSCHEMA","owned_by_login":false,"non_select_on_schema":false,"basis_release":"757/0000000001","clients":["100","200"],"reposrc_rows":3000000,"tadir_rows":1300000,"abap_attached":"unknown"}],"login_class":"other","tls":"off"}}

@@ -108,15 +108,18 @@ export function installSqlTrace(client, sink, {label, enabled} = {}) {
       const index = n++;
       const sql = statementOf(args);
       const started = performance.now();
-      const done = (rows) => {
+      // a call that threw carries `error` (its code): the entry is what was
+      // asked for, and a refused write was asked for and not sent
+      const done = (rows, error) => {
         record({n: index, op, sql, ms: Math.round((performance.now() - started) * 10) / 10,
-          table: tableOf(op, args, sql), rows});
+          table: tableOf(op, args, sql), rows,
+          ...(error === undefined ? {} : {error: String(error?.code ?? "error")})});
       };
       let answer;
       try {
         answer = original.apply(this, args);
       } catch (error) {
-        done(undefined);
+        done(undefined, error ?? "error");
         throw error;
       }
       if (answer !== null && typeof answer?.then === "function") {
@@ -124,7 +127,7 @@ export function installSqlTrace(client, sink, {label, enabled} = {}) {
           done(rowsOf(value));
           return value;
         }, (error) => {
-          done(undefined);
+          done(undefined, error ?? "error");
           throw error;
         });
       }

@@ -59,6 +59,7 @@ describe("tools/osd-warm: what a save may be built warm", () => {
     expect(warmRule({path: "src/zcl_x.clas.abap", before: clas, after: clas + "METHOD m BY DATABASE PROCEDURE FOR HDB."})).to.match(/AMDP/);
     expect(warmRule({path: "src/zcl_x.clas.abap", before: clas, after: clas.replace("zif_y", "zif_z")})).to.match(/INTERFACES/);
     expect(warmRule({path: "src/zcl_x.clas.abap", before: clas, after: clas + "SUBMIT zgg_ex_012 AND RETURN."})).to.match(/SUBMIT source/);
+    expect(warmRule({path: "src/zcl_x.clas.abap", before: clas, after: clas + "DATA x TYPE TABLE FOR CREATE zi_note."})).to.match(/RAP derived types/);
     expect(warmRule({path: "src/zif_y.intf.abap", before: "a", after: "b", amdpText: "DATA x TYPE zif_y=>ty."})).to.match(/AMDP class/);
     const chained = clas.replace("INTERFACES zif_y.", "INTERFACES: zif_y, zif_w.");
     expect(warmRule({path: "src/zcl_x.clas.abap", before: chained, after: chained.replace(", zif_w", "")})).to.match(/INTERFACES/);

@@ -95,6 +95,21 @@ test("sibling include macro resolution keeps its parent, filename queries and pr
     .every((s) => s.get().constructor.name !== "Unknown"), "macro really resolves");
 });
 
+// Core 2.120.94 added CrossIncludeMacros.reparseCyclicPrograms: another
+// registry-wide sweep beside findCandidates, running for every parse.
+test("cyclic-include reparse sweep stays a scheduling scan, not an unknown one", () => {
+  const files = {
+    "zprog_a.prog.abap": "REPORT zprog_a. INCLUDE zprog_b.",
+    "zprog_b.prog.abap": "INCLUDE zprog_a.",
+    "zcl_c.clas.abap": classSource("zcl_c"),
+  };
+  const p = compile(files, ["ZCL_C"]), manifests = provenanceOf(p);
+  assert.ok(compilationProvenanceOf(p).scheduling.some((q) => q.kind === "include-macro-context"
+    && q.result.includes("PROG ZPROG_A") && q.result.includes("CLAS ZCL_C")));
+  for (const [owner, m] of manifests)
+    assert.deepEqual(m.unknownScans, [], `${owner} must not fail closed for the cyclic reparse sweep`);
+});
+
 test("CDS SQL-view alias scans preserve candidate order, hits and misses", () => {
   const files = {
     "zbase.tabl.xml": xml("<DD02V><TABNAME>ZBASE</TABNAME><TABCLASS>TRANSP</TABCLASS></DD02V><DD03P_TABLE><DD03P><FIELDNAME>ID</FIELDNAME><DATATYPE>CHAR</DATATYPE><LENG>000004</LENG></DD03P></DD03P_TABLE>"),
@@ -129,8 +144,10 @@ test("TTYP, VIEW, structure INCLUDE and APPEND typing keep their complete DDIC c
 test("a second cached DDIC consumer inherits the original DOMA query without retyping it", () => {
   const c = corpus(), reg = registry(c.files);
   let domainCalls = 0;
-  const domain = reg.getObject("DOMA", "ZORACLE_NUM"), parse = domain.parseType;
-  domain.parseType = function(...args) { domainCalls++; return parse.apply(this, args); };
+  // Core 2.120.94 types a DOMA through parseDomainType; parseType is a wrapper
+  // core itself no longer calls on this path.
+  const domain = reg.getObject("DOMA", "ZORACLE_NUM"), parse = domain.parseDomainType;
+  domain.parseDomainType = function(...args) { domainCalls++; return parse.apply(this, args); };
   let callsAfterFirst;
   recordProvenance(() => {
     parseObserved(reg); // eagerly caches TABL -> DTEL -> DOMA before either consumer

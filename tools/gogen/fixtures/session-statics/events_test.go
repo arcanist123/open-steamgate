@@ -31,8 +31,9 @@ func TestEventRegistrationsFollowStatics(t *testing.T) {
 			// Shared host requests retain registrations along with class statics.
 			abap.WorkProcess.Lock()
 			defer abap.WorkProcess.Unlock()
-			first := &abap.Session{Statics: abap.ProcessStatics}
-			second := &abap.Session{Statics: abap.ProcessStatics}
+			instance := abap.NewInstance(nil)
+			first := instance.NewSession()
+			second := instance.NewSession()
 			ZCL_PROBE_RESET(first)
 			register(first)
 			if all {

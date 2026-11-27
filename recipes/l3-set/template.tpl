@@ -2381,6 +2381,7 @@ CLASS {{class}} IMPLEMENTATION.
     DATA lv_bind TYPE string.
     DATA ls_rule TYPE ty_rule.
 {{#dry_run}}
+    DATA lt_dry TYPE tt_rule.
     {{capture}}=>reset( ).
 {{/dry_run}}
     CONCATENATE iv_bind ',{{sink.name}}=capture' INTO lv_bind.
@@ -2401,10 +2402,17 @@ CLASS {{class}} IMPLEMENTATION.
     IF rs_result-status = 'DONE'.
       rs_result-status = 'DRY'.
     ENDIF.
-    LOOP AT rs_result-rules INTO ls_rule WHERE status = 'DONE'.
-      ls_rule-status = 'DRY'.
-      MODIFY rs_result-rules FROM ls_rule.
+    " the rows are rebuilt, not MODIFYed in the loop: the runtime (2.14.14+)
+    " searches the row by the default key, and status is part of that key once
+    " it says DRY, so the in-loop MODIFY finds nothing (ANOMALY-2026-11-09-
+    " modify-in-loop-by-key)
+    LOOP AT rs_result-rules INTO ls_rule.
+      IF ls_rule-status = 'DONE'.
+        ls_rule-status = 'DRY'.
+      ENDIF.
+      APPEND ls_rule TO lt_dry.
     ENDLOOP.
+    rs_result-rules = lt_dry.
   ENDMETHOD.
 
   METHOD resume.

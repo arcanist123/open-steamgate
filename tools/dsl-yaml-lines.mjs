@@ -55,3 +55,43 @@ export function lineOf(index, path) {
   }
   return 1;
 }
+
+// The rule line of each column of a condition written over several lines: a
+// plain scalar continued on more indented lines, or a block scalar (`|`, `>`).
+// `value` is what js-yaml read. When the lines joined the way YAML joins them
+// are not that value (quotes, escapes, blank lines, indentation kept by `|`),
+// every column takes the key's line.
+export function scalarLines(text, keyLine, value) {
+  const source = text.split(/\r?\n/);
+  const whole = () => keyLine;
+  const raw = source[keyLine - 1] ?? "";
+  let column = raw.length - raw.trimStart().length;
+  let rest = raw.slice(column);
+  while (rest === "-" || rest.startsWith("- ")) {
+    const after = rest.slice(1);
+    column += 1 + after.length - after.trimStart().length;
+    rest = after.trimStart();
+  }
+  const key = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s"'#{[\]}:,][^:#]*?)\s*:(?:\s+|$)/.exec(rest);
+  if (!key || typeof value !== "string") return whole;
+  const first = rest.slice(key[0].length).replace(/\s+#.*$/, "").trimEnd();
+  const block = /^[|>]/.test(first);
+  if (!block && (first === "" || /^["']/.test(first))) return whole;
+  const segments = block ? [] : [{line: keyLine, text: first}];
+  for (let i = keyLine; i < source.length; i++) {
+    const text = source[i];
+    if (text.trim() === "") break;
+    if (text.length - text.trimStart().length <= column || (!block && text.trim().startsWith("#"))) break;
+    segments.push({line: i + 1, text: text.trim()});
+  }
+  const joined = segments.map((s) => s.text).join(first.startsWith("|") ? "\n" : " ");
+  if (!segments.length || joined !== value.replace(/\n+$/, "")) return whole;
+  const starts = [];
+  let offset = 1;
+  for (const s of segments) {
+    starts.push([offset, s.line]);
+    offset += s.text.length + 1;
+  }
+  return (at) => starts.filter(([o]) => o <= at).at(-1)?.[1] ?? keyLine;
+}
+

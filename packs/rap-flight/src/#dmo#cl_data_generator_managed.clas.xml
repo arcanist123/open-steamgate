@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- Carried from src/managed/#dmo#cl_data_generator_managed.clas.xml of SAP-samples/abap-platform-refscen-flight (Apache-2.0)
+     at commit 5353cbeb013a3a2fbd7f1ba6be89e54f68cfe22c, unchanged: a later layer hides the whole upstream
+     object, so the overlay must carry every file of it (tools/osd-inputs.mjs).
+     Licence and copyright: LICENSE and NOTICE in this folder. -->
+<abapGit version="v1.0.0" serializer="LCL_OBJECT_CLAS" serializer_version="v1.0.0">
+ <asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+   <VSEOCLASS>
+    <CLSNAME>/DMO/CL_DATA_GENERATOR_MANAGED</CLSNAME>
+    <LANGU>E</LANGU>
+    <DESCRIPT>Data Generator for Managed Package</DESCRIPT>
+    <STATE>1</STATE>
+    <CLSCCINCL>X</CLSCCINCL>
+    <FIXPT>X</FIXPT>
+    <UNICODE>X</UNICODE>
+   </VSEOCLASS>
+  </asx:values>
+ </asx:abap>
+</abapGit>

@@ -536,8 +536,9 @@ range LOW, and the plain comparison and the `SET` are not measured yet
 - `d`, `t` and `n` are declared, copied and compared with initial (`p`:
   see "Packed numbers"); no `decfloat`. No `RAISE RESUMABLE`, no `RAISE
   EXCEPTION ... MESSAGE`, no T100 or OTR texts in `get_text( )`.
-- Class statics and constructor flags use a session-selected store. Serialized
-  hosts share `abap.ProcessStatics` across requests, alongside the database.
+- Class statics and constructor flags use a session-selected store. A
+  serving host mints its sessions from one `abap.Instance`, which holds the
+  database it opened and the store its sessions share across requests.
 - The handler's `ON_MESSAGE` is still three host lines in the stands; the
   `RETURN` inside its `TRY` that kept it out compiles now.
 - Table values: an assignment, `APPEND`, `MODIFY`, `READ ... INTO`, `LOOP
@@ -703,6 +704,38 @@ the shim, open-abap-core and a test handler at `/echo` in five seconds.
 .out/osgo [-port 3095] [-addr 127.0.0.1] [-db file.sqlite] [-root <checkout>]
 ```
 
+The binary answers like a supervised host (`go/serving`, ADR 0010 slice 1):
+`GET /osd/serving` is the readiness door with the Node host's fields
+(`ready`, `generation`, `pid`, `since`, `root`, `database`, `hot`,
+`launcherPid`, `launcherIdentity` from `OSD_LAUNCHER_IDENTITY`), every answer
+carries `X-OSD-Generation` (the build's `go:` hash, the generation the status
+service names), and SIGTERM/SIGINT/SIGHUP drain: newcomers are answered 503
+`STG/NOT_SERVING`, the steps in flight finish, the listeners close, the
+database is closed under the work process, exit 0 within 55 s. `node
+tools/osd-host-contract.mjs --base <url> --drain <pid>` is the check.
+
+The generated classes are three Go packages, not one (2026-11-08,
+`docs/osgo-fast-rebuild.md`): `go/generated/osgo/core` (the libraries and
+the tree's objects they use), `go/generated/osgo/app` (the tree) and package
+main beside `main.go` (the objects `git status` shows as edited, plus
+`OSGO_HOT`). `go-layers.mjs` is the split, shared with `unit.mjs`;
+`osgo-layers.mjs` says which object starts where. A save of a class
+recompiles package main and links while Go's cache keeps the rest;
+`--unlayered` (or `OSGO_LAYERS=0`) builds the single package as before. The
+generation is hashed from the unlayered emission either way.
+`node tools/gogen/osgo-cycle.mjs` measures the edit cycle phase by phase.
+`gofmt-cache.mjs` formats the generated Go and gives an unchanged core or
+app package its formatted copy back from `.out/gofmt` (keyed by the hash of
+the emission) instead of another gofmt pass over 20 MB.
+`node tools/gogen/osgo.mjs --fast` (or `OSGO_FAST=1`) builds without the
+Node build when `osgo-fast.mjs` proves that a full build would leave `gen/`
+as it is: the live generation's `gen/` on disk, no inactive overlay, every
+changed file an existing class or interface source of the live generation
+(the tree hashes back to it with them put back) that passes the warm rule
+(`osd-warm.mjs warmRule`). Anything else runs `tools/osd-build.mjs` first.
+Nothing is written under `build/`; `osgo-fast.test.mjs` is the decision,
+`docs/osgo-fast-rebuild.md` "The fast path" the parity proof.
+
 With `INSTANCE=nn` (exactly two ASCII digits), OSGo defaults to HTTP `80nn`
 and HTTPS `443nn`; opt-in DIAG (`-diag` / `OSD_OSGO_DIAG=1`) and RFC
 (`-rfc` / `OSD_OSGO_RFC=1`, requires `-adt`) use `32nn` and `33nn`.
@@ -750,8 +783,8 @@ are host functions with arguments, because `CL_ABAP_CONV_IN_CE` takes
 generic parameters: UTF-8 both ways, bytes that are not UTF-8 raise
 `CX_SY_CONVERSION_CODEPAGE`, as open-abap-core's fatal TextDecoder does.
 
-Each ICF request is one dialog step (`abap.DialogStep`) with a fresh
-Session, one at a time around the shared database; a dump is the Node host's
+Each ICF request is one dialog step (`abap.DialogStep`) in a fresh Session
+of the host's `abap.Instance`, one at a time around its database; a dump is the Node host's
 500 (`STG/RUNTIME` JSON with the ABAP frames for OData, `<class>: <text>`
 for a SICF node), and rolled back. Mounted: `/sap/opu/odata/sap/` with
 `ZCL_STG_HTTP_HANDLER`, every SICF node of the tree whose handler class is
@@ -926,14 +959,30 @@ results start there too. All measured on A4H (`ZCL_GOGEN_T_BYTECAT`,
 
 Generated `CLASS-DATA` and `class_constructor` flags live in lazily allocated class
 slots in `abap.Statics`, selected by `Session.Statics`. A nil pointer lazily creates
-private state; serialized hosts select `abap.ProcessStatics` to retain caches and
-constructor state across requests, with concurrent hosts taking `abap.WorkProcess`. ABAP Unit keeps a
+private state; a serving host mints its sessions from one `abap.Instance`, whose
+store they share, to retain caches and constructor state across requests, with
+concurrent hosts taking `abap.WorkProcess`. ABAP Unit keeps a
 fresh private store per test class. Inherited statics use the declaring class's
 slot, and references and method-cached pointers stay valid because slot values
 never move. `CLASS-EVENTS` and `SET HANDLER ... FOR ALL INSTANCES` registrations
-use the same store, so private sessions are isolated and ProcessStatics hosts
+use the same store, so private sessions are isolated and an instance's sessions
 retain registrations across requests. Registrations `FOR` an object stay on
 that sender object. Only one goroutine may use a Session or its shared store at a time.
+
+**A Session owns its state** (ADR 0010 slice 2, 2026-11-08). `go/abap` keeps no
+database, transaction or statics in a package variable: `abap.OpenDB`,
+`OpenDBFile` and `OpenDBImage` return an `*abap.Database` (the one-connection
+pool and the statement cache prepared on it), the host puts it into an
+`abap.Instance` and every dialog step runs in a Session minted from it
+(`Session.DB`, the step's transaction and `Session.Statics`). `abap.DialogStep(s,
+work)` and `abap.APCStep(s, name, work)` take the session; a statement reaches
+the database only through the session it was handed, so two sessions never share
+a transaction and a second session's step on a database whose one connection a
+step holds is refused at once rather than queued. The Unit runner gives each
+test class a Session with its own image copy (`Session.OpenUnitDB`,
+`UseUnitImage`). The one `abap.WorkProcess` mutex stays: the instance's
+sessions share one statics store and one connection, so the hosts still run one
+step at a time, which the ADR's later slices change.
 
 Against OSG on Node (`STG_DB=sqlite node test/run.mjs`), in Chromium and on
 the sockets: the three pages are byte for byte equal; Zork boots from

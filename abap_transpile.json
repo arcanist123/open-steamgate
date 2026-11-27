@@ -1,5 +1,8 @@
 {
   "input_folder": [
+    "gen/hana-ddic",
+    "gen/hana-src/*",
+    "gen/hana-segw",
     "src",
     "test",
     "gen"
@@ -66,7 +69,9 @@
         "/src/zif_abapgit_version.*",
         "/deps/trobjtype.dtel.xml",
         "/deps/trnspace.tabl.xml",
-        "/deps/dokil.tabl.xml"
+        "/deps/dokil.tabl.xml",
+        "/deps/dd07v.tabl.xml",
+        "/deps/ddobjname.dtel.xml"
       ]
     },
     {
@@ -91,7 +96,7 @@
         "/src/internal/**"
       ],
       "exclude_filter": [
-        "(#iwbep#if_mgw_odata_(action|parameter)\\.intf|zcl_oao_action\\.clas)\\."
+        "(#iwbep#if_mgw_(odata_(action|parameter|item|entity_typ|entity_set|property|nav_prop|assoc|assoc_set|ref_constr|model)|req_func_import|req_entityset|req_entity|req_entity_u|context|appl_srv_runtime)\\.intf|#iwbep#if_message_container\\.intf|#iwbep#(cl_mgw_request|cl_sb_gen_read_aftr_crt|cx_mgw_base_exception|cx_mgw_busi_exception|cx_mgw_tech_exception)\\.clas|zcl_oao_(action|cmplx_type|context|entity_typ|entity_set|association|nav_prop|assoc_set|ref_constraint|http_handler|model|msg_container|property|request_context|shlp_ddic)\\.clas)\\."
       ]
     },
     {
@@ -166,9 +171,14 @@
     "\\.samc\\.model\\.json$",
     "\\.samc\\.decl\\.json$",
     "\\.ddls\\.",
+    "\\.srvd\\.",
+    "/gen/rap/bindings\\.json$",
+    "/gen/hana-src/manifest\\.json$",
+    "/gen/hana-segw/[^/]+\\.json$",
     "\\.stg\\.yaml$",
     "\\.l2\\.yaml$",
     "\\.l3\\.yaml$",
+    "(?:^|/)\\.dsl-pack\\.json$",
     "\\.trace(?:\\.meta)?\\.json$"
   ],
   "_not_in_system": "Which of the exclusions above also mean 'this is not an object of this system'. The rest mean only 'the transpiler cannot read this file', which says nothing about whether the object exists: a CDS view is excluded by \\.ddls\\. and is very much an object here. The distinction is intent and cannot be inferred from the pattern - three attempts at inferring it were wrong in three different directions - so it is stated. Every entry must also be in exclude_filter, and test/store-exclusions.mjs checks that, so the two cannot drift. test/fixtures joined the list on 2026-09-19, after a check run over the whole tree complained, correctly about the object and falsely about the system, that a fixture selects from a table the system does not have: the fixture is not in the system, and the one test that read it as one now reads a program that is.",
@@ -178,6 +188,7 @@
     "\\.stg\\.yaml$",
     "\\.l2\\.yaml$",
     "\\.l3\\.yaml$",
+    "(?:^|/)\\.dsl-pack\\.json$",
     "\\.trace(?:\\.meta)?\\.json$",
     "\\.samc\\.model\\.json$",
     "\\.samc\\.decl\\.json$"

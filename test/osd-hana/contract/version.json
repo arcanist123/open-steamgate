@@ -1,0 +1,1 @@
+{"exit": 0, "document": {"capabilities":["probe","list","dump","names","packages","local","closure","inactive","catalog","ddic","skip_test_includes","object_report","tls","msag"],"commit":"c10a25cae70a032b87daa7c96906d0ecd6b588a5","go":"go1.26.8","name":"osd-hana-dump","os_arch":"linux/amd64","read_only":true,"schema":1,"version":"v2.62.1"}}

@@ -59,7 +59,8 @@ type Row struct {
 	Dialog, Update                         string // GUSR, GUSRVB; "" = none
 	Dialogs, Updates                       int    // GUSE, GUSEVB
 	Taken                                  time.Time
-	Session                                int64 // the session the row belongs to
+	Session                                int64  // the session the row belongs to
+	Generation                             string // the generation whose step opened the session ("" in one process)
 }
 
 // Filter of ENQUEUE_READ: an empty field matches every row.
@@ -72,6 +73,7 @@ type row struct{ Row }
 type session struct {
 	user           string
 	dialog, update string
+	generation     string
 }
 
 type state struct {
@@ -124,6 +126,16 @@ func (srv *Server) do(f func(*state)) bool {
 // after it answers as for an unknown session.
 func (srv *Server) Close() { srv.closed.Do(func() { close(srv.done) }) }
 
+// Closed says whether Close has run.
+func (srv *Server) Closed() bool {
+	select {
+	case <-srv.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // ownerID is 58 characters like a system's: a timestamp, a sequence and the
 // instance, padded with dots. It is compared, never parsed.
 func (st *state) ownerID() string {
@@ -136,11 +148,18 @@ func (st *state) ownerID() string {
 }
 
 // Open starts a session of user and returns its handle.
-func (srv *Server) Open(user string) (id int64) {
+func (srv *Server) Open(user string) (id int64) { return srv.OpenIn(user, "") }
+
+// OpenIn starts a session of user for a step of generation: an owner is then
+// (generation, session, LUW) -- the generation that opened it, the handle,
+// and the update owner of its LUW (UpdateOwner) -- and its rows say which
+// generation they belong to (Row.Generation). Several processes share one
+// table this way (ADR 0010 slice 3, the E3 socket: go/enqnet).
+func (srv *Server) OpenIn(user, generation string) (id int64) {
 	srv.do(func(st *state) {
 		st.seq++
 		id = st.seq
-		st.sessions[id] = &session{user: user, dialog: st.ownerID(), update: st.ownerID()}
+		st.sessions[id] = &session{user: user, dialog: st.ownerID(), update: st.ownerID(), generation: generation}
 	})
 	return id
 }
@@ -237,7 +256,7 @@ func (st *state) enqueue(sid int64, r Request) Result {
 		}
 	}
 	if same == nil {
-		same = &row{Row: Row{Client: r.Client, Table: r.Table, Object: r.Object, Arg: arg, Mode: r.Mode, User: s.user, Taken: st.now(), Session: sid}}
+		same = &row{Row: Row{Client: r.Client, Table: r.Table, Object: r.Object, Arg: arg, Mode: r.Mode, User: s.user, Taken: st.now(), Session: sid, Generation: s.generation}}
 		st.rows = append(st.rows, same)
 	}
 	scope := scopeOf(r)
@@ -265,9 +284,21 @@ const (
 	waitTries    = 5
 )
 
-func (srv *Server) EnqueueWith(sid int64, r Request, wait bool, sleep func(time.Duration)) (res Result) {
+func (srv *Server) EnqueueWith(sid int64, r Request, wait bool, sleep func(time.Duration)) Result {
+	return Retry(func() (res Result, ok bool) {
+		ok = srv.do(func(st *state) { res = st.enqueue(sid, r) })
+		return res, ok
+	}, wait, sleep)
+}
+
+// Retry is the _WAIT schedule around one attempt (false: the server is
+// gone), run in the caller so a waiting session never holds the server; a
+// remote client (go/enqnet) runs it on its side of the socket for the same
+// reason.
+func Retry(attempt func() (Result, bool), wait bool, sleep func(time.Duration)) Result {
 	for try := 0; ; try++ {
-		if !srv.do(func(st *state) { res = st.enqueue(sid, r) }) {
+		res, ok := attempt()
+		if !ok {
 			return Result{Subrc: 2} // SYSTEM_FAILURE: the server is gone
 		}
 		if res.Subrc != 1 || !wait || try >= waitTries {
@@ -404,6 +435,29 @@ func (srv *Server) End(sid int64) {
 	srv.do(func(st *state) {
 		st.release(sid)
 		delete(st.sessions, sid)
+	})
+}
+
+// Lost ends the session of a process that died (a sidecar crash, ADR 0010
+// "Failure modes"): its dialog halves and the halves of its current update
+// owner go -- the LUW that never committed rolled back with the process's
+// connection -- exactly as End does. The halves of an update owner a COMMIT
+// already handed to the update task stay until that update completes
+// (UpdateDone), unless inlineUpdates says the update ran inside the process
+// that died, which aborts it: then they go too.
+func (srv *Server) Lost(sid int64, inlineUpdates bool) {
+	srv.do(func(st *state) {
+		st.release(sid)
+		delete(st.sessions, sid)
+		if !inlineUpdates {
+			return
+		}
+		for _, w := range st.rows {
+			if w.Session == sid {
+				w.Updates = 0
+			}
+		}
+		st.sweep()
 	})
 }
 

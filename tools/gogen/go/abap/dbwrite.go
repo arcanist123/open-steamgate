@@ -149,12 +149,12 @@ func (w WriteSpec) names() []string {
 
 // exec renders a write and runs it in the step's transaction, answering the
 // rows it touched; dup says the engine refused a duplicate key.
-func exec(st *IRWrite) (n int64, dup bool) {
+func exec(s *Session, st *IRWrite) (n int64, dup bool) {
 	text, params, err := LowerWrite(st)
 	if err != nil {
 		panic(NotCompiled(st.Table, err.Error()))
 	}
-	res, err := conn().Exec(text, values(params)...)
+	res, err := s.conn().Exec(text, values(params)...)
 	if err != nil {
 		if duplicateKey(err) {
 			return 0, true
@@ -203,7 +203,7 @@ func InsertRows(s *Session, w WriteSpec, rows [][]any, onDuplicate string) {
 		if len(rows) != 1 {
 			panic(NotCompiled("INSERT "+w.Table, "a work area is one row"))
 		}
-		n, dup := exec(&IRWrite{Write: "insert", Table: w.Table, Columns: w.names(), Rows: [][]*IR{w.row(rows[0])}, OnDuplicate: "error"})
+		n, dup := exec(s, &IRWrite{Write: "insert", Table: w.Table, Columns: w.names(), Rows: [][]*IR{w.row(rows[0])}, OnDuplicate: "error"})
 		if dup {
 			s.Sy.Subrc, s.Sy.Dbcnt = 4, 0
 			return
@@ -223,7 +223,7 @@ func InsertRows(s *Session, w WriteSpec, rows [][]any, onDuplicate string) {
 		if onDuplicate == "raise" {
 			st.Expected = len(bound)
 		}
-		n, dup := exec(st)
+		n, dup := exec(s, st)
 		if dup {
 			panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: "INSERT " + w.Table + ": a duplicate key although duplicates are skipped"})
 		}
@@ -274,7 +274,7 @@ func UpdateRows(s *Session, w WriteSpec, rows [][]any) {
 		if len(set) == 0 {
 			panic(NotCompiled("UPDATE "+w.Table, "every column is a key column"))
 		}
-		n, _ := exec(&IRWrite{Write: "update", Table: w.Table, Set: set, Pred: w.keyPred(row)})
+		n, _ := exec(s, &IRWrite{Write: "update", Table: w.Table, Set: set, Pred: w.keyPred(row)})
 		return n
 	})
 }
@@ -282,7 +282,7 @@ func UpdateRows(s *Session, w WriteSpec, rows [][]any) {
 // DeleteRows is DELETE dbtab FROM wa / FROM TABLE: by the primary key only.
 func DeleteRows(s *Session, w WriteSpec, rows [][]any) {
 	rowByRow(s, rows, true, func(values []any) int64 {
-		n, _ := exec(&IRWrite{Write: "delete", Table: w.Table, Pred: w.keyPred(w.row(values))})
+		n, _ := exec(s, &IRWrite{Write: "delete", Table: w.Table, Pred: w.keyPred(w.row(values))})
 		return n
 	})
 }
@@ -291,7 +291,7 @@ func DeleteRows(s *Session, w WriteSpec, rows [][]any) {
 // row of its key updated, one after the other as ABAP writes them.
 func ModifyRows(s *Session, w WriteSpec, rows [][]any) {
 	rowByRow(s, rows, false, func(values []any) int64 {
-		n, _ := exec(&IRWrite{Write: "upsert", Table: w.Table, Columns: w.names(), Rows: [][]*IR{w.row(values)}, Key: w.Key})
+		n, _ := exec(s, &IRWrite{Write: "upsert", Table: w.Table, Columns: w.names(), Rows: [][]*IR{w.row(values)}, Key: w.Key})
 		return n
 	})
 }
@@ -300,7 +300,7 @@ func ModifyRows(s *Session, w WriteSpec, rows [][]any) {
 // ranges filled now: sy-subrc 0 with rows, 4 without, sy-dbcnt the rows.
 func ExecWrite(s *Session, text string, args []any, preds []HostPred) {
 	text, bound := SpliceRanges(text, args, preds)
-	res, err := conn().Exec(text, bound...)
+	res, err := s.conn().Exec(text, bound...)
 	if err != nil {
 		panic(ArithmeticError{Class: "CX_SY_OPEN_SQL_DB", Op: err.Error()})
 	}

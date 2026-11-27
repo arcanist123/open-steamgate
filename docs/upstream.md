@@ -8,9 +8,46 @@
 > moves to a published version plus what remains (core pin, MOD).
 
 
-The current transpiler and runtime build is `local/osd-build-3b` at `f34e9bf4947daaf6464566b42b1e3ef1eaeb369c`
-(2.14.3, parser 2.120.73). [The pin move report](transpiler-pin-2.md) lists
-the retained and dropped fork commits. The dossier below is the historical snapshot. Every one of those fixes has an entry
+The current transpiler and runtime build is `local/osd-build-41` at `766af26dc369e1b82d4c050b91b5600df4149f2e`:
+upstream main `51f69195` (two commits after 2.14.41, parser 2.120.121) with fourteen fork commits
+([transpiler-pin-4.md](transpiler-pin-4.md), "41"). The 28 commits of `local/osd-build-4m` (`a272f3c9`, on 2.14.38)
+became 14 because upstream merged the rest between 2026-11-25 and 2026-11-26:
+
+| what the fork carried | upstream | in a release? |
+| --- | --- | --- |
+| exact packed arithmetic (`+ - *`, MOD on BigInt) | #1962 | 2.14.41 |
+| int8 and integer byte conversions | #1964 | 2.14.40 |
+| type `i` overflow raises | #1955 | 2.14.41 |
+| a table named with its `[]` suffix | #2274 | 2.14.40 |
+| a local class inheriting from its own global class | #2275 | 2.14.40 |
+| blank-separated dynamic ORDER BY (item 19, the commas) | #2276 | 2.14.40 |
+| interface constants from constants, components, cycles, `IS INITIAL` | #2277, #2281, #2286 | 2.14.41 |
+| SELECT loop over a join, INTO a list, `sy-dbcnt`, PACKAGE SIZE, same-named columns | #2278, #2279, #2282, #2284 | 2.14.41 |
+| `alias~field = structure-component` as a host variable | #2283 | 2.14.41 |
+| FOR ALL ENTRIES: `sy-subrc` 0 when rows were found | #2288 | after 2.14.41 |
+| namespaced names in declarations | #2289 | after 2.14.41 |
+
+What remains, twelve commits and two of glue, and why each is still here:
+
+| fork commits | state upstream |
+| --- | --- |
+| the `only` option; registry reuse with `only` (2) | #1900 and #1921 were closed unmerged; the build gate and warm compile need both |
+| `SELECT SINGLE FOR UPDATE` runs as the SELECT (1) | #2290 was merged on 2026-11-26 as `33997ef0`, one commit past this build's base and in no release; the fork commit goes when the base next moves. #2273 is the question it settles |
+| a literal in SQL text is a value (1, item 18) | #2287 open |
+| class constructors: targets loaded first, no import cycle, dependency order, wait-cycles said (4, items 6 and 12) | #1849 and #2201 open |
+| constant chains: class constants fold (1) | waits on abaplint/abaplint#4765; the interface half is upstream |
+| a PRIMARY KEY inside a dynamic ORDER BY list stays one item (1, item 19's follow-up) | not sent |
+| "four fixes" and a built-in's argument by name (2) | not sent |
+| glue (2): the `CREATE DATA ... TYPE HANDLE` parser guard test; core 2.120.121 aligned exactly, `only` without the plugin guard, unique test names | stays with the fork |
+
+Until 2026-11-26 the build was `local/osd-build-4m` at `a272f3c96ad43bda22ab2ad7eff6349cf01cd5cf`
+(upstream 2.14.38 `1c768652`, parser 2.120.118, with items 20 and 21 merged upstream and the CDS metadata of #2264)
+with the fork commits ported onto it ([transpiler-pin-4.md](transpiler-pin-4.md), "4m"). Until 2026-11-25 it was
+`local/osd-build-4c` at `a0d80fff183d805194842562b25dc71b86f0ce81`
+(upstream main `8824945a`, 2.14.19 plus the EML lowering #2049 and the SQL escape #2050, parser 2.120.94) with
+fourteen fork commits: the `only` option and registry reuse, the built-in and "four fixes" commits, `SELECT SINGLE
+FOR UPDATE` run as the SELECT, and the numeric ones ported onto upstream main (exact packed arithmetic, int8 and
+integer byte conversions, the type `i` overflow of #1955). [The pin move report](transpiler-pin-4.md) lists them. The dossier below is the historical snapshot. Every one of those fixes has an entry
 in `ANORMALIES.md` and a branch in that clone, and `npm run parked` prints the
 two side by side and complains where they disagree. This is the dossier for
 sending them: what each is, what proves it, where the fix lives, and what to
@@ -106,6 +143,176 @@ branch. What is left:
    (`packages/runtime/src/statements/get_run_time.ts`); two fake-clock tests
    (`performance.now` and `Date.now`) fail without it. Sent as
    abaplint/transpiler#1990; next: record the containing release.
+
+The five below came out of HANA milestone 2 (#942, `docs/hana-milestone-2.md`).
+Each sits in `ANORMALIES.md` under its name; none has an issue or a PR yet.
+
+10. **open-abap-odata: the default association set** --
+    `ANOMALY-2026-11-14-default-association-set`. `create_association`
+    ignores `iv_def_assoc_set` (the interface's default is `abap_true`), so a
+    SEGW-generated MPC answers `$metadata` with no AssociationSet; and a
+    function import that names only its return entity type gets no
+    `EntitySet`. Carried here as the overlay
+    `src/gateway/compat/zcl_oao_model.clas.abap` (compat README); test
+    `ZCL_OSD_H5X_TEST` default_sets_in_metadata. One small PR to
+    open-abap-odata; then drop the overlay and its exclusion.
+
+11. **express-icf-shim / open-abap-core: an encoded form-field name** --
+    `ANOMALY-2026-11-14-form-field-names-encoded`. `get_form_fields_cs`
+    leaves `%24top` undecoded, so the option is ignored without a word.
+    Workaround: `ZCL_STG_URL=>OPTION` decodes a well-formed name; test
+    `ZCL_OSD_H5X_TEST` encoded_option_names. Needs an issue first: which of
+    the two builds the fields decides where the fix goes.
+
+Three more from HANA milestone 3 (B4, the `$metadata` annotations of the
+SEGW sample; measured against the system's own `$metadata`, the EN and the
+DE capture). The overlays sit in `src/gateway/compat/` with their library
+copies excluded from both pulls (abap_transpile.json, abaplint.jsonc).
+
+15. **open-abap-odata: labels from the text pool** --
+    `ANOMALY-2026-11-14-textpool-absent`. `set_label_from_text_element`
+    stores the symbol and the writer prints the ABAP field name. The PR:
+    a small provider interface in the library (`get_text( container,
+    symbol, language )`), the writer asking it in `sy-langu` and writing
+    no label when it answers nothing, never the field name; this
+    repository's provider is `ZCL_OSD_TEXTPOOL` over the build-time
+    registry (tools/osd-textpool-registry.mjs), which stays here. Also a
+    parameter's label (SEGW calls the same method on it). Test here:
+    `ZCL_OSD_H5X_TEST` ltcl_annotations.
+
+16. **open-abap-odata: bind_structure from the dictionary, the writer as
+    the model says** -- `ANOMALY-2026-11-14-bind-structure-ddic`. Three
+    PRs, in this order: (a) `sap:unicode` only from the model's
+    annotation (no hard-coded `false`); (b) `sap:unit` and derived
+    `sap:semantics` from a field-information provider bind_structure
+    asks (data element, type, reference field per component; this
+    repository's is `ZCL_OSD_DDIC_INFO` over tools/osd-ddic-info-registry.mjs);
+    (c) the label of the data element through the same provider, and no
+    `sap:display-format="Date"` derived for a DATS component (the system
+    writes none; the date mark stays for a V4 facade). Consumer impact to
+    state in the PR: a model that set no label loses the field-name label,
+    and a Fiori V2 app shows a SEGW-path date with its time unless the
+    model annotates `display-format` itself.
+
+17. **abaplint/transpiler: SET LOCALE LANGUAGE** --
+    `ANOMALY-2026-11-14-set-locale-noop`. The runtime's `setLocale` is
+    empty; worked around in the dispatcher by setting `sy-langu` for the
+    request. Needs an issue first (what else the statement should switch
+    is the question).
+
+12. **transpiler: a class constructor's targets at load** --
+    `ANOMALY-2026-11-14-cctor-load-order`. Fixed in the pin
+    `local/osd-build-4j` (28a3c53a, #941), cycle-free; a branch inside
+    abaplint/transpiler from those commits, after a critic pass.
+
+13. **transpiler runtime: a DEC 21,7 value formats through a double** --
+    `ANOMALY-2026-11-14-packed-21-format`. Needs an issue with the
+    one-line reproducer from the entry. Workaround: `ZCL_STG_JSON=>VALUE`
+    rounds a packed timestamp to whole seconds.
+
+14. **abaplint: SELECT SINGLE with CONNECTION before FROM** --
+    `ANOMALY-2026-11-14-select-single-connection`. Needs an issue in
+    abaplint/abaplint (no push rights there, see `npm run parked`).
+    Workaround: the closure's structure pre-pass
+    (`tools/hana-closure-stubs.mjs` structureStubs).
+
+The three below came out of milestone 3 B5.2 (#952, search helps).
+
+15. **open-abap-odata: search helps over a join** --
+    `ANOMALY-2026-11-14-shlp-joins`. `zcl_oao_shlp_ddic` selects from one
+    table: no text table, no help view, a list field only when exported, no
+    default values. Carried here as the overlay
+    `src/gateway/compat/zcl_oao_shlp_ddic.clas.abap` with the new
+    `zif_oao_shlp_source` (compat README); the generator that writes the
+    joins stays here (`tools/segw-shlp.mjs`). Proof: the generated join
+    classes frozen in `test/hana-m2`, `ZCL_OSD_H5X_TEST` ltcl_value_help,
+    `ZCL_STG_SHLP_TEST`. One small PR to open-abap-odata (provider +
+    interface); then drop the overlay and its exclusion.
+
+16. **transpiler: a help view becomes a database view** --
+    `ANOMALY-2026-11-14-help-view-schema`. Needs an issue (skip
+    `VIEWCLASS H` in the schema). Workaround: `dropHelpViews`
+    (`tools/osd-warm-order.mjs`, on every path that orders a registry).
+
+17. **transpiler runtime: CREATE DATA ... TYPE STANDARD TABLE OF a class's
+    type** -- `ANOMALY-2026-11-14-create-data-table-of-class-type`. Needs
+    a reduced reproducer and an issue. Workaround: a named table type.
+18. **transpiler runtime + database packages: SQL literals re-read as
+    statement text** -- `ANOMALY-2026-11-14-sql-literals-statement-text`.
+    Fixed in the pin `local/osd-build-4k`: `packages/runtime/src/
+    sql_literals.ts` (one scan; `outsideLiterals` masks the literals for a
+    rewrite), used by `expandDynamic` (no substitution or EQ rewrite inside a
+    literal, a backtick literal sent single-quoted, an unassigned field
+    symbol is `CX_SY_DYNAMIC_OSQL_SEMANTICS`, the `field IN` lookup linear)
+    and by `select()`/`openCursor()` of database-sqlite, -pg, -hdb and
+    -snowflake (a copy of the file per package, held identical by a test,
+    because those packages build against the published runtime). Tests:
+    `packages/runtime/test/expand_dynamic.ts`, `sql_literals.ts`,
+    `test/database.ts` "literals in a dynamic WHERE are data". One small PR
+    from a branch inside abaplint/transpiler after a critic pass; with it
+    released, `tools/sqlite-heap-client.mjs` and `tools/postgres-client.mjs`
+    drop their `select()`/`openCursor()`.
+
+19. **transpiler: a blank-separated dynamic ORDER BY** -- `ORDER BY (lv)`
+    with `lv = 'a b'` or `'a DESCENDING b'` is legal Open SQL and reached
+    the database without commas. Fixed at the source in the pin
+    `local/osd-build-4k` (`abap.dynamicOrderBy`, cherry-picked from the
+    milestone-3 branch, tests kept). The same PR as item 18 or one beside
+    it; with the pin, the host-side comma pass (#947's `tools/osd-order-by.mjs`)
+    is removed, and the twin's ORDER BY tests pass through the pin alone.
+    A follow-up on the same pin keeps PRIMARY KEY inside a longer list one
+    item (critic of #954).
+
+20. **transpiler: `EXPORT`/`IMPORT` TO/FROM `SHARED MEMORY` and `SHARED
+    BUFFER`** -- `ANOMALY-2026-11-18-export-import-shared-memory`. **Sent
+    2026-11-19: abaplint/transpiler#2134**, from the branch `shared-memory`
+    inside abaplint/transpiler (`786dae56`, one commit on `main` `a64f380e`),
+    after a critic pass. Both statements transpiled to a runtime
+    "transpiler todo" throw for every medium, so this is a feature, not a
+    defect: one store per medium in the runtime instance's context
+    (`abap.context.dataClusters`), keyed by dbtab, client, area and ID,
+    `IMPORT` of a missing cluster `sy-subrc` 4, every other medium
+    unchanged. Upstream test `test/statements/export_import.ts`, 11 cases,
+    10 failing on `main` (the 11th checks the other media still throw);
+    `npm test` 3156 passing. Regression: 17 of 17 downstream repositories
+    green, the performance table green (read off the bot comment's rows).
+    Here `test/unit/zcl_osd_shared_memory_test`. **Merged 2026-11-19
+    (`73e33f03`), released in 2.14.38.** The pin `local/osd-build-4m` is
+    built on 2.14.38 and no longer carries the fork's earlier form
+    (`8aafdd71` + `c2b0b584` of 4l); the other fork commits keep it a fork
+    pin, not npm.
+
+21. **transpiler: `TYPE decfloat16`** -- `ANOMALY-2026-11-18-decfloat16-type-todo`.
+    **Sent 2026-11-19: abaplint/transpiler#2135**, branch `decfloat16`
+    inside abaplint/transpiler (`cd22c2d3`, one commit on `a64f380e`), after
+    a critic pass. Any `DATA ... TYPE decfloat16` transpiled to
+    `new abap.types.typeTodoDecFloat16Type()`, which is not a constructor;
+    it now runs on the runtime's `DecFloat34`. Test
+    `test/types/decfloat16.ts`, 3 cases, all failing on `main` with
+    `typeTodoDecFloat16Type is not a constructor`; `npm test` 3148 passing.
+    Regression: 17 of 17 green, performance green. **Merged 2026-11-19
+    (`5813c035`), released in 2.14.38**, with #2244 rounding to 16 digits;
+    `local/osd-build-4m` drops the fork's `e9958256` + `b2998ada`.
+
+22. **open-abap-core and open-abap-gui under abaplint 2.120.118** -- no PR
+    needed: Lars fixed upstream what the parser and the runtime's `CLEAR` of
+    a `TABLES` parameter broke there (open-abap-core #1331, #1334, #1336,
+    #1337, #1345, including `CONVERT_ITF_TO_STREAM_TEXT`'s
+    `CLEAR text_stream[]`; open-abap/open-abap-gui#231). The pins moved onto
+    upstream: `oisee/open-abap-core` `osd/core-rebase-2026-11-25` is
+    upstream main plus four commits held here, each with its rule:
+    - `3d0cea7` `GENERAL_GET_RANDOM_INT`, `INT4_TABLE` and the `W3MI_LOADER`
+      hook of `WWWDATA_IMPORT`: candidates, one small PR each to
+      open-abap-core after a critic pass (the random int as measured on A4H,
+      the table type, the host hook for a browser or a binary);
+    - `bb4b483`, `8af2fe3`: benchmark commits of `test/sxml-heavy.mjs`;
+      held, not sent (they measure our feeds, not the library);
+    - `2e898a6` `hex_digit` of a named `x LENGTH 1`: a workaround for a gogen
+      limit (no generic `x` parameter), held, not sent; it goes when gogen
+      compiles a generic `x` (AGENDA, "gogen: a generic `x` parameter").
+    `oisee/open-abap-gui` keeps its base (upstream's
+    converter is TypeScript now) with #231 picked and the other findings
+    fixed as upstream fixed them, so nothing of it is a candidate either.
 
 ## What we carry, and what we wait for
 
@@ -545,3 +752,95 @@ in inbox 007 still fail 5/7; those operators are outside this fix. Validation
 uses core 2.120.64 because 2.120.65 changes a CREATE DATA operand node.
 The OSG proof used a disposable dependency copy; the original shared local
 2.13.93 dependencies were preserved.
+
+## EML lowering for the transpiler (2026-11-08, RAP R2a)
+
+Not an anomaly: a gap. `@abaplint/transpiler` parses `MODIFY ENTITIES`,
+`READ ENTITIES`, `COMMIT ENTITIES` and `ROLLBACK ENTITIES` (abaplint, v754
+and OpenABAP) and emits `throw new Error("ModifyEntities, not supported,
+transpiler")` for the first two and nothing for the last two (`Statement
+CommitEntities not supported`). The patch on branch `rap-eml` of the job's
+own clone of `abaplint/transpiler` (`transpiler-rap-eml.patch` beside it;
+nothing pushed) lowers the four statements onto a kernel class,
+`KERNEL_RAP_EML`, in the convention `CALL TRANSFORMATION`, `AUTHORITY-CHECK`
+and `SCAN` already use: a guard, then one call per operation with the names
+as strings and the tables and targets as they are
+([rap-eml.md](rap-eml.md), "The calling convention"). The kernel class is
+this repository's `src/rap/kernel_rap_eml`; the transpiler ships none, as
+it ships none of the others.
+
+Files: `packages/transpiler/src/statements/_eml.ts` (walker over the flat
+statement, shared), `modify_entities.ts`, `read_entities.ts`, new
+`commit_entities.ts` and `rollback_entities.ts`, `index.ts`. Tests:
+`packages/transpiler/test/single_statements.ts` (the emitted code for
+fourteen forms, the two existing EML expectations replaced), and
+`test/statements/eml.ts` at the root (a fake kernel class records what the
+running statements hand it: names, tables, targets, sy-subrc). Not lowered,
+said at run time with the addition's name: `OPERATIONS`, `BY` (deep EML),
+`RELATING TO`, `AUGMENTING`, `LINK`, `READ ... EXECUTE`, `IN SIMULATION
+MODE`.
+
+Beside it, **needs an issue in abaplint/abaplint**:
+`ANOMALY-2026-11-08-eml-inline-target-void`, an inline `DATA( )` target of
+an EML statement is typed void instead of from the BDEF, so the transpiler
+can declare nothing for it; the lowering requires declared targets and the
+draft PR says so.
+
+Sending: a branch inside `abaplint/transpiler` (the regression workflow
+rule), after the critic reads the draft against the diff; the draft PR text
+is `transpiler-rap-eml-PR.md` in the job folder. Merged as #2049
+(`62931245`); the pin carries it since `local/osd-build-4c`
+([transpiler-pin-4.md](transpiler-pin-4.md)) and
+`src/rap_demo/zcl_rap_note_eml` is no longer excluded from the build.
+
+## open-abap-odata -- the /IWBEP/ members the SEGW sample calls (H5x-3)
+
+The pinned open-abap-odata (`bd9f1fb`) lacks six members the SEGW sample
+service calls (framework-gaps.json of bed run 18 -- private evidence; the
+stub messages in the dumped DPC_EXT name each one). The change sits in the
+`.local/lars/open-abap-odata` working tree on branch
+`feat/iwbep-members-h5x3` (from `bd9f1fb`) as three commits, one per member
+group, one small PR each, and is proven here first: the overlays under
+`src/gateway/compat/` carry the same text with the lib copies excluded from
+both pulls (abap_transpile.json, abaplint.jsonc), and this repository's
+unit and wire tests are the proof. The clone's own lint was run in the
+clone before anything is drafted. Sending is gated by the critic
+(CLAUDE.md), like every upstream PR.
+
+| PR (to send) | objects | proof here |
+| --- | --- | --- |
+| request context: navigation path + function import | `/IWBEP/IF_MGW_REQ_FUNC_IMPORT` (get_function_import_name, get_converted_parameters exporting `es_parameter_values`), `/IWBEP/IF_MGW_REQ_ENTITY` + `/IWBEP/IF_MGW_REQ_ENTITYSET` (get_navigation_path returning the technical navigation table), the new DDIC `/IWBEP/S_MGW_TECH_NAVI` + `/IWBEP/T_MGW_TECH_NAVI`, `zcl_oao_request_context`, `/IWBEP/CL_MGW_REQUEST`, `/IWBEP/CL_SB_GEN_READ_AFTR_CRT` | `src/gateway/zcl_stg_request_context.clas.testclasses.abap` (both facets' getter over a two-step path: navigation property, source and target entity type per row; name + converted parameters); the sample's call sites live in the private framework-gaps.json |
+| message container | `/IWBEP/IF_MGW_CONTEXT` (get_message_container), `/IWBEP/IF_MESSAGE_CONTAINER` (add_message: type, id, number, text, v1-v4, error category, leading flag, entity type, key table, response-header switch, message target -- all but the type optional; [SAP Help Portal, `/IWBEP/IF_MESSAGE_CONTAINER`, Method ADD_MESSAGE](https://help.sap.com/saphelp_gateway20sp12/helpdata/en/25/21aecce9db435daaea433071ff7d94/content.htm)), `zcl_oao_context`, `zcl_oao_msg_container` | `src/gateway/compat/zcl_oao_msg_container.clas.testclasses.abap`; the demo DPC's container use and the wire test in `test/mocha.mjs` (innererror.errordetails over the wire) |
+| changeset structures | `/IWBEP/IF_MGW_APPL_SRV_RUNTIME`: `content_id` / `content_id_ref` on `ty_s_changeset_request` and `ty_s_changeset_response`, `content_id_ref` on `ty_s_operation_info` | the `ltcl_changeset_types` unit test beside the request context |
+
+The changeset PR adds **types only**. Nothing in this runtime fills
+`content_id` / `content_id_ref`: `zcl_stg_batch` reads a part's
+Content-ID (the V4 facade answers with it) but does not pass it into
+`ty_s_changeset_request`, `ty_s_changeset_response` or
+`ty_s_operation_info`, and nothing calls `CHANGESET_BEGIN` with operation
+info. The PR text must say so and must not read as $batch Content-ID
+referencing through the changeset API; `ltcl_changeset_types` is a compile
+check of the fields and nothing more.
+
+Fix round 2 (critic of #935) moved two shapes to the contract and widened
+one signature; the lib branch carries them as two `fixup!` commits on top
+of the three, to be squashed into their PRs (request context, message
+container) before anything is sent:
+
+- `get_converted_parameters` exports `es_parameter_values` (the contract
+  name; the sample calls it so), not `es_parameters`;
+- `get_navigation_path` returns `/IWBEP/T_MGW_TECH_NAVI` (row
+  `/IWBEP/S_MGW_TECH_NAVI`: `nav_prop`, `key`, `key_tab` of
+  `/IWBEP/T_MGW_TECH_PAIRS`, `target_entity_type`, `multiplicity`,
+  `source_entity_type`, `is_containment_navigation`) on both facets, the
+  technical navigation path the [SAP Help Portal page of the request
+  interface](https://help.sap.com/saphelp_gateway20sp12/helpdata/en/88/1733b1d5fd42d7a732bc405d1ed67b/content.htm)
+  documents for `GET_NAVIGATION_PATH`. The field names are the contract
+  the sample reads (no public page lists the structure's fields); the
+  contract's object-reference field `key_converter` is left out -- the
+  serializer would need a reference-typed DDIC field, and no caller here
+  reads it;
+- `add_message` gains the documented optional parameters.
+
+When the PRs land and the pin moves, the overlays and both exclusions go
+(`src/gateway/compat/README.md`).

@@ -1,4 +1,5 @@
 import {test, expect} from "@playwright/test";
+import {launchpadTile} from "./launchpad-navigation.shared.mjs";
 // the port of the gateway under test: STG_PORT, as test/start.mjs reads it, so sessions do not collide on 3030
 const PORT = process.env.STG_PORT ?? 3030;
 
@@ -95,6 +96,10 @@ test("object page: navigation reads to_Bookings, Edit + Save sends MERGE with th
   expect(merge, requests.join("\n")).toBeDefined();
   expect(merge).toContain('"Seats":3');
   expect(merge).not.toContain('"Description"');
+  // the model sends the ETag of the entry back (the metadata says
+  // ConcurrencyMode Fixed and the entries carry __metadata.etag), and the
+  // write is only answered because it matches
+  expect(merge).toMatch(/If-Match: W\/"/);
 
   // the gateway laid the request over the entity: the rest survived
   const travel = await page.evaluate(async () => (await fetch("../sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0001')?$format=json")).json());
@@ -194,6 +199,9 @@ test("Delete in the list report goes through a $batch changeset to the DPC", asy
   await expect(page.locator("tr.sapMListTblRow", {hasText: "Aarhus to Odense"})).toHaveCount(0);
   await expect(page.locator("table tbody tr.sapMListTblRow")).toHaveCount(3);
   expect(deletes.some((t) => /DELETE TravelSet\('T0003'\)/.test(t)), deletes.join("\n")).toBe(true);
+  // the delete names an If-Match too (measured: `*` here, the entry's own
+  // tag on the Save above), so it is answered rather than refused with 428
+  expect(deletes.some((t) => /DELETE TravelSet\('T0003'\)[\s\S]*If-Match: /.test(t)), deletes.join("\n")).toBe(true);
 
   const res = await fetch(`http://localhost:${PORT}/sap/opu/odata/sap/ZSTG_DEMO_SRV/TravelSet('T0003')`);
   expect(res.status).toBe(404);
@@ -245,13 +253,14 @@ test("object page: Create on the bookings table posts to TravelSet('T0001')/to_B
 test("launchpad: intent navigation from a booking to the Bookings app and back to the filtered Travels", async ({page}) => {
   await page.goto("/app/flp.html");
   // the sandbox shell with our two tiles
-  const travels = page.getByRole("link", {name: /Travels/}).or(page.locator(".sapUshellTile", {hasText: "Travels"})).first();
+  // the tile by its target: a title match also hit the V4 app's tile
+  const travels = launchpadTile(page, "Travel-manage");
   await expect(travels).toBeVisible();
   // only our group: the sandbox's own catalog (RTA Demo App...) is not shown
   await expect(page.getByText("RTA Demo App")).toHaveCount(0);
   await expect(page.locator(".sapUshellTile", {hasText: "SEGW"}).first()).toBeVisible();
   await travels.click();
-  await expect(page).toHaveURL(/#Travel-manage/);
+  await expect(page).toHaveURL(/#Travel-manage(?:$|[?&])/);
   await expect(page.getByText("Berlin to Copenhagen")).toBeVisible();
 
   // into the object page, select the first booking, the intent button opens the Bookings app
@@ -273,7 +282,7 @@ test("launchpad: intent navigation from a booking to the Bookings app and back t
   // the travel field is a link (UI.DataFieldWithIntentBasedNavigation): back
   // to the Travels app on that travel
   await page.getByRole("link", {name: "T0001"}).first().click();
-  await expect(page).toHaveURL(/#Travel-manage/);
+  await expect(page).toHaveURL(/#Travel-manage(?:$|[?&])/);
   // the key came along, so the Travels app lands on that travel's page
   await expect(page.getByRole("heading", {name: "Berlin to Copenhagen"})).toBeVisible();
   await expect(page.getByText("Aarhus to Odense")).toHaveCount(0);

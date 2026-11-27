@@ -13,6 +13,7 @@ import {createRequire} from "node:module";
 import {ServingRuntime, liveChildren} from "../tools/osd-runtime.mjs";
 import {DatabaseSync} from "node:sqlite";
 import {BatchRuns} from "../tools/osd-batch-runs.mjs";
+import {checkHostContract} from "../tools/osd-host-contract.mjs";
 import {runtimeRootFixture} from "./helpers/runtime-root.mjs";
 
 const runtimeFixture = runtimeRootFixture();
@@ -249,6 +250,14 @@ describe("test/run.mjs: the workbench shape, one generation and one database", f
     const sql = await fetch(`${BASE}/osd/sql`, {method: "POST", headers: {"content-type": "application/json"},
       body: JSON.stringify({sql: "SELECT COUNT(*) AS n FROM zstg_demo"})});
     expect(sql.status, `/osd/sql: ${await sql.clone().text()}`).to.equal(200);
+  });
+
+  it("answers the supervised-host contract the osgo binary is held to as well (tools/osd-host-contract.mjs)", async () => {
+    // the same assertions the osgo-host CI job runs against the Go binary:
+    // one check for both hosts, so /osd/serving and X-OSD-Generation cannot
+    // drift apart by description (go/serving/README.md)
+    const body = await checkHostContract(BASE);
+    expect(body.generation).to.equal(((await fetch(`${BASE}/sap/opu/odata/sap/ZSTG_DEMO_SRV/$metadata`)).headers.get("x-osd-generation")));
   });
 
   it("forwards the authorized batch monitor without exposing selection values", async () => {

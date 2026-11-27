@@ -187,6 +187,70 @@ carried is an error.
   copy that passes the same check: `INSERT` for `MODIFY`, one rule dropped from `rules( )`, and a
   wrong model hash constant. Each makes the log check report a problem.
 
+### Generated proof
+
+Opt in with `proof: generated`, or `proof: {class: zcl_my_set_proof}` to
+choose the class name. The default is `zcl_l3_<set>_proof`. `dsl-l3 build`
+emits the global class, its ABAP Unit include, class XML with unit tests
+enabled, and `osd-trace/1` sidecars. `dsl-l3-pack` includes the proof as a
+generated object automatically. Without `proof:` the output is unchanged.
+
+The local test class has one method per enabled rule, named from the rule.
+It groups that rule's L2 `examples:` by date, seeds their combined rows (an
+identical row with the same key is inserted once), and compares the alert
+texts with the union of their `expect:` lists, independent of order. Each
+date gets its own mode S run through the generated table sources and log
+sink, including the set's pile planner. The read selects this run and rule;
+alerts from other rules sharing the tables do not affect the comparison.
+Every selected row must carry the runner's `c_hash_<n>` for that rule.
+
+For each date the proof also runs the dummy sink, asserting that the run
+writes no log rows, and the capture sink, asserting the same rule's texts
+and hashes as the log run. Every run must return mode S and status DONE,
+with all enabled rules present, DONE and failed = 0. The proof never changes
+or deletes a row it did not insert itself. Read-only `class_setup` counts
+every source table and this set's rows in `ZOSD_L3_ALERT`, `ZOSD_L3_PILE`
+(plans) and `ZOSD_L3_RUN` (runs/locks). If any are non-empty, every test
+method skips before seeding, with the affected tables and total count:
+`proof needs empty <tables>; found n foreign rows -- run it in a sandbox package/client`.
+The class guard also works when the runtime's skip method simply returns.
+Only successful fixture inserts enter the cleanup ledger. Between dates
+and in teardown they are deleted by their full DDIC key (client implicit
+in Open SQL); alerts, plans and run/lock rows are deleted only by run IDs
+returned by this proof, recorded before result assertions. Run state is
+also cleaned between sink bindings. These remain `RISK LEVEL DANGEROUS`
+tests for an otherwise idle sandbox package/client; that flag supplies no isolation.
+
+A rule that cannot be isolated retains its method and calls
+`cl_abap_unit_assert=>skip( msg = ... )`, followed by RETURN. Open-abap's
+skip currently returns without reporting a skipped count: the reason is
+also recorded in the trace navigation metadata's `skips` list. Reasons
+include missing source tables or generated variants, source tables without
+a non-client key for cleanup, incompatible rows
+with the same key, a combined fixture whose alerts differ from the union,
+example ranges or parameter overrides the date-level run cannot express,
+and set parameter defaults differing from the rule's. Staged sets and
+execution overlays (governor, simulation or remote execution) are currently
+marked unsupported for isolation. Known limit: one unsupported example
+skips its whole rule, including any supported examples of that rule.
+No examples are silently dropped.
+The proof requires generated table variants on every source and log,
+dummy and capture variants on the sink.
+
+Trace origins name the set's `proof:` and rule-entry lines, and the rule
+YAML's row/field and expected-text lines. Optional `.trace.meta.json`
+files hold navigation and skip reasons; the stable sidecars retain source
+identities. Long field assignments and expected texts reuse L2's G23
+literal splitting, keeping generated ABAP lines within 255 characters.
+
+`src/l2demo/proof_demo.l3.yaml` demonstrates a piled rule on two dates,
+aggregate alerts, a full-width note, and an explicit missing-source skip.
+The small `proof_ship.l2.yaml` has compatible example rows for the piled
+case; the other rules reuse the public demo. `test/dsl-l3-proof.mjs` runs
+the generated class through the same harness inventory and lifecycle driver
+as CI (`tools/osd-unit-all.mjs`), and compiles a copy with one expected text
+broken to prove that the assertion fails. It then runs the original again.
+
 ### The ABAP Unit proof, for this runtime and a system
 
 `ZCL_L3_FLEET_PROOF` (`src/l3proof/`, its own folder and package so the deploy unit can name it
@@ -252,31 +316,52 @@ with its keys rule, report, ports and worklist variant, `ZOSD_L3_WORK` and `ZOSD
 "Stages, filters and a schedule"); since slice 5a also `ZOSD_L3_DOCTOR` and `ZOSD_L3_KILL` (see
 "Resilience"); since slice 6 also `ZL3C_FLEET2_SRV`, its MPC/MPC_EXT/MPC_ANN and
 DPC/DPC_EXT classes, model/service registration objects, BSP `ZOSD_FLEET2` and its ICF node.
-The objects live in three folders and the tool takes one flat folder, so stage them first:
+### Packing a set
 
+Build a flat stage, an admitted abapGit zip and its deploy manifest in one command:
+
+```sh
+npm run dsl:pack -- src/l2demo/fleet.l3.yaml --out .local/fleet.zip
 ```
-rm -rf .local/stage/l3demo && mkdir -p .local/stage/l3demo && cp \
-  src/l2demo/zosd_l2_ship.tabl.xml src/l2demo/zosd_l2_voy.tabl.xml src/l2demo/zosd_l2_crew.tabl.xml \
-  src/l2demo/zosd_l2_cargo.tabl.xml src/l2demo/zosd_l2_weight.dtel.xml src/dsl/zosd_l3_alert.tabl.xml src/dsl/zosd_l3_pile.tabl.xml src/dsl/zosd_l3_run.tabl.xml \
-  src/l2demo/zcl_l2_maintenance_ship.clas.* src/l2demo/zcl_l2_grounded_ship_crew.clas.* \
-  src/l2demo/zcl_l2_ship_captain.clas.* src/l2demo/zcl_l2_ship_voyage_limit.clas.* \
-  src/l2demo/zcl_l2_ship_min_crew.clas.* src/l2demo/zcl_l2_ship_cargo_limit.clas.* \
-  src/l2demo/zcl_l3_fleet.clas.* src/l2demo/zcl_l3_fleet_ports.clas.* src/l2demo/zcl_l3_fleet_ships_*.clas.* \
-  src/l2demo/zcl_l3_fleet_alerts_*.clas.* src/l2demo/zif_l3_fleet_*.intf.* src/l2demo/zcx_l3_fleet_port.clas.* \
-  src/l2demo/zl3_fleet.prog.* src/l3proof/zcl_l3_fleet_proof.clas.* \
-  src/dsl/zosd_l3_work.tabl.xml src/dsl/zosd_l3_stage.tabl.xml src/l2demo/zcl_l2_ship_busy.clas.* \
-  src/dsl/zosd_l3_doctor.tabl.xml src/dsl/zosd_l3_kill.tabl.xml src/dsl/zosd_l3_conf.tabl.xml src/dsl/zosd_l3_conf_log.tabl.xml src/dsl/zosd_l3_run_conf.tabl.xml \
-  src/dsl/zosd_l3_budget.tabl.xml src/dsl/zosd_l3_object.tabl.xml src/dsl/zosd_l3_event.tabl.xml \
-  src/l2demo/zcl_l3_fleet2.clas.* src/l2demo/zcl_l3_fleet2_*.clas.* src/l2demo/zif_l3_fleet2_*.intf.* \
-  src/l2demo/zcx_l3_fleet2_port.clas.* src/l2demo/zl3_fleet2.prog.* src/l2demo/zl3_fleet2_conf.prog.* \
-  src/l2demo/zcl_l3_fleet_seed.clas.* src/l2demo/zl3_fleet_seed.prog.* \
-  .local/stage/l3demo/
-node tools/stg-compile.mjs src/l2demo/zl3c_fleet2.stg.yaml --out .local/stage/l3demo
-cp src/l2demo/zcl_zl3c_fleet2_dpc_ext.clas.* .local/stage/l3demo/
-node tools/osd-bsp-app.mjs src/l2demo/cockpit/zosd_fleet2 --name ZOSD_FLEET2 --out .local/stage/l3demo --service ZL3C_FLEET2_SRV --only index.html,Component.js,manifest.json,Cockpit.controller.js,Cockpit.fragment.xml,List.controller.js,StartRun.fragment.xml,Series.js,Live.js,i18n/i18n.properties
-node tools/osd-bsp-app.mjs src/l2demo/cockpit/zosd_fleet2_s --name ZOSD_FLEET2_S --out .local/stage/l3demo --service ZL3C_FLEET2_SRV --only index.html,Component.js,manifest.json,Set.view.xml,Set.controller.js,Live.js,i18n/i18n.properties
-node tools/osd-prove-on-system.mjs .local/stage/l3demo --unit l3demo --manifest deploy/manifest.json
-```
+
+The existing L2/L3 renderers use the built template engine; run `npm run transpile`
+once in a fresh checkout. When building without optional packs, use the same
+`OSD_WEB_PACKS` selection when packing. The packer verifies each named rule (including disabled
+rules) against a fresh in-memory L2 render and copies the committed files only if
+`check` would match. Rebuild stale rules with `dsl-l2.mjs build` first. It compiles
+and renders the set with the existing L3 compiler, then discovers runtime DDIC
+transitively from names in the generated ABAP/XML and source DDIC. There is no
+hand-maintained object list. Named hand-written port adapters are also collected
+from beside the set or under `src`, following the compiler’s search order.
+Cockpit service and BSP outputs are excluded. Trace sidecars stay in the stage and never enter the zip.
+
+The default stage is `.local/stage/<set>`. `--stage <dir>` overrides it; a nonempty
+stage must have an earlier pack's `.dsl-pack.json` receipt and contain only its
+recorded files. Repacking replaces the previous closure, removing stale outputs.
+`--list` prints generated objects, rules, runtime DDIC, referenced objects and
+explicit includes without creating a stage, zip or manifest.
+
+Like `dsl-l3 build`, packing renders through the transpiled DSL engine
+(`tools/dsl-engine.mjs` boots `output/init.mjs`), so it needs a built tree and
+starts that tree's database the way a build does, including its usual cache under
+`.local/db`. A tree built without a pack the environment names fails here as it
+fails in `build`; `OSD_WEB_PACKS=` (or a rebuild) is the remedy. Packing without
+the runtime is a follow-up for the engine, not for the packer.
+
+Domain tables and their types are referenced, rather than shipped. To include the
+public demo tables, add `--ddic src/l2demo --with-ddic`; a `--ddic` folder alone
+only supplies compiler metadata. `--include 'src/l3proof/zcl_l3_fleet_proof.clas.*'`
+adds an extra object; a single abapGit file also selects its object's companion
+files. Directories and quoted globs are accepted. Every shipped object still passes
+the existing deploy admission checks, including SAP-owned names and `$TMP`.
+`--description "..."` sets the package description. The in-process zipper uses
+fixed timestamps and sorted paths, so identical inputs yield identical zip bytes.
+
+`<zip>.unit.json` is a version-1 deploy manifest with a unit named after the set.
+For a later, explicitly requested system proof, the existing tool accepts the stage
+with `--unit fleet --manifest .local/fleet.zip.unit.json`. Packing itself is offline.
+The cockpit service and BSP apps still need separate packaging; the hub registration
+row and seeding also remain manual (below).
 
 **The cockpit on a system needs three more things**, measured on the sandbox (2026-10-02):
 - the hub registration of `ZL3C_FLEET2_SRV`, which abapGit carries as an IWSG (the registration,

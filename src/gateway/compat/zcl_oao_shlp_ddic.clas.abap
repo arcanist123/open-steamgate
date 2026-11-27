@@ -1,0 +1,428 @@
+CLASS zcl_oao_shlp_ddic DEFINITION PUBLIC CREATE PUBLIC.
+* A search help as the DDIC defines it (DD30V and DD32P of the abapGit
+* <name>.shlp.xml): the selection method, a table or view, and the
+* parameters with their input/output flags and positions. Runs the
+* selection over the transpiled database and answers the generated DPC in
+* the record / field / value rows of /iwbep/if_sb_gendpc_shlp_data.
+* Overlay (src/gateway/compat/README.md): a selection method that is not
+* one table -- a table with its text table, a help view -- is read through
+* a zif_oao_shlp_source the generator wrote for it; the list fields are
+* the parameters with a list position as well as the export parameters;
+* a literal default value restricts its field when the request does not.
+* Values stay in internal form, as the search help runtime answers them
+* (a conversion exit is the OData property's business), but the hit list
+* is read first and sorted afterwards, as the system's search help runtime
+* does: at most iv_maxrows rows (the generated DPC passes $top + $skip when
+* $top is set, 0 otherwise) in the selection's key order, then -- iv_sort
+* set -- those rows alone sorted; a page is not a slice of the sorted whole
+* list (M3 oracle, all seven table helps' first pages). The sort takes the
+* external form of a list field that has a sort exit:
+* the system answers a unit help view with a unit whose English form is a
+* sign first, before the letters, where its internal key sorts among them
+* (M3 oracle 02-12a; the language help, by contrast, comes in the order of
+* its internal keys, 02-15a: tools/segw-shlp.mjs gives a LANG field no
+* sort exit). Selection by exit
+* function (SELMEXIT) and collective search helps are not served yet; they
+* come back as an E message.
+  PUBLIC SECTION.
+    INTERFACES /iwbep/if_sb_gendpc_shlp_data.
+
+    TYPES: BEGIN OF ty_parameter,
+             name            TYPE string,
+             input           TYPE abap_bool,
+             output          TYPE abap_bool,
+             list_position   TYPE i,
+             select_position TYPE i,
+             default         TYPE string,
+             has_default     TYPE abap_bool,
+             sort_exit       TYPE string,
+           END OF ty_parameter.
+    TYPES ty_parameters TYPE STANDARD TABLE OF ty_parameter WITH DEFAULT KEY.
+
+    DATA mv_shlp_name  TYPE string READ-ONLY.
+    DATA mv_selmethod  TYPE string READ-ONLY.
+    DATA mv_selmexit   TYPE string READ-ONLY.
+    DATA mv_texttab    TYPE string READ-ONLY.
+* the key fields of a one-table selection method, blank-separated, in key
+* order: the order the read takes before a row limit
+    DATA mv_order_by   TYPE string READ-ONLY.
+    DATA mt_parameters TYPE ty_parameters READ-ONLY.
+    DATA mo_source     TYPE REF TO zif_oao_shlp_source READ-ONLY.
+
+    CLASS-METHODS create
+      IMPORTING
+        iv_shlp_name   TYPE csequence
+        iv_selmethod   TYPE csequence OPTIONAL
+        iv_selmexit    TYPE csequence OPTIONAL
+        iv_texttab     TYPE csequence OPTIONAL
+        iv_order_by    TYPE csequence OPTIONAL
+        io_source      TYPE REF TO zif_oao_shlp_source OPTIONAL
+      RETURNING
+        VALUE(ro_shlp) TYPE REF TO zcl_oao_shlp_ddic.
+
+* iv_default: a literal default value (DEFAULTTYP L) without its quotes;
+* iv_sort_exit: the conversion exit whose output form the hit list is
+* sorted by (the field's domain's exit, see the class comment)
+    METHODS add_parameter
+      IMPORTING
+        iv_name            TYPE csequence
+        iv_input           TYPE abap_bool DEFAULT abap_true
+        iv_output          TYPE abap_bool DEFAULT abap_true
+        iv_list_position   TYPE i DEFAULT 0
+        iv_select_position TYPE i DEFAULT 0
+        iv_default         TYPE csequence OPTIONAL
+        iv_sort_exit       TYPE csequence OPTIONAL
+      RETURNING
+        VALUE(ro_shlp)     TYPE REF TO zcl_oao_shlp_ddic.
+
+* makes this definition the provider of its name in zcl_oao_shlp_data
+    METHODS register
+      RETURNING
+        VALUE(ro_shlp) TYPE REF TO zcl_oao_shlp_ddic.
+
+* the list fields in their order, what a value help shows: a list
+* position, or an export parameter without one (after those with one)
+    METHODS get_output_parameters
+      RETURNING
+        VALUE(rt_parameters) TYPE ty_parameters.
+
+* the WHERE clause the selection options of a request amount to
+    METHODS where_clause
+      IMPORTING
+        it_selopt       TYPE ddshselops
+      RETURNING
+        VALUE(rv_where) TYPE string.
+
+* the selection options with the default values of the fields the
+* request leaves open
+    METHODS with_defaults
+      IMPORTING
+        it_selopt        TYPE ddshselops
+      RETURNING
+        VALUE(rt_selopt) TYPE ddshselops.
+* the row limit that reads every row (UP TO 0 ROWS would read none here)
+    CONSTANTS c_all_rows TYPE i VALUE 2147483647.
+  PRIVATE SECTION.
+    TYPES: BEGIN OF ty_sorted,
+             key   TYPE string,
+             index TYPE i,
+           END OF ty_sorted.
+    TYPES ty_sorted_tab TYPE STANDARD TABLE OF ty_sorted WITH DEFAULT KEY.
+
+    METHODS condition
+      IMPORTING
+        is_selopt      TYPE ddshselopt
+      RETURNING
+        VALUE(rv_cond) TYPE string.
+
+    METHODS literal
+      IMPORTING
+        iv_value          TYPE csequence
+        iv_pattern        TYPE abap_bool DEFAULT abap_false
+      RETURNING
+        VALUE(rv_literal) TYPE string.
+
+ENDCLASS.
+
+CLASS zcl_oao_shlp_ddic IMPLEMENTATION.
+
+  METHOD create.
+    CREATE OBJECT ro_shlp.
+    ro_shlp->mv_shlp_name = to_upper( iv_shlp_name ).
+    ro_shlp->mv_selmethod = to_upper( iv_selmethod ).
+    ro_shlp->mv_selmexit  = to_upper( iv_selmexit ).
+    ro_shlp->mv_texttab   = to_upper( iv_texttab ).
+    ro_shlp->mv_order_by  = to_lower( iv_order_by ).
+    ro_shlp->mo_source    = io_source.
+  ENDMETHOD.
+
+  METHOD add_parameter.
+    DATA ls_parameter TYPE ty_parameter.
+
+    ls_parameter-name            = to_upper( iv_name ).
+    ls_parameter-input           = iv_input.
+    ls_parameter-output          = iv_output.
+    ls_parameter-list_position   = iv_list_position.
+    ls_parameter-select_position = iv_select_position.
+    ls_parameter-sort_exit       = to_upper( iv_sort_exit ).
+    IF iv_default IS SUPPLIED.
+      ls_parameter-default     = iv_default.
+      ls_parameter-has_default = abap_true.
+    ENDIF.
+    APPEND ls_parameter TO mt_parameters.
+    ro_shlp = me.
+  ENDMETHOD.
+
+  METHOD register.
+    zcl_oao_shlp_data=>register( iv_shlp_name = mv_shlp_name
+                                 io_provider  = me ).
+    ro_shlp = me.
+  ENDMETHOD.
+
+  METHOD get_output_parameters.
+    DATA ls_parameter TYPE ty_parameter.
+    DATA lv_position  TYPE i.
+
+    LOOP AT mt_parameters INTO ls_parameter WHERE output = abap_true OR list_position > 0.
+      lv_position = lv_position + 1.
+      IF ls_parameter-list_position = 0.
+        ls_parameter-list_position = 1000 + lv_position.
+      ENDIF.
+      APPEND ls_parameter TO rt_parameters.
+    ENDLOOP.
+    SORT rt_parameters BY list_position.
+  ENDMETHOD.
+
+  METHOD with_defaults.
+    DATA ls_parameter TYPE ty_parameter.
+    DATA ls_selopt    TYPE ddshselopt.
+
+    rt_selopt = it_selopt.
+    LOOP AT mt_parameters INTO ls_parameter WHERE has_default = abap_true.
+      READ TABLE it_selopt TRANSPORTING NO FIELDS WITH KEY shlpfield = ls_parameter-name.
+      IF sy-subrc = 0.
+        CONTINUE.
+      ENDIF.
+      CLEAR ls_selopt.
+      ls_selopt-shlpname  = mv_shlp_name.
+      ls_selopt-shlpfield = ls_parameter-name.
+      ls_selopt-sign      = 'I'.
+      ls_selopt-option    = 'EQ'.
+      IF ls_parameter-default CA '*+'.
+        ls_selopt-option = 'CP'.
+      ENDIF.
+      ls_selopt-low = ls_parameter-default.
+      APPEND ls_selopt TO rt_selopt.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD literal.
+    DATA lv_value TYPE string.
+
+    lv_value = iv_value.
+    REPLACE ALL OCCURRENCES OF `'` IN lv_value WITH `''`.
+    IF iv_pattern = abap_true.
+      REPLACE ALL OCCURRENCES OF '*' IN lv_value WITH '%'.
+      REPLACE ALL OCCURRENCES OF '+' IN lv_value WITH '_'.
+    ENDIF.
+    rv_literal = |'{ lv_value }'|.
+  ENDMETHOD.
+
+  METHOD condition.
+    DATA lv_field TYPE string.
+
+    IF mo_source IS BOUND.
+      lv_field = mo_source->column( is_selopt-shlpfield ).
+    ELSE.
+      lv_field = to_lower( is_selopt-shlpfield ).
+    ENDIF.
+    CASE is_selopt-option.
+      WHEN 'EQ' OR ''.
+        rv_cond = |{ lv_field } = { literal( is_selopt-low ) }|.
+      WHEN 'NE'.
+        rv_cond = |{ lv_field } <> { literal( is_selopt-low ) }|.
+      WHEN 'GT'.
+        rv_cond = |{ lv_field } > { literal( is_selopt-low ) }|.
+      WHEN 'GE'.
+        rv_cond = |{ lv_field } >= { literal( is_selopt-low ) }|.
+      WHEN 'LT'.
+        rv_cond = |{ lv_field } < { literal( is_selopt-low ) }|.
+      WHEN 'LE'.
+        rv_cond = |{ lv_field } <= { literal( is_selopt-low ) }|.
+      WHEN 'BT'.
+        rv_cond = |{ lv_field } BETWEEN { literal( is_selopt-low ) } AND { literal( is_selopt-high ) }|.
+      WHEN 'NB'.
+        rv_cond = |{ lv_field } NOT BETWEEN { literal( is_selopt-low ) } AND { literal( is_selopt-high ) }|.
+      WHEN 'CP'.
+        rv_cond = |{ lv_field } LIKE { literal( iv_value   = is_selopt-low
+                                                iv_pattern = abap_true ) }|.
+      WHEN 'NP'.
+        rv_cond = |{ lv_field } NOT LIKE { literal( iv_value   = is_selopt-low
+                                                    iv_pattern = abap_true ) }|.
+      WHEN OTHERS.
+        rv_cond = |{ lv_field } = { literal( is_selopt-low ) }|.
+    ENDCASE.
+    IF is_selopt-sign = 'E'.
+      rv_cond = |NOT ( { rv_cond } )|.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD where_clause.
+* per field: the I lines OR-ed, the E lines AND-ed, fields AND-ed
+    DATA lt_selopt  TYPE ddshselops.
+    DATA ls_selopt  TYPE ddshselopt.
+    DATA lv_field   TYPE string.
+    DATA lv_include TYPE string.
+    DATA lv_exclude TYPE string.
+    DATA lv_part    TYPE string.
+
+    lt_selopt = it_selopt.
+    SORT lt_selopt BY shlpfield.
+    LOOP AT lt_selopt INTO ls_selopt.
+      IF ls_selopt-shlpfield <> lv_field.
+        IF lv_include IS NOT INITIAL OR lv_exclude IS NOT INITIAL.
+          lv_part = lv_include.
+          IF lv_include IS NOT INITIAL AND lv_exclude IS NOT INITIAL.
+            lv_part = |( { lv_include } ) AND { lv_exclude }|.
+          ELSEIF lv_exclude IS NOT INITIAL.
+            lv_part = lv_exclude.
+          ENDIF.
+          IF rv_where IS NOT INITIAL.
+            rv_where = |{ rv_where } AND |.
+          ENDIF.
+          rv_where = |{ rv_where }( { lv_part } )|.
+        ENDIF.
+        CLEAR: lv_include, lv_exclude.
+        lv_field = ls_selopt-shlpfield.
+      ENDIF.
+      IF ls_selopt-sign = 'E'.
+        IF lv_exclude IS NOT INITIAL.
+          lv_exclude = |{ lv_exclude } AND |.
+        ENDIF.
+        lv_exclude = |{ lv_exclude }{ condition( ls_selopt ) }|.
+      ELSE.
+        IF lv_include IS NOT INITIAL.
+          lv_include = |{ lv_include } OR |.
+        ENDIF.
+        lv_include = |{ lv_include }{ condition( ls_selopt ) }|.
+      ENDIF.
+    ENDLOOP.
+    IF lv_include IS NOT INITIAL OR lv_exclude IS NOT INITIAL.
+      lv_part = lv_include.
+      IF lv_include IS NOT INITIAL AND lv_exclude IS NOT INITIAL.
+        lv_part = |( { lv_include } ) AND { lv_exclude }|.
+      ELSEIF lv_exclude IS NOT INITIAL.
+        lv_part = lv_exclude.
+      ENDIF.
+      IF rv_where IS NOT INITIAL.
+        rv_where = |{ rv_where } AND |.
+      ENDIF.
+      rv_where = |{ rv_where }( { lv_part } )|.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_sb_gendpc_shlp_data~get_search_help_values.
+    DATA lt_output   TYPE ty_parameters.
+    DATA ls_output   TYPE ty_parameter.
+    DATA lv_where    TYPE string.
+    DATA lr_rows     TYPE REF TO data.
+    DATA lt_sorted   TYPE ty_sorted_tab.
+    DATA ls_sorted   TYPE ty_sorted.
+    DATA lv_record   TYPE i.
+    DATA ls_result   LIKE LINE OF et_return_list.
+    DATA ls_selopt   TYPE ddshselopt.
+    DATA lv_rows     TYPE i.
+    FIELD-SYMBOLS <lt_rows>  TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_row>   TYPE any.
+    FIELD-SYMBOLS <lv_value> TYPE any.
+
+    CLEAR: et_return_list, es_message.
+    IF mv_selmethod IS INITIAL AND mo_source IS NOT BOUND.
+      es_message-type    = 'E'.
+      es_message-message = |Search help { mv_shlp_name }: selection through exit function { mv_selmexit } is not served here yet|.
+      RETURN.
+    ENDIF.
+
+    lt_output = get_output_parameters( ).
+    IF lt_output IS INITIAL.
+      es_message-type    = 'E'.
+      es_message-message = |Search help { mv_shlp_name } has no output parameters|.
+      RETURN.
+    ENDIF.
+* a selection option names a parameter of this search help, or the request
+* is refused: its field name would otherwise reach the SQL as written
+    LOOP AT it_selopt INTO ls_selopt.
+      READ TABLE mt_parameters TRANSPORTING NO FIELDS WITH KEY name = ls_selopt-shlpfield.
+      IF sy-subrc <> 0.
+        es_message-type    = 'E'.
+        es_message-message = |Search help { mv_shlp_name } has no parameter { ls_selopt-shlpfield }|.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+    lv_where = where_clause( with_defaults( it_selopt ) ).
+
+    IF mo_source IS BOUND.
+      lr_rows = mo_source->select( iv_where   = lv_where
+                                   iv_langu   = sy-langu
+                                   iv_maxrows = iv_maxrows ).
+      ASSIGN lr_rows->* TO <lt_rows>.
+    ELSE.
+      CREATE DATA lr_rows TYPE STANDARD TABLE OF (mv_selmethod).
+      ASSIGN lr_rows->* TO <lt_rows>.
+      IF lv_where IS INITIAL.
+        lv_where = '1 = 1'.
+      ENDIF.
+* the row limit of the read, before any sort; 0 is no limit, which the
+* SQL adapters here would read as LIMIT 0 (ANORMALIES
+* 2026-11-15-up-to-zero-rows)
+      lv_rows = iv_maxrows.
+      IF lv_rows <= 0.
+        lv_rows = c_all_rows.
+      ENDIF.
+* the key order by name: ORDER BY PRIMARY KEY over a dynamic FROM is
+* dropped here (ANORMALIES 2026-11-15-order-by-primary-key-dynamic), and a
+* row limit without an order is any rows
+      IF mv_order_by IS NOT INITIAL.
+        SELECT * FROM (mv_selmethod)
+          INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
+          UP TO lv_rows ROWS
+          WHERE (lv_where)
+          ORDER BY (mv_order_by).
+      ELSE.
+        SELECT * FROM (mv_selmethod)
+          INTO CORRESPONDING FIELDS OF TABLE <lt_rows>
+          UP TO lv_rows ROWS
+          WHERE (lv_where)
+          ORDER BY PRIMARY KEY.
+      ENDIF.
+    ENDIF.
+    IF <lt_rows> IS INITIAL.
+      RETURN.
+    ENDIF.
+
+* the rows read, sorted by the list fields when iv_sort is set -- each in
+* its external form when it has a sort exit; a stable sort, so rows equal
+* in their list fields keep the key order of the read
+    LOOP AT <lt_rows> ASSIGNING <ls_row>.
+      CLEAR ls_sorted.
+      ls_sorted-index = sy-tabix.
+      LOOP AT lt_output INTO ls_output.
+        ASSIGN COMPONENT ls_output-name OF STRUCTURE <ls_row> TO <lv_value>.
+        IF sy-subrc = 0.
+          IF ls_output-sort_exit IS INITIAL.
+            ls_sorted-key = |{ ls_sorted-key }{ <lv_value> }\||.
+          ELSE.
+            ls_sorted-key = |{ ls_sorted-key }{ zcl_osd_conv_exit=>output( iv_value = <lv_value>
+                                                                          iv_exit  = ls_output-sort_exit ) }\||.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+      APPEND ls_sorted TO lt_sorted.
+    ENDLOOP.
+    IF iv_sort = abap_true.
+      SORT lt_sorted STABLE BY key.
+    ENDIF.
+
+    LOOP AT lt_sorted INTO ls_sorted.
+      lv_record = lv_record + 1.
+      IF iv_maxrows > 0 AND lv_record > iv_maxrows.
+        EXIT.
+      ENDIF.
+      READ TABLE <lt_rows> INDEX ls_sorted-index ASSIGNING <ls_row>.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      LOOP AT lt_output INTO ls_output.
+        ASSIGN COMPONENT ls_output-name OF STRUCTURE <ls_row> TO <lv_value>.
+        IF sy-subrc <> 0.
+          CONTINUE.
+        ENDIF.
+        ls_result-record_number = lv_record.
+        ls_result-field_name    = ls_output-name.
+        ls_result-field_value   = <lv_value>.
+        APPEND ls_result TO et_return_list.
+      ENDLOOP.
+    ENDLOOP.
+  ENDMETHOD.
+
+ENDCLASS.

@@ -1,18 +1,26 @@
 import {syncBuiltinESMExports} from 'node:module';
 import {expect} from "chai";
 import childProcess, {execFileSync, spawn, spawnSync} from "node:child_process";
-import {mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
+import {copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {load as parseYaml} from "js-yaml";
 import {abapgitXml, zipFiles} from "../tools/osd-abapgit-zip.mjs";
-import {build, inspect, leakGate, main, pushSystem, readLeakAllow, systemLayers} from "../tools/osd-layer.mjs";
-import {manifest, pull, push, pushBlob, pushManifest, sha256, treeDigest} from "../tools/osd-oci.mjs";
+import {build, inspect, leakGate, main, pushSystem, readLeakAllow, systemLayers, unresolvedLines} from "../tools/osd-layer.mjs";
+import {JSON_LIMIT, assertPrivateTarget, manifest, pull, push, pushBlob, pushManifest, sha256, treeDigest} from "../tools/osd-oci.mjs";
 import {archiveFiles} from "../tools/osd-source-zip.mjs";
 import {fetchAll} from "../tools/osd-fetch.mjs";
+import {fetchSystem} from "../tools/osd-system-fetch.mjs";
+import {assertPublicSystem} from "../tools/osd-system.mjs";
+import {generationSystem} from "../tools/osd-system.mjs";
+import {hashOf, inputsOf} from "../tools/osd-build.mjs";
+import {publicProvenance, verifyTreeArtefact} from "../tools/osd-public-tree.mjs";
+import {verifyPublicArtefact} from "../tools/osd-provenance.mjs";
+import {makeReadRecord, readEntry} from "../tools/osd-read-record.mjs";
 import {registry, listening} from "./helpers/oci-registry.mjs";
 
 import {toolCommand, setHostedLeakScanner} from "../tools/osd-host.mjs";
+import {installHostedLeakScanner} from "../tools/osd-hosted-leak-scanner.mjs";
 
 const options = {name: "smoke", kind: "input"};
 const refusal = async (run, code) => {
@@ -32,14 +40,14 @@ describe("osd-layer: reproducible publishing", function () {
     oldList = process.env.OSD_LEAK_IDENTIFIERS;
     oldSelf = process.env.OSD_SELF;
     oldCwd = process.cwd();
-    setHostedLeakScanner((cwd, paths) => {
-      const [command, ...args] = toolCommand(join(oldCwd, "tools/osd-leak-scan.mjs"), ["--redact", "--publication-allow", "--paths", ...paths]);
+    setHostedLeakScanner((cwd, paths, privateLayer) => {
+      const [command, ...args] = toolCommand(join(oldCwd, "tools/osd-leak-scan.mjs"), [...(privateLayer ? ["--private-layer"] : []), "--redact", "--publication-allow", "--paths", ...paths]);
       return spawnSync(command, args, {cwd, encoding: "utf8", maxBuffer: 4 * 1024 * 1024});
     });
     // No chdir: the gate runs the scanner from its own scan directory, so the
     // test list below wins over a checkout's private one (and the timing
     // reporter, which maps tests to files by the cwd, keeps working).
-    write(join(root, "identifiers.json"), JSON.stringify({test: ["forbidden_publish_identifier"]}));
+    write(join(root, "identifiers.json"), JSON.stringify({test: ["forbidden_publish_identifier"], "корпус SAP (A4H, только локально)": ["Z_UNUSED_SYNTHETIC_CORPUS"]}));
     process.env.OSD_LEAK_IDENTIFIERS = join(root, "identifiers.json");
     process.env.OSD_SELF = JSON.stringify([process.execPath, join(oldCwd, "test/helpers/osd-layer-host.mjs")]);
   });
@@ -67,6 +75,172 @@ describe("osd-layer: reproducible publishing", function () {
     await main(["build", folder, "--name", "smoke", "--kind", "input", "--out", join(root, "out")]);
     expect(readFileSync(join(root, "out/smoke.zip"))).to.deep.equal(a.zip);
     expect(sha256(readFileSync(join(root, "out/manifest.json")))).to.equal(a.digest);
+  });
+
+  // P2-5: osd-build's store holds every generation's sources and output,
+  // private ones included, with no identity file a layer build could read
+  it("requires --private when repackaging a build store folder or a generation", () => {
+    const refusedUnlessPrivate = (dir) => {
+      expect(() => build(dir, options), dir).to.throw(/requires --private/).with.property("code", "PRIVATE_LAYER");
+      expect(() => build(dir, {...options, private: true}), dir).not.to.throw();
+    };
+    // this checkout's build/
+    mkdirSync(join(oldCwd, "build"), {recursive: true});
+    const cache = mkdtempSync(join(oldCwd, "build", "osd-layer-cache-"));
+    try {
+      write(join(cache, "sample.abap"), "synthetic");
+      refusedUnlessPrivate(cache);
+    } finally { rmSync(cache, {recursive: true, force: true}); }
+    // another checkout's store
+    const store = join(root, "other-checkout/build"), hash = "0123456789abcdef";
+    write(join(store, `by-input/${hash}/manifest.json`), JSON.stringify({hash, systemDigest: null, systemPrivate: true, provenance: []}));
+    for (const path of [`by-input/${hash}/source`, `by-input/${hash}/output`, "source-by-digest", "xref"]) {
+      write(join(store, path, "zsynthetic.prog.abap"), "REPORT zsynthetic.");
+      refusedUnlessPrivate(join(store, path));
+    }
+    refusedUnlessPrivate(join(root, "other-checkout"));
+    // a copied generation, out of any build/: its manifest says what it is
+    const copied = join(root, "copied-generation");
+    write(join(copied, "manifest.json"), JSON.stringify({hash, gen: "synthetic"}));
+    write(join(copied, "output/zsynthetic.prog.mjs"), "synthetic");
+    refusedUnlessPrivate(copied);
+    refusedUnlessPrivate(join(copied, "output"));
+    // an ordinary folder that happens to be called build is not a store
+    write(join(root, "plain/build/zplain.prog.abap"), "REPORT zplain.");
+    expect(() => build(join(root, "plain"), options)).not.to.throw();
+  });
+
+  it("stores private and closure only when requested and preserves the old digest", async () => {
+    const old = build(folder, options);
+    expect(old.digest).to.equal("sha256:3f810f6ff458d65df7b0ca41c704b6dc1cb410dd55afc7533ca3def06e449864");
+    const same = build(folder, {...options, private: false});
+    expect(same.digest).to.equal(old.digest);
+    expect(same.config).not.to.have.property("private");
+    const closure = {unresolved: 3, items: [{kind: "synthetic"}]};
+    const marked = build(folder, {...options, private: true, closure});
+    expect(marked.config.private).to.equal(true);
+    expect(marked.manifest.annotations["org.osd.layer.private"]).to.equal("true");
+    expect(marked.config.closure).to.deep.equal(closure);
+    const closureFile = join(root, "closure.json");
+    write(closureFile, JSON.stringify(closure));
+    await main(["build", folder, "--name", "smoke", "--kind", "input", "--private", "--closure", closureFile, "--out", join(root, "closure-build")]);
+    expect(JSON.parse(readFileSync(join(root, "closure-build/config.json"))).closure).to.deep.equal(closure);
+    expect(() => build(folder, {...options, closure: {unresolved: -1, items: []}})).to.throw(/closure/);
+    expect(() => build(folder, {...options, closure: {unresolved: 1, items: ["bad"]}})).to.throw(/closure/);
+    expect(() => build(folder, {...options, closure: {unresolved: 1, items: [], extra: true}})).to.throw(/closure/);
+    const nearlyFull = {unresolved: 1, items: [{text: "x".repeat(JSON_LIMIT - 105)}]};
+    expect(Buffer.byteLength(JSON.stringify(nearlyFull))).to.be.lessThan(JSON_LIMIT);
+    expect(() => build(folder, {...options, closure: nearlyFull})).to.throw(/config exceeds 4 MiB/);
+  });
+
+  it("keeps OCI source privacy through fetch, generation and a src subdirectory rebuild", async () => {
+    const r = registry(), host = await listening(r);
+    try {
+      const privateLayer = build(folder, {...options, private: true});
+      const digest = await push(`${host}/source/private:v1`, privateLayer, {env: {OSD_PRIVATE_REGISTRIES: host}});
+      const pack = join(root, "packs/private-pack");
+      write(join(pack, "osd-pack.json"), JSON.stringify({name: "private-pack", abap: ["upstream/src"],
+        sources: [{folder: "upstream", oci: `${host}/source/private@${digest}`}]}));
+      await fetchAll(root, {env: {}});
+      const source = join(pack, "upstream");
+      expect(JSON.parse(readFileSync(join(source, ".osd-source.json"), "utf8")).private).to.equal(true);
+      expect(generationSystem(root).systemPrivate).to.equal(true);
+      write(join(source, "src/zcl_smoke.clas.abap"), "CLASS zcl_smoke DEFINITION PUBLIC. ENDCLASS.");
+      expect(() => build(join(source, "src"), options)).to.throw().with.property("code", "PRIVATE_LAYER");
+      expect(build(join(source, "src"), {...options, private: true}).config.private).to.equal(true);
+    } finally { await new Promise(done => r.server.close(done)); }
+  });
+
+  it("normalizes an uppercase registry host before checking private publication", () => {
+    const layer = build(folder, {...options, private: true});
+    expect(() => assertPrivateTarget("LOCALHOST:5000/osd/private:v1", [layer], {OSD_PRIVATE_REGISTRIES: "localhost:5000"})).not.to.throw();
+    expect(() => assertPrivateTarget("GHCR.IO/osd/private:v1", [layer], {OSD_PRIVATE_REGISTRIES: "ghcr.io"}))
+      .to.throw().with.property("code", "PRIVATE_LAYER");
+  });
+
+  it("passes private mode through the hosted scanner used by compiled hosts", () => {
+    write(join(root, "identifiers.json"), JSON.stringify({"корпус SAP (A4H, только локально)": ["Z_SYNTHETIC_CORPUS_OBJECT"], host: ["local-test-host"]}));
+    write(join(folder, "probe.txt"), "Z_SYNTHETIC_CORPUS_OBJECT");
+    installHostedLeakScanner();
+    const layer = build(folder, {...options, private: true});
+    expect(() => leakGate([layer.files], {}, [], [], ["smoke"], true)).not.to.throw();
+    expect(() => leakGate([layer.files], {}, [], [], ["smoke"], false)).to.throw(/publish refused/);
+    write(join(folder, "probe.txt"), "local-test-host");
+    expect(() => leakGate([build(folder, {...options, private: true}).files], {}, [], [], ["smoke"], true)).to.throw(/publish refused/);
+  });
+
+  it("normalizes private registry hosts and ports at both push entry points", async () => {
+    const layer = build(folder, {...options, private: true});
+    const r = registry(), local = await listening(r);
+    try {
+      const digest = await push(`${local}/source/layer:v1`, layer, {env: {OSD_PRIVATE_REGISTRIES: local}});
+      for (const host of ["ghcr.io:443", "ghcr.io.", "x.github.io:443", "x.github.io.", "github.io"]) {
+        const ref = `${host}/test/layer:v1`, env = {OSD_PRIVATE_REGISTRIES: host};
+        await refusal(() => push(ref, layer, {env}), "PRIVATE_LAYER");
+        await refusal(() => pushSystem(ref, [`${local}/source/layer@${digest}`], {env}), "PRIVATE_LAYER");
+        expect(() => assertPrivateTarget(ref, [layer], env)).to.throw().with.property("code", "PRIVATE_LAYER");
+      }
+    } finally { await new Promise(done => r.server.close(done)); }
+    expect(() => assertPrivateTarget("localhost:1234/test/layer:v1", [layer], {OSD_PRIVATE_REGISTRIES: "LOCALHOST"})).to.throw().with.property("code", "PRIVATE_LAYER");
+    expect(() => assertPrivateTarget("localhost/test/layer:v1", [layer], {OSD_PRIVATE_REGISTRIES: "LOCALHOST"})).not.to.throw();
+    expect(() => assertPrivateTarget("localhost/test/layer:v1", [layer], {OSD_PRIVATE_REGISTRIES: "localhost:1234"})).to.throw().with.property("code", "PRIVATE_LAYER");
+    expect(() => assertPrivateTarget("localhost:1234/test/layer:v1", [layer], {OSD_PRIVATE_REGISTRIES: "localhost:5678"})).to.throw().with.property("code", "PRIVATE_LAYER");
+  });
+
+  it("refuses private installed systems before release and download archives are made", () => {
+    const fixture = join(root, "artifact-root"), identity = {
+      order: 0, name: "smoke", kind: "input", private: true,
+      digest: `sha256:${"1".repeat(64)}`, treeDigest: `sha256:${"2".repeat(64)}`, path: "inputs/smoke",
+    };
+    write(join(fixture, ".local/system/.osd-system.json"), JSON.stringify({digest: `sha256:${"3".repeat(64)}`, layers: [identity]}));
+    write(join(fixture, ".local/system/inputs/smoke/.osd-layer.json"), JSON.stringify(identity));
+    mkdirSync(join(fixture, "scripts"), {recursive: true});
+    symlinkSync(join(oldCwd, "tools"), join(fixture, "tools"), "dir");
+    for (const script of ["make-release.mjs", "make-download-bundle.mjs"]) {
+      copyFileSync(join(oldCwd, "scripts", script), join(fixture, "scripts", script));
+      const args = script === "make-release.mjs" ? [join(fixture, ".local/release")] : ["linux-amd64"];
+      const result = spawnSync(process.execPath, [join(fixture, "scripts", script), ...args], {cwd: fixture, encoding: "utf8"});
+      expect(result.status, result.stderr).not.to.equal(0);
+      expect(result.stderr).to.include("private layer smoke");
+    }
+  });
+
+  it("passes private leak mode only for private layers", () => {
+    write(join(root, "identifiers.json"), JSON.stringify({"корпус SAP (A4H, только локально)": ["Z_SYNTHETIC_CORPUS_OBJECT"], host: ["local-test-host"], credential: ["test-token-secret"]}));
+    const file = join(folder, "probe.txt");
+    write(file, "Z_SYNTHETIC_CORPUS_OBJECT");
+    const privateLayer = build(folder, {...options, private: true});
+    const publicLayer = build(folder, options);
+    leakGate([privateLayer.files], {config: privateLayer.config}, [privateLayer.configBytes], [], ["smoke"], true);
+    expect(() => leakGate([publicLayer.files], {}, [], [], ["smoke"])).to.throw(/publish refused/);
+    for (const content of ["local-test-host", "test-token-secret", [192, 168, 1, 42].join("."), ["c0", "a8", "01", "2a", "112233445566778899aabbcc"].join("")]) {
+      write(file, content);
+      const marked = build(folder, {...options, private: true});
+      expect(() => leakGate([marked.files], {}, [], [], ["smoke"], true)).to.throw(/publish refused/);
+    }
+  });
+
+  it("refuses private layer pushes without an exact local registry allow-list, including GHCR", async () => {
+    const r = registry(), host = await listening(r), old = process.env.OSD_PRIVATE_REGISTRIES;
+    const target = `${host}/osd/private:v1`;
+    try {
+      delete process.env.OSD_PRIVATE_REGISTRIES;
+      await refusal(() => main(["push", target, folder, "--name", "smoke", "--kind", "customer", "--private"]), "PRIVATE_LAYER");
+      const cli = spawnSync(process.execPath, [join(oldCwd, "tools/osd-layer.mjs"), "push", target, folder, "--name", "smoke", "--kind", "customer", "--private"],
+        {encoding: "utf8", env: {...process.env, OSD_PRIVATE_REGISTRIES: ""}});
+      expect(cli.status).to.equal(2);
+      expect(cli.stderr).to.include(`PRIVATE_LAYER: private layer smoke cannot be published to ${host}`);
+      process.env.OSD_PRIVATE_REGISTRIES = "";
+      await refusal(() => main(["push", target, folder, "--name", "smoke", "--kind", "customer", "--private"]), "PRIVATE_LAYER");
+      process.env.OSD_PRIVATE_REGISTRIES = `127.0.0.1, ${host}`;
+      await main(["push", target, folder, "--name", "smoke", "--kind", "customer", "--private"]);
+      expect((await pull(`${host}/osd/private@${build(folder, {name: "smoke", kind: "customer", private: true}).digest}`)).config.private).to.equal(true);
+      process.env.OSD_PRIVATE_REGISTRIES = `ghcr.io, ${host}`;
+      await refusal(() => main(["push", "ghcr.io/example/private:v1", folder, "--name", "smoke", "--kind", "customer", "--private"]), "PRIVATE_LAYER");
+    } finally {
+      if (old === undefined) delete process.env.OSD_PRIVATE_REGISTRIES; else process.env.OSD_PRIVATE_REGISTRIES = old;
+      await new Promise(done => r.server.close(done));
+    }
   });
 
   it("keeps every existing repository file and its custom starting folder", () => {
@@ -190,6 +364,51 @@ describe("osd-layer: reproducible publishing", function () {
       expect(r.uploads).to.equal(uploads);
       expect(r.mounts).to.equal(0);
     } finally { await new Promise((done) => r.server.close(done)); }
+  });
+
+  it("marks private system descriptors, sums closure, and refuses a private config even if its marker is stripped", async () => {
+    const r = registry(), host = await listening(r), old = process.env.OSD_PRIVATE_REGISTRIES;
+    try {
+      process.env.OSD_PRIVATE_REGISTRIES = host;
+      const privateLayer = build(folder, {...options, private: true, closure: {unresolved: 2, items: []}});
+      const publicLayer = build(folder, {...options, name: "upper", closure: {unresolved: 3, items: [{}]}});
+      const one = await push(`${host}/source/one:v1`, privateLayer);
+      const two = await push(`${host}/source/two:v1`, publicLayer);
+      const refs = [`${host}/source/one@${one}`, `${host}/source/two@${two}`];
+      delete process.env.OSD_PRIVATE_REGISTRIES;
+      await refusal(() => pushSystem(`${host}/system/all:v1`, refs), "PRIVATE_LAYER");
+      process.env.OSD_PRIVATE_REGISTRIES = host;
+      const digest = await pushSystem(`${host}/system/all:v1`, refs);
+      const index = await manifest(`${host}/system/all@${digest}`);
+      expect(index.json.manifests[0].annotations["org.osd.layer.private"]).to.equal("true");
+      expect(index.json.annotations["org.osd.system.unresolved"]).to.equal("5");
+      const summary = await inspect(`${host}/system/all@${digest}`);
+      expect(summary.layers.map(layer => layer.closure.unresolved)).to.deep.equal([2, 3]);
+      expect(unresolvedLines(summary)).to.deep.equal(["layer smoke: unresolved 2", "layer upper: unresolved 3", "system: unresolved 5"]);
+      const log = [];
+      await fetchSystem(root, `${host}/system/all@${digest}`, {log: line => log.push(line)});
+      expect(log.filter(line => line.includes("unresolved"))).to.deep.equal(unresolvedLines(summary));
+      const wrongCount = structuredClone(index.json);
+      wrongCount.annotations["org.osd.system.unresolved"] = "4";
+      const wrongCountDigest = await pushManifest(`${host}/system/all:wrong-count`, Buffer.from(JSON.stringify(wrongCount)));
+      await refusal(() => inspect(`${host}/system/all@${wrongCountDigest}`), "BAD_SYSTEM");
+      await refusal(() => fetchSystem(join(root, "wrong-count"), `${host}/system/all@${wrongCountDigest}`), "BAD_SYSTEM");
+      const wrongPrivate = structuredClone(index.json);
+      delete wrongPrivate.manifests[0].annotations["org.osd.layer.private"];
+      const wrongPrivateDigest = await pushManifest(`${host}/system/all:wrong-private`, Buffer.from(JSON.stringify(wrongPrivate)));
+      await refusal(() => inspect(`${host}/system/all@${wrongPrivateDigest}`), "BAD_LAYER");
+      await refusal(() => fetchSystem(join(root, "wrong-private"), `${host}/system/all@${wrongPrivateDigest}`), "BAD_LAYER");
+      expect(() => assertPublicSystem(root)).to.throw(/private layer smoke/);
+      const stripped = structuredClone(privateLayer);
+      delete stripped.manifest.annotations["org.osd.layer.private"];
+      stripped.manifestBytes = Buffer.from(JSON.stringify(stripped.manifest));
+      const strippedDigest = await push(`${host}/source/stripped:v1`, stripped);
+      delete process.env.OSD_PRIVATE_REGISTRIES;
+      await refusal(() => pushSystem(`${host}/system/all:v2`, [`${host}/source/stripped@${strippedDigest}`]), "PRIVATE_LAYER");
+    } finally {
+      if (old === undefined) delete process.env.OSD_PRIVATE_REGISTRIES; else process.env.OSD_PRIVATE_REGISTRIES = old;
+      await new Promise(done => r.server.close(done));
+    }
   });
 
   it("scans original config and manifest bytes before copying foreign layers", async () => {
@@ -511,5 +730,238 @@ describe("osd-layer: reproducible publishing", function () {
     }}), "UNSAFE_LOCATION");
     expect(requests).to.have.length(2);
     await refusal(() => pushManifest(`registry.example/osd/pack@sha256:${"a".repeat(64)}`, Buffer.from("{}")), "DIGEST_MISMATCH");
+  });
+});
+
+// Every public entry point that copies the checkout, run as CI runs it, from
+// a copy beside a synthetic private installed system: each refuses before it
+// writes anything (a Pages push, a preview, an image, a seeded binary, a
+// release asset, a publishing build).
+describe("public entry points refuse a private installed system", function () {
+  this.timeout(120000);
+  const repo = new URL("..", import.meta.url).pathname;
+  let fixture, outside;
+  const put = (path, text) => { mkdirSync(join(fixture, path, ".."), {recursive: true}); writeFileSync(join(fixture, path), text); };
+  const copy = (...paths) => { for (const path of paths) { mkdirSync(join(fixture, path, ".."), {recursive: true}); copyFileSync(join(repo, path), join(fixture, path)); } };
+  const tree = () => readdirSync(fixture, {recursive: true}).map(String).sort();
+  const refusedWithoutWrites = (command, args, env = {}) => {
+    const before = tree();
+    const result = spawnSync(command, args, {cwd: fixture, encoding: "utf8", env: {...process.env, ...env}});
+    expect(result.status, result.stdout + result.stderr).not.to.equal(0);
+    expect(result.stderr).to.include("private layer smoke");
+    expect(tree()).to.deep.equal(before);
+    return result;
+  };
+  beforeEach(() => {
+    fixture = mkdtempSync(join(tmpdir(), "osd-public-guard-"));
+    outside = mkdtempSync(join(tmpdir(), "osd-public-guard-origin-"));
+    const identity = {order: 0, name: "smoke", kind: "input", private: true,
+      digest: `sha256:${"1".repeat(64)}`, treeDigest: `sha256:${"2".repeat(64)}`, path: "inputs/smoke"};
+    put(".local/system/.osd-system.json", JSON.stringify({digest: `sha256:${"3".repeat(64)}`, layers: [identity]}));
+    put(".local/system/inputs/smoke/.osd-layer.json", JSON.stringify(identity));
+    symlinkSync(join(repo, "tools"), join(fixture, "tools"), "dir");
+  });
+  afterEach(() => { rmSync(fixture, {recursive: true, force: true}); rmSync(outside, {recursive: true, force: true}); });
+
+  it("pages-push publish leaves the gh-pages tip and the checkout as they were", () => {
+    const origin = join(outside, "origin.git"), seed = join(outside, "seed"), git = (...args) => execFileSync("git", args, {encoding: "utf8"}).trim();
+    git("init", "-q", "--bare", origin);
+    git("init", "-q", seed);
+    writeFileSync(join(seed, "index.html"), "synthetic\n");
+    git("-C", seed, "add", "index.html");
+    git("-C", seed, "-c", "user.name=test", "-c", "user.email=test@localhost", "commit", "-q", "-m", "seed");
+    git("-C", seed, "push", "-q", origin, "HEAD:refs/heads/gh-pages");
+    const tip = git("--git-dir", origin, "rev-parse", "refs/heads/gh-pages");
+    git("init", "-q", fixture);
+    git("-C", fixture, "remote", "add", "origin", origin);
+    copy("scripts/pages-push.mjs", "scripts/pages-index.mjs");
+    put("build/preview/index.html", "synthetic preview\n");
+    refusedWithoutWrites(process.execPath, ["scripts/pages-push.mjs", "publish", "main", "build/preview"], {GITHUB_SHA: ""});
+    expect(git("--git-dir", origin, "rev-parse", "refs/heads/gh-pages")).to.equal(tip);
+  });
+
+  it("build-preview writes no preview", () => {
+    symlinkSync(join(repo, "test"), join(fixture, "test"), "dir");
+    copy("scripts/build-preview.mjs");
+    refusedWithoutWrites(process.execPath, ["scripts/build-preview.mjs"]);
+  });
+
+  it("the Docker image build stops before its first step", () => {
+    copy("docker/image/build.mjs", "docker/image/packs.mjs");
+    refusedWithoutWrites(process.execPath, ["docker/image/build.mjs"]);
+  });
+
+  it("osd-build --publish builds nothing", () => {
+    refusedWithoutWrites(process.execPath, [join(fixture, "tools/osd-build.mjs"), "--publish"], {OSD_ROOT: fixture});
+  });
+
+  it("release-verify binary refuses the asset", () => {
+    copy("scripts/release-verify.mjs");
+    const elf = Buffer.alloc(64);
+    elf.writeUInt32BE(0x7f454c46, 0); elf[4] = 2; elf[5] = 1; elf.writeUInt16LE(0x3e, 18);
+    put("osgo-linux-x64", elf);
+    put("osgo-linux-x64.sha256", `${sha256(elf).slice(7)}  osgo-linux-x64\n`);
+    refusedWithoutWrites(process.execPath, ["scripts/release-verify.mjs", "binary", "osgo-linux-x64", "go-linux-amd64"]);
+  });
+
+  it("build-binary --seed stages no seed", function () {
+    if (spawnSync("bun", ["--version"]).status !== 0) this.skip();
+    symlinkSync(join(repo, "editors"), join(fixture, "editors"), "dir");
+    symlinkSync(join(repo, "node_modules"), join(fixture, "node_modules"), "dir");
+    copy("scripts/build-binary.mjs", "scripts/build-vsix.mjs", "scripts/third-party-notices.mjs");
+    refusedWithoutWrites("bun", ["scripts/build-binary.mjs", "--seed", join(outside, "osd")]);
+  });
+});
+
+// P1-1, the critic's repro: a public live generation, then a private OCI pack
+// declared and fetched AFTER the build (or any other change to the tree).
+// Each entry point that copies the tree refuses before it writes; a release
+// made before the fetch no longer verifies against the tree.
+describe("public entry points refuse a tree that is not the public live generation", function () {
+  this.timeout(180000);
+  const repo = new URL("..", import.meta.url).pathname;
+  let fixture, outside;
+  const put = (path, text) => { mkdirSync(join(fixture, path, ".."), {recursive: true}); writeFileSync(join(fixture, path), text); };
+  const copy = (...paths) => { for (const path of paths) { mkdirSync(join(fixture, path, ".."), {recursive: true}); copyFileSync(join(repo, path), join(fixture, path)); } };
+  const tree = () => readdirSync(fixture, {recursive: true}).map(String).sort();
+  const refused = (message, command, args, env = {}) => {
+    const before = tree();
+    const result = spawnSync(command, args, {cwd: fixture, encoding: "utf8", env: {...process.env, ...env}});
+    expect(result.status, result.stdout + result.stderr).not.to.equal(0);
+    expect(result.stderr).to.match(message);
+    expect(tree()).to.deep.equal(before);
+  };
+  const live = () => {
+    const named = new Map(), source = join(fixture, "src/zpublic.prog.abap");
+    const hash = hashOf(fixture, inputsOf(fixture), {digests: named});
+    // the input folders as a build records them: a publisher reads them to
+    // show the generation carries no gen/hana-src or gen/hana-ddic (#923)
+    put(`build/by-input/${hash}/manifest.json`, JSON.stringify({hash, inputs: {folders: ["src"]}, systemDigest: null, systemPrivate: false, provenance: []}));
+    // a valid read record: what the build read, inside what the hash named
+    put(`build/by-input/${hash}/reads.json`, JSON.stringify(makeReadRecord(fixture, named, [readEntry(fixture, source, readFileSync(source))])));
+    put(`build/by-input/${hash}/output/init.mjs`, "public\n");
+    symlinkSync(`by-input/${hash}`, join(fixture, "build/live"));
+    symlinkSync("build/live/output", join(fixture, "output"));
+    return hash;
+  };
+  const latePrivatePack = () => {
+    const oci = `localhost:5000/synthetic/demo@sha256:${"a".repeat(64)}`, identity = {oci, path: "src", exclude: [], files: 1, private: true};
+    put("packs/demo/osd-pack.json", JSON.stringify({abap: ["upstream"], sources: [{folder: "upstream", oci}]}));
+    put("packs/demo/.osd-fetched.json", JSON.stringify({upstream: identity}));
+    put("packs/demo/upstream/.osd-source.json", JSON.stringify(identity));
+    put("packs/demo/upstream/zsecret.prog.abap", "REPORT zsecret.\n");
+  };
+  const lateSource = () => put("src/zlate.prog.abap", "REPORT zlate.\n");
+  const PRIVATE = /private input packs\/demo\/upstream/, STALE = /working tree \([0-9a-f]{16}\) is not the live generation/;
+  beforeEach(() => {
+    fixture = mkdtempSync(join(tmpdir(), "osd-public-tree-entry-"));
+    outside = mkdtempSync(join(tmpdir(), "osd-public-tree-entry-out-"));
+    symlinkSync(join(repo, "tools"), join(fixture, "tools"), "dir");
+    put("abap_transpile.json", JSON.stringify({input_folder: ["src"], libs: []}));
+    put("src/zpublic.prog.abap", "REPORT zpublic.\n");
+  });
+  afterEach(() => { rmSync(fixture, {recursive: true, force: true}); rmSync(outside, {recursive: true, force: true}); });
+
+  it("make-release ships the public live tree with its links, then refuses after a late private fetch", () => {
+    copy("scripts/make-release.mjs");
+    const hash = live();
+    const env = {...process.env, GITHUB_SHA: "0".repeat(40), OSD_NODE_DIR: join(outside, "no-node")};
+    const release = join(outside, "release");
+    const made = spawnSync(process.execPath, ["scripts/make-release.mjs", release], {cwd: fixture, encoding: "utf8", env});
+    expect(made.status, made.stdout + made.stderr).to.equal(0);
+    // P2-1: a directory artefact with links records them by target
+    const record = verifyTreeArtefact(release, fixture);
+    expect(record.files.output).to.deep.include({link: "build/live/output"});
+    expect(record.files["build/live"]).to.deep.include({link: `by-input/${hash}`});
+    latePrivatePack();
+    expect(() => verifyTreeArtefact(release, fixture)).to.throw(PRIVATE);
+    const again = join(outside, "release-again");
+    const late = spawnSync(process.execPath, ["scripts/make-release.mjs", again], {cwd: fixture, encoding: "utf8", env});
+    expect(late.status, late.stdout + late.stderr).not.to.equal(0);
+    expect(late.stderr).to.match(PRIVATE);
+    expect(readdirSync(outside)).to.deep.equal(["release"]);
+    rmSync(join(fixture, "packs"), {recursive: true});
+    lateSource();
+    refused(STALE, process.execPath, ["scripts/make-release.mjs", again], env);
+    // a fetch WHILE it runs: the private Node host make-release copies and
+    // asks for its version is the hook; the stamp at the end refuses
+    rmSync(join(fixture, "src/zlate.prog.abap"));
+    const node = join(outside, "node");
+    mkdirSync(join(node, "bin"), {recursive: true});
+    const pack = `${fixture}/packs/demo/upstream`;
+    writeFileSync(join(node, "bin/node"), `#!/bin/sh\nmkdir -p '${pack}'\nprintf '{"private":true}' > '${pack}/.osd-source.json'\necho v0.0.0\n`, {mode: 0o755});
+    const during = spawnSync(process.execPath, ["scripts/make-release.mjs", again], {cwd: fixture, encoding: "utf8", env: {...env, OSD_NODE_DIR: node}});
+    expect(during.status, during.stdout + during.stderr).not.to.equal(0);
+    expect(during.stderr).to.match(PRIVATE);
+    expect(() => verifyPublicArtefact(again)).to.throw().with.property("code", "BAD_PROVENANCE");
+  });
+
+  it("build-preview writes no preview", () => {
+    symlinkSync(join(repo, "test"), join(fixture, "test"), "dir");
+    copy("scripts/build-preview.mjs");
+    live();
+    expect(() => publicProvenance(fixture)).not.to.throw();
+    lateSource();
+    refused(STALE, process.execPath, ["scripts/build-preview.mjs"]);
+    rmSync(join(fixture, "src/zlate.prog.abap"));
+    latePrivatePack();
+    refused(PRIVATE, process.execPath, ["scripts/build-preview.mjs"]);
+    // $TMP: the preview names the tree as the publishing build did, $TMP off
+    rmSync(join(fixture, "packs"), {recursive: true});
+    put("local/tmp/ztmp.prog.abap", "REPORT ztmp.\n");
+    const old = process.env.OSD_TMP;
+    process.env.OSD_TMP = "off";
+    try { rmSync(join(fixture, "build/live")); rmSync(join(fixture, "output")); live(); }
+    finally { if (old === undefined) delete process.env.OSD_TMP; else process.env.OSD_TMP = old; }
+    const result = spawnSync(process.execPath, ["scripts/build-preview.mjs"], {cwd: fixture, encoding: "utf8"});
+    expect(result.stderr).not.to.match(STALE);
+    expect(result.stderr).not.to.match(PRIVATE);
+    expect(result.stderr, "past the public gate, not stopped by it").not.to.match(/read record|READ_RECORD|UNKNOWN_PRIVACY/);
+  });
+
+  // P3: the binary is stamped from the tree it was built from (root), not
+  // from whatever directory it was started in
+  it("build-binary stamps from the tree it builds, not the working directory, and --unstamped is test-only", function () {
+    if (spawnSync("bun", ["--version"]).status !== 0) this.skip();
+    for (const entry of ["web", "webapp", "editors", "node_modules", "data", "test", "package.json", "libs.lock.json"])
+      symlinkSync(join(repo, entry), join(fixture, entry));
+    // copied: the entry resolves its relative imports from where it lies
+    cpSync(join(repo, "bin"), join(fixture, "bin"), {recursive: true});
+    copy("scripts/build-binary.mjs", "scripts/build-vsix.mjs", "scripts/third-party-notices.mjs");
+    const hash = live();
+    const elsewhere = join(outside, "elsewhere");
+    mkdirSync(elsewhere);
+    const binary = join(outside, "osd");
+    const built = spawnSync("bun", [join(fixture, "scripts/build-binary.mjs"), binary], {cwd: elsewhere, encoding: "utf8"});
+    expect(built.status, built.stdout + built.stderr).to.equal(0);
+    expect(verifyPublicArtefact(binary).generation).to.equal(hash);
+    // --unstamped: test-only, no sidecar (a stale one goes too), so every
+    // shipping path's verifyPublicArtefact refuses it; never for what ships
+    const bare = spawnSync("bun", [join(fixture, "scripts/build-binary.mjs"), "--unstamped", binary], {cwd: elsewhere, encoding: "utf8"});
+    expect(bare.status, bare.stdout + bare.stderr).to.equal(0);
+    expect(() => verifyPublicArtefact(binary)).to.throw(/missing or invalid provenance/).with.property("code", "BAD_PROVENANCE");
+    for (const args of [["--unstamped", "--seed", join(outside, "seeded")], ["--unstamped", join(outside, "target"), "bun-linux-x64-baseline"]]) {
+      const misuse = spawnSync("bun", [join(fixture, "scripts/build-binary.mjs"), ...args], {cwd: elsewhere, encoding: "utf8"});
+      expect(misuse.status, args.join(" ")).not.to.equal(0);
+      expect(misuse.stderr).to.include("--unstamped is for a test-only checkout binary");
+    }
+  });
+
+  it("build-binary --seed stages no seed", function () {
+    if (spawnSync("bun", ["--version"]).status !== 0) this.skip();
+    symlinkSync(join(repo, "editors"), join(fixture, "editors"), "dir");
+    symlinkSync(join(repo, "node_modules"), join(fixture, "node_modules"), "dir");
+    copy("scripts/build-binary.mjs", "scripts/build-vsix.mjs", "scripts/third-party-notices.mjs");
+    // the library preflight runs first: the fixture's config has no libraries, nor does its lock
+    put("libs.lock.json", JSON.stringify({...JSON.parse(readFileSync(join(repo, "libs.lock.json"), "utf8")), libraries: []}));
+    live();
+    // bun names the same generation as node does
+    const agrees = spawnSync("bun", ["-e", `import {publicProvenance} from ${JSON.stringify(join(repo, "tools/osd-public-tree.mjs"))}; publicProvenance(${JSON.stringify(fixture)});`], {encoding: "utf8"});
+    expect(agrees.status, agrees.stderr).to.equal(0);
+    lateSource();
+    refused(STALE, "bun", ["scripts/build-binary.mjs", "--seed", join(outside, "osd")]);
+    rmSync(join(fixture, "src/zlate.prog.abap"));
+    latePrivatePack();
+    refused(PRIVATE, "bun", ["scripts/build-binary.mjs", "--seed", join(outside, "osd")]);
   });
 });

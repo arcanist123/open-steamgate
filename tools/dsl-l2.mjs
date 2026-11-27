@@ -20,16 +20,17 @@ import {dirname, join, relative, resolve as resolvePath, sep} from "node:path";
 import {pathToFileURL} from "node:url";
 import yaml from "js-yaml";
 import {DEFAULT_DDIC, DDIC_PROVIDER, Refusal, registryFor, unresolvedDeep} from "./dsl-ddic.mjs";
+import {assignmentNode, continuationNodes, literalNodes} from "./dsl-l2-assignments.mjs";
 import {compileParams} from "./dsl-l2-params.mjs";
 import {compileKeys, compileRange, exampleRange, keysCheck} from "./dsl-l2-range.mjs";
 import {caseSelopt, exampleSelopt, inComparison} from "./dsl-l2-selopt.mjs";
 import {capWarning, describeCases} from "./dsl-l2-describe.mjs";
 export {capWarning, describeCases};
-import {lineIndex, lineOf} from "./dsl-yaml-lines.mjs";
+import {lineIndex, lineOf, scalarLines} from "./dsl-yaml-lines.mjs";
 import {INT_RANGE, PACKED, allReferences, canonical, compareValues, deriveCases, evaluate, kindOf, shiftDate} from "./dsl-l2-eval.mjs";
 
 export {evaluate, stepValue} from "./dsl-l2-eval.mjs";
-export {lineIndex} from "./dsl-yaml-lines.mjs";
+export {lineIndex, scalarLines} from "./dsl-yaml-lines.mjs";
 
 export const CHECK_TEMPLATE = "recipes/l2-check/template.tpl";
 export const TEST_TEMPLATE = "recipes/l2-check-test/template.tpl";
@@ -223,45 +224,6 @@ export function parseSource(text, fail) {
 
 export function parseCondition(text, fail) {
   return new Parser(text, fail).condition();
-}
-
-// The rule line of each column of a condition written over several lines: a
-// plain scalar continued on more indented lines, or a block scalar (`|`, `>`).
-// `value` is what js-yaml read. When the lines joined the way YAML joins them
-// are not that value (quotes, escapes, blank lines, indentation kept by `|`),
-// every column takes the key's line.
-export function scalarLines(text, keyLine, value) {
-  const source = text.split(/\r?\n/);
-  const whole = () => keyLine;
-  const raw = source[keyLine - 1] ?? "";
-  let column = raw.length - raw.trimStart().length;
-  let rest = raw.slice(column);
-  while (rest === "-" || rest.startsWith("- ")) {
-    const after = rest.slice(1);
-    column += 1 + after.length - after.trimStart().length;
-    rest = after.trimStart();
-  }
-  const key = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s"'#{[\]}:,][^:#]*?)\s*:(?:\s+|$)/.exec(rest);
-  if (!key || typeof value !== "string") return whole;
-  const first = rest.slice(key[0].length).replace(/\s+#.*$/, "").trimEnd();
-  const block = /^[|>]/.test(first);
-  if (!block && (first === "" || /^["']/.test(first))) return whole;
-  const segments = block ? [] : [{line: keyLine, text: first}];
-  for (let i = keyLine; i < source.length; i++) {
-    const text = source[i];
-    if (text.trim() === "") break;
-    if (text.length - text.trimStart().length <= column || (!block && text.trim().startsWith("#"))) break;
-    segments.push({line: i + 1, text: text.trim()});
-  }
-  const joined = segments.map((s) => s.text).join(first.startsWith("|") ? "\n" : " ");
-  if (!segments.length || joined !== value.replace(/\n+$/, "")) return whole;
-  const starts = [];
-  let offset = 1;
-  for (const s of segments) {
-    starts.push([offset, s.line]);
-    offset += s.text.length + 1;
-  }
-  return (at) => starts.filter(([o]) => o <= at).at(-1)?.[1] ?? keyLine;
 }
 
 // alert text: plain text with {alias.field} holes
@@ -558,16 +520,20 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     column: range.field, lhs: range.source, op: "IN", is_literal: false, sref: "it_range", ref: "it_range"}}]) : tree;
   const wa = (alias) => `ls_${alias}`;
 
-  // forbid: one exists, or all: / any: of two or three; require: one exists
+  // forbid: row, one exists, or all: / any: of two or three; require: one exists
   const present = ["forbid", "require", "limit"].filter((k) => doc[k] !== undefined);
   if (doc.forbid !== undefined && doc.require !== undefined && doc.limit === undefined) {
     failAt(line("require"))("a rule has forbid or require, not both");
   }
-  if (present.length === 0) failAt(line("rule"))("a rule needs forbid: (no row may match) or require: (a row must match) or limit: (an aggregate must meet a threshold)");
+  if (present.length === 0) failAt(line("rule"))("a rule needs forbid: (row, or no related row may match) or require: (a row must match) or limit: (an aggregate must meet a threshold)");
   if (present.length !== 1) failAt(line(present[1] ?? "rule"))("a rule needs exactly one of forbid:, require:, or limit:");
-  const kind = present[0];
+  const ruleKey = present[0];
+  const kind = doc.forbid === "row" ? "row" : ruleKey;
+  if (kind === "row" && doc.when === undefined) {
+    failAt(line("forbid"))("forbid: row needs when: to select the rows that violate the rule");
+  }
   const keys = compileKeys({doc, range, kind, id, line, failAt});
-  need(doc[kind], kind, kind === "limit" ? "a mapping with count, sum, min or max, where and a threshold" : "a mapping with exists and where", "map");
+  if (kind !== "row") need(doc[kind], kind, kind === "limit" ? "a mapping with count, sum, min or max, where and a threshold" : "a mapping with exists and where", "map");
   let threshold, aggregate;
   // `count` is the original row-count aggregate. `sum`, `min` and `max`
   // name one numeric DDIC field of the counted table.
@@ -584,9 +550,13 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     if (keys.length !== 1) failAt(line(keys[1] ? `limit/${keys[1]}` : "limit"))("limit needs exactly one of more_than, at_least, fewer_than or exactly");
     thresholdSpec = {key: keys[0], value: spec[keys[0]], rule_line: line(`limit/${keys[0]}`)};
   }
-  const listKey = ["all", "any"].find((k) => doc[kind][k] !== undefined);
+  const listKey = kind === "row" ? undefined : ["all", "any"].find((k) => doc[kind][k] !== undefined);
   let combine = "one", specs;
-  if (listKey) {
+  if (kind === "row") {
+    // No related table: the existing query, reference and evaluator emit once
+    // after when selects a driving row, with no further clauses to match.
+    specs = [];
+  } else if (listKey) {
     if (kind === "require") failAt(line(`require/${listKey}`))(`require takes one exists and where, not ${listKey}`);
     for (const key of Object.keys(doc.forbid)) if (key !== listKey) failAt(line(`forbid/${key}`))(`forbid.${listKey} stands alone: ${key} belongs inside one of its clauses`);
     const list = need(doc.forbid[listKey], `forbid/${listKey}`, "a list of clauses, each with exists and where", "list");
@@ -958,7 +928,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
       aggregate.source = `${clause.alias}~${aggregate.column}`;
       aggregate.table = clause.table;
     }
-    const topWhere = clause.tree.op === "and" ? clause.tree.items : [clause.tree];
+    const topWhere = clause ? (clause.tree.op === "and" ? clause.tree.items : [clause.tree]) : [];
     const oneOuter = kind === "limit" && threshold.zero && clause.info.client &&
       topWhere.every((node) => node.op === "cmp" && clause.conditions[node.index].op === "=" &&
         clause.conditions[node.index].cmp.rhs.kind !== "param");
@@ -977,7 +947,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
       for_query: {"@id": `${qid}/for`, rule_line: line("for"),
         from: {"@id": `${id}/for`, rule_line: line("for"), table: outer.table.toLowerCase(), alias: outer.alias},
         where: whereLines(ranged(whenTree))}} : undefined;
-    return {"@id": qid, rule_line: line(kind), type: `ty_join${suffix}`, itab: `lt_join${suffix}`, wa: qwa,
+    return {"@id": qid, rule_line: line(ruleKey), type: `ty_join${suffix}`, itab: `lt_join${suffix}`, wa: qwa,
       fields: [...fields.values()], ...(kind === "limit" ? {aggregate} : {}),
       ...(zero ? {zero, join_fields: [...fields.values()].filter((f) => group_keys.some((k) => k.source === f.source)
         || (!aggregate.is_count && f.source === aggregate.source))} : {}),
@@ -1003,6 +973,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     : kind === "limit"
       ? aggregate.is_count ? "one query: join rows counted per for key in the loop (HAVING probe fails here)"
         : "one query: ordered JOIN rows aggregated per for key in the loop (HAVING probe fails here)"
+    : kind === "row" ? "one query: the for rows selected by when"
     : kind === "require" ? "one query: the rows of the first with no match in a subquery, never a SELECT per row"
     : combine === "any" ? "one query per clause: its table joined to the first, never a SELECT per row of the first"
       : "one query: the tables joined, never a SELECT per row of the first";
@@ -1020,7 +991,7 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
     const levels = [level(forNode, when.tree, when.conditions, "    ", true),
       ...group.map((c, k) => level(c, c.tree, c.conditions, " ".repeat(6 + 2 * k), kind !== "require"))];
     const indent = " ".repeat(4 + 2 * levels.length);
-    return {"@id": group[0]["@id"], rule_line: group[0].rule_line, indent, levels,
+    return {"@id": group[0]?.["@id"] ?? `${id}/forbid`, rule_line: group[0]?.rule_line ?? line("forbid"), indent, levels,
       alert_parts: parts.map((part, k) => ({...part, lead: `${indent}${k === 0 ? "lv_alert = " : "  && "}`, stop: k === parts.length - 1 ? "." : ""})),
       closes: [...levels].reverse().map((l) => ({"@id": l["@id"], rule_line: l.rule_line, indent: l.indent, word: l.is_loop ? "ENDLOOP." : "ENDIF."}))};
   };
@@ -1115,8 +1086,8 @@ export function compileRule(file, {ddic = DEFAULT_DDIC, registry, out} = {}) {
             if (typeof value !== "string") rfail(`${fieldName} must be a scalar`);
             const why = misfit(value, field.literal);
             if (why) failAt(line(`${rpath}/${fieldName}`))(`${info.table}-${field.column.toUpperCase()} is ${typeText(field.literal)}; ${why}`);
-            return {"@id": `${rowId}/field/${field.column}`, rule_line: line(`${rpath}/${fieldName}`), column: field.column,
-              value, "value@type": field.literal};
+            return assignmentNode({"@id": `${rowId}/field/${field.column}`, rule_line: line(`${rpath}/${fieldName}`), column: field.column,
+              value, "value@type": field.literal}, pieces);
           });
           const missing = info.keys.find((k) => !fields.some((f) => f.column === k));
           if (missing) rfail(`a row of ${info.table} needs its key field ${missing.toUpperCase()}`);
@@ -1235,7 +1206,7 @@ function caseNode(model, c) {
             const value = row[column];
             const why = misfit(value, type);
             if (why) throw new Error(`internal: derived value ${JSON.stringify(value)} for ${t.table}-${column}: ${why}`);
-            return {...literal(`${rowId}/field/${column}`, value, type), column};
+            return assignmentNode({...literal(`${rowId}/field/${column}`, value, type), column}, pieces);
           })};
       })};
   }).filter(Boolean);
@@ -1273,7 +1244,7 @@ export function provenance(model, path) {
 // The model the templates render: the compiled rule with the hand-written
 // examples and then the derived cases as one list of tests.
 export function renderModel(compiled) {
-  return {...compiled, tests: [...compiled.examples, ...compiled.cases]};
+  return literalNodes({...compiled, tests: [...compiled.examples, ...compiled.cases]}, pieces);
 }
 
 // The model hash both sidecars carry, "sha256:<hex>" of the rendered model;
@@ -1310,13 +1281,14 @@ export async function renderRule(compiled) {
   // through one template; the list is made here, so the trace and the model
   // hash are those of what was rendered
   const model = renderModel(compiled);
+  const data = continuationNodes(model);
   const {renderRecipe} = await import("./dsl-abap.mjs");
   const quiet = console.log;
   let check, test;
   try {
     console.log = (...items) => console.error(...items); // runtime bootstrap diagnostics
-    check = await renderRecipe(model, CHECK_TEMPLATE, {profile: "abap"});
-    test = await renderRecipe(model, TEST_TEMPLATE, {profile: "abap"});
+    check = await renderRecipe(data, CHECK_TEMPLATE, {profile: "abap"});
+    test = await renderRecipe(data, TEST_TEMPLATE, {profile: "abap"});
   } finally {
     console.log = quiet;
   }

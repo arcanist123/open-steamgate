@@ -1259,5 +1259,5 @@
   ],
   "rule": "src/l2demo/ship_captain.l2.yaml",
   "template": "recipes/l2-check/template.tpl",
-  "templates": {"recipes/l2-check/template.tpl": "sha256:9e5dc7ba26806efb39c4220085dde8aec6a912b5f85cac3c265637b9cd91f9c1"}
+  "templates": {"recipes/l2-check/template.tpl": "sha256:0c78088f1afb165f0a95164bbd0c8a0dc7e3db70a793672df7cc00af9b55c5d7"}
 }

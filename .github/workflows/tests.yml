@@ -88,9 +88,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      # --unstamped: no generation exists before the transpile, so this test
+      # binary carries no provenance and no publishing path accepts it.
       - name: Build the binary from the clean checkout
         run: |
-          bun scripts/build-binary.mjs "$RUNNER_TEMP/osd"
+          bun scripts/build-binary.mjs --unstamped "$RUNNER_TEMP/osd"
           "$RUNNER_TEMP/osd" doctor
 
       # libs.lock.json includes the pinned repository and commit. Hashing the
@@ -187,11 +189,14 @@ jobs:
           tar -C "$RUNNER_TEMP" --exclude='node_modules' -cf - transpiler | tar -C .local/ci-artifact -xf -
           mkdir -p .local/ci-artifact/transpiler/packages/transpiler/node_modules/@abaplint
           cp -a "$RUNNER_TEMP/transpiler/packages/transpiler/node_modules/@abaplint/core" .local/ci-artifact/transpiler/packages/transpiler/node_modules/@abaplint/core
+          node tools/osd-ci-transpiler.mjs prepare
           node tools/osd-ci-artifact.mjs pack "$RUNNER_TEMP/built-tree.tar"
       - uses: actions/upload-artifact@v4
         with:
           name: built-tree
-          path: ${{ runner.temp }}/built-tree.tar
+          path: |
+            ${{ runner.temp }}/built-tree.tar
+            ${{ runner.temp }}/built-tree.tar.osd-provenance.json
           if-no-files-found: error
           retention-days: 1
 
@@ -255,7 +260,8 @@ jobs:
   suites:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Backstop only: real shards take 20-26.5 min on main and shard 4 hit this cap once (#908); the fix is refreshed weights, not a wider cap.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -278,6 +284,7 @@ jobs:
           path: ${{ runner.temp }}
       - name: Restore and verify this run's build
         run: |
+          node tools/osd-provenance.mjs verify "$RUNNER_TEMP/built-tree.tar"
           tar -xf "$RUNNER_TEMP/built-tree.tar"
           test -f gen/osd-ddic-binary.mjs
           test -f output/init.mjs
@@ -332,6 +339,7 @@ jobs:
           path: ${{ runner.temp }}
       - name: Restore and verify this run's build
         run: |
+          node tools/osd-provenance.mjs verify "$RUNNER_TEMP/built-tree.tar"
           tar -xf "$RUNNER_TEMP/built-tree.tar"
           test -f gen/osd-ddic-binary.mjs
           test -f output/init.mjs
@@ -371,6 +379,7 @@ jobs:
           path: ${{ runner.temp }}
       - name: Restore and verify this run's build
         run: |
+          node tools/osd-provenance.mjs verify "$RUNNER_TEMP/built-tree.tar"
           tar -xf "$RUNNER_TEMP/built-tree.tar"
           test -f gen/osd-ddic-binary.mjs
           test -f output/init.mjs
@@ -397,13 +406,23 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: chromium-v1-${{ runner.os }}-${{ steps.playwright_version.outputs.version }}
+      # apt only if Chromium does not launch; a smoke launch decides
+      # (scripts/ci-chromium.sh, docs/ci-tests.md).
       - name: Install Chromium for browser smoke tests
-        run: |
-          if [[ "${{ steps.chromium_cache.outputs.cache-hit }}" == true ]]; then
-            npx playwright install-deps chromium
-          else
-            npx playwright install --with-deps chromium
-          fi
+        run: bash scripts/ci-chromium.sh "${{ steps.chromium_cache.outputs.cache-hit }}"
+
+      # **The generation the browser specs serve is not the one the build job
+      # packed.** playwright.config.mjs adds the demo/cockpit-fleet pack to
+      # OSD_PACKS, the pack is part of the generation's inputs, and the web
+      # server's start (ensureSourceBuild) therefore transpiled a second
+      # generation -- about 48 s -- inside Playwright's 60 s webServer wait,
+      # before it even listened. Measured on this job: 32-62 s from start to
+      # ready, 6 of 26 runs timed out, the tag run of vscode-v0.7.2620 among
+      # them; the second start in the same job (Portable AMDP below) reused
+      # that generation and was ready in about 12 s. Built here, outside the
+      # wait, with the same pack list the config hands the server.
+      - name: Build the generation the browser specs serve
+        run: OSD_PACKS=demo/cockpit-fleet node tools/osd-build.mjs
 
       - name: Launchpad, FCL, taxi F4 and APC smoke tests
         run: node scripts/run-e2e-isolated.mjs test/e2e/launchpad-navigation.spec.mjs test/e2e/fcl.spec.mjs test/e2e/listreport.spec.mjs test/e2e/taxi.spec.mjs test/e2e/zork.spec.mjs test/e2e/lsd.spec.mjs --config playwright.config.mjs
@@ -427,7 +446,7 @@ jobs:
   osgo-host:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -450,6 +469,7 @@ jobs:
           path: ${{ runner.temp }}
       - name: Restore and verify this run's build
         run: |
+          node tools/osd-provenance.mjs verify "$RUNNER_TEMP/built-tree.tar"
           tar -xf "$RUNNER_TEMP/built-tree.tar"
           test -f build/live/manifest.json
           test -d .local/lars/open-abap-core
@@ -465,12 +485,15 @@ jobs:
           go test ./apc/...
       - name: Media rows
         run: node --test tools/gogen/media.test.mjs
-      - name: One request of OSG's gateway through Go
+      - name: Two requests of OSG's gateway through Go
+        # the service document, and $metadata: the model writer's path (labels
+        # from the text pool and the dictionary, milestone 3 B4) runs on Go too
         run: |
-          out=$(node tools/gogen/gateway.mjs) || { echo "$out"; exit 1; }
+          out=$(node tools/gogen/gateway.mjs /sap/opu/odata/sap/ZSTG_DEMO_SRV/ '/sap/opu/odata/sap/ZSTG_DEMO_SRV/$metadata') || { echo "$out"; exit 1; }
           echo "$out"
-          grep -q '^200 OK$' <<<"$out"
+          [ "$(grep -c '^200 OK$' <<<"$out")" = 2 ]
           grep -q '"EntitySets":\["TravelSet"' <<<"$out"
+          grep -q 'sap:display-format="Date"' <<<"$out"
       # ADT conformance on osgo (docs/adt-conformance.md, "CI"): the same case
       # list the required JS suite runs, against the osgo binary with -adt.
       # Known gaps are data in expected/osgo.json and never block. The ratchet:
@@ -507,7 +530,7 @@ jobs:
           trap 'kill "$pid" 2>/dev/null || true' EXIT
           for _ in $(seq 1 60); do curl -fsS "http://127.0.0.1:$STG_PORT/health" >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS "http://127.0.0.1:$STG_PORT/health" >/dev/null 2>&1 || { kill "$pid" 2>/dev/null; tail -20 "$RUNNER_TEMP/osgo-adt.log"; infra "osgo did not answer /health"; }
-          node test/adt-conformance/run.mjs --target osgo --base "http://127.0.0.1:$STG_PORT" --expected "$expected" --write-package '$ADT_WRITES'
+          node test/adt-conformance/run.mjs --target osgo --base "http://127.0.0.1:$STG_PORT" --expected "$expected" --write-package '$STG_ADT_WRITES'
           rc=$?
           case "$rc" in
             0) echo "osgo ADT conformance: expectations met" ;;
@@ -519,7 +542,88 @@ jobs:
           node tools/abapfs-conformance.mjs --url "http://127.0.0.1:$STG_PORT" --expected test/fixtures/abapfs-conformance/expected-osgo.json --out .local/conformance/abapfs-osgo
           abapfs_rc=$?
           cat .local/conformance/abapfs-osgo/report.md >> "$GITHUB_STEP_SUMMARY"
+          # The supervised-host contract (go/serving, ADR 0010 slice 1): the
+          # same check test/osd-child.mjs runs against the Node facade, then
+          # SIGTERM must drain and exit 0 within the 55 s grace. Required, not
+          # advisory: it is the readiness vsix/VSP consumers rely on.
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$STG_PORT" --drain "$pid" || { echo "::error::osgo host contract failed"; exit 1; }
+          wait "$pid"; drain_rc=$?
+          trap - EXIT
+          [ "$drain_rc" -eq 0 ] || { echo "::error::osgo exited $drain_rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgo-adt.log"; exit 1; }
           exit "$abapfs_rc"
+      # cmd/osgo is package main and compiles only beside its generated half
+      # (zz_*.go), which the conformance setup above has just written, so its
+      # own tests run here and not in gogen.yml. They were run by nobody
+      # before: a renamed kernel function (#881, StepQuerier) left the
+      # package's tests uncompilable while every check stayed green. vet
+      # covers the tagged test files too; unreachable and bools are off
+      # because the generated half trips them by construction (1466 + 1).
+      - name: Go vet and tests of cmd/osgo
+        working-directory: tools/gogen/go
+        run: |
+          go vet -tags gitprobe,profilingroutes -unreachable=false -bools=false ./cmd/osgo
+          go test -vet=off -count=1 ./cmd/osgo
+      # ADR 0010 slice 3: the same osgo behind the gateway (go/osgw, cmd/osgw).
+      # ADT conformance through the proxy is held to the direct run's
+      # expectations, the gateway answers the supervised-host contract, a
+      # sidecar killed -9 with an ADT lock held answers 503 for what was in
+      # flight, is replaced, and leaves no lock behind (tools/osgw-live.mjs),
+      # and SIGTERM drains both processes to exit 0.
+      - name: osgo behind the gateway (osgw)
+        run: |
+          set -uo pipefail
+          (cd tools/gogen/go && go build -o ../.out/osgw ./cmd/osgw) || exit 1
+          port=$(node --input-type=module -e '
+            import net from "node:net";
+            const server = net.createServer();
+            server.listen(0, "127.0.0.1", () => {
+              const {port} = server.address();
+              server.close(() => console.log(port));
+            });
+          ')
+          tools/gogen/.out/osgw -binary tools/gogen/.out/osgo -port "$port" -- -adt -root "$PWD" > "$RUNNER_TEMP/osgw.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 120); do curl -fsS "http://127.0.0.1:$port/osd/serving" 2>/dev/null | grep -q '"ready":true' && break; sleep 0.5; done
+          node test/adt-conformance/run.mjs --target osgo --base "http://127.0.0.1:$port" --expected test/adt-conformance/expected/osgo.json --write-package '$STG_ADT_WRITES' || { tail -20 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$port" || exit 1
+          node tools/osgw-live.mjs --base "http://127.0.0.1:$port" || { tail -20 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$port" --drain "$pid" || exit 1
+          wait "$pid"; rc=$?
+          trap - EXIT
+          [ "$rc" -eq 0 ] || { echo "::error::osgw exited $rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgw.log"; exit 1; }
+          if pgrep -f -- "[-]sidecar " >/dev/null; then echo "::error::a sidecar outlived its gateway"; exit 1; fi
+      # ADR 0010 slice 4: the generation swap. The gateway builds a new
+      # generation after an activation (osgo.mjs --fast, the full build when
+      # the fast path declines), starts it read-only beside the serving one on
+      # the same -home file, smokes and promotes it, and drains the old one.
+      # tools/osgw-swap-live.mjs: ABAP Unit 409 right after the activation and
+      # the new code running after the swap (X1 as on Node), a lock held by a
+      # session pinned to the old generation refusing the new one until
+      # released, the old one retiring, a second swap reverting the edit, and
+      # a candidate refusing a file whose schema stamp is another build's.
+      - name: The generation swap (osgw -build)
+        run: |
+          set -uo pipefail
+          port=$(node --input-type=module -e '
+            import net from "node:net";
+            const server = net.createServer();
+            server.listen(0, "127.0.0.1", () => {
+              const {port} = server.address();
+              server.close(() => console.log(port));
+            });
+          ')
+          home=$(mktemp -d)
+          tools/gogen/.out/osgw -binary tools/gogen/.out/osgo -build "node tools/gogen/osgo.mjs --fast" -port "$port" -- -adt -root "$PWD" -home "$home" > "$RUNNER_TEMP/osgw-swap.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 120); do curl -fsS "http://127.0.0.1:$port/osd/serving" 2>/dev/null | grep -q '"ready":true' && break; sleep 0.5; done
+          node tools/osgw-swap-live.mjs --base "http://127.0.0.1:$port" --wait-ms 600000 --db "$home/osgo.sqlite" || { tail -80 "$RUNNER_TEMP/osgw-swap.log"; exit 1; }
+          node tools/osd-host-contract.mjs --base "http://127.0.0.1:$port" --drain "$pid" || exit 1
+          wait "$pid"; rc=$?
+          trap - EXIT
+          [ "$rc" -eq 0 ] || { echo "::error::osgw exited $rc after SIGTERM (expected 0)"; tail -5 "$RUNNER_TEMP/osgw-swap.log"; exit 1; }
+          if pgrep -f -- "[-]sidecar " >/dev/null; then echo "::error::a sidecar outlived its gateway"; exit 1; fi
 
   # An independent parallel gate; no additional work in the suite shards.
   kernel-conformance:
@@ -619,6 +723,7 @@ jobs:
       - name: Restore this run's pinned runtime and libraries
         timeout-minutes: 5
         run: |
+          node tools/osd-provenance.mjs verify "$RUNNER_TEMP/built-tree.tar"
           tar -xf "$RUNNER_TEMP/built-tree.tar"
           test -d .local/lars/open-abap-core
           test -f .local/ci-artifact/transpiler/packages/transpiler/build/src/index.js
@@ -655,7 +760,8 @@ jobs:
     runs-on: ubuntu-latest
     # Measured 21-24 min on green main runs (2026-10-05/06), so 25 cancelled
     # healthy runs on slower runners. 40 leaves headroom without hiding a hang.
-    timeout-minutes: 40
+    # 60: a slow runner took 33 min and another was cancelled at 40 (2026-11-13).
+    timeout-minutes: 60
     permissions:
       contents: read
       actions: read
@@ -672,6 +778,7 @@ jobs:
           path: ${{ runner.temp }}
       - name: Restore and verify the build used by the shards
         run: |
+          node tools/osd-provenance.mjs verify "$RUNNER_TEMP/built-tree.tar"
           tar -xf "$RUNNER_TEMP/built-tree.tar"
           echo "TRANSPILER=$PWD/.local/ci-artifact/transpiler" >> "$GITHUB_ENV"
           TRANSPILER="$PWD/.local/ci-artifact/transpiler" node tools/osd-link.mjs transpiler packages/transpiler
@@ -698,6 +805,8 @@ jobs:
       - name: Measure creation, edits and activation through both clients
         run: |
           mkdir -p .local/adt-lifecycle/report
+          # This job measures the ADT lifecycle, not pack coverage (the suites keep every pack): rap-flight's objects add ~6 min of priming and cold checks.
+          export OSD_WEB_PACKS="$(node --input-type=module -e "import {packsOf} from './tools/osd-packs.mjs'; console.log(packsOf(process.cwd()).map(p => p.name).filter(n => n !== 'rap-flight').join(','))")"
           OSD_HEAVY_RANGE=90-99 OSD_HEAVY_SLOTS=4 tools/osd-heavy.sh node tools/adt-lifecycle.mjs --start 2>&1 | tee .local/adt-lifecycle/report/server.log
       # Save the required verdict before any optional network work. A failed
       # measurement still gets its functional report; timing cannot hide it.

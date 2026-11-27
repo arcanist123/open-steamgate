@@ -1,0 +1,2586 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcl_l3_proof_demo.clas.abap",
+      "lines": [
+        {
+          "line": 1,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 2,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/set"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/title"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 3,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [4, 12],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "lines": [13, 14],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [15, 16],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 17,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [18, 24],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "lines": [25, 26],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 27,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "line": 28,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/set"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 22}
+          ]
+        },
+        {
+          "lines": [29, 30],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 23}
+          ]
+        },
+        {
+          "line": 31,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/key"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 32,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/size"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 33,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 34,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/hash"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 35,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 36,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/hash"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 37,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 38,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/hash"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 39,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 40,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/hash"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "lines": [41, 48],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 25}
+          ]
+        },
+        {
+          "line": 49,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "lines": [50, 51],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 33}
+          ]
+        },
+        {
+          "lines": [52, 58],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "lines": [59, 62],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 35}
+          ]
+        },
+        {
+          "line": 63,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "lines": [64, 74],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 39}
+          ]
+        },
+        {
+          "line": 75,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "lines": [76, 81],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 50}
+          ]
+        },
+        {
+          "lines": [82, 95],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 96,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 97,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 98,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 99,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 100,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 101,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 102,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 103,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 104,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [105, 107],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 31}
+          ]
+        },
+        {
+          "lines": [108, 111],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 56}
+          ]
+        },
+        {
+          "lines": [112, 113],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 34}
+          ]
+        },
+        {
+          "lines": [114, 115],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 60}
+          ]
+        },
+        {
+          "line": 116,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 62}
+          ]
+        },
+        {
+          "line": 117,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 63}
+          ]
+        },
+        {
+          "lines": [118, 120],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 36}
+          ]
+        },
+        {
+          "lines": [121, 122],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 64}
+          ]
+        },
+        {
+          "lines": [123, 126],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 39}
+          ]
+        },
+        {
+          "lines": [127, 129],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 66}
+          ]
+        },
+        {
+          "line": 130,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/iface"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 131,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [132, 133],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/iface"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 134,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 135,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/iface"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 136,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [137, 138],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/iface"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 139,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 140,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/iface"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 141,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [142, 143],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/iface"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 144,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "lines": [145, 147],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 69}
+          ]
+        },
+        {
+          "line": 148,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 72}
+          ]
+        },
+        {
+          "lines": [149, 152],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 73}
+          ]
+        },
+        {
+          "line": 153,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 43}
+          ]
+        },
+        {
+          "line": 154,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/date", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [155, 160],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 77}
+          ]
+        },
+        {
+          "lines": [161, 166],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 44}
+          ]
+        },
+        {
+          "lines": [167, 172],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 83}
+          ]
+        },
+        {
+          "line": 173,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 174,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 175,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 176,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 177,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 178,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 179,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/has_client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 180,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/has_client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 181,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/has_client"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 182,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 183,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 184,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "line": 185,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "line": 186,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 187,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 188,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 189,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 190,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 191,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 192,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/has_client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 193,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/has_client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 194,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/has_client"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 195,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 196,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 197,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "line": 198,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "line": 199,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 200,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 201,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 202,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 203,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 204,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 205,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/has_client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 206,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/has_client"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 207,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/has_client"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 208,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 209,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 210,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "line": 211,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "lines": [212, 270],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 50}
+          ]
+        },
+        {
+          "line": 271,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 89}
+          ]
+        },
+        {
+          "line": 272,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 109}
+          ]
+        },
+        {
+          "lines": [273, 274],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "line": 275,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 23}
+          ]
+        },
+        {
+          "lines": [276, 277],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "line": 278,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 23}
+          ]
+        },
+        {
+          "lines": [279, 280],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "line": 281,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 23}
+          ]
+        },
+        {
+          "lines": [282, 283],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 90}
+          ]
+        },
+        {
+          "lines": [284, 285],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 24}
+          ]
+        },
+        {
+          "line": 286,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 26}
+          ]
+        },
+        {
+          "lines": [287, 288],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 24}
+          ]
+        },
+        {
+          "line": 289,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 26}
+          ]
+        },
+        {
+          "lines": [290, 291],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 24}
+          ]
+        },
+        {
+          "line": 292,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 26}
+          ]
+        },
+        {
+          "lines": [293, 294],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 92}
+          ]
+        },
+        {
+          "line": 295,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 110}
+          ]
+        },
+        {
+          "line": 296,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 111}
+          ]
+        },
+        {
+          "lines": [297, 299],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 112}
+          ]
+        },
+        {
+          "lines": [300, 301],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 115}
+          ]
+        },
+        {
+          "lines": [302, 311],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 117}
+          ]
+        },
+        {
+          "line": 312,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/ports_class"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 94},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 127}
+          ]
+        },
+        {
+          "line": 313,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 128}
+          ]
+        },
+        {
+          "lines": [314, 315],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/key"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 129}
+          ]
+        },
+        {
+          "lines": [316, 322],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 131}
+          ]
+        },
+        {
+          "line": 323,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/key"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 138}
+          ]
+        },
+        {
+          "line": 324,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 139}
+          ]
+        },
+        {
+          "line": 325,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/key"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 140}
+          ]
+        },
+        {
+          "lines": [326, 334],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 141}
+          ]
+        },
+        {
+          "line": 335,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 336,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "lines": [337, 338],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "lines": [339, 340],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 341,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 342,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "lines": [343, 344],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 345,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 346,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 347,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "lines": [348, 349],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 350,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/unpiled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 351,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 352,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "lines": [353, 354],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/index"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "lines": [355, 356],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [357, 358],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 150}
+          ]
+        },
+        {
+          "line": 359,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 27}
+          ]
+        },
+        {
+          "lines": [360, 361],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 28}
+          ]
+        },
+        {
+          "lines": [362, 363],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/n", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 30}
+          ]
+        },
+        {
+          "line": 364,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 27}
+          ]
+        },
+        {
+          "lines": [365, 366],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 28}
+          ]
+        },
+        {
+          "lines": [367, 368],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/s", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 30}
+          ]
+        },
+        {
+          "line": 369,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 27}
+          ]
+        },
+        {
+          "lines": [370, 371],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 28}
+          ]
+        },
+        {
+          "lines": [372, 373],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/c", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 30}
+          ]
+        },
+        {
+          "lines": [374, 380],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 152}
+          ]
+        },
+        {
+          "lines": [381, 383],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 95}
+          ]
+        },
+        {
+          "lines": [384, 385],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 386,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 387,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "lines": [388, 389],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 390,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 391,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "lines": [392, 393],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 394,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 395,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "lines": [396, 397],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 398,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 399,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "lines": [400, 402],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 98}
+          ]
+        },
+        {
+          "line": 403,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 159}
+          ]
+        },
+        {
+          "line": 404,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 101}
+          ]
+        },
+        {
+          "line": 405,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 160}
+          ]
+        },
+        {
+          "line": 406,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/key"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/source/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 161}
+          ]
+        },
+        {
+          "line": 407,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 162}
+          ]
+        },
+        {
+          "line": 408,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 102}
+          ]
+        },
+        {
+          "lines": [409, 449],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 163}
+          ]
+        },
+        {
+          "line": 450,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 103}
+          ]
+        },
+        {
+          "lines": [451, 452],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 453,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 454,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/check_class"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/has_args"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/piled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "lines": [455, 456],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 457,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 204}
+          ]
+        },
+        {
+          "line": 458,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/check_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 459,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/file"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 460,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/alert_line"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "lines": [461, 463],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "lines": [464, 465],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 466,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 467,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/check_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "lines": [468, 469],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 470,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 205}
+          ]
+        },
+        {
+          "line": 471,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/check_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 472,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/file"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 473,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/alert_line"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "lines": [474, 476],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "lines": [477, 478],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 479,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 480,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/check_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "lines": [481, 482],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 483,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 206}
+          ]
+        },
+        {
+          "line": 484,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/check_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 485,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/file"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 486,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/alert_line"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "lines": [487, 489],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "lines": [490, 491],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/index"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 492,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/jobname"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 493,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/check_class"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/has_args"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/piled"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "lines": [494, 495],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 496,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 207}
+          ]
+        },
+        {
+          "line": 497,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/check_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 498,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/file"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 499,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/alert_line"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "lines": [500, 502],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "lines": [503, 505],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 104}
+          ]
+        },
+        {
+          "lines": [506, 514],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 208}
+          ]
+        },
+        {
+          "lines": [515, 518],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 107}
+          ]
+        },
+        {
+          "line": 519,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 111}
+          ]
+        },
+        {
+          "line": 520,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 112}
+          ]
+        },
+        {
+          "line": 521,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "lines": [522, 524],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/iface"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [525, 530],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 531,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 217}
+          ]
+        },
+        {
+          "lines": [532, 545],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 546,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 218}
+          ]
+        },
+        {
+          "line": 547,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/name"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/ports_class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 25}
+          ]
+        },
+        {
+          "lines": [548, 551],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 26}
+          ]
+        },
+        {
+          "lines": [552, 558],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 113}
+          ]
+        },
+        {
+          "lines": [559, 595],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 219}
+          ]
+        },
+        {
+          "line": 596,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 30},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 256}
+          ]
+        },
+        {
+          "lines": [597, 603],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 257}
+          ]
+        },
+        {
+          "line": 604,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/ports_class"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 31},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 120},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 264}
+          ]
+        },
+        {
+          "lines": [605, 606],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 265}
+          ]
+        },
+        {
+          "line": 607,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/port/a", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 32},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 267}
+          ]
+        },
+        {
+          "lines": [608, 614],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 268}
+          ]
+        },
+        {
+          "line": 615,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 121}
+          ]
+        },
+        {
+          "lines": [616, 618],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 275}
+          ]
+        },
+        {
+          "lines": [619, 621],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 122}
+          ]
+        },
+        {
+          "lines": [622, 624],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 278}
+          ]
+        },
+        {
+          "lines": [625, 632],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 125}
+          ]
+        },
+        {
+          "lines": [633, 634],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 281}
+          ]
+        },
+        {
+          "lines": [635, 636],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 133}
+          ]
+        },
+        {
+          "lines": [637, 639],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 283}
+          ]
+        },
+        {
+          "line": 640,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/report"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 135},
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 286}
+          ]
+        },
+        {
+          "line": 641,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 287}
+          ]
+        },
+        {
+          "lines": [642, 643],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 136}
+          ]
+        },
+        {
+          "line": 644,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 288}
+          ]
+        },
+        {
+          "lines": [645, 657],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 138}
+          ]
+        },
+        {
+          "lines": [658, 659],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 289}
+          ]
+        },
+        {
+          "lines": [660, 663],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 151}
+          ]
+        },
+        {
+          "lines": [664, 673],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 291}
+          ]
+        },
+        {
+          "lines": [674, 682],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 155}
+          ]
+        },
+        {
+          "lines": [683, 776],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/piles", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 301}
+          ]
+        },
+        {
+          "lines": [777, 778],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-set/template.tpl", "anchor": "<partial>", "offset": 164}
+          ]
+        }
+      ]
+    }
+  ]
+}

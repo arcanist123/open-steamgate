@@ -5,35 +5,46 @@ import (
 	"time"
 )
 
+// openTestDB opens a database for one test and gives it back to the test's
+// cleanup; the session is one the test hands its steps.
+func openTestDB(t *testing.T, script string) (*Database, *Session) {
+	t.Helper()
+	d, err := OpenDB([]byte(script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	return d, &Session{DB: d}
+}
+
+func countRows(t *testing.T, s *Session, query string) int {
+	t.Helper()
+	r, err := s.conn().Query(query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	n := 0
+	r.Next()
+	if err := r.Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 // The rows written stand in for what an INSERT of ABAP would write; the
 // statements are raw here because the test is about the LUW, not the SQL.
 func TestLUW(t *testing.T) {
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db = nil; tx = nil }()
+	_, s := openTestDB(t, `["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)
 	put := func(id string) {
-		if _, err := conn().Exec("INSERT INTO t VALUES (?)", id); err != nil {
+		if _, err := s.conn().Exec("INSERT INTO t VALUES (?)", id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	rows := func() int {
-		r, err := conn().Query("SELECT COUNT(*) FROM t")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer r.Close()
-		n := 0
-		r.Next()
-		if err := r.Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		return n
-	}
-	s := &Session{}
+	rows := func() int { return countRows(t, s, "SELECT COUNT(*) FROM t") }
 	// A4H: INSERT; ROLLBACK WORK -> 0 rows; INSERT; COMMIT WORK; ROLLBACK
 	// WORK -> 1 row; sy-subrc 0 after each (set to 7 before)
-	DialogStep(func() {
+	DialogStep(s, func() {
 		put("A")
 		s.Sy.Subrc = 7
 		RollbackWork(s)
@@ -62,13 +73,13 @@ func TestLUW(t *testing.T) {
 				t.Fatal("the dump did not go on")
 			}
 		}()
-		DialogStep(func() {
+		DialogStep(s, func() {
 			put("C")
 			panic(ArithmeticError{Class: "CX_SY_ZERODIVIDE", Op: "/"})
 		})
 	}()
-	if tx != nil || rows() != 2 {
-		t.Fatalf("a step that dumps rolls back: tx %v rows %d", tx != nil, rows())
+	if s.tx != nil || rows() != 2 {
+		t.Fatalf("a step that dumps rolls back: tx %v rows %d", s.tx != nil, rows())
 	}
 }
 
@@ -79,10 +90,7 @@ func TestLUWOutsideStep(t *testing.T) {
 	s := &Session{}
 	RollbackWork(s) // no database: nothing written, nothing to undo
 	CommitWork(s)
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db = nil; tx = nil }()
+	_, s = openTestDB(t, `["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)
 	CommitWork(s)
 	func() {
 		defer func() {
@@ -99,32 +107,24 @@ func TestLUWOutsideStep(t *testing.T) {
 // forever for the one connection the outer step holds, and the outer step
 // is rolled back by its own end, not by the inner one.
 func TestLUWNested(t *testing.T) {
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db = nil; tx = nil }()
+	_, s := openTestDB(t, `["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)
 	var inner any
 	func() {
 		defer func() { inner = recover() }()
-		DialogStep(func() {
-			if _, err := conn().Exec("INSERT INTO t VALUES ('A')"); err != nil {
+		DialogStep(s, func() {
+			if _, err := s.conn().Exec("INSERT INTO t VALUES ('A')"); err != nil {
 				t.Fatal(err)
 			}
-			DialogStep(func() {})
+			DialogStep(s, func() {})
 		})
 	}()
 	if e, ok := inner.(ArithmeticError); !ok || e.Class != "NOT_COMPILED" {
 		t.Fatalf("nested step: %v", inner)
 	}
-	if tx != nil {
+	if s.tx != nil {
 		t.Fatal("the outer step left its transaction open")
 	}
-	r, _ := conn().Query("SELECT COUNT(*) FROM t")
-	n := 0
-	r.Next()
-	r.Scan(&n)
-	r.Close()
-	if n != 0 {
+	if n := countRows(t, s, "SELECT COUNT(*) FROM t"); n != 0 {
 		t.Fatalf("the outer step's row survived its dump: %d", n)
 	}
 }
@@ -132,15 +132,12 @@ func TestLUWNested(t *testing.T) {
 // When the rollback of a dumped step fails as well, the dump is what goes
 // on, not the rollback's error.
 func TestLUWDumpSurvivesRollbackError(t *testing.T) {
-	if err := OpenDB([]byte(`[]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db = nil; tx = nil }()
+	_, s := openTestDB(t, `[]`)
 	var got any
 	func() {
 		defer func() { got = recover() }()
-		DialogStep(func() {
-			tx.Rollback() // the step's own rollback will now fail
+		DialogStep(s, func() {
+			s.tx.Rollback() // the step's own rollback will now fail
 			panic(ArithmeticError{Class: "CX_SY_ZERODIVIDE", Op: "/"})
 		})
 	}()
@@ -154,36 +151,23 @@ func TestLUWDumpSurvivesRollbackError(t *testing.T) {
 // takes back what it wrote through a cached statement, and COMMIT WORK in
 // the middle of a step keeps it
 func TestLUWStatementCache(t *testing.T) {
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db = nil; tx = nil }()
+	d, s := openTestDB(t, `["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)
 	const ins, cnt = "INSERT INTO t VALUES (?)", "SELECT COUNT(*) FROM t"
-	count := func() int {
-		r, err := conn().Query(cnt)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer r.Close()
-		n := 0
-		r.Next()
-		r.Scan(&n)
-		return n
-	}
-	DialogStep(func() {
-		conn().Exec(ins, "A")
-		conn().Exec(ins, "B")
+	count := func() int { return countRows(t, s, cnt) }
+	DialogStep(s, func() {
+		s.conn().Exec(ins, "A")
+		s.conn().Exec(ins, "B")
 		if count()+count() != 4 {
 			t.Fatal("first step")
 		}
 	})
-	if stmtCache[ins] == nil || stmtCache[cnt] == nil {
-		t.Fatalf("not prepared after the step: %v", stmtCache)
+	if d.stmtCache[ins] == nil || d.stmtCache[cnt] == nil {
+		t.Fatalf("not prepared after the step: %v", d.stmtCache)
 	}
 	func() {
 		defer func() { recover() }()
-		DialogStep(func() {
-			if _, err := conn().Exec(ins, "C"); err != nil {
+		DialogStep(s, func() {
+			if _, err := s.conn().Exec(ins, "C"); err != nil {
 				t.Fatal(err)
 			}
 			if count() != 3 {
@@ -192,33 +176,39 @@ func TestLUWStatementCache(t *testing.T) {
 			panic(ArithmeticError{Class: "CX_SY_ZERODIVIDE", Op: "/"})
 		})
 	}()
-	s := &Session{}
-	DialogStep(func() {
+	DialogStep(s, func() {
 		if count() != 2 {
 			t.Fatalf("the dumped step's row stayed: %d", count())
 		}
-		conn().Exec(ins, "D")
+		s.conn().Exec(ins, "D")
 		CommitWork(s)
-		conn().Exec(ins, "E")
+		s.conn().Exec(ins, "E")
 		RollbackWork(s)
 	})
 	if n := count(); n != 3 {
 		t.Fatalf("after COMMIT WORK and ROLLBACK WORK: %d rows, want 3", n)
 	}
-	if _, err := conn().Exec(ins, "A"); err == nil {
+	if _, err := s.conn().Exec(ins, "A"); err == nil {
 		t.Fatal("a duplicate key through a cached statement is still refused")
+	}
+	// another session on the same database runs the prepared statements
+	// of the database through a transaction of its own
+	other := &Session{DB: d}
+	DialogStep(other, func() {
+		if n := countRows(t, other, cnt); n != 3 {
+			t.Fatalf("other session: %d rows, want 3", n)
+		}
+	})
+	if len(other.txStmts) != 0 {
+		t.Fatal("the step's transaction-bound statements outlived it")
 	}
 }
 
 // A waiting step ends its transaction so another full SQLite step can run.
 func TestYieldSleepSQLiteSteps(t *testing.T) {
-	if err := OpenDB([]byte(`["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { db.Close(); db = nil; tx = nil }()
+	d, s := openTestDB(t, `["CREATE TABLE t (id TEXT PRIMARY KEY)"]`)
 	done := make(chan any, 1)
 	WorkProcess.Lock()
-	s := &Session{}
 	DialogStepIn(s, func() {
 		go func() {
 			WorkProcess.Lock()
@@ -226,8 +216,9 @@ func TestYieldSleepSQLiteSteps(t *testing.T) {
 			var dump any
 			func() {
 				defer func() { dump = recover() }()
-				DialogStep(func() {
-					if _, err := conn().Exec("INSERT INTO t VALUES ('B')"); err != nil {
+				b := &Session{DB: d}
+				DialogStep(b, func() {
+					if _, err := b.conn().Exec("INSERT INTO t VALUES ('B')"); err != nil {
 						panic(err)
 					}
 				})
@@ -243,16 +234,16 @@ func TestYieldSleepSQLiteSteps(t *testing.T) {
 		default:
 			t.Error("step B did not run during the yield")
 		}
-		if tx == nil {
+		if s.tx == nil {
 			t.Error("step A resumed without a transaction")
 		}
-		if _, err := conn().Exec("INSERT INTO t VALUES ('A')"); err != nil {
+		if _, err := s.conn().Exec("INSERT INTO t VALUES ('A')"); err != nil {
 			t.Fatal(err)
 		}
 	})
 	WorkProcess.Unlock()
 	var count int
-	if err := DB().QueryRow("SELECT COUNT(*) FROM t").Scan(&count); err != nil {
+	if err := d.SQL().QueryRow("SELECT COUNT(*) FROM t").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 2 {

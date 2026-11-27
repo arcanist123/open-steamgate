@@ -106,7 +106,10 @@ OSD_HEAVY_RANGE=90-99 OSD_HEAVY_SLOTS=4 tools/osd-heavy.sh node node_modules/moc
 
 `tools/gogen/go/compiler` provides a lazy client with one child per Client and
 serialized requests. Discovery tries `OSGO_SIDECAR`, then `osd` beside the osgo
-executable, and never searches PATH. `BuildSnapshot` hashes regular files
+executable, and never searches PATH. With `-adt`, osgo logs the
+outcome at start (`compiler     sidecar <path>`, or `sidecar absent; tried
+[...]` and what cannot compile), because a binary copied away from `osd` otherwise
+fails only later, request by request. `BuildSnapshot` hashes regular files
 relative to the root, refuses lexical or symlink escapes and special files,
 honors its context between files, and bounds the source bytes it reads.
 `Check` returns diagnostics and the registry identity, or a typed refusal

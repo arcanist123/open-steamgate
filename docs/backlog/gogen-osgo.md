@@ -1174,7 +1174,7 @@ is fixed is that it is now measured rather than surprising.
 does not isolate its **libraries**, and that is not a detail:
 
 ```
-.local/worktrees/<any>/.local/lars  ->  /home/alice/.../open-steamgate/.local/lars
+.local/worktrees/<any>/.local/lars  ->  /home/<user>/.../open-steamgate/.local/lars
 ```
 
 Every worktree's `.local/lars` resolves to **one directory**. There is no

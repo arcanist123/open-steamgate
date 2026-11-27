@@ -331,6 +331,23 @@ export class AmdpDestination {
     if (this.trace) console.log(`AMDP: deployed ${name}`);
   }
 
+  /** Where an eAMDP call would go right now, read off the destination rather
+   *  than off its configuration (docs/amdp-engine-status.md). Three facts and
+   *  nothing else leaves: whether this build has a HANA driver, whether a
+   *  HANA is configured, and the state of the session this destination holds
+   *  -- `none` (never dialled), `connected`, or `closed` (a socket the server
+   *  or a proxy dropped, which the next call reconnects once). No host, port,
+   *  user or schema: the status page is served to anyone who can reach it. */
+  async sessionState() {
+    let settings;
+    try { settings = await this.settingsProvider(); } catch { settings = undefined; }
+    const driver = settings !== undefined;
+    const configured = driver && settings.password !== undefined && settings.password !== "";
+    const session = this.client === undefined ? "none"
+      : this.client.readyState === "connected" ? "connected" : "closed";
+    return {driver, configured, session};
+  }
+
   /** Let go of the connection. An open socket keeps Node's event loop alive,
    *  so a suite that touched HANA passes and then does not exit. */
   async close() {

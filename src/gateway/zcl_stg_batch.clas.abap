@@ -14,6 +14,8 @@ CLASS zcl_stg_batch DEFINITION PUBLIC CREATE PUBLIC.
              headers TYPE tihttpnvp,
              body    TYPE string,
              body_x  TYPE xstring,
+* the MIME Content-ID of the part (the V4 facade answers with it)
+             content_id TYPE string,
            END OF ty_request.
     TYPES ty_requests TYPE STANDARD TABLE OF ty_request WITH DEFAULT KEY.
 
@@ -56,6 +58,7 @@ CLASS zcl_stg_batch DEFINITION PUBLIC CREATE PUBLIC.
         is_response      TYPE zcl_stg_dispatcher=>ty_response
       RETURNING
         VALUE(rv_string) TYPE string.
+
   PRIVATE SECTION.
     TYPES ty_xchunks TYPE STANDARD TABLE OF xstring WITH DEFAULT KEY.
     CLASS-DATA gv_counter TYPE i.
@@ -350,6 +353,8 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     split_headers( EXPORTING iv_chunk   = iv_chunk
                    IMPORTING et_headers = lt_part_headers
                              ev_rest    = lv_http ).
+    rs_request-content_id = header( it_headers = lt_part_headers
+                                    iv_name    = 'content-id' ).
 
     WHILE lv_off < xstrlen( lv_http ).
       IF lv_http+lv_off(1) = '0A'.
@@ -476,8 +481,12 @@ CLASS zcl_stg_batch IMPLEMENTATION.
                                                 iv_host    = iv_host
                                                 iv_body    = is_request-body
                                                 iv_body_x  = is_request-body_x
+                                                iv_query   = lv_query
                                                 iv_content_type = header( it_headers = is_request-headers
-                                                                          iv_name = 'content-type' ) ).
+                                                                          iv_name = 'content-type' )
+* the part's own headers travel with it: a changeset's MERGE/DELETE carries
+* its If-Match, which is where a UI5 v2 model sends it (ZCL_STG_BATCH, batch)
+                                                it_headers = is_request-headers ).
   ENDMETHOD.
 
   METHOD byte_length.
@@ -495,18 +504,24 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     DATA lv_crlf TYPE string.
     DATA ls_hdr  TYPE ihttpnvp.
 
+    DATA lv_inner TYPE string.
+
     lv_crlf = cl_abap_char_utilities=>cr_lf.
-    rv_string = |Content-Type: application/http{ lv_crlf }Content-Transfer-Encoding: binary{ lv_crlf }{ lv_crlf }| &&
-                |HTTP/1.1 { is_response-status } { is_response-reason }{ lv_crlf }|.
+    lv_inner = |HTTP/1.1 { is_response-status } { is_response-reason }{ lv_crlf }|.
     IF is_response-content_type IS NOT INITIAL.
-      rv_string = rv_string && |Content-Type: { is_response-content_type }{ lv_crlf }|.
+      lv_inner = lv_inner && |Content-Type: { is_response-content_type }{ lv_crlf }|.
     ENDIF.
-    rv_string = rv_string && |Content-Length: { byte_length( is_response-body ) }{ lv_crlf }| &&
-                |DataServiceVersion: 2.0{ lv_crlf }|.
+    lv_inner = lv_inner && |Content-Length: { byte_length( is_response-body ) }{ lv_crlf }| &&
+               |DataServiceVersion: 2.0{ lv_crlf }|.
     LOOP AT is_response-headers INTO ls_hdr.
-      rv_string = rv_string && |{ ls_hdr-name }: { ls_hdr-value }{ lv_crlf }|.
+      lv_inner = lv_inner && |{ ls_hdr-name }: { ls_hdr-value }{ lv_crlf }|.
     ENDLOOP.
-    rv_string = rv_string && lv_crlf && is_response-body && lv_crlf.
+    lv_inner = lv_inner && lv_crlf && is_response-body.
+* the part says how long the HTTP message inside it is, the status line to
+* the end of the body, as the system's parts do (M3 oracle 08-01-batch:
+* Content-Type, Content-Length, content-transfer-encoding)
+    rv_string = |Content-Type: application/http{ lv_crlf }Content-Length: { byte_length( lv_inner ) }{ lv_crlf }| &&
+                |Content-Transfer-Encoding: binary{ lv_crlf }{ lv_crlf }{ lv_inner }{ lv_crlf }|.
   ENDMETHOD.
 
   METHOD handle.
@@ -522,6 +537,7 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     DATA lv_failed    TYPE abap_bool.
 
     lv_crlf = cl_abap_char_utilities=>cr_lf.
+    zcl_osd_luw_hold=>hold( abap_false ).
     lt_parts = parse( iv_body     = iv_body
                       iv_body_x   = iv_body_x
                       iv_boundary = boundary_of( iv_content_type ) ).
@@ -529,46 +545,54 @@ CLASS zcl_stg_batch IMPLEMENTATION.
     gv_counter = gv_counter + 1.
     lv_boundary = |batchresponse_stg_{ gv_counter }|.
 
-    LOOP AT lt_parts INTO ls_part.
-      IF ls_part-changeset = abap_true.
-        gv_counter = gv_counter + 1.
-        lv_cs = |changesetresponse_stg_{ gv_counter }|.
-        CLEAR lv_cs_out.
-        lv_failed = abap_false.
+    TRY.
+        LOOP AT lt_parts INTO ls_part.
+          IF ls_part-changeset = abap_true.
+            gv_counter = gv_counter + 1.
+            lv_cs = |changesetresponse_stg_{ gv_counter }|.
+            CLEAR lv_cs_out.
+            lv_failed = abap_false.
 * A changeset is one LUW, so it has to be all or nothing (backlog B.2). The
 * COMMIT here is the fence, not the point: it ends whatever LUW was open
 * before this changeset -- the rows the boot writes, an earlier part of this
 * same batch -- so that the ROLLBACK below can only reach what this changeset
 * did. Without it a failing changeset would undo the whole process's
 * uncommitted history, because nothing else in this system ever commits.
-        COMMIT WORK.
-        LOOP AT ls_part-requests INTO ls_request.
-          ls_response = run_request( is_request      = ls_request
-                                     iv_service_path = iv_service_path
-                                     iv_host         = iv_host ).
-          IF ls_response-status >= 400.
+            COMMIT WORK.
+            zcl_osd_luw_hold=>hold( abap_true ).
+            LOOP AT ls_part-requests INTO ls_request.
+              ls_response = run_request( is_request      = ls_request
+                                         iv_service_path = iv_service_path
+                                         iv_host         = iv_host ).
+              IF ls_response-status >= 400.
 * the changeset fails as a whole: one error part instead of the multipart,
 * and the requests that already succeeded inside it are undone
-            lv_failed = abap_true.
-            ROLLBACK WORK.
+                lv_failed = abap_true.
+                ROLLBACK WORK.
+                lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && format_part( ls_response ).
+                EXIT.
+              ENDIF.
+              lv_cs_out = lv_cs_out && |--{ lv_cs }{ lv_crlf }| && format_part( ls_response ).
+            ENDLOOP.
+            zcl_osd_luw_hold=>hold( abap_false ).
+            IF lv_failed = abap_false.
+              COMMIT WORK.
+              lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }Content-Type: multipart/mixed; boundary={ lv_cs }{ lv_crlf }{ lv_crlf }| &&
+                       lv_cs_out && |--{ lv_cs }--{ lv_crlf }|.
+            ENDIF.
+          ELSE.
+            READ TABLE ls_part-requests INDEX 1 INTO ls_request.
+            ls_response = run_request( is_request      = ls_request
+                                       iv_service_path = iv_service_path
+                                       iv_host         = iv_host ).
             lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && format_part( ls_response ).
-            EXIT.
           ENDIF.
-          lv_cs_out = lv_cs_out && |--{ lv_cs }{ lv_crlf }| && format_part( ls_response ).
         ENDLOOP.
-        IF lv_failed = abap_false.
-          COMMIT WORK.
-          lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }Content-Type: multipart/mixed; boundary={ lv_cs }{ lv_crlf }{ lv_crlf }| &&
-                   lv_cs_out && |--{ lv_cs }--{ lv_crlf }|.
-        ENDIF.
-      ELSE.
-        READ TABLE ls_part-requests INDEX 1 INTO ls_request.
-        ls_response = run_request( is_request      = ls_request
-                                   iv_service_path = iv_service_path
-                                   iv_host         = iv_host ).
-        lv_out = lv_out && |--{ lv_boundary }{ lv_crlf }| && format_part( ls_response ).
-      ENDIF.
-    ENDLOOP.
+      CLEANUP.
+* a changeset member that raises leaves by the exception: the flag goes with
+* it (a dump does not get here; the request entry clears it, ZCL_STG_HTTP_HANDLER)
+        zcl_osd_luw_hold=>hold( abap_false ).
+    ENDTRY.
     lv_out = lv_out && |--{ lv_boundary }--{ lv_crlf }|.
 
     rs_response-status       = 202.

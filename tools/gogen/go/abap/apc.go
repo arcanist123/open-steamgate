@@ -9,9 +9,10 @@ import (
 // process and the dialog step. The socket part lives in package apc, so a
 // program that serves no push channel does not link a WebSocket library.
 
-// WorkProcess is the process's one work process: ProcessStatics and the
-// database transaction of a step (luw.go) are per process, so every host
-// that runs ABAP holds it for the length of a step. The default Step of an
+// WorkProcess is the process's one work process. A Database has one
+// connection and the hosts of one process share one Statics store
+// (Instance), so every host that runs ABAP holds it for the length of a
+// step; the ADR 0010 slice that adds work processes replaces it. The default Step of an
 // APC channel takes it; an HTTP host of the same process must take it too
 // (or give the channel a Step that holds the host's own lock).
 var WorkProcess sync.Mutex
@@ -25,9 +26,10 @@ type ErrDump struct {
 func (e *ErrDump) Error() string { return fmt.Sprintf("dump in %s: %v", e.Step, e.Dump) }
 
 // APCStep is the default dialog step of a channel: the work process held,
-// a database LUW of its own, a dump returned rather than raised. Supply the
-// channel Session to allow an in-step sleep to release the work process.
-func APCStep(name string, work func(), sessions ...*Session) (err error) {
+// a database LUW of the channel Session's own, a dump returned rather than
+// raised. The Session is the channel's (its database, its statics), and an
+// in-step sleep releases the work process through it.
+func APCStep(s *Session, name string, work func()) (err error) {
 	WorkProcess.Lock()
 	defer WorkProcess.Unlock()
 	defer func() {
@@ -35,10 +37,6 @@ func APCStep(name string, work func(), sessions ...*Session) (err error) {
 			err = &ErrDump{Step: name, Dump: r}
 		}
 	}()
-	var s *Session
-	if len(sessions) > 0 {
-		s = sessions[0]
-	}
 	DialogStepIn(s, work)
 	return nil
 }

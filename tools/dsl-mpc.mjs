@@ -24,7 +24,7 @@ export async function renderProject(file, out, {project = `ZDSL${randomBytes(6).
   const existing = await db.select({select: `SELECT project FROM ${tableName("SBD_PR").toLowerCase()} WHERE project = '${project}'`});
   if (existing.rows.length) throw new Error(`project ${project} already exists`);
   try {
-    const response = await abap.Classes.ZCL_STG_DISPATCHER.dispatch({
+    const response = await abap.Classes.ZCL_STG_DISPATCHER.dispatch_decoded({
       iv_method: box("POST"),
       iv_path: box("/sap/opu/odata/sap/ZSTG_SEGW_SRV/ImportSet"),
       iv_body: box(JSON.stringify({Content: xml})),

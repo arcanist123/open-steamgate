@@ -1,6 +1,8 @@
 // load the bundled page in chromium, click START, watch the canvas
 import {createRequire} from "node:module";
-const {chromium} = createRequire(import.meta.url)("/home/alice/dev/open-steamgate-shlp/node_modules/playwright/index.js");
+const require = createRequire(import.meta.url);
+const {need} = require("./paths.cjs");
+const {chromium} = require(need("playwright"));
 import {createServer} from "node:http";
 import {listenBound} from "../../tools/osd-bind.mjs";
 import {readFileSync, existsSync} from "node:fs";

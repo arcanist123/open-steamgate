@@ -116,6 +116,11 @@ function copyTree(from, to, source) {
 
 /** The staged folder carries its identity; its rename commits the install. */
 async function publish(pack, source, stage, entry, log) {
+  // A forced fetch of the same identity keeps its bytes (the time it was
+  // first fetched): the identity is a build read, and new bytes would leave
+  // the generation's read record behind with no rebuild to renew it.
+  const previous = sourceOf(source.dir);
+  if (typeof previous?.at === "string" && JSON.stringify({...previous, at: entry.at}) === JSON.stringify(entry)) entry.at = previous.at;
   writeFileSync(join(stage, SOURCE), JSON.stringify(entry, null, 2) + "\n", {flag: "wx"});
   const old = stage.replace(".osd-fetch-stage-", ".osd-fetch-old-");
   let movedOld = false;
@@ -177,9 +182,12 @@ export async function fetchSource(pack, source, options = {}) {
   }
   cleanupLeftovers(pack.dir);
   const before = sourceOf(source.dir);
-  if (options.force !== true && existsSync(source.dir) && statSync(source.dir).isDirectory() && sourceMatches(source, before)) {
+  // An identity fetched before privacy was recorded is fetched again: that is
+  // what records it (publishing asks for exactly this rerun).
+  if (options.force !== true && existsSync(source.dir) && statSync(source.dir).isDirectory() && sourceMatches(source, before)
+      && before.private !== undefined) {
     log(`${pack.name}/${source.folder}: already at ${before.digest ? before.digest.slice(0, 19) : before.commit.slice(0, 12)}`);
-    return {pack: pack.name, folder: source.folder, commit: before.commit, digest: before.digest, treeDigest: before.treeDigest, files: before.files, fetched: false};
+    return {pack: pack.name, folder: source.folder, commit: before.commit, digest: before.digest, treeDigest: before.treeDigest, private: before.private, files: before.files, fetched: false};
   }
   if (source.oci !== undefined) return fetchOci(pack, source, log);
   log(`${pack.name}/${source.folder}: fetching ${source.repo} at ${source.ref}`);
@@ -196,10 +204,10 @@ export async function fetchSource(pack, source, options = {}) {
     const files = copyTree(from, stage, source);
     await publish(pack, source, stage, {
       repo: source.repo, ref: source.ref, commit, path: source.path, exclude: source.exclude,
-      files: files.length, at: new Date().toISOString(),
+      private: false, files: files.length, at: new Date().toISOString(),
     }, log);
     log(`${pack.name}/${source.folder}: ${files.length} files from ${commit.slice(0, 12)}`);
-    return {pack: pack.name, folder: source.folder, commit, files: files.length, fetched: true};
+    return {pack: pack.name, folder: source.folder, commit, private: false, files: files.length, fetched: true};
   } finally {
     for (const path of [stage, dir].filter(Boolean)) {
       try { rmSync(path, {recursive: true, force: true}); }
@@ -238,10 +246,17 @@ async function fetchOci(pack, source, log) {
       writeFileSync(join(stage, path), bytes);
       files++;
     }
-    await publish(pack, source, stage, {oci: source.oci, digest: layer.manifest.digest, treeDigest: digest,
+    if (typeof layer.config?.private !== "boolean" && layer.config?.private !== undefined) throw new Error("BAD_LAYER: invalid private marker");
+    // Only an osd layer config can attest privacy (osd-layer --private writes
+    // it there; absent means public). A foreign zip -- an oras push with an
+    // empty config -- cannot: its identity records private: null, which a
+    // build accepts and every publishing path refuses (fail closed).
+    const privateLayer = layer.manifest.json.config?.mediaType === "application/vnd.osd.layer.config.v1+json"
+      ? layer.config?.private === true : null;
+    await publish(pack, source, stage, {oci: source.oci, digest: layer.manifest.digest, treeDigest: digest, private: privateLayer,
       path: source.path, exclude: source.exclude, files, at: new Date().toISOString()}, log);
     log(`${pack.name}/${source.folder}: ${files} files from ${source.oci.split("@")[1].slice(0, 19)} tree ${digest.slice(0, 19)}`);
-    return {pack: pack.name, folder: source.folder, digest: layer.manifest.digest, treeDigest: digest, files, fetched: true};
+    return {pack: pack.name, folder: source.folder, digest: layer.manifest.digest, treeDigest: digest, private: privateLayer, files, fetched: true};
   } catch (error) {
     if (error instanceof FetchFailed) throw error;
     const failure = new FetchFailed(source.oci, undefined, error.message, error.code);

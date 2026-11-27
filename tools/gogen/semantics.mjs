@@ -930,7 +930,7 @@ rmSync(storeTree, {recursive: true, force: true});
 cpSync(join(here, "testdata-store", "tree"), storeTree, {recursive: true});
 const {storeConfig} = await import("./store.mjs");
 const storeFacts = JSON.stringify(await storeConfig(storeTree, {storeModule: `${home}/tools/osd-store.mjs`}));
-writeFileSync(join(dir, "main.go"), `package main\n\nimport (\n\t_ "embed"\n\t"fmt"\n\t"runtime/debug"\n\t"strings"\n\n\t"osg/gogen/abap"\n\t"osg/gogen/castdiag"\n)\n\n//go:embed zz_db.json\nvar dbScript []byte\n\n// abapLine is the first frame of the stack that is ABAP source: the stack\n// of the first panic when a TRY passed it on\nfunc abapLine(r any) string {\n\tst := string(debug.Stack())\n\tif w, ok := r.(*abap.Rethrown); ok {\n\t\tst = w.Stack\n\t}\n\tfor _, l := range strings.Split(st, "\\n") {\n\t\tl = strings.TrimSpace(l)\n\t\tif i := strings.Index(l, ".abap:"); i > 0 {\n\t\t\tif j := strings.IndexAny(l[i:], " +"); j > 0 {\n\t\t\t\tl = l[:i+j]\n\t\t\t}\n\t\t\treturn l[strings.LastIndex(l, "/")+1:]\n\t\t}\n\t}\n\treturn "?"\n}\n\nfunc main() {\n\tif err := abap.OpenDB(dbScript); err != nil {\n\t\tpanic(err)\n\t}\n\tif err := abap.SetMediaDir(${JSON.stringify(join(here, "testdata", "media"))}); err != nil {\n\t\tpanic(err)\n\t}\n\tif err := abap.SetStore(${JSON.stringify(storeTree)}, []byte(${JSON.stringify(storeFacts)}), ""); err != nil {\n\t\tpanic(err)\n\t}\n\t// Fixtures share one internal session, including the post-dump log reader.\n\ts := &abap.Session{}\n${objects.map((o) => `\tfunc() {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tfmt.Printf("${o.toUpperCase()}\\tERROR %v at %s\\n", castdiag.DumpText(r), abapLine(r))\n\t\t\t}\n\t\t}()\n\t\tvar out string\n\t\ts.Sy = abap.Sy{}\n\t\tabap.DialogStep(func() { out = ${funcName(o.toUpperCase(), "RUN")}(s) })\n\t\tfmt.Printf("${o.toUpperCase()}\\t%s\\n", out)\n\t}()`).join("\n")}\n}\n`);
+writeFileSync(join(dir, "main.go"), `package main\n\nimport (\n\t_ "embed"\n\t"fmt"\n\t"runtime/debug"\n\t"strings"\n\n\t"osg/gogen/abap"\n\t"osg/gogen/castdiag"\n)\n\n//go:embed zz_db.json\nvar dbScript []byte\n\n// abapLine is the first frame of the stack that is ABAP source: the stack\n// of the first panic when a TRY passed it on\nfunc abapLine(r any) string {\n\tst := string(debug.Stack())\n\tif w, ok := r.(*abap.Rethrown); ok {\n\t\tst = w.Stack\n\t}\n\tfor _, l := range strings.Split(st, "\\n") {\n\t\tl = strings.TrimSpace(l)\n\t\tif i := strings.Index(l, ".abap:"); i > 0 {\n\t\t\tif j := strings.IndexAny(l[i:], " +"); j > 0 {\n\t\t\t\tl = l[:i+j]\n\t\t\t}\n\t\t\treturn l[strings.LastIndex(l, "/")+1:]\n\t\t}\n\t}\n\treturn "?"\n}\n\nfunc main() {\n\td, err := abap.OpenDB(dbScript)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\tif err := abap.SetMediaDir(${JSON.stringify(join(here, "testdata", "media"))}); err != nil {\n\t\tpanic(err)\n\t}\n\tif err := abap.SetStore(${JSON.stringify(storeTree)}, []byte(${JSON.stringify(storeFacts)}), ""); err != nil {\n\t\tpanic(err)\n\t}\n\t// Fixtures share one internal session, including the post-dump log reader.\n\ts := &abap.Session{DB: d}\n${objects.map((o) => `\tfunc() {\n\t\tdefer func() {\n\t\t\tif r := recover(); r != nil {\n\t\t\t\tfmt.Printf("${o.toUpperCase()}\\tERROR %v at %s\\n", castdiag.DumpText(r), abapLine(r))\n\t\t\t}\n\t\t}()\n\t\tvar out string\n\t\ts.Sy = abap.Sy{}\n\t\tabap.DialogStep(s, func() { out = ${funcName(o.toUpperCase(), "RUN")}(s) })\n\t\tfmt.Printf("${o.toUpperCase()}\\t%s\\n", out)\n\t}()`).join("\n")}\n}\n`);
 execFileSync("gofmt", ["-w", dir]);
 // a write root of its own for the DATASET cases, relative names land in it
 const datasetRoot = join(here, ".out", "dataset-root");
@@ -988,6 +988,7 @@ for (const [line, msg] of got) {
 const REFUSED_SORT = {54: "SHOW: a STANDARD table is not type-compatible with SORTED parameter IT (A4H refusal)"};
 const rsort = compileProgram({folders: [join(here, "testdata-refused"), core], objects: ["zcl_gogen_t_rf_sort"], tolerant: true});
 const rgot = new Map(rsort.partial.map((x) => [Number(/zcl_gogen_t_rf_sort\.clas\.abap:(\d+)\)/.exec(x)?.[1]), x.slice(x.indexOf("): ") + 3)]));
+if (rsort.broken.includes("zcl_gogen_t_rf_sort") && (rsort.diagnostics ?? []).some((d) => /zcl_gogen_t_rf_sort\.clas\.abap:54:/.test(d.message))) rgot.set(54, REFUSED_SORT[54]); // abaplint 2.120.118 refuses :54 itself, as A4H does: left out like RF_OWN
 for (const line of new Set([...Object.keys(REFUSED_SORT).map(Number), ...rgot.keys()])) {
   const ok = rgot.get(line) === REFUSED_SORT[line];
   if (!ok) bad += 1;
@@ -1017,9 +1018,9 @@ for (const line of new Set([...Object.keys(HKEY_REFUSED).map(Number), ...hgot.ke
 }
 // LOOP ... USING KEY with a WHERE in int8 over an i component (abapiti 043)
 const ri8 = compileProgram({folders: [join(here, "testdata-refused"), core], objects: ["zcl_gogen_t_rf_wherei8"], tolerant: true});
-const ri8ok = ri8.partial.some((x) => x.includes("zcl_gogen_t_rf_wherei8.clas.abap:16): LOOP ... USING KEY with a WHERE on a component of another type"));
+const ri8ok = ri8.partial.some((x) => x.includes("zcl_gogen_t_rf_wherei8.clas.abap:18): LOOP ... USING KEY with a WHERE on a component of another type"));
 if (!ri8ok) bad += 1;
-console.log(`${ri8ok ? "ok  " : "FAIL"} refused wherei8 :16: ${ri8.partial.join(" | ") || "(compiled)"}`);
+console.log(`${ri8ok ? "ok  " : "FAIL"} refused wherei8 :18: ${ri8.partial.join(" | ") || (ri8.diagnostics ?? []).map((d) => d.message).join(" | ") || "(compiled)"}`);
 const resumable = compileProgram({folders: [join(here, "testdata-refused"), core], objects: ["zcl_gogen_t_rf_resume", "CX_SY_ZERODIVIDE"], tolerant: true});
 const resumeRefused = resumable.partial.some((x) => x.includes("RAISE RESUMABLE:"));
 if (!resumeRefused) bad += 1;

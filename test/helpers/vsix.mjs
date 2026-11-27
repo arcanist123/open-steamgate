@@ -40,8 +40,13 @@ export function testScratch(name) {
 }
 // OSD_VSIX_PREBUILT=0 unless a test asks: the prebuilt generation costs a
 // cold build (~20 s) per package, and only one test here is about it.
+// Without a prebuilt generation these packages copy a checkout the tests
+// change on purpose (a source file, a scratch pack), so they are test-only and
+// unstamped: no release path accepts a .vsix without its provenance. A
+// prebuilt one is stamped from its own seed, as a release is.
 export function buildTestVsix(outputDir, env = {}) {
-  return buildVsix({OSD_VSIX_PREBUILT: "0", ...env, OSD_VSIX_BROTLI_QUALITY: "4"}, outputDir);
+  const merged = {OSD_VSIX_PREBUILT: "0", ...env, OSD_VSIX_BROTLI_QUALITY: "4"};
+  return buildVsix(merged, outputDir, {stamp: merged.OSD_VSIX_PREBUILT !== "0"});
 }
 export function packagedController(extensionDir, workspace, home) {
   class EventEmitter {

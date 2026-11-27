@@ -1,7 +1,7 @@
 // Cross-process GC protection for a generation and the verifier's scratch.
 import {processIdentity} from "./osd-process-identity.mjs";
 import {randomUUID} from "node:crypto";
-import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, renameSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, renameSync, statSync, writeFileSync} from "node:fs";
 import {join} from "node:path";
 import {layout, lock} from "./osd-build.mjs";
 import {MissingCompileInputs} from "./osd-compile-snapshot.mjs";
@@ -53,6 +53,19 @@ export function verificationPins(root) {
   const dir = join(layout(root).build, "verify-pins"), pins = [];
   if (!existsSync(dir)) return pins;
   for (const file of readdirSync(dir)) {
+    // A verifier killed between writing a renewal and renaming it leaves
+    // `<pid>.<uuid>.json.tmp`. A live one holds it for microseconds, so a
+    // dead owner or an age past the lease makes it litter.
+    if (file.endsWith(".json.tmp")) {
+      const path = join(dir, file);
+      const pid = Number(file.split(".")[0]);
+      let mtime;
+      try { mtime = statSync(path).mtimeMs; } catch { continue; }
+      let alive = Number.isInteger(pid) && pid > 0;
+      if (alive) try { process.kill(pid, 0); } catch (error) { alive = error.code !== "ESRCH"; }
+      if (!alive || Date.now() - mtime > 300000) rmSync(path, {force: true});
+      continue;
+    }
     if (!file.endsWith(".json")) continue;
     const path = join(dir, file);
     let pin;

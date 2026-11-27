@@ -4,7 +4,7 @@ import {existsSync, readFileSync, readdirSync, statSync} from "node:fs";
 import {delimiter, join, relative, resolve} from "node:path";
 import {execFileSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
-import {packAt} from "../osd-packs.mjs";
+import {expandedFolders, packAt} from "../osd-packs.mjs";
 import {rootsOf} from "../osd-store.mjs";
 import {withTmp} from "../osd-store-tmp.mjs";
 import {tmpDisabled} from "../osd-tmp.mjs";
@@ -83,7 +83,10 @@ export function lintRules(root, facts, packs) {
   if (!system) {
     const fixed = withTmp(rootsOf(root, {...process.env, OSD_WEB_PACKS: ""}), root).map(descriptor);
     const effectiveListed = listed.filter(path => !tmpDisabled() || path !== "local/tmp");
-    const before = effectiveListed.lastIndexOf("gen") < 0 ? effectiveListed.length : effectiveListed.lastIndexOf("gen");
+    // the slot is an index into the EXPANDED roots (H4: "gen/hana-src/*" is
+    // one entry and many folders), not into the raw list
+    const expanded = expandedFolders(effectiveListed, root);
+    const before = expanded.lastIndexOf("gen") < 0 ? expanded.length : expanded.lastIndexOf("gen");
     plan = fixed.map(r => ({root: r}));
     plan.splice(before, 0, ...selected.map(pack => ({pack, listed})));
   } else {

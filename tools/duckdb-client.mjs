@@ -7,6 +7,7 @@ import {DuckDBInstance} from "@duckdb/node-api";
 import {resolve} from "node:path";
 import {bindValue} from "./abap-types.mjs";
 import {trimLiterals} from "./sql-literals.mjs";
+import {abapSelectToSql} from "./osd-sql-literals.mjs";
 import {osqlSemanticsError} from "./osql-error.mjs";
 
 
@@ -195,10 +196,8 @@ export class DuckDBDatabaseClient {
   }
 
   rewrite(select, primaryKey) {
-    let s = select.replace(/ UP TO (\d+) ROWS(.*)/i, "$2 LIMIT $1");
-    s = primaryKey ? s.replace(/ ORDER BY PRIMARY KEY/i, " ORDER BY " + primaryKey.join(", ")) : s.replace(/ ORDER BY PRIMARY KEY/i, "");
-    s = s.replace(/ ASCENDING/ig, " ASC").replace(/ DESCENDING/ig, " DESC").replace(/~/g, ".").replace(/ LIMIT 0/g, "");
-    return trimLiterals(s);
+    // on the code only: a value is sent as it was written (osd-sql-literals)
+    return trimLiterals(abapSelectToSql(select, {primaryKey}));
   }
 
   async query(sql) {

@@ -14,7 +14,7 @@ func TestSelectOptionComponentF4(t *testing.T) {
 	s := &abap.Session{}
 	report := newReport(s)
 	var initial ZCL_GG_HOST__TY_RESULT
-	abap.DialogStep(func() { initial = hostRun(s, report, nil, "", "X") })
+	abap.DialogStep(s, func() { initial = hostRun(s, report, nil, "", "X") })
 	form := graphicalForm(s, report, initial)
 	if !appF4["S_FILE-LOW"] || !appF4["S_FILE-HIGH"] || len(form.Fields) != 2 {
 		t.Fatalf("component F4 fields: %#v, %#v", appF4, form.Fields)
@@ -54,7 +54,7 @@ func TestSelectOptionLowF4KeepsOtherRanges(t *testing.T) {
 	s := &abap.Session{}
 	report := newReport(s)
 	var initial ZCL_GG_HOST__TY_RESULT
-	abap.DialogStep(func() { initial = hostRun(s, report, nil, "", "X") })
+	abap.DialogStep(s, func() { initial = hostRun(s, report, nil, "", "X") })
 	form := graphicalForm(s, report, initial)
 	form.Fields[0].Value = "a,b"
 	screen := tcell.NewSimulationScreen("UTF-8")

@@ -1,0 +1,17 @@
+managed implementation in class zbp_rap_trip unique;
+define behavior for ZI_RAP_TRIP alias trip
+persistent table zrap_trip
+etag master last_changed_at
+lock master
+early numbering
+{
+  create;
+  update ( features : instance );
+  delete ( features : instance );
+  field ( readonly ) trip_id, status, created_by, last_changed_at;
+  field ( mandatory ) description;
+  action ( features : instance ) accept result [1] $self;
+  action ( features : instance ) reject result [1] $self;
+  determination SetStatus on modify { create; }
+  mapping for zrap_trip corresponding;
+}

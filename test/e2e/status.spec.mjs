@@ -52,8 +52,13 @@ test("system status: the object page over the running tree", async ({page}) => {
   expect(await digits(http)).toContain(String(PORT));
 
   // Services: the ICF paths the runtime answers
+  // (each launchpad app is a row too, and the apps' /app/flp.html# paths sort
+  // first: when they fill the first page, grow the table until one shows)
   const service = section("Services").locator(".sapMListTblRow").filter({hasText: /\/sap\//}).first();
-  await expect(service).toBeVisible();
+  await expect(async () => {
+    if (!(await service.isVisible())) await section("Services").getByRole("button", {name: /^More/}).click();
+    await expect(service).toBeVisible({timeout: 2000});
+  }).toPass({timeout: 30_000});
   expect(await service.innerText()).toMatch(/(^|[\t\n])\/sap\//);
 
   // Packs: the content packs layered into the build
@@ -71,6 +76,15 @@ test("system status: the object page over the running tree", async ({page}) => {
   const architecture = database.locator(".sapMListTblRow", {hasText: "Architecture"}).first();
   await expect(architecture).toBeVisible();
   await expect(architecture).toContainText(/linux|darwin|win32/);
+
+  // AMDP methods: the demo's SQUARES with the engine a call would use now,
+  // which is one of the five labels ZCL_OSD_STATUS=>ENGINE gives and never
+  // the system database's name on its own
+  const amdp = section("Amdp");
+  await amdp.scrollIntoViewIfNeeded();
+  const squares = amdp.locator(".sapMListTblRow", {hasText: "SQUARES"}).first();
+  await expect(squares).toBeVisible();
+  await expect(squares).toContainText(/portable-duckdb|hdb-stale|hdb-idle|hdb|unavailable/);
 
   expect(failed).toEqual([]);
 });

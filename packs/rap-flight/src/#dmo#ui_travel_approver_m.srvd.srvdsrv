@@ -1,0 +1,8 @@
+// OSD overlay: upstream's service definition with the value-help views
+// left out, as for /DMO/UI_TRAVEL_Processor_M.
+@EndUserText.label: 'Service definition for managing travels'
+@ObjectModel.leadingEntity.name: '/DMO/C_Travel_Approver_M'
+define service /DMO/UI_TRAVEL_Approver_M {
+  expose /DMO/C_Travel_Approver_M as Travel;
+  expose /DMO/C_Booking_Approver_M as Booking;
+}

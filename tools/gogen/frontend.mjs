@@ -10,7 +10,7 @@ import {suppliedIndex, suppliedAnswer, suppliedSignature, localDiscovery, lockAn
 import {enumerateObjects, auditedBookkeeping, withRole, beginProvenanceCompile} from "./frontend-provenance.mjs";
 import {prepareArtifactDigests} from "./frontend-artifact-digests.mjs";
 import {withProvenance, withArtifact, resolvedFunctionModule} from "./frontend-provenance.mjs";
-import {isSourceIdentity, readdirEntries, readdirNames, readFileSync} from "./host-io-compat.mjs";
+import {isSourceIdentity, listListed, readdirNames, readFileSync} from "./host-io-compat.mjs";
 import {append} from "./append.ts";
 import {localInterfaceNames, currentTypeNames, amcSource} from "./frontend-source-observations.mjs";
 import {lowerFindResults, inlineFindResultTypes} from "./frontend-find-results.ts";
@@ -63,7 +63,7 @@ const HOST_REPLACED = new Set(["ZCL_OSD_ENQ_KERNEL"]);
  */
 // skip(path): a file not to load, for a layered build where a later folder
 // hides an object an earlier one holds (osg-build.mjs; ultra/packs)
-export const compileProgram = withProvenance(/** @param {import("./frontend-session-types.ts").CompileOptions} options */ function compileProgram({folders, objects, tolerant = false, skip = () => false, includeTests = false, registry, session, cacheDir, dependencyCache = false, closureContext, strictRoots, discoveryProbe}) {
+export const compileProgram = withProvenance(/** @param {import("./frontend-session-types.ts").CompileOptions} options */ function compileProgram({folders, objects, tolerant = false, skip = () => false, includeTests = false, registry, session, cacheDir, dependencyCache = false, closureContext, strictRoots, discoveryProbe, incr}) {
   const config = abaplint.Config.getDefault().get();
   // @ts-expect-error -- abapiti form pending
   config.syntax = {...config.syntax, version: "v758", errorNamespace: "."};
@@ -80,7 +80,11 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   /** @param {string} fn @returns {string} */ const objName = (fn) => fn.split("/").pop().split(".")[0].toLowerCase().replace(/#/g, "/");
   /** @type {import("./frontend-cache-types.ts").CdsSource[]} */ const ddls = discoveryProbe?.cds ?? [];
   /** @param {string} dir @returns {void} */ const walk = (dir) => {
-    for (const e of readdirEntries(dir).sort((x, y) => x.name.localeCompare(y.name))) {
+    // listListed, not readdirEntries: these folders are the layer list, and a
+    // listed folder that is not on disk reads as empty -- walkListed's rule
+    // (tools/osd-inputs.mjs), one helper; this walk kept the propagation that
+    // fix round 4 gave osg-build.mjs's own, and the osgo host died on gen/hana-segw
+    for (const e of listListed(dir).sort((x, y) => x.name.localeCompare(y.name))) {
       const path = join(dir, e.name);
       if (e.isDirectory()) walk(path);
       else if (isSourceIdentity(e.name) || skip(path)) continue;
@@ -138,7 +142,11 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
     diagnostics, frontendCounts: {lowered: 0, reused: 0, loweredClasses: [], reusedClasses: []}, interfaces: new Set(), reg, sigs: new Map(), broken: [...broken], partial: [], events: new Map()}));
   if (PERSIST_LOWERING) Object.assign(program, {faeN: 0, localDefs: new Map()});
   if (PERSIST_LOWERING) PROGRAM = program;
-  program.supplied = suppliedIndex(reg, program.wanted, abaplint, suppliedMethods, declaringClass);
+  program.supplied = suppliedIndex(reg, program.wanted, abaplint, suppliedMethods, declaringClass, incr?.suppliedOf);
+  // the per-object cache of the osgo fast path (tools/gogen/osgo-incr.mjs): the
+  // write side installs its write transcript around the shared collections, the
+  // read side pre-seeds them from the cache before anything lowers
+  incr?.prepare?.(program, reg);
   PROGRAM = program;
   /** @type {import("./frontend-types.ts").CompilationContext} */ const ctx0 = {reg, program};
   // the local classes of the owners that have them compiled (LOCAL_CLASSES),
@@ -149,6 +157,8 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   LOCAL_DEFS.clear();
   /** @type {import("./frontend-types.ts").LocalClass[]} */ const localDefs = [];
   for (const obj of enumerateObjects(reg, "local-dispatch", [], "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (includeTests === true || includeTests instanceof Set || LOCAL_CLASSES.has(upper(o.getName()))))) {
+    if (incr?.compiles && !incr.compiles(`CLAS ${upper(obj.getName())}`)) continue;
+    incr?.enter?.(`CLAS ${upper(obj.getName())}`);
     localDiscovery(reg, obj, includeTests === true || (includeTests instanceof Set && includeTests.has(upper(obj.getName()))), () => {
     if (LOCAL_CLASSES.has(upper(obj.getName()))) {
       // @ts-expect-error -- abapiti form pending
@@ -172,6 +182,7 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
       localDefs.push(l);
     }
     return {names: [.../** @type {NonNullable<import("./frontend-types.ts").FrontendProgram["localInterfaces"]>} */ (program.localInterfaces).keys(), .../** @type {Map<string, string>} */ (program.locals).values()].filter((k) => k.startsWith(`${upper(obj.getName())}|`) || k.startsWith(`${upper(obj.getName())}:`)), value: undefined}; });
+    incr?.exit?.();
   }
   // parity-wave1: the function groups named are compiled too, one pseudo
   // class FUGR:<group> per group with a static method per module; their
@@ -192,9 +203,12 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   // lock objects must be known before methods compile: their key order is
   // part of every generated ENQUEUE / DEQUEUE argument
   program.lockObjects = lockObjectRegistry(reg, program);
-  program.caught = caughtIndex(reg, program.wanted,
-    // @ts-expect-error -- abapiti form pending
-    (c) => clasDef(reg, c)?.getSuperClass()?.toUpperCase() ?? RUNTIME_CX_SUPER[c]);
+  // the per-object cache answers this from the superclass map it recorded
+  // (tools/gogen/osgo-incr.mjs): a partial registry cannot walk the chains
+  // @ts-expect-error -- abapiti form pending
+  /** @param {string} c @returns {string | null | undefined} */ const superOf = (c) => clasDef(reg, c)?.getSuperClass()?.toUpperCase() ?? RUNTIME_CX_SUPER[c];
+  program.caught = incr?.caughtIndex?.(reg, program.wanted, superOf) ?? caughtIndex(reg, program.wanted, superOf);
+  incr?.lowering?.();
   // @ts-expect-error -- abapiti form pending
   const lowerClass = (ctx, obj) => {
     const saved = PROGRAM;
@@ -203,20 +217,35 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   };
   for (const obj of enumerateObjects(reg, "selected-classes", wanted, "scheduling", (o) => o instanceof abaplint.Objects.Class && selectionHas(wanted, o.getName().toLowerCase()) && (!discoveryProbe || discoveryProbe.owners.has(upper(o.getName()))))) {
     if (!(obj instanceof abaplint.Objects.Class)) continue;
+    // the per-object cache lowers only what it must: the rest is in `wanted`
+    // for the checks (a call of a class not in the program is refused), its
+    // IR comes from the cache
+    if (incr?.compiles && !incr.compiles(`CLAS ${upper(obj.getName())}`)) continue;
     // The session layer accepts a class source with own getter functions.
     // Keep the core object beside it for syntax analysis and provenance.
     const source = {obj, getName: /** @returns {string} */ () => obj.getName(),
       getDefinition: /** @returns {import('@abaplint/core').IClassDefinition | undefined} */ () => obj.getDefinition(),
       getMainABAPFile: /** @returns {import('@abaplint/core').ABAPFile | undefined} */ () => obj.getMainABAPFile(),
       getABAPFiles: /** @returns {readonly import('@abaplint/core').ABAPFile[]} */ () => obj.getABAPFiles()};
+    incr?.enter?.(`CLAS ${upper(obj.getName())}`);
     // @ts-expect-error -- abapiti form pending
     program.classes.push(compile(ctx0, source, lowerClass, session));
+    incr?.exit?.();
   }
-  // @ts-expect-error -- abapiti form pending
-  for (const l of localDefs.filter(l => !discoveryProbe || discoveryProbe.owners.has(l.owner))) program.classes.push(compile(ctx0, l, lowerClass, session));
-  // @ts-expect-error -- abapiti form pending
-  for (const g of readable.filter(() => !discoveryProbe)) program.classes.push(withArtifact(ctx0, g, () => functionGroupIr(ctx0, g)));
-  if (discoveryProbe) return program;
+  for (const l of localDefs.filter(l => !discoveryProbe || discoveryProbe.owners.has(l.owner))) {
+    incr?.enter?.(`CLAS ${upper(l.owner)}`);
+    // @ts-expect-error -- abapiti form pending
+    program.classes.push(compile(ctx0, l, lowerClass, session));
+    incr?.exit?.();
+  }
+  for (const g of readable.filter(() => !discoveryProbe)) {
+    if (incr?.compiles && !incr.compiles(`FUGR ${upper(g.getName())}`)) continue;
+    incr?.enter?.(`FUGR ${upper(g.getName())}`);
+    // @ts-expect-error -- abapiti form pending
+    program.classes.push(withArtifact(ctx0, g, () => functionGroupIr(ctx0, g)));
+    incr?.exit?.();
+  }
+  if (discoveryProbe) return program; incr?.lowered?.(program); // the osgo cache's merged state (osgo-incr.mjs) before the final analyses
   // every interface used as a reference type: its methods whose signature
   // types, which is what a class must provide to satisfy it
   program.interfaceMethods = new Map();
@@ -242,53 +271,18 @@ export const compileProgram = withProvenance(/** @param {import("./frontend-sess
   }
   });
   // @ts-expect-error -- abapiti form pending
-  finalOutput(reg, "dynamic-statics", () => prepareDynamicStatics(program, {defaultValue, aliasTarget})); program.rtti = finalOutput(reg, "rtti", () => rttiTable(reg, program));
+  finalOutput(reg, "dynamic-statics", () => prepareDynamicStatics(program, {defaultValue, aliasTarget})); program.rtti = finalOutput(reg, "rtti", () => rttiTable(reg, program, incr?.rttiOf));
   program.exceptionSupers = finalOutput(reg, "exception-supers", () => exceptionSupers(reg, program));
   program.cdsViews = cdsViewsByRegistry.get(reg) ?? cdsViewsByRegistry.get(inputOrigin(reg)) ?? {};
   program.tables = finalOutput(reg, "tables", () => tableRegistry(reg, program));
   program.lockObjects = finalOutput(reg, "locks", () => lockObjectRegistry(reg, program, "final-output"));
   auditedBookkeeping("session-finalize", () => finishSession(session, reg)); // File guards, no resolution.
-  Object.assign(program, {amcChannels: samcOf(folders), ownershipSafety: session ? (session.ownershipSafety ??= sourceOwnershipSafety(reg)) : sourceOwnershipSafety(reg)});
+  Object.assign(program, {amcChannels: samcOf(folders), ownershipSafety: session ? (session.ownershipSafety ??= sourceOwnershipSafety(reg)) : sourceOwnershipSafety(reg, incr?.ownershipOf)});
   session?.disk?.finish(program); return program;
 });
 
-/**
- * The table registry (go/abap tables.go, README "The table registry"): every
- * TABL and DDIC view the registry has, in name order, as
- *   {name, view, client, key: [..], columns: [{name, kind, len, dec, key, type}],
- *    row: <the Go struct type, when every column is in the subset> | why}
- * where kind is the type kind letter (C N D T I 8 F P g y X), len the
- * characters of C N X and the bytes of P, and type the column's type in the
- * relational IR (sqlscript-ir.mjs T: C/len for C and N, I, INT8, P/digits/
- * dec, STRING, D, X/len, XSTRING; null where the IR has none). Built from
- * the same DDIC facts the SELECT path reads (dbTable), after the classes, so
- * that the row types it adds change nothing they compiled.
- */
-/** the table registry as the column registry of the dynamic Open SQL
- * condition parser: {NAME: {view, client, key, columns: [{name, kind, len,
- * dec, key, type}]}}, JSON as it stands (README "The table registry") */
-// @ts-expect-error -- abapiti form pending
-export function columnRegistry(program) {
-  return {
-    // @ts-expect-error -- abapiti form pending
-    tables: Object.fromEntries((program.tables ?? []).map((t) => [t.name, {view: t.view, client: t.client, key: t.key,
-      ...(t.sqlView ? {sqlView: t.sqlView} : {}), ...(t.cds ? {cds: t.cds} : {}),
-      // tools/ir-osql-where.mjs osqlWherePredicate(text, columns) as it is
-      columns: whereColumns(t),
-      // @ts-expect-error -- abapiti form pending
-      fields: t.columns.map((c) => ({name: c.name, kind: c.kind, len: c.len, dec: c.dec, key: c.key}))}])),
-    cdsViews: program.cdsViews ?? {},
-  };
-}
+export {columnRegistry, whereColumns} from "./frontend-column.mjs";
 
-/** {COL: {type, kind?}}: the columns argument of osqlWherePredicate
- * (tools/ir-osql-where.mjs), NUMC marked; a column with no IR type is left
- * out, as the parser could not compare it anyway */
-// @ts-expect-error -- abapiti form pending
-export function whereColumns(t) {
-  // @ts-expect-error -- abapiti form pending
-  return Object.fromEntries(t.columns.filter((c) => c.type !== null).map((c) => [c.name, c.kind === "N" ? {type: c.type, kind: "NUMC"} : {type: c.type}]));
-}
 
 /** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {import("./frontend-types.ts").FrontendTable[]} */ export function tableRegistry(reg, program) {
   /** @type {import("./frontend-types.ts").FrontendTable[]} */ const out = [];
@@ -413,7 +407,8 @@ export function whereColumns(t) {
  * so a name that exists but is not a structure dumps instead of reading as
  * TYPE_NOT_FOUND.
  */
-/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @returns {import("./frontend-types.ts").RttiTable} */ function rttiTable(reg, program) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {import("./frontend-types.ts").FrontendProgram} program @param {(owner: string, defs: [string, {name: string; kind: string}[] | undefined][] | undefined) => void} [collect]
+ * @returns {import("./frontend-types.ts").RttiTable} */ function rttiTable(reg, program, collect) {
   /** @type {Map<string, {name: string; kind: string}[]>} */ const structs = new Map();
   /** @param {string} name @param {import("@abaplint/core").AbstractType} t @returns {void} */ const add = (name, t) => {
     if (!(t instanceof BasicTypes.StructureType)) return;
@@ -430,10 +425,14 @@ export function whereColumns(t) {
       // is a structure of its fields too (ultra/sadl: the SADL MPC's entity types)
       if (obj instanceof abaplint.Objects.View) add(n, obj.parseType(reg));
       if (obj instanceof abaplint.Objects.Class && program.wanted.has(n)) {
+        /** @type {[string, {name: string; kind: string}[] | undefined][] | undefined} */ let defs;
         for (const td of obj.getDefinition()?.getTypeDefinitions().getAll() ?? []) {
-          known.add(`${n}=>${upper(td.type.getName())}`);
-          add(`${n}=>${upper(td.type.getName())}`, td.type.getType());
+          const key = `${n}=>${upper(td.type.getName())}`;
+          known.add(key);
+          add(key, td.type.getType());
+          (defs ??= []).push([key, structs.get(key)]);
         }
+        collect?.(n, defs);
       }
     } catch { /* a type abaplint cannot resolve is simply not described */ }
     // @ts-expect-error -- abapiti form pending
@@ -444,7 +443,7 @@ export function whereColumns(t) {
 
 
 /** ALIASES a FOR i~m of a class or interface (or a superclass): i~m */
-/** @param {import("@abaplint/core").IRegistry} reg @param {string} owner @param {string} name @returns {string | undefined} */ function aliasTarget(reg, owner, name) {
+/** @param {import("@abaplint/core").IRegistry} reg @param {string} owner @param {string} name @returns {string | undefined} */ export function aliasTarget(reg, owner, name) {
   for (const o of [owner, ...ancestors(reg, owner)]) {
     // @ts-expect-error -- abapiti form pending
     const def = reg.getObject("INTF", o)?.getDefinition() ?? clasDef(reg, o);
@@ -1435,6 +1434,7 @@ function compiledFunctionCall(node, ctx, text, name) {
     return go;
   }
   if (!SCALAR.includes(type.k)) return undefined;
+  if (["i", "int8", "f"].includes(type.k) && !Number.isFinite(Number(unquote(value)))) return undefined; // a BEGIN OF ENUM component has a name, not a number
   program.consts.set(go, {go, type, value: unquote(value)});
   return go;
 }
@@ -3224,7 +3224,7 @@ const STRING_FNS = {
   if (type.k === "struct" || type.k === "table") throw new Unsupported(`VALUE for a ${type.k}`);
   // ultra/events: VALUE 'C2A0' of an x or xstring is its bytes, as a class
   // constant's is (ZCL_ABAPGIT_GUI_EVENT's class constructor); only hex digits
-  if ((type.k === "xstring" || type.k === "x") && v.e === "chars" && /^([0-9A-F]{2})*$/i.test(v.value)) {
+  if ((type.k === "xstring" || type.k === "x") && v.e === "chars" && /^([0-9A-Fa-f]{2})*$/.test(v.value)) {
     return {s: "assign", target: {e: "var", name, type}, value: {e: "xbytes", value: v.value, type}};
   }
   return {s: "assign", target: {e: "var", name, type}, value: convert(v, type)};

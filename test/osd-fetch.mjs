@@ -442,6 +442,34 @@ describe("tools/osd-fetch: an OCI pack source", function () {
     expect((await fetchPack(declare(digest))).files).to.equal(3);
   });
 
+  // P2-2: only an osd layer config attests privacy; an empty-config zip is
+  // recorded unknown (null), builds, and every publishing path refuses it
+  it("records privacy from an osd config only: empty config is unknown, absent is public, --private is private", async () => {
+    const foreign = await fetchPack(declare(r.publish([bytes], {}, {mediaType: "application/zip", title: "pack.zip", empty: true})));
+    expect(foreign.private).to.equal(null);
+    expect(sourceOf(join(dir, "upstream")).private).to.equal(null);
+    expect(unfetched(root, {})).to.deep.equal([]);
+    expect((await fetchPack(declare(r.publish([bytes], {})), {force: true})).private).to.equal(false);
+    expect((await fetchPack(declare(r.publish([bytes], {private: true})), {force: true})).private).to.equal(true);
+  });
+
+  // P2-4: an identity fetched before privacy was recorded still builds, and
+  // rerunning osd-fetch (what publishing asks for) records it
+  it("refetches an identity without recorded privacy and keeps an unknown one", async () => {
+    const pack = declare(r.publish([bytes], {}));
+    await fetchPack(pack);
+    const {private: _, ...old} = sourceOf(pack.sources[0].dir);
+    writeFileSync(join(pack.sources[0].dir, SOURCE), JSON.stringify(old));
+    expect(unfetched(root, {})).to.deep.equal([]);
+    const again = await fetchPack(pack);
+    expect(again.fetched).to.equal(true);
+    expect(sourceOf(pack.sources[0].dir).private).to.equal(false);
+    expect((await fetchPack(pack)).fetched).to.equal(false);
+    const foreign = declare(r.publish([bytes], {}, {mediaType: "application/zip", title: "pack.zip", empty: true}));
+    await fetchPack(foreign);
+    expect((await fetchPack(foreign)).fetched).to.equal(false);
+  });
+
   for (const failure of ["TREE_MISMATCH", "DIGEST_MISMATCH", "unsafe ZIP", "media types"]) {
     it(`preserves the previous folder and marker on ${failure}`, async () => {
       const good = declare(r.publish([bytes], {}));

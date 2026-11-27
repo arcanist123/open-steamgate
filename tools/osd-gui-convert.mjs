@@ -38,6 +38,7 @@
 import {readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync} from "node:fs";
 import {basename, join, resolve} from "node:path";
 import {contentFoldersOf, winningByLayer} from "./osd-packs.mjs";
+import {excludedObjectFiles} from "./hana-closure-exclusions.mjs";
 import {hostModules} from "./osd-host.mjs";
 import {systemFile} from "./osd-system.mjs";
 import {libraryPath} from "./osd-lib-path.mjs";
@@ -45,6 +46,13 @@ import {stripLiterals} from "./abap-additions.mjs";
 
 const DEFAULT_OUT = "gen/gui";
 const CONVERTER = "converter/src/api.mjs";
+
+/** where the converter is loaded from when it is not bundled (a checkout, or
+ *  a checkout-mode binary): the pinned open-abap-gui library of the tree.
+ *  `osd doctor` loads it from here to prove the binary can. */
+export function guiConverterPath(root = process.cwd()) {
+  return resolve(libraryPath(root, "open-abap-gui"), CONVERTER);
+}
 
 /** A closed dispatch table for one-shot batch execution. The host owns the
  * report lifecycle; this registry only chooses a converter-proven report and
@@ -139,7 +147,9 @@ ${cases}
           APPEND VALUE #( sign = 'I' option = 'EQ' low = ls_input-value ) TO ls_input-ranges.
         ENDIF.
         IF line_exists( lt_input[ name = lv_name ] ).
-          APPEND LINES OF ls_input-ranges TO lt_input[ name = lv_name ]-ranges.
+          " a table expression is not an APPEND target (abaplint 2.120.118 check_syntax)
+          ASSIGN lt_input[ name = lv_name ] TO FIELD-SYMBOL(<ls_merged>).
+          APPEND LINES OF ls_input-ranges TO <ls_merged>-ranges.
         ELSE.
           INSERT ls_input INTO TABLE lt_input.
         ENDIF.
@@ -622,10 +632,15 @@ export function tranXml({wrapperClassName, tcode, title}) {
 
 export async function generate(folders, out = DEFAULT_OUT, options = {}) {
   const root = options.root ?? process.cwd();
-  const {convertProgram} = hostModules()?.guiConverter ?? await import(resolve(libraryPath(root, "open-abap-gui"), CONVERTER));
+  const {convertProgram} = hostModules()?.guiConverter ?? await import(guiConverterPath(root));
   const reports = [];
+  // a report the build is kept from (the closure's exclusions, the serve
+  // scope: tools/hana-closure-exclusions.mjs) is not converted either: its
+  // class would be the one object of it the build still compiles
+  const kept = new Set(excludedObjectFiles(root).map((f) => resolve(root, f)));
   const files = winningByLayer(folders, (folder) => reportFiles([folder]),
-    (file) => basename(file).replace(/\.prog\.abap$/i, "").toUpperCase());
+    (file) => basename(file).replace(/\.prog\.abap$/i, "").toUpperCase())
+    .filter((file) => kept.has(resolve(root, file)) === false);
   const candidates = files.map((file) => {
     const source = readFileSync(file, "utf8");
     return {file, source, programName: programNameOf(source)};

@@ -335,7 +335,15 @@ describe("VS Code ABAP values (serialized js-debug generators)", () => {
       const buffer = Buffer.alloc(8);
       buffer.writeDoubleLE(number);
       const symbol = new t.FieldSymbol(new t.Hex({length: 8}));
-      symbol.assign(new t.Float().set(number));
+      // An f calculation beyond the double range raises since
+      // abaplint/transpiler#2256, so set() refuses an infinity. The view
+      // formats whatever the storage holds and never calls set(), so that
+      // one bit pattern goes into the storage directly.
+      const float = new t.Float();
+      if (Number.isFinite(number)) float.set(number);
+      else float.value = number;
+      expect(Object.is(float.getRaw(), number)).to.equal(true);
+      symbol.assign(float);
       symbol.setCasting();
       expect(describeValue(symbol)).to.equal("-> " + buffer.toString("hex").toUpperCase() + " (x8)");
     }

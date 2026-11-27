@@ -9,7 +9,7 @@ import type {AttributeProbe} from "./emit-ownership.ts";
 import {enumerateObjects, semanticQuery, withArtifact} from "./frontend-provenance.mjs";
 // Ownership is per declaration, never a change to an ABAP type or ABI.
 // Unknown/reference use positions conservatively retain string storage.
-export function sourceOwnershipSafety(reg: Registry): OwnershipSafetyMap {
+export function sourceOwnershipSafety(reg: Registry, collect?: (name: string, value: OwnershipSafety) => void): OwnershipSafetyMap {
   const out = new Map<string, OwnershipSafety>();
   const objects: readonly OwnershipObject[] = enumerateObjects(reg, "ownership-dispatch");
   for (const obj of objects) {
@@ -26,6 +26,8 @@ export function sourceOwnershipSafety(reg: Registry): OwnershipSafetyMap {
       }
     }
     out.set(obj.getName().toUpperCase(), {names, dynamic});
+    // the osgo per-object cache (osgo-incr.mjs) keeps each object's answer
+    collect?.(obj.getName().toUpperCase(), {names: new Set(names), dynamic});
     semanticQuery(reg, "ownershipSafety", [obj.getName().toUpperCase()], [obj.getName().toUpperCase()], {names: [...names], dynamic, providers: [`${obj.getType()} ${obj.getName().toUpperCase()}`], policy: "expanded-statements"});
     }, "ownership-safety");
   }

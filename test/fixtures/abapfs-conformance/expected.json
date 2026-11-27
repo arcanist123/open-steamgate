@@ -54,11 +54,11 @@
       "feature": "Open INCL (structure + source)"
     },
     "object.FUGR": {
-      "status": "MISSING",
+      "status": "PASS",
       "feature": "Open FUGR (structure + source)"
     },
     "object.FM": {
-      "status": "MISSING",
+      "status": "PASS",
       "feature": "Open FM (structure + source)"
     },
     "object.DDLS": {
@@ -66,7 +66,7 @@
       "feature": "Open DDLS (structure + source)"
     },
     "object.MSAG": {
-      "status": "MISSING",
+      "status": "PASS",
       "feature": "Open MSAG (structure + source)"
     },
     "object.TABL": {
@@ -166,7 +166,7 @@
       "feature": "ATC run on an object"
     },
     "debugger.coreDiscovery": {
-      "status": "FAIL",
+      "status": "PASS",
       "feature": "Debug session start (core discovery)"
     },
     "debugger.listeners": {
@@ -182,7 +182,7 @@
       "feature": "Feeds / dumps / users"
     },
     "create.validate": {
-      "status": "MISSING",
+      "status": "PASS",
       "feature": "New object wizard: name validation"
     },
     "create.createDelete": {

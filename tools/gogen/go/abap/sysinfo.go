@@ -61,35 +61,15 @@ func TimeStamp(dec int) string {
 	return ts
 }
 
-// TstmpSubtract is CL_ABAP_TSTMP=>SUBTRACT as open-abap-core computes it:
-// the seconds from t2 to t1. That copies open-abap-core, it is not measured
-// on a system, whose result is a p with seven decimals: so a value with a
-// fraction (a TIMESTAMPL), where the two would differ, is refused rather
-// than cut, as is a value that is not a valid time stamp.
-func TstmpSubtract(s *Session, t1, t2 string) int32 {
-	parse := func(v string) time.Time {
-		if i := strings.IndexByte(v, '.'); i >= 0 {
-			if strings.Trim(v[i+1:], "0") != "" {
-				panic(NotCompiled("CL_ABAP_TSTMP=>SUBTRACT", "a time stamp with a fraction (TIMESTAMPL): "+v))
-			}
-			v = v[:i]
-		}
-		t, err := time.Parse("20060102150405", fmt.Sprintf("%014s", v))
-		if err != nil {
-			panic(NotCompiled("CL_ABAP_TSTMP=>SUBTRACT", "a value that is not a time stamp: "+v))
-		}
-		return t
-	}
-	return int32(parse(t1).Sub(parse(t2)) / time.Second)
-}
-
 // RandomInt31 is CL_ABAP_RANDOM->INT as open-abap-core has it: 0 .. 2^31-2.
 func RandomInt31(s *Session) int32 { return int32(rand.Int64N(2147483647)) }
 
-// ADTOneRuntime answers "" for now: no conformance case touches datapreview;
-// it becomes "X" once the datapreview classes run on osgo.
+// ADTOneRuntime is "X" once the host answers SYSTEM SQL in the request's own
+// step (cmd/osgo -adt, adtpreview): the data preview routes then mount.
+var ADTPreview bool
+
 func ADTOneRuntime(_ *Session, on *string) {
-	*on = ""
+	*on = map[bool]string{true: "X"}[ADTPreview]
 }
 
 // ADTUnavailable answers like Node's parent kernel / non-one-runtime case:
@@ -97,4 +77,11 @@ func ADTOneRuntime(_ *Session, on *string) {
 func ADTUnavailable(_ *Session, available *string) {
 	// Fixed CHAR values store trailing blanks implicitly in this runtime.
 	*available = ""
+}
+
+// ADTAvailable answers a capability this host has: the cross-reference
+// tables (ZCL_OSD_KERNEL_GUARD=>HAS_CROSS_REFERENCE) are seeded into the
+// database at build, so the ADT step's SELECTs over them answer.
+func ADTAvailable(_ *Session, available *string) {
+	*available = "X"
 }

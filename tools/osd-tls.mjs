@@ -121,3 +121,16 @@ if (basename(process.argv[1] ?? "") === "osd-tls.mjs") {
   console.log(`good for ${hosts().join(", ")}`);
   console.log("self-signed: a client will ask once whether to trust it");
 }
+
+/** What to tell a user who started without a certificate. A seeded binary
+ *  (bin/osd.mjs sets OSD_BINARY_HOME to the home it serves from) has no npm
+ *  and makes no certificate, so the checkout's `npm run osd:tls` is advice it
+ *  cannot follow: point at what the binary does offer instead
+ *  (docs/coming-from-a4h.md, section 1D). */
+export function noTlsHint(env = process.env, cwd = process.cwd()) {
+  if (env.OSD_BINARY_HOME && env.OSD_BINARY_HOME === cwd) {
+    return "No TLS: the binary makes no certificate. For a client that refuses plain HTTP use the Docker image, "
+      + "or reach Eclipse over RFC with `./osd protocols` (docs/coming-from-a4h.md)";
+  }
+  return "No TLS: run `npm run osd:tls` to make a certificate, for a client that refuses plain HTTP";
+}

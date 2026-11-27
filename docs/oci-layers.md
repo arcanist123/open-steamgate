@@ -32,6 +32,138 @@ is supplied by `--source <repo>@<commit>:<path>`. The manifest annotations
 are `org.osd.layer.name`, `org.osd.layer.kind` and, when source is known,
 `org.opencontainers.image.source` (the repository).
 
+`build` and `push` accept `--private` for private source. This adds
+`"private":true` to the config and `org.osd.layer.private=true` to the
+manifest. Without the flag, neither field is present and existing digests
+remain unchanged. Private layers, including any system containing one, may
+be pushed only to an exact registry host in `OSD_PRIVATE_REGISTRIES` (comma or
+whitespace separated `host[:port]`). A bare host matches only a reference
+without a port; `host:port` matches only that port. The default is empty. `ghcr.io` and
+`*.github.io` always refuse private layers, even when listed. A refusal is
+`PRIVATE_LAYER` (CLI exit 2) and names the layer and destination registry.
+System descriptors carry the private annotation; system push reads every
+layer config again before uploading.
+
+Public artefacts made from a checkout (release and download archives, the
+VSIX and binary seeds, the OSGo and Bun release binaries, Pages, the Docker
+image, CI artifacts, the system release) call `assertPublicSystem`. It
+refuses, as `PRIVATE_LAYER`, an installed system with a private layer, a
+private fetched source under `packs/`, and a live generation built from
+either: every generation's `manifest.json` records `systemDigest`,
+`systemPrivate` and the privacy of each input. A live generation without that
+record, or from another system than the installed one, is refused until
+rebuilt.
+
+An artefact copies the working tree, not the manifest, so its provenance comes
+from `tools/osd-public-tree.mjs`. At write time, and again at verify time for
+artefacts made from the tree (the release directory and its hosts, download
+bundles, the preview and its screenshots, the Docker image, the CI archive),
+it requires the tree to hash to the live generation (`hashOf(root)`, which
+names private and unknown inputs) and recomputes the privacy of every
+current input, `OSD_PACKS` folders included. A private pack fetched after a
+public build is refused; any other change asks for a rebuild. The sidecar of
+a directory artefact records links by their target and refuses a link that
+leaves the artefact.
+
+**The read record.** A generation's privacy comes from what its build
+actually read, not from a second walk of what it should have read. Every
+reader of source bytes (the transpiler's file and library loads, media,
+RAP bindings, BSP and pack files, source layers) reports each read, and every
+generator child runs under `tools/osd-generator-reads.mjs`, which hooks
+`node:fs` and `node:child_process` and logs each read with its real path and
+digest. The build writes them to `build/by-input/<hash>/reads.json`
+(`tools/osd-read-record.mjs`): `{schema, root, reads: [{path, real, sha256,
+privacy, identities}], uncovered}`. A read's privacy is that of the
+`.osd-source.json` / `.osd-layer.json` markers in its real ancestry (any
+private → private; else any unknown → unknown). `publicProvenance`,
+`assertPublicSystem` and `osd-ci-artifact pack` require the record
+(`READ_RECORD` when missing or invalid) and refuse, as `UNKNOWN_PRIVACY`:
+
+- a read outside what `hashOf` digested (`uncovered`), or one whose bytes or
+  target changed since;
+- an incomplete record: a child the recorder cannot follow (a shell, a
+  non-node program, a worker, a detached child, a node child that never
+  answered the handshake) or a read it could not name;
+- a read of unknown privacy, or one whose identity marker changed.
+
+A node child is also incomplete when anything could run before the recorder
+or start processes past it (`tools/osd-generator-children.mjs` `preloadsOf`):
+a `-r`/`--require`/`--import`/`--loader` other than the recorder itself, an
+env or config file (`--env-file*`, `--experimental-*config-file`), `--run`,
+`--test`, `--watch*` or a snapshot flag -- in node's argv, in `NODE_OPTIONS`
+(osd's own children included) or in a fork's `execArgv`. Every word of the
+argv is scanned, the script's own arguments too: telling them apart would need
+node's full list of flags that take a value, so the check fails closed. **For
+generator authors:** a generator whose child gets an argument spelled like one
+of these flags (`--require`, `--run`, `--test`, ...) makes its generation
+unpublishable. Give such an option another name, or pass the value through a
+file or the child's environment; and start node children with plain
+`node <script>`, not through npm, npx, a shell or `node --run`.
+
+`hashOf` therefore digests every file class the build reads: input folders by
+what the transpiler lists (not by extension, so W3MI media count), locked and
+URL libraries whole, root `data/` and `abaplint.jsonc`, BSP and pack folders,
+and what finding the packs reads -- every manifest in the tree's own pack
+place, selected by `OSD_WEB_PACKS` or not (a left-out pack's fetched
+identities are not read; a selected pack's are hashed with it). `OSD_PACKS` places (the extension's per-machine
+scratch pack) are not digested. DSL navigation metadata
+(`*.trace.meta.json`) is neither read nor hashed.
+
+What the record does not cover: reads by native code or by a program that
+is not node (they make the record incomplete rather than wrong, except git,
+which runs only for a fixed list of metadata commands); bytes that reach the
+output without a file read (environment variables, network); and the
+transpiler and generator code itself, which is named by the generator
+identity in the hash rather than by the record.
+
+A binary built before any generation exists (the fresh-clone check in
+`tests.yml`) is built with `build-binary --unstamped`: test only, refused with
+`--seed` or a release target, and without a sidecar, so make-release,
+make-download-bundle and release-verify refuse it. `buildVsix(..., {stamp:
+false})` is the same for test packages and has no command-line form; a
+prebuilt VSIX is stamped from its own seed's live generation.
+`test/oci-release-workflow.mjs` checks every workflow job: a stamping step
+comes after a step that builds a generation.
+
+A fetched identity has `private` true or false, or `null` when the source
+cannot attest it: only an osd layer config can, so a foreign OCI zip (an
+empty config) records `null`. An identity fetched before the field existed
+has none. Both build and serve; every publishing path refuses them, and
+`node tools/osd-fetch.mjs` fetches an identity without the field again.
+
+A CI artifact carries the live generation, never all of `build/`. Of the
+caches every generation shares it carries what the public live generation
+reaches, which is what the swap job's fast path reads: the
+`build/source-by-digest` entries named in live's `source-inputs.json`, and
+live's cross-reference rows `build/xref/<key>.json`. Each is listed with its
+digest in `.local/ci-artifact/closure.json`; `osd-ci-artifact verify` checks
+every listed digest and refuses an unlisted file. `pack` derives live's rows
+when no host wrote them and exits 3 when a fast-path input would still be
+missing; a shared store linked out of the tree is refused. The CI
+transpiler it carries (`.local/ci-artifact/transpiler`) is bound by
+`tools/osd-ci-transpiler.mjs` to the pinned commit and a digest list of its
+files: no tracked change, no file that is neither tracked nor ignored by the
+clone (its ignored build output ships as listed), no source identity marker
+inside it or above it. Its `.git` ships, because a consumer names the linked
+transpiler by `git rev-parse HEAD` in it.
+
+From a shell, `node tools/osd-public-tree.mjs write|verify <artefact>` stamps or
+verifies against the tree; `node tools/osd-provenance.mjs verify <artefact>`
+checks bytes and record only, with no repository imports.
+
+A layer cannot be built from a build store without `--private`: a folder
+under this checkout's `build/`, under any `build/` holding `by-input` or
+`source-by-digest`, or holding a generation `manifest.json`. Files copied
+out of a store carry no identity and cannot be detected; keep their identity
+with them or mark the layer private.
+
+`build` and `push` also accept `--closure <file.json>`. The file must hold
+`{"unresolved":0,"items":[]}` with a nonnegative integer and an array of
+opaque objects, within 4 MiB. The config stores it only when supplied. A
+system with closures records their sum as `org.osd.system.unresolved` on the
+index. `inspect` and `osd-fetch --system` report each layer's count and the
+system total when present.
+
 There is exactly one layer blob, media type `application/vnd.osd.abapgit.zip`,
 with `org.opencontainers.image.title` equal to `<name>.zip`. Config and blob
 descriptors contain the SHA-256 digest and byte size of their exact bytes.
@@ -75,7 +207,14 @@ publication exception format. Every entry requires `layer`, archive `file`,
 IDs; entries never contain matched text or a hash of matched text. Changed
 bytes, missing paths, ambiguous layers and changed category counts are
 `BAD_ALLOW`. Metadata documents are never excepted. The flag repeats.
-Public scanner output contains categorys and paths only.
+Public scanner output contains categories and paths only.
+For private layers the same gate uses `--private-layer`: it ignores only
+entries in the two existing identifier-list categories
+`корпус SAP (A4H, только локально)` and `SEGW-образцы SAP (только локально)`
+(`SAP_CORPUS_CATEGORIES` in `tools/osd-leak-scan.mjs`); no list is renamed.
+A list with neither category is refused. Every other category, hosts, users,
+logons, project names, credentials, tokens, addresses, home paths and binary
+IPv4 views remain checked.
 
 `treeDigest` uses `tools/osd-oci.mjs`'s shared helper: SHA-256 of concatenated
 `<content sha256 hex>  <archive relative path>\n` lines, sorted by UTF-8 path

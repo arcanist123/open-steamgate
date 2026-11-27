@@ -101,3 +101,8 @@ Step 3, the ADT syntax check served by abaplint-in-ABAP on OSGo, and
 step 5, the open-abap transpiler through abapiti. The typing forms abapiti
 does not lower yet are in its backlog; the `@ts-check` branches and the
 lint go in after this milestone.
+
+Step 3 subsequently completed its recorded syntax gates on 2026-10-22; see
+the [step-3 record](2026-10-22-self-hosting-step3.md) and the
+[current milestone index](../self-hosting.md). The next proposal extends this
+reference-class generation result to the whole osgo input set.

@@ -220,6 +220,13 @@ describe("timing weights", () => {
     ])).to.deep.equal({"test/a.mjs": 6, "test/old.mjs": 7});
     expect(() => mergeTimings({}, [{seconds: {"test/a.mjs": -1}}])).to.throw("invalid timing");
   });
+  it("accepts the nested suite paths the fragments register and refuses paths that leave test/", () => {
+    expect(mergeTimings({}, [{seconds: {"test/adt-conformance/suite.mjs": 61}}]))
+      .to.deep.equal({"test/adt-conformance/suite.mjs": 61});
+    for (const file of ["test/../escape.mjs", "src/adt-conformance/suite.mjs", "test/adt-conformance/suite.js"]) {
+      expect(() => mergeTimings({}, [{seconds: {[file]: 5}}])).to.throw("invalid timing");
+    }
+  });
 });
 
 

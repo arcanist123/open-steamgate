@@ -37,23 +37,23 @@ CLASS ltcl_reentrance IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = zcl_osd_adt_reentrance=>html( `&<>"'` ) exp = `&amp;&lt;&gt;&quot;&#39;` ).
   ENDMETHOD.
   METHOD subtract_precision.
+* cl_abap_tstmp=>subtract keeps the fraction (open-abap-core #1311, as a
+* system does), so the difference is read in milliseconds, not in an i
     DATA lv_stamp TYPE timestampl VALUE '20261003123456.9980000'.
     DATA lv_epoch TYPE timestampl VALUE '19700101000000.0000000'.
-    DATA lv_seconds TYPE i.
+    DATA lv_diff TYPE tzntstmpl.
     DATA lv_ms TYPE p LENGTH 16 DECIMALS 0.
     DATA lv_missing TYPE i.
-    lv_seconds = cl_abap_tstmp=>subtract( tstmp1 = lv_stamp tstmp2 = lv_epoch ).
-    cl_abap_unit_assert=>assert_equals( act = lv_seconds exp = 1791030896 ).
-    lv_ms = lv_seconds.
-    lv_ms = lv_ms * 1000.
-    cl_abap_unit_assert=>assert_equals( act = lv_ms exp = '1791030896000' ).
+    lv_diff = cl_abap_tstmp=>subtract( tstmp1 = lv_stamp tstmp2 = lv_epoch ).
+    cl_abap_unit_assert=>assert_equals( act = lv_diff exp = '1791030896.998' ).
+    lv_ms = lv_diff * 1000.
+    cl_abap_unit_assert=>assert_equals( act = lv_ms exp = '1791030896998' ).
     cl_abap_unit_assert=>assert_equals(
       act = zcl_osd_adt_reentrance=>unix_ms( lv_stamp ) exp = `1791030896998` ).
     GET TIME STAMP FIELD lv_stamp.
-    lv_seconds = cl_abap_tstmp=>subtract( tstmp1 = lv_stamp tstmp2 = lv_epoch ).
-    lv_ms = lv_seconds.
-    lv_ms = lv_ms * 1000.
+    lv_diff = cl_abap_tstmp=>subtract( tstmp1 = lv_stamp tstmp2 = lv_epoch ).
+    lv_ms = lv_diff * 1000.
     lv_missing = zcl_osd_adt_reentrance=>unix_ms( lv_stamp ) - lv_ms.
-    cl_abap_unit_assert=>assert_true( boolc( lv_missing >= 0 AND lv_missing < 1000 ) ).
+    cl_abap_unit_assert=>assert_true( boolc( lv_missing >= -1 AND lv_missing <= 1 ) ).
   ENDMETHOD.
 ENDCLASS.

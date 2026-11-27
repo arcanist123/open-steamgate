@@ -1,12 +1,26 @@
 CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
 * OData v2 URL: /sap/opu/odata/sap/<Service>/<EntitySet>(<keys>)/$count?$opt=...
+* A service whose technical name sits in a namespace is addressed with the
+* namespace in place of "sap": /sap/opu/odata/<NS>/<Service>/... The service
+* is looked up by its external name either way; namespace and prefix say how
+* it was addressed, so the answer's own URLs repeat that address.
   PUBLIC SECTION.
+* a navigation segment after the first: A('k')/ToB('k2')/ToC is the first
+* segment ToB('k2') in nav_prop / nav_key_string and ToC here
+    TYPES: BEGIN OF ty_nav_segment,
+             nav_prop   TYPE string,
+             key_string TYPE string,
+           END OF ty_nav_segment.
+    TYPES ty_nav_segments TYPE STANDARD TABLE OF ty_nav_segment WITH DEFAULT KEY.
     TYPES: BEGIN OF ty_request,
              service         TYPE string,
+             namespace       TYPE string,
+             prefix          TYPE string,
              entity_set      TYPE string,
              key_string      TYPE string,
              nav_prop        TYPE string,
              nav_key_string  TYPE string,
+             nav_more        TYPE ty_nav_segments,
              is_service_root TYPE abap_bool,
              is_metadata     TYPE abap_bool,
              is_batch        TYPE abap_bool,
@@ -40,7 +54,62 @@ CLASS zcl_stg_url DEFINITION PUBLIC CREATE PUBLIC.
       RAISING
         zcx_stg_error.
 
+* a key or parameter literal without its quotes; a NUL in it is a 400,
+* since it cannot reach the database (the SQL text ends at it)
     CLASS-METHODS unquote
+      IMPORTING
+        iv_value        TYPE string
+      RETURNING
+        VALUE(rv_value) TYPE string
+      RAISING
+        zcx_stg_error.
+* a URL part unescaped; what the decoder cannot turn into text (UNDECODABLE)
+* is a 400 rather than a part that silently became empty
+    CLASS-METHODS unescape
+      IMPORTING
+        iv_value        TYPE string
+        iv_code         TYPE string
+        iv_where        TYPE string
+      RETURNING
+        VALUE(rv_value) TYPE string
+      RAISING
+        zcx_stg_error.
+* fail closed: a query string the decoder cannot turn into text anywhere is
+* a 400 before any option is read. The decoder (cl_http_utility, as on a
+* system) answers nothing for such a field and drops the fields after it,
+* so a filter or an order in or after it would silently be gone
+    CLASS-METHODS refuse_undecodable
+      IMPORTING
+        iv_query TYPE string
+      RAISING
+        zcx_stg_error.
+* what of a URL part the decoder cannot turn into text, read off the text so
+* that a host decoding natively (osgo) is held to the same rule: NUL for an
+* escaped NUL, MALFORMED for a % without two hex digits after it or escaped
+* bytes that are not UTF-8; empty when it decodes. %2500 and + decode
+    CLASS-METHODS undecodable
+      IMPORTING
+        iv_text         TYPE string
+      RETURNING
+        VALUE(rv_fault) TYPE string.
+* a NUL cannot reach the database (the SQL text ends at it): a value
+* holding one is a 400 with the code and the words of the caller
+    CLASS-METHODS refuse_nul
+      IMPORTING
+        iv_value TYPE string
+        iv_code  TYPE string
+        iv_where TYPE string
+      RAISING
+        zcx_stg_error.
+* one key literal of an entry's URI ('A & B', guid'...') in the
+* form a system writes it: letters, digits, - . _ ~ and the literal's
+* quotes stay, every other character becomes its UTF-8 bytes as %XX with
+* upper-case digits. Measured (M3 oracle, VH sets): blank %20, & %26,
+* " %22, quotes raw. A / or a % follows the same rule unmeasured (%2F,
+* %25); a quote inside a value is doubled and stays raw, as the
+* delimiters do. A key outside Latin-1 or outside the BMP survives the
+* trip back (one code point, all its bytes)
+    CLASS-METHODS escape_key
       IMPORTING
         iv_value        TYPE string
       RETURNING
@@ -56,11 +125,14 @@ ENDCLASS.
 CLASS zcl_stg_url IMPLEMENTATION.
 
   METHOD parse.
+    DATA ls_more    TYPE ty_nav_segment.
+    DATA lv_ns      TYPE string.
     DATA lv_rest    TYPE string.
     DATA lv_segment TYPE string.
     DATA lv_off     TYPE i.
 
-    FIND REGEX '/sap/opu/odata/sap/([^/?]+)(.*)$' IN iv_path SUBMATCHES rs_request-service lv_rest.
+    FIND REGEX '/sap/opu/odata/([^/?]+)/([^/?]+)(.*)$' IN iv_path
+      SUBMATCHES lv_ns rs_request-service lv_rest.
     IF sy-subrc <> 0.
       RAISE EXCEPTION TYPE zcx_stg_error
         EXPORTING
@@ -68,7 +140,15 @@ CLASS zcl_stg_url IMPLEMENTATION.
           code    = 'STG/NOT_ODATA'
           message = |Not an OData path: { iv_path }|.
     ENDIF.
-    rs_request-service = cl_http_utility=>unescape_url( rs_request-service ).
+    rs_request-service = unescape( iv_value = rs_request-service iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
+* "sap" in any case is the one /sap/ prefix, spelled lower case in the
+* answers; any other segment is a namespace and is repeated as given
+    IF to_lower( lv_ns ) = 'sap'.
+      rs_request-prefix = '/sap/opu/odata/sap'.
+    ELSE.
+      rs_request-namespace = lv_ns.
+      rs_request-prefix    = |/sap/opu/odata/{ lv_ns }|.
+    ENDIF.
     rs_request-options = it_options.
 
     IF lv_rest = '' OR lv_rest = '/'.
@@ -103,16 +183,30 @@ CLASS zcl_stg_url IMPLEMENTATION.
           segment( EXPORTING iv_path = lv_rest
                    IMPORTING ev_name = rs_request-nav_prop ev_keys = rs_request-nav_key_string
                    CHANGING cv_off = lv_off ).
-          IF lv_off < strlen( lv_rest ) AND lv_rest+lv_off(1) = '/'.
+* further navigation segments (A('k')/ToB('k2')/ToC), then $count / $value
+          WHILE lv_off < strlen( lv_rest ) AND lv_rest+lv_off(1) = '/'.
             lv_off = lv_off + 1.
+            IF lv_off >= strlen( lv_rest ).
+              EXIT.
+            ENDIF.
             IF lv_rest+lv_off = '$count' OR lv_rest+lv_off = '$count/'.
               rs_request-is_count = abap_true.
               lv_off = strlen( lv_rest ).
             ELSEIF lv_rest+lv_off = '$value' OR lv_rest+lv_off = '$value/'.
               rs_request-is_value = abap_true.
               lv_off = strlen( lv_rest ).
+            ELSE.
+              CLEAR ls_more.
+              segment( EXPORTING iv_path = lv_rest
+                       IMPORTING ev_name = ls_more-nav_prop ev_keys = ls_more-key_string
+                       CHANGING cv_off = lv_off ).
+              IF ls_more-nav_prop IS INITIAL.
+                EXIT.
+              ENDIF.
+              ls_more-nav_prop = unescape( iv_value = ls_more-nav_prop iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
+              APPEND ls_more TO rs_request-nav_more.
             ENDIF.
-          ENDIF.
+          ENDWHILE.
         ENDIF.
       ENDIF.
     ENDIF.
@@ -123,8 +217,8 @@ CLASS zcl_stg_url IMPLEMENTATION.
           code    = 'STG/BAD_RESOURCE_PATH'
           message = |Unsupported resource path: { lv_rest }|.
     ENDIF.
-    rs_request-entity_set = cl_http_utility=>unescape_url( lv_segment ).
-    rs_request-nav_prop = cl_http_utility=>unescape_url( rs_request-nav_prop ).
+    rs_request-entity_set = unescape( iv_value = lv_segment iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
+    rs_request-nav_prop = unescape( iv_value = rs_request-nav_prop iv_code = 'STG/BAD_PATH' iv_where = 'the resource path' ).
   ENDMETHOD.
 
   METHOD segment.
@@ -187,9 +281,20 @@ CLASS zcl_stg_url IMPLEMENTATION.
 
   METHOD option.
     DATA ls_option LIKE LINE OF is_request-options.
+    DATA lv_name   TYPE string.
 
     LOOP AT is_request-options INTO ls_option.
-      IF to_lower( ls_option-name ) = to_lower( iv_name ).
+* a client may encode the $ of a system query option (%24top): the name
+* is the decoded one, as on a system -- read raw, the option was ignored
+* without a word and the whole set came back (H5x-4 B4)
+      lv_name = ls_option-name.
+* only a well-formed escape is decoded: the decoder throws on %zz or a bare
+* %, and a system ignores such an option rather than failing the request
+      FIND REGEX '^[A-Za-z0-9$_.+-]*(%[0-9A-Fa-f]{2}[A-Za-z0-9$_.+-]*)+$' IN lv_name.
+      IF sy-subrc = 0.
+        lv_name = cl_http_utility=>unescape_url( lv_name ).
+      ENDIF.
+      IF to_lower( lv_name ) = to_lower( iv_name ).
         rv_value = ls_option-value.
         RETURN.
       ENDIF.
@@ -199,10 +304,24 @@ CLASS zcl_stg_url IMPLEMENTATION.
   METHOD unquote.
     DATA lv_quote TYPE string.
     DATA lv_two   TYPE string.
+    DATA lv_p1    TYPE string.
+    DATA lv_p2    TYPE string.
+    DATA lv_p3    TYPE string.
+    DATA lv_p4    TYPE string.
+    DATA lv_p5    TYPE string.
 
     lv_quote = |'|.
     lv_two   = ''''''.
     rv_value = iv_value.
+* an Edm.Guid literal, guid'c0ffee00-0000-4000-8000-0000000000a1', is the
+* 32 hex digits a RAW 16 field takes; left as it came, the value reached the
+* provider with its prefix and dashes and found no row (M3-B0, W6)
+    FIND REGEX `^guid'([0-9A-Fa-f]{8})-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{4})-([0-9A-Fa-f]{12})'$`
+      IN rv_value IGNORING CASE SUBMATCHES lv_p1 lv_p2 lv_p3 lv_p4 lv_p5.
+    IF sy-subrc = 0.
+      rv_value = to_upper( lv_p1 && lv_p2 && lv_p3 && lv_p4 && lv_p5 ).
+      RETURN.
+    ENDIF.
     IF strlen( rv_value ) >= 2 AND rv_value(1) = lv_quote AND substring( val = rv_value
                                                                            off = strlen( rv_value ) - 1 ) = lv_quote.
       rv_value = substring( val = rv_value
@@ -210,6 +329,138 @@ CLASS zcl_stg_url IMPLEMENTATION.
                             len = strlen( rv_value ) - 2 ).
       REPLACE ALL OCCURRENCES OF lv_two IN rv_value WITH lv_quote.
     ENDIF.
+    refuse_nul( iv_value = rv_value
+                iv_code  = 'STG/BAD_KEY'
+                iv_where = 'a key' ).
+  ENDMETHOD.
+
+  METHOD unescape.
+    CASE undecodable( iv_value ).
+      WHEN 'NUL'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
+      WHEN 'MALFORMED'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = iv_code message = |A malformed escape in { iv_where } is not accepted|.
+    ENDCASE.
+    rv_value = cl_http_utility=>unescape_url( iv_value ).
+  ENDMETHOD.
+
+  METHOD refuse_undecodable.
+    CASE undecodable( iv_query ).
+      WHEN 'NUL'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = 'STG/BAD_QUERY' message = 'A NUL character in the query string is not accepted'.
+      WHEN 'MALFORMED'.
+        RAISE EXCEPTION TYPE zcx_stg_error
+          EXPORTING status = 400 code = 'STG/BAD_QUERY'
+                    message = 'A malformed escape in the query string is not accepted (a % takes two hex digits, escaped bytes UTF-8)'.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD undecodable.
+    CONSTANTS lc_hex TYPE string VALUE '0123456789ABCDEF'.
+    DATA lv_len   TYPE i.
+    DATA lv_pos   TYPE i.
+    DATA lv_high  TYPE i.
+    DATA lv_low   TYPE i.
+    DATA lv_value TYPE i.
+* the continuation bytes the UTF-8 sequence begun still needs
+    DATA lv_more  TYPE i.
+
+    lv_len = strlen( iv_text ).
+    WHILE lv_pos < lv_len.
+      IF substring( val = iv_text off = lv_pos len = 1 ) <> '%'.
+        IF lv_more > 0.
+          rv_fault = 'MALFORMED'.
+          RETURN.
+        ENDIF.
+        lv_pos = lv_pos + 1.
+        CONTINUE.
+      ENDIF.
+      IF lv_len - lv_pos < 3.
+        rv_fault = 'MALFORMED'.
+        RETURN.
+      ENDIF.
+      lv_high = find( val = lc_hex sub = to_upper( substring( val = iv_text off = lv_pos + 1 len = 1 ) ) ).
+      lv_low = find( val = lc_hex sub = to_upper( substring( val = iv_text off = lv_pos + 2 len = 1 ) ) ).
+      IF lv_high < 0 OR lv_low < 0.
+        rv_fault = 'MALFORMED'.
+        RETURN.
+      ENDIF.
+      lv_value = lv_high * 16 + lv_low.
+      IF lv_value = 0.
+        rv_fault = 'NUL'.
+        RETURN.
+      ENDIF.
+      IF lv_more > 0.
+        IF lv_value < 128 OR lv_value > 191.
+          rv_fault = 'MALFORMED'.
+          RETURN.
+        ENDIF.
+        lv_more = lv_more - 1.
+      ELSEIF lv_value >= 194 AND lv_value <= 223.
+        lv_more = 1.
+      ELSEIF lv_value >= 224 AND lv_value <= 239.
+        lv_more = 2.
+      ELSEIF lv_value >= 240 AND lv_value <= 244.
+        lv_more = 3.
+      ELSEIF lv_value >= 128.
+        rv_fault = 'MALFORMED'.
+        RETURN.
+      ENDIF.
+      lv_pos = lv_pos + 3.
+    ENDWHILE.
+    IF lv_more > 0.
+      rv_fault = 'MALFORMED'.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD refuse_nul.
+    DATA lv_nul TYPE string.
+
+    lv_nul = cl_abap_conv_in_ce=>uccp( '0000' ).
+    FIND lv_nul IN iv_value.
+    IF sy-subrc = 0.
+      RAISE EXCEPTION TYPE zcx_stg_error
+        EXPORTING status = 400 code = iv_code message = |A NUL character in { iv_where } is not accepted|.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD escape_key.
+    DATA lv_index TYPE i.
+    DATA lv_len   TYPE i.
+    DATA lv_size  TYPE i.
+    DATA lv_byte  TYPE i.
+    DATA lv_char  TYPE string.
+    DATA lv_unit  TYPE x LENGTH 2.
+    DATA lv_x     TYPE xstring.
+    DATA lv_hex   TYPE string.
+
+    lv_len = strlen( iv_value ).
+    WHILE lv_index < lv_len.
+      lv_size = 1.
+      lv_char = iv_value+lv_index(1).
+      IF lv_char CA 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'''.
+        rv_value = rv_value && lv_char.
+      ELSE.
+* a character outside the BMP is two UTF-16 units, a high and a low
+* surrogate: it is encoded as one code point, not as two halves
+        lv_unit = cl_abap_conv_out_ce=>uccp( lv_char ).
+        IF lv_unit >= 'D800' AND lv_unit <= 'DBFF' AND lv_index + 1 < lv_len.
+          lv_size = 2.
+          lv_char = iv_value+lv_index(2).
+        ENDIF.
+        lv_x = cl_abap_codepage=>convert_to( lv_char ).
+        lv_hex = lv_x.
+        lv_byte = 0.
+        WHILE lv_byte < strlen( lv_hex ).
+          rv_value = rv_value && '%' && lv_hex+lv_byte(2).
+          lv_byte = lv_byte + 2.
+        ENDWHILE.
+      ENDIF.
+      lv_index = lv_index + lv_size.
+    ENDWHILE.
   ENDMETHOD.
 
   METHOD parse_keys.
@@ -300,8 +551,12 @@ CLASS zcl_stg_url IMPLEMENTATION.
         RAISE EXCEPTION TYPE zcx_stg_error
           EXPORTING status = 400 code = 'STG/BAD_KEY' message = 'Malformed key predicate'.
       ENDIF.
-      ls_key-name = cl_http_utility=>unescape_url( ls_key-name ).
-      ls_key-value = cl_http_utility=>unescape_url( ls_key-value ).
+      ls_key-name = unescape( iv_value = ls_key-name
+                              iv_code  = 'STG/BAD_KEY'
+                              iv_where = 'a key' ).
+      ls_key-value = unescape( iv_value = ls_key-value
+                               iv_code  = 'STG/BAD_KEY'
+                               iv_where = 'a key' ).
       ls_key-value = unquote( ls_key-value ).
       READ TABLE rt_key_tab WITH KEY name = ls_key-name TRANSPORTING NO FIELDS.
       IF sy-subrc = 0.

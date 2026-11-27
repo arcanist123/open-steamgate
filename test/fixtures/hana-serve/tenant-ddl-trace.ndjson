@@ -1,0 +1,4 @@
+{"n":0,"op":"select","sql":"SELECT 'OSD_TRACE_PROBE' AS probe FROM dummy"}
+{"n":0,"op":"driver","sql":"SET SCHEMA \"OSDB3OWN\""}
+{"n":1,"op":"driver","sql":"SELECT 'OSD_TRACE_PROBE' AS probe FROM dummy"}
+{"n":2,"op":"driver","sql":"CREATE VIEW \"OSDB3TENANT\".\"ZOSD_B3_T_SH\" AS SELECT * FROM \"OSDB3TENANT\".\"ZOSD_B3_T\""}

@@ -142,16 +142,23 @@ CLASS ltcl_match IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD head_dispatch_keeps_get_body.
+*   The fallback's contract is "the GET answer of the same path, whole", so
+*   the expectation is that answer, not a fixed document: core/discovery
+*   answers its own (core) form since the core reader needed it.
     DATA lt_routes TYPE zcl_osd_adt_router=>tt_route.
     DATA ls_request TYPE zif_osd_adt_route=>ty_request.
     DATA ls_result TYPE zcl_osd_adt_router=>ty_result.
+    DATA ls_get TYPE zcl_osd_adt_router=>ty_result.
     lt_routes = zcl_osd_adt_router=>routes( ).
     DELETE lt_routes WHERE method = `HEAD` AND handler = `ZCL_OSD_ADT_DISCOVERY`.
-    ls_request-method = `HEAD`.
+    ls_request-method = `GET`.
     ls_request-path = `/sap/bc/adt/core/discovery`.
+    ls_get = zcl_osd_adt_router=>dispatch( is_request = ls_request it_routes = lt_routes ).
+    ls_request-method = `HEAD`.
     ls_result = zcl_osd_adt_router=>dispatch( is_request = ls_request it_routes = lt_routes ).
     cl_abap_unit_assert=>assert_equals( act = ls_result-served_by exp = zcl_osd_adt_router=>c_abap ).
-    cl_abap_unit_assert=>assert_equals( act = ls_result-response-body exp = zcl_osd_adt_discovery=>document( ) ).
+    cl_abap_unit_assert=>assert_equals( act = ls_result-response-body exp = ls_get-response-body ).
+    cl_abap_unit_assert=>assert_equals( act = ls_result-response-body exp = zcl_osd_adt_discovery=>document( abap_true ) ).
     cl_abap_unit_assert=>assert_equals(
       act = ls_result-response-content_type exp = `application/atomsvc+xml; charset=utf-8` ).
   ENDMETHOD.

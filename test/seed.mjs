@@ -7,16 +7,42 @@ import {readdirSync, readFileSync} from "node:fs";
 import {dataDirsOf, ddicDirsOf, packsOf} from "../tools/osd-packs.mjs";
 import {join} from "node:path";
 
-function fieldLengths(tablXml) {
+// A field typed by a data element (ROLLNAME) carries no DATATYPE of its
+// own in the table's XML: the element's, or its domain's, says what it is.
+// Without this the flight pack's /dmo/ dates (ROLLNAME /DMO/FLIGHT_DATE ->
+// domain /DMO/DATE, DATS) went in as ISO text cut to eight characters
+// ('2027-06-'), so no date of the pack compared equal to anything (R7).
+function elementType(rollname, ddicDirs) {
+  const read = (name, kind) => {
+    const file = `${name.toLowerCase().replace(/\//g, "#")}.${kind}.xml`;
+    for (const dir of ddicDirs ?? []) {
+      try { return readFileSync(join(dir, file), "utf8"); } catch { /* elsewhere */ }
+    }
+    return undefined;
+  };
+  const dtel = read(rollname, "dtel");
+  if (dtel === undefined) return {};
+  const own = {datatype: /<DATATYPE>([^<]+)</.exec(dtel)?.[1], leng: /<LENG>0*(\d+)</.exec(dtel)?.[1]};
+  const domname = /<DOMNAME>([^<]+)</.exec(dtel)?.[1];
+  if (own.datatype || domname === undefined) return own;
+  const doma = read(domname, "doma");
+  if (doma === undefined) return {};
+  return {datatype: /<DATATYPE>([^<]+)</.exec(doma)?.[1], leng: /<LENG>0*(\d+)</.exec(doma)?.[1]};
+}
+
+function fieldLengths(tablXml, ddicDirs) {
   const lengths = new Map();
   const re = /<DD03P>([\s\S]*?)<\/DD03P>/g;
   let m;
   while ((m = re.exec(tablXml)) !== null) {
     const block = m[1];
     const name = /<FIELDNAME>([^<]+)</.exec(block)?.[1]?.toLowerCase();
-    const datatype = /<DATATYPE>([^<]+)</.exec(block)?.[1];
-    const leng = /<LENG>0*(\d+)</.exec(block)?.[1];
+    let datatype = /<DATATYPE>([^<]+)</.exec(block)?.[1];
+    let leng = /<LENG>0*(\d+)</.exec(block)?.[1];
     const rollname = /<ROLLNAME>([^<]+)</.exec(block)?.[1];
+    if (datatype === undefined && rollname !== undefined && rollname !== "MANDT") {
+      ({datatype, leng} = elementType(rollname, ddicDirs));
+    }
     if (name === undefined) {
       continue;
     }
@@ -65,6 +91,14 @@ function quote(value, pad, isDate = false, hex = 0) {
   return "'" + s.replaceAll("'", "''") + "'";
 }
 
+/** abapGit's file name for a table and the name the database holds it under.
+ *
+ * A slash cannot be in a file name, so a namespaced table is `#dmo#travel`
+ * in a seed file and `/dmo/travel` in the SQL: the runtime's
+ * `buildDbTableName` lowercases and quotes the ABAP name, it does not rename
+ * it. packs/rap-flight was the first pack with namespaced tables. */
+export const dbTableName = (table) => (table.includes("#") ? table.replaceAll("#", "/") : table);
+
 // A later layer owns the entire table, including when its capture is empty.
 // Resolve owners once so fresh seeding and reseeding choose identical rows.
 function ownedTables(root) {
@@ -96,7 +130,7 @@ export async function reseedPackRows(db) {
   const owners = ownedTables(root);
   const packDirs = new Set(packsOf(root).map((pack) => pack.data).filter(Boolean));
   const ddic = ddicDirsOf(root);
-  const tables = [...owners.keys()].filter((table) => packDirs.has(owners.get(table)));
+  const tables = [...owners.keys()].filter((table) => packDirs.has(owners.get(table))).map(dbTableName);
   let missing = [];
   if (db.missingTables) {
     missing = await db.missingTables(tables);
@@ -107,8 +141,9 @@ export async function reseedPackRows(db) {
   }
   const absent = new Set(missing.map((table) => String(table).toLowerCase()));
   for (const [table, dir] of owners) {
-    if (!/^[a-z0-9_]+$/i.test(table)) throw new Error(`invalid seed table ${table}`);
-    if (packDirs.has(dir) && !absent.has(table)) await db.execute(`DELETE FROM "${table}";`);
+    const dbTable = dbTableName(table);
+    if (!/^[a-z0-9_/]+$/i.test(dbTable)) throw new Error(`invalid seed table ${table}`);
+    if (packDirs.has(dir) && !absent.has(dbTable)) await db.execute(`DELETE FROM "${dbTable}";`);
   }
   for (const dir of dataDirsOf(root)) {
     if (packDirs.has(dir)) await db.execute(seedFrom(dir, ddic, owners, absent));
@@ -123,12 +158,13 @@ function seedFrom(dataDir, ddicDirs, owners, absent = new Set()) {
     }
     const table = file.slice(0, -".tabu.json".length).toLowerCase();
     if (owners && owners.get(table) !== dataDir) continue;
-    if (absent.has(table)) continue;
+    const dbTable = dbTableName(table);
+    if (absent.has(dbTable)) continue;
     const rows = JSON.parse(readFileSync(join(dataDir, file), "utf8"));
     let lengths = new Map();
     for (const dir of ddicDirs) {
       try {
-        lengths = fieldLengths(readFileSync(join(dir, table + ".tabl.xml"), "utf8"));
+        lengths = fieldLengths(readFileSync(join(dir, table + ".tabl.xml"), "utf8"), ddicDirs);
         break;
       } catch {
         // table defined elsewhere or in a lib: insert unpadded, the runtime pads on read
@@ -152,7 +188,7 @@ function seedFrom(dataDir, ddicDirs, owners, absent = new Set()) {
     let shape;
     const flush = () => {
       if (batch.length === 0) return;
-      statements.push(`INSERT INTO "${table}" (${shape.map((c) => `"${c}"`).join(", ")}) VALUES ` +
+      statements.push(`INSERT INTO "${dbTable}" (${shape.map((c) => `"${c}"`).join(", ")}) VALUES ` +
         `${batch.map((v) => `(${v.join(", ")})`).join(", ")};`);
       batch = [];
     };

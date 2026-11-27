@@ -1,0 +1,38 @@
+managed implementation in class zbp_rap_tour unique;
+strict ( 2 );
+
+define behavior for ZI_RAP_TOUR alias tour
+persistent table zrap_tour
+with additional save
+lock master
+etag master last_changed_at
+early numbering
+{
+  create;
+  update;
+  delete;
+  field ( readonly ) tour_id, status, last_changed_at;
+  field ( mandatory ) description;
+  action close result [1] $self;
+  association _Stops { create; }
+  determination SetStatus on modify { create; }
+  mapping for zrap_tour corresponding;
+}
+
+define behavior for ZI_RAP_TOURSTOP alias stop
+implementation in class zbp_rap_stop unique
+with unmanaged save
+lock dependent by _Tour
+etag master stop_changed_at
+early numbering
+{
+  update;
+  field ( readonly ) tour_id, stop_no, stop_changed_at;
+  field ( mandatory ) place;
+  association _Tour;
+  validation CheckNights on save { create; field nights; }
+  mapping for zrap_tourstop corresponding
+  {
+    place = place_name;
+  }
+}

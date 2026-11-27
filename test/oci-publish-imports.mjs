@@ -380,7 +380,8 @@ describe('secret-holding OCI publisher imports', () => {
       expect(() => walkImports(['/entry.mjs'], () => statement, {virtual: new Set(['/entry.mjs'])}), statement).not.to.throw();
     }
   });
-  it('requires the reviewed env helper at every spawn/execFile site and minimal release branch', () => {
+  it('requires the reviewed env helper at every spawn/execFile site and minimal release branch', function () {
+    this.timeout(20000); // many whole-tree scans; over mocha's default on a slower box
     for (const entry of subprocesses) {
       const file = resolve(root, entry.file), source = readFileSync(file, 'utf8');
       const minimal = entry.executable === 'git' ? "publishChildEnv('git')" : 'publishChildEnv()';

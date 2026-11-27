@@ -93,7 +93,7 @@ functions:
   async function importProject(path, suppliedXml) {
     const project = `${OWN}${++imported}`;
     const xml = (suppliedXml ?? readFileSync(path, "utf8")).replace(/<PROJECT>[^<]+<\/PROJECT>/g, `<PROJECT>${project}</PROJECT>`);
-    const response = await abap.Classes.ZCL_STG_DISPATCHER.dispatch({
+    const response = await abap.Classes.ZCL_STG_DISPATCHER.dispatch_decoded({
       iv_method: box("POST"),
       iv_path: box("/sap/opu/odata/sap/ZSTG_SEGW_SRV/ImportSet"),
       iv_body: box(JSON.stringify({Content: xml})),

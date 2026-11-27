@@ -37,17 +37,17 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
 /** @type {boolean} */ let exportedFields = false, /** @type {import("./emit-go-types.ts").Ownership | undefined} */ OWNERSHIP, /** @type {import("./emit-go-types.ts").SymbolCollector | null | undefined} */ SYMBOLS;
 // @ts-expect-error -- abapiti form pending
 /** @param {import("./emit-go-types.ts").Field | import("./emit-go-types.ts").SupportedAttribute} v @returns {string} */ const ownedType = (v) => OWNERSHIP.declarations.has(v) ? (HELPER_IMPORTS.add("xbuf"), (v.type.k === "x" ? `[${v.type.len}]byte` : "hXbuf.Buffer")) : goType(v.type);
-/** @param {string} name @returns {string} */ export const ident = (name) => {
+/** a Go name, exported in a layered build (osgo.mjs spells host reads of fields with it) @param {string} name @param {boolean} exported @returns {string} */ export const goIdent = (name, exported) => {
   // A single leading underscore is reserved for compiler-only supplied flags.
-  if (name.startsWith("\0")) return `_sup_${ident(name.slice(1))}`;
+  if (name.startsWith("\0")) return `_sup_${goIdent(name.slice(1), exported)}`;
   // INTF~ATTR, an interface's attribute in the object, keeps the ~ apart
   // from the _ of an attribute of the class's own
   const id = String(name).toLowerCase().replace(/~/g, "__").replace(/[^a-z0-9_]/g, "_");
   const safe = id.startsWith("_") ? `_${id}` : GO_RESERVED.has(id) || /^\d/.test(id) ? `${id}_` : id;
-  // ABAP fields cross generated Go package boundaries in a layered build.
-  // A leading capital exports them; the rest of the spelling stays stable.
-  return exportedFields ? safe[0].toUpperCase() + safe.slice(1) : safe;
-};
+  // ABAP fields cross Go package boundaries in a layered build: a leading capital exports them, the
+  // rest stays; _x (RAP %KEY = __key) gets XP, whose second capital no capitalised name has.
+  return !exported ? safe : safe.startsWith("_") ? `XP${safe}` : safe[0].toUpperCase() + safe.slice(1);
+}; export const ident = (/** @type {string} */ name) => goIdent(name, exportedFields);
 /** @param {string} name @returns {string} */ const selfField = (name) => `${exportedFields ? "Self" : "self"}_${typeName(name)}`;
 
 /** @param {string} key @returns {string} */ const evType = (key) => `EV_${typeName(key)}`;
@@ -123,6 +123,12 @@ const GO_RESERVED = new Set(("break default func interface select case defer go 
 /** @param {import("./emit-go-types.ts").Type | undefined} t @returns {boolean} */ const composite = (t) => t?.k === "table" || t?.k === "struct";
 /** @param {import("./emit-go-types.ts").Param} p @returns {boolean} */ const byRef = (p) => p.dir === "importing" && composite(p.type) && !p.byValue;
 /** @type {Map<string, import("./emit-go-types.ts").Descriptor>} */ let CLONES = new Map();
+// Classes whose CLASS-DATA is the runtime's own cache, shared by every
+// session of the process (ADR 0010 slice 5): the service registry the OData
+// front reads, which boot fills once and serving only reads. The host mints
+// its sessions with the instance's store as their Shared; classes not here
+// keep CLASS-DATA per logical internal session, as a system does.
+/** @type {Set<string>} */ const SHARED_STATICS = new Set(["ZCL_OAO_REGISTRY"]);
 // classes some compiled class inherits from: a reference to one is the Go
 // interface I_<class>, so it can hold any subclass; a leaf class stays *T
 /** @type {Set<string>} */ let POLY = new Set();
@@ -339,7 +345,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   for (const cls of /** @type {readonly import("./emit-go-types.ts").Class[]} */ (program.classes ?? program)) for (const method of cls.methods ?? []) collectStable(method.body);
   exportedFields = Boolean(layers);
   HELPER_IMPORTS = new Set();
-  OWNERSHIP = (/** @type {import("./emit-go-types.ts").AnalyzeOwnership} */ (analyzeOwnership))(program);
+  const own = /** @type {import("./emit-go-types.ts").AnalyzeOwnership} */ (analyzeOwnership); OWNERSHIP = layers?.analysis ? (layers.analysis.ownership ??= own(program)) : own(program); // analysis: one per go-layers.mjs writeLayers
   const classes = layers?.classes ?? (Array.isArray(program) ? program : program.classes);
   /** @type {import("./emit-go-types.ts").StructDefinitions} */ const structs = layers?.structs ?? (Array.isArray(program) ? new Map() : program.structs);
   CLONES = new Map();
@@ -349,7 +355,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   DYNAMIC_DISPATCH = Array.isArray(program) ? [] : program.dynamicDispatch ?? []; CLASSES = new Map((Array.isArray(program) ? classes : program.classes).map((c) => [c.name, c]));
   POLY = new Set();
   for (const cls of CLASSES.values()) if (cls.super) POLY.add(cls.super);
-  movePair = (/** @type {import("./emit-go-types.ts").AnalyzeTableMoves} */ (analyzeTableMoves))(program, stable, goType);
+  const moves = /** @type {import("./emit-go-types.ts").AnalyzeTableMoves} */ (analyzeTableMoves); movePair = layers?.analysis ? (layers.analysis.moves ??= moves(program, stable, goType)) : moves(program, stable, goType);
   HELPER_IMPORTS.add("hostclass");
   EVENTS = Array.isArray(program) ? new Map() : (program.events ?? new Map());
   /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ const consts = /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ (layers?.consts ?? (Array.isArray(program) ? /** @type {Map<string, import("./emit-go-types.ts").Constant>} */ (new Map()) : program.consts));
@@ -424,6 +430,14 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
         if (init !== undefined) out.push(`\t\t${ident(a.name)}: ${init},`);
       }
       out.push("\t}", "})", `func St_${name}(s *abap.Session) *statics_${name} {`, `\treturn s.Static(slot_${name}).(*statics_${name})`, "}", "");
+      if (SHARED_STATICS.has(cls.name)) {
+        // ADR 0010 slice 5: this class's statics are the runtime's own
+        // cache, one per process (a system keeps them in the shared program
+        // buffer, not per internal session). Only a class filled once and
+        // read afterwards may be here: a shared slot is written by the
+        // generated code directly, with no lock the kernel could take.
+        out.push(`func init() { abap.RegisterSharedStatics(slot_${name}) }`, "");
+      }
     }
     if (chainCctor(cls)) {
       // @ts-expect-error -- abapiti form pending
@@ -860,7 +874,7 @@ const PLACES = new Set(["var", "attr", "static", "field", "fs", "row", "row_key"
   return out;
 }
 
-/** @param {import("./ir.ts").Program["reg"] | undefined} reg @param {string} intf @param {Set<string>} [seen] @returns {string[]} */ function componentInterfaces(reg, intf, seen = new Set()) {
+/** @param {import("./ir.ts").Program["reg"] | undefined} reg @param {string} intf @param {Set<string>} [seen] @returns {string[]} */ export function componentInterfaces(reg, intf, seen = new Set()) {
   // @ts-expect-error -- abapiti form pending
   for (const c of reg?.getObject("INTF", intf)?.getDefinition()?.getImplementing?.() ?? []) {
     const name = String(c.name).toUpperCase();
@@ -1443,16 +1457,16 @@ const LINES = !env("GOGEN_NOLINE");
   // Instrument the actual routing decisions. These values belong to the
   // router table / registered model, never the parsed request's segments.
   if (st.s === "assign" && ((ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && ctx.method.name === "DISPATCH") || (ctx.cls.name === "ZCL_STG_DISPATCHER" && ctx.method.name === "RUN"))) {
-    const target = place(st.target, ctx);
-    if (ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && target === "ls_request.pattern")
-      lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute(ls_route.pattern) }`);
+    const target = place(st.target, ctx), v = (/** @type {string} */ path) => path.split(".").map(ident).join("."); // layered: Ls_request.Pattern
+    if (ctx.cls.name === "ZCL_OSD_ADT_ROUTER" && target === v("ls_request.pattern"))
+      lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute(${v("ls_route.pattern")}) }`);
     if (ctx.cls.name === "ZCL_STG_DISPATCHER") {
-      if (target === "ls_service")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil && (ls_request.is_metadata == "X" || ls_request.is_service_root == "X" || ls_request.is_batch == "X") { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name) }`);
-      if (target === "ls_set")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name + "/" + ls_set.name) }`);
-      if (target === "ls_action")
-        lines.push(`${tab(d)}if s.ProfileRoute != nil && ls_action.name != "" { s.ProfileRoute("/sap/opu/odata/sap/" + ls_service.name + "/" + ls_action.name) }`);
+      if (target === v("ls_service"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil && (${v("ls_request.is_metadata")} == "X" || ${v("ls_request.is_service_root")} == "X" || ${v("ls_request.is_batch")} == "X") { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")}) }`);
+      if (target === v("ls_set"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")} + "/" + ${v("ls_set.name")}) }`);
+      if (target === v("ls_action"))
+        lines.push(`${tab(d)}if s.ProfileRoute != nil && ${v("ls_action.name")} != "" { s.ProfileRoute("/sap/opu/odata/sap/" + ${v("ls_service.name")} + "/" + ${v("ls_action.name")}) }`);
     }
   }
   if (LINES && st.pos && lines.length > 0) lines[0] = lines[0].replace(/^(\t*)/, `$1/*line ${st.pos.file}:${st.pos.row}*/ `);
@@ -2278,16 +2292,17 @@ ${t}	}`));
       const f = st.f;
       const rowGo = goType(st.row);
       const subGo = goType(st.sub);
+      /** stable rows are pointers: what is appended is stored so @param {string} v @returns {string} */ const subStored = (v) => stable({k: "table", row: st.sub}) ? `abap.Ptr(${v})` : v;
       /** @param {string} r @returns {string[]} */ const fill = (r) => [`${t}\t\t${r}.${ident(f.LINE)} = 0`, `${t}\t\t${r}.${ident(f.OFFSET)} = fm${n}[0]`, `${t}\t\t${r}.${ident(f.LENGTH)} = fm${n}[1]`,
         `${t}\t\t${r}.${ident(f.SUBMATCHES)} = nil`,
         `${t}\t\tfor g := 2; g+1 < len(fm${n}); g += 2 {`,
-        `${t}\t\t\t${r}.${ident(f.SUBMATCHES)} = append(${r}.${ident(f.SUBMATCHES)}, ${subGo}{${ident(f.SOFFSET)}: fm${n}[g], ${ident(f.SLENGTH)}: fm${n}[g+1]})`,
+        `${t}\t\t\t${r}.${ident(f.SUBMATCHES)} = append(${r}.${ident(f.SUBMATCHES)}, ${subStored(`${subGo}{${ident(f.SOFFSET)}: fm${n}[g], ${ident(f.SLENGTH)}: fm${n}[g+1]}`)})`,
         `${t}\t\t}`];
       const tgt = place(st.target, ctx);
       const call = st.bytes ? `abap.FindBytesAll(${expr(st.subject, ctx)}, ${expr(st.pattern, ctx)})` : `abap.FindResults(${expr(st.subject, ctx)}, ${expr(st.pattern, ctx)}, ${st.mode ? `'${st.mode}'` : "0"}, ${st.icase}, ${st.all})`;
       if (st.table) {
         return [`${t}{`, `${t}\tfms${n} := ${call}`, `${t}\t${tgt} = nil`, ...(st.count ? [`${t}\t${place(st.count, ctx)} = int32(len(fms${n}))`] : []), `${t}\ts.Sy.Subrc = 4`, `${t}\tfor _, fm${n} := range fms${n} {`,
-          `${t}\t\ts.Sy.Subrc = 0`, `${t}\t\tvar fr${n} ${rowGo}`, ...fill(`fr${n}`), `${t}\t\t${tgt} = append(${tgt}, fr${n})`, `${t}\t}`, `${t}}`];
+          `${t}\t\ts.Sy.Subrc = 0`, `${t}\t\tvar fr${n} ${rowGo}`, ...fill(`fr${n}`), `${t}\t\t${tgt} = append(${tgt}, ${stable({k: "table", row: st.row}) ? `abap.Ptr(fr${n})` : `fr${n}`})`, `${t}\t}`, `${t}}`];
       }
       return [`${t}{`, `${t}\tfms${n} := ${call}`, `${t}\ts.Sy.Subrc = 4`, `${t}\tif len(fms${n}) > 0 {`, `${t}\t\ts.Sy.Subrc = 0`,
         `${t}\t\tfm${n} := fms${n}[0]`, `${t}\t\tfr${n} := &${tgt}`, ...fill(`fr${n}`), `${t}\t}`, `${t}}`];
@@ -2615,7 +2630,7 @@ ${t}	}`));
       if (from === "f" && to === "int8") return `abap.F2I8(${x})`;
       break;
     case "c2s": return x;
-    case "table_rows": return `func() ${goType(e.to)} { var out ${goType(e.to)}; for _, ConvRow := range ${x} { out = append(out, ${rowStored(e.to, expr(/** @type {import("./emit-go-types.ts").Expr} */ (e.row), ctx))}) }; return out }()`;
+    case "table_rows": return `func() ${goType(e.to)} { var out ${goType(e.to)}; for _, ${stable(e.from) ? "ConvRowP" : "ConvRow"} := range ${x} { ${stable(e.from) ? "ConvRow := *ConvRowP; " /* stable rows are pointers */ : ""}out = append(out, ${rowStored(e.to, expr(/** @type {import("./emit-go-types.ts").Expr} */ (e.row), ctx))}) }; return out }()`;
     // @ts-expect-error -- abapiti form pending
     case "s2c": return `abap.CFit(${x}, ${e.to.len})`;
     case "s2d": return `abap.S2D(${x})`;

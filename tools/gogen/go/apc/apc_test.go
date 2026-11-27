@@ -277,7 +277,7 @@ func TestAPCYieldSleep(t *testing.T) {
 			f := &fakeHost{yield: true, closed: make(chan string, 1)}
 			var step func(*abap.Session, string, func()) error
 			if custom {
-				step = func(_ *abap.Session, name string, work func()) error { return abap.APCStep(name, work) }
+				step = func(s *abap.Session, name string, work func()) error { return abap.APCStep(s, name, work) }
 			}
 			_, url := serve(t, f, step)
 			c, _, err := websocket.Dial(context.Background(), url, nil)

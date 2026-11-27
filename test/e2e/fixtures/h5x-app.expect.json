@@ -1,0 +1,88 @@
+{
+ "_": "What test/e2e/h5x-app.spec.mjs expects of the app on the twin service (test/hana-m2, rows in test/fixtures/hana-serve/twin-client.mjs). On a bed the same spec reads another file of this shape (OSD_E2E_EXPECT), kept outside the tree.",
+ "app": "/app/h5x/index.html",
+ "service": "/sap/opu/odata/sap/ZOSD_H5X_APP_SRV/",
+ "appFiles": [
+  "/app/h5x/manifest.json",
+  "/app/h5x/annotations/annotations.xml",
+  "/app/h5x/i18n/i18n.properties"
+ ],
+ "list": {
+  "headers": [
+   "Partner number",
+   "Partner name"
+  ],
+  "rows": [
+   [
+    "0000000001",
+    "Alpha Supplies"
+   ],
+   [
+    "0000000002",
+    "Beta Foods"
+   ],
+   [
+    "0000000003",
+    "Gamma Metals"
+   ],
+   [
+    "0000000004",
+    "Delta Trading"
+   ],
+   [
+    "0000000005",
+    "Epsilon Tools"
+   ],
+   [
+    "0000000006",
+    "Zeta Works"
+   ]
+  ],
+  "count": 6
+ },
+ "sort": {
+  "header": "Partner name",
+  "property": "Name",
+  "descending": true,
+  "firstRow": [
+   "0000000006",
+   "Zeta Works"
+  ]
+ },
+ "filter": {
+  "label": "Partner name",
+  "property": "Name",
+  "value": "Alpha Supplies",
+  "rows": [
+   [
+    "0000000001",
+    "Alpha Supplies"
+   ]
+  ]
+ },
+ "object": {
+  "title": "Alpha Supplies",
+  "fields": [
+   "Alpha City"
+  ],
+  "navigation": "ToOrders",
+  "subHeaders": [
+   "Order number",
+   "Ordering partner"
+  ],
+  "subRows": [
+   [
+    "0500000010",
+    "0000000001"
+   ],
+   [
+    "0500000011",
+    "0000000001"
+   ],
+   [
+    "0500000012",
+    "0000000001"
+   ]
+  ]
+ }
+}

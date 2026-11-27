@@ -3,7 +3,7 @@
 What: the object store of the Go host, `CALL FUNCTION 'ZOSD_STORE' DESTINATION 'STORE'` answered over the
 files the Node host answers it over (tools/osd-store.mjs, tools/osd-store-destination.mjs); filesystem reads
 (LIST, READ, OBJECT, PACKAGE, PACKAGES, SEARCH), history from git, and writes. An injected `Compiler`
-supplies CHECK and PARSE kind OUTLINE snapshots; ACTIVATE and TOKENS are still refused. go/abap keeps
+supplies CHECK and PARSE kind OUTLINE snapshots; the ZOSD_STORE commands ACTIVATE and TOKENS are still refused. go/abap keeps
 `SetStore`, `StoreCall`, the `Store*` type aliases and the
 session-first `ZOSD_STORE` adapter (Data in, tables filled).
 
@@ -14,7 +14,11 @@ OUTLINE outside it. A concurrent WRITE, SetStore or SetCompiler rejects the
 answer as STALE_RESULT; saved target bytes are rechecked after the call too.
 `storecompiler.Adapter` supplies snapshots to the lifecycle-owning client.
 CHECKRUN uses Node's shared report builder, including AMDP portability warnings,
-and ignores optional includes for saved-source syntax checks. Standalone CHECK
+and ignores optional includes for saved-source syntax checks. READ of a FUGR
+with an IV_INCLUDE reads the group's part of that program name,
+`<group>.fugr.<part>.abap` beside the XML (the main program SAPL<group>, the
+TOP and other includes, each module), as `osd-store.mjs read` does; an absent
+part is NOT_FOUND. Standalone CHECK
 and PARSE refusals remain unchanged. IV_SOURCE still requires a saved draft on
 the default Go snapshot path; `tools/gogen/storecmp.mjs` ratchets that contract-v1 gap.
 The opt-in ABAP lint provider accepts CHECKRUN SOURCE, including an absent object
@@ -37,7 +41,25 @@ API: `SetStore(root string, cfg []byte, reason string) error`;
 `Config`/`Root`, `Answer` with `Row`, `Issue`, `Tally`, `Revision`;
 `Identity`; `Capabilities`.
 
-Invariants: the files are the truth and git the history, no second copy; the index is freshly resolved per call (targeted for saved ABAP CHECKRUN); a
+Concurrency and the index: the store's mutex is a `sync.RWMutex`. The commands
+that only read (LIST, READ, OBJECT, PACKAGE, PACKAGES, SEARCH, HISTORY,
+REVISION, ACTIVATE/TOKENS refusals, discovery) and `Inactive`, `Live`,
+`CaptureLint` share it; WRITE, CHECK, CHECKRUN and PARSE (the compiler's
+capture) and every mutation (`SetStore`, `SetCompiler`, `CreateSource`,
+`DeleteSource`, `ActivateAll`, `RestorePublished`) hold it exclusively. The
+full index is cached (`indexcache.go`): built once, immutable, reused while
+the store's revision, root and configuration are the same and every stamp it
+recorded still holds -- each walked folder (stamped before it is read), each
+symlink's target, each library file's folder, every `package.devc.xml` read or
+looked for and `local/tmp/tadir.json`, by device, inode, size, mode, mtime and
+ctime. So a file an editor or a git pull adds, removes or renames is seen on
+the next call, as before; a content edit needs no walk, since the index holds
+no content and READ reads the file. Stamps younger than the walk's start minus
+two seconds (racy, as LintCache) or on a filesystem LintCache does not trust,
+and every platform without a change-time identity, keep the old behaviour: a
+walk per call. Targeted CHECKRUN/CHECK/PARSE walks are not cached.
+
+Invariants: the files are the truth and git the history, no second copy; the index answers what the files say at the time of the call (cached as above, targeted for saved ABAP CHECKRUN); a
 WRITE touches only a file inside a writable root; answers and their order match the Node destination field
 for field (localeCompare order, JSON property order, and the scalar/table envelopes). The frozen proof is
 `test/fixtures/osgo-store/destination-golden.json`: `tools/osgo-store-goldens.mjs` records the Node
@@ -99,3 +121,21 @@ index selection follows that flag while retaining the provider/type admission.
 STORE CAPABILITIES advertises CHECK when the native CheckObject callback is
 linked, independently of sidecar discovery. A built native host does not
 advertise ACTIVATE; the editor explains that activation requires a rebuild.
+
+`CreateSource` and `DeleteSource` are the Go ADT host's lifecycle API for
+CLAS/INTF/PROG. Creation selects an existing writable package, writes source
+and abapGit metadata with exclusive creation, and refuses duplicates. Class
+creation retains its initial active skeleton in memory until process exit;
+PUT keeps it separate from the inactive working source. Delete removes the
+known source/include/metadata files and invalidates compiler snapshots. These
+APIs require the caller's session/ENQ authorization; they never issue handles.
+Mutation paths reject symbolic links as well as escapes from writable roots.
+
+`ActivateAll` is the ADT activation's publish (go/adtactivate, after a clean
+check), all or nothing: every object is resolved and every file read first.
+Then each changed file becomes its active version in the same in-memory
+overlay as a created class's skeleton, with an immutable content-named copy
+under `build/osgo-published/` that compilerInput gives the compiler for the
+active version. The objects leave the inactive set. Nothing is built. `Live` says whether an object's files still
+hash to the digests of the build this binary carries, which is what
+go/adtunit asks before it runs a class's compiled tests.

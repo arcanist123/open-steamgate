@@ -12,10 +12,16 @@ CLASS zcl_osd_status DEFINITION PUBLIC CREATE PUBLIC.
 *              "root_hint":..,"pid":..},
 *    "processes":[{"pid":..,"role":..,"port":..,"generation":..,"epoch":..,
 *                  "since":..,"sockets":..,"rss_mb":..,"alive":true}],
+*    "workprocesses":[{"wpno":..,"kind":..,"state":..,"generation":..,
+*                      "started":..,"user":..,"report":..}],
 *    "ports":[{"port":..,"protocol":..,"purpose":..,"state":..,"note":..}],
 *    "services":[{"path":..,"kind":..,"handler":..,"text":..,"pack":..}],
 *    "packs":[{"name":..,"order":..,"objects":..,"folders":..,
-*              "description":..}]}
+*              "description":..}],
+*    "database":[{"section":..,"name":..,"value":..,"note":..}],
+*    "amdp":{"db":..,"driver":true,"configured":false,"session":..,
+*            "methods":[{"clsname":..,"mtdname":..,"kind":..,
+*                        "portable":true,"refusal":..}]}}
 *
 * The JSON keys "handler" and "section" land in ZOSD_SVC-HANDLER_NAME and
 * ZOSD_DB-CATEGORY: a system reserves HANDLER and SECTION as field names.
@@ -58,6 +64,20 @@ CLASS zcl_osd_status DEFINITION PUBLIC CREATE PUBLIC.
            END OF ty_process.
     TYPES tt_process TYPE STANDARD TABLE OF ty_process WITH DEFAULT KEY.
 
+*   The work processes of the sidecar (ZOSD_WP): what a system's SM50
+*   shows. The dispatcher's own table as data, written by the host at each
+*   step's begin and end and read here.
+    TYPES: BEGIN OF ty_wp,
+             wpno       TYPE i,
+             kind       TYPE string,
+             state      TYPE string,
+             generation TYPE string,
+             started    TYPE string,
+             user       TYPE string,
+             report     TYPE string,
+           END OF ty_wp.
+    TYPES tt_wp TYPE STANDARD TABLE OF ty_wp WITH DEFAULT KEY.
+
     TYPES: BEGIN OF ty_port,
              port     TYPE i,
              protocol TYPE string,
@@ -97,13 +117,44 @@ CLASS zcl_osd_status DEFINITION PUBLIC CREATE PUBLIC.
            END OF ty_dbfact.
     TYPES tt_dbfact TYPE STANDARD TABLE OF ty_dbfact WITH DEFAULT KEY.
 
+*   The AMDP methods of the tree, and the facts that say where a body runs
+*   (tools/amdp-status.mjs): the system database, whether this build has a
+*   HANA driver, whether a HANA is configured, the state of the session the
+*   AMDP destination holds right now (none / connected / closed), and per
+*   method whether tools/amdp-gen.mjs compiled it into the portable subset.
+*   ENGINE turns these into the label a person sees; the facts stay raw in
+*   the JSON so that the classification is in one place and testable.
+    TYPES: BEGIN OF ty_amdp_method,
+             clsname  TYPE string,
+             mtdname  TYPE string,
+             kind     TYPE string,
+             portable TYPE abap_bool,
+             refusal  TYPE string,
+             engine   TYPE string,
+             reason   TYPE string,
+           END OF ty_amdp_method.
+    TYPES tt_amdp_method TYPE STANDARD TABLE OF ty_amdp_method WITH DEFAULT KEY.
+
+    TYPES: BEGIN OF ty_amdp,
+             db         TYPE string,
+             driver     TYPE abap_bool,
+             configured TYPE abap_bool,
+             session    TYPE string,
+             methods    TYPE tt_amdp_method,
+*            set when the process holding the destination did not answer:
+*            nothing was observed, and REFRESH keeps the rows it has
+             unknown    TYPE abap_bool,
+           END OF ty_amdp.
+
     TYPES: BEGIN OF ty_snapshot,
              system    TYPE ty_system,
              processes TYPE tt_process,
+             workprocesses TYPE tt_wp,
              ports     TYPE tt_port,
              services  TYPE tt_service,
              packs     TYPE tt_pack,
              database  TYPE tt_dbfact,
+             amdp      TYPE ty_amdp,
            END OF ty_snapshot.
 
 * the snapshot as JSON, into the tables; the number of rows written, or
@@ -118,6 +169,30 @@ CLASS zcl_osd_status DEFINITION PUBLIC CREATE PUBLIC.
     CLASS-METHODS snapshot
       RETURNING
         VALUE(rv_json) TYPE string.
+
+* Where one AMDP body runs, read off the facts of this moment and never off
+* configuration alone. The destination (tools/amdp-destination.mjs) routes a
+* call to the compiled portable IR when the system database is DuckDB and
+* the method is in the subset, with no HANA fallback there; on every other
+* database it goes natively to HANA over the destination's own session.
+*   portable-duckdb  pAMDP on the system DuckDB connection
+*   portable-refused compiled into the IR, but DuckDB refuses the call
+*                    (a construct with no measured rendering; EV_REASON names it)
+*   hdb              eAMDP, the destination session is connected
+*   hdb-stale        eAMDP, the session is closed; the next call reconnects once
+*   hdb-idle         eAMDP, HANA configured, no session opened yet
+*   unavailable      nothing would run; EV_REASON says why
+    CLASS-METHODS engine
+      IMPORTING
+        iv_db         TYPE string
+        iv_driver     TYPE abap_bool
+        iv_configured TYPE abap_bool
+        iv_session    TYPE string
+        iv_portable   TYPE abap_bool
+        iv_refusal    TYPE string
+      EXPORTING
+        ev_engine     TYPE string
+        ev_reason     TYPE string.
 
   PRIVATE SECTION.
 
@@ -151,9 +226,64 @@ CLASS zcl_osd_status IMPLEMENTATION.
     ENDTRY.
   ENDMETHOD.
 
+  METHOD engine.
+    CLEAR ev_engine.
+    CLEAR ev_reason.
+
+    IF iv_db = 'duckdb'.
+*     the destination hands a DuckDB system the compiled IR, and nothing
+*     else: a method outside the subset is refused there, not sent to HANA
+*     a compiled body can still carry a refusal: tools/amdp-gen.mjs lowers
+*     it for DuckDB at build time and writes down what the call will refuse
+*     (a function with no measured rendering, FLOOR or LEFT among them)
+      IF iv_portable = abap_true AND iv_refusal IS INITIAL.
+        ev_engine = 'portable-duckdb'.
+        ev_reason = 'pAMDP: the compiled SQLScript IR runs on the system DuckDB connection'.
+      ELSEIF iv_portable = abap_true.
+        ev_engine = 'portable-refused'.
+        ev_reason = 'pAMDP: compiled, but DuckDB refuses the call, and has no HANA fallback: ' && iv_refusal.
+      ELSE.
+        ev_engine = 'unavailable'.
+        ev_reason = 'not in the portable SQLScript subset, and DuckDB has no HANA fallback'.
+        IF iv_refusal IS NOT INITIAL.
+          ev_reason = ev_reason && ': ' && iv_refusal.
+        ENDIF.
+      ENDIF.
+      RETURN.
+    ENDIF.
+
+*   every other database: eAMDP, natively on HANA over the destination's
+*   own session, which is not the system connection even when that is HANA
+    IF iv_driver = abap_false.
+      ev_engine = 'unavailable'.
+      ev_reason = 'this build has no HANA driver (the browser preview)'.
+    ELSEIF iv_configured = abap_false.
+      ev_engine = 'unavailable'.
+      ev_reason = 'no HANA configured (HXE_HOST / HXE_PASSWORD or ~/.osd/hxe-password)'.
+    ELSEIF iv_session = 'connected'.
+      ev_engine = 'hdb'.
+      ev_reason = 'eAMDP: the body runs natively on HANA over the live destination session'.
+    ELSEIF iv_session = 'closed'.
+      ev_engine = 'hdb-stale'.
+      ev_reason = 'eAMDP: the destination session is closed; the next call reconnects once'.
+    ELSE.
+      ev_engine = 'hdb-idle'.
+      ev_reason = 'eAMDP: HANA configured, no session opened yet; the first call connects'.
+    ENDIF.
+
+    IF iv_portable = abap_true AND iv_refusal IS INITIAL.
+      ev_reason = ev_reason && '; portable subset: yes, used only when the system database is DuckDB'.
+    ELSEIF iv_portable = abap_true.
+      ev_reason = ev_reason && '; portable IR compiled, but DuckDB would refuse the call: ' && iv_refusal.
+    ENDIF.
+  ENDMETHOD.
+
   METHOD refresh.
     DATA ls_snap    TYPE ty_snapshot.
     DATA ls_proc_in TYPE ty_process.
+    DATA ls_wp_in   TYPE ty_wp.
+    DATA ls_wp      TYPE zosd_wp.
+    DATA lt_wp      TYPE STANDARD TABLE OF zosd_wp WITH DEFAULT KEY.
     DATA ls_port_in TYPE ty_port.
     DATA ls_svc_in  TYPE ty_service.
     DATA ls_pack_in TYPE ty_pack.
@@ -170,6 +300,11 @@ CLASS zcl_osd_status IMPLEMENTATION.
     DATA lt_port    TYPE STANDARD TABLE OF zosd_port WITH DEFAULT KEY.
     DATA lt_svc     TYPE STANDARD TABLE OF zosd_svc WITH DEFAULT KEY.
     DATA lt_pack    TYPE STANDARD TABLE OF zosd_pack WITH DEFAULT KEY.
+    DATA ls_amdp_in TYPE ty_amdp_method.
+    DATA ls_amdp    TYPE zosd_amdp.
+    DATA lt_amdp    TYPE STANDARD TABLE OF zosd_amdp WITH DEFAULT KEY.
+    DATA lv_engine  TYPE string.
+    DATA lv_reason  TYPE string.
 
     ls_snap = parse( iv_json ).
     IF ls_snap-system-sid IS INITIAL.
@@ -202,6 +337,21 @@ CLASS zcl_osd_status IMPLEMENTATION.
       READ TABLE lt_proc WITH KEY pid = ls_proc-pid TRANSPORTING NO FIELDS.
       IF sy-subrc <> 0.
         APPEND ls_proc TO lt_proc.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT ls_snap-workprocesses INTO ls_wp_in.
+      CLEAR ls_wp.
+      ls_wp-wpno       = ls_wp_in-wpno.
+      ls_wp-kind       = ls_wp_in-kind.
+      ls_wp-state      = ls_wp_in-state.
+      ls_wp-generation = ls_wp_in-generation.
+      ls_wp-started    = ls_wp_in-started.
+      ls_wp-username   = ls_wp_in-user.
+      ls_wp-report     = ls_wp_in-report.
+      READ TABLE lt_wp WITH KEY wpno = ls_wp-wpno TRANSPORTING NO FIELDS.
+      IF sy-subrc <> 0.
+        APPEND ls_wp TO lt_wp.
       ENDIF.
     ENDLOOP.
 
@@ -259,20 +409,57 @@ CLASS zcl_osd_status IMPLEMENTATION.
       ENDIF.
     ENDLOOP.
 
+    LOOP AT ls_snap-amdp-methods INTO ls_amdp_in.
+      CLEAR ls_amdp.
+      ls_amdp-class_name  = ls_amdp_in-clsname.
+      ls_amdp-method_name = ls_amdp_in-mtdname.
+      ls_amdp-kind        = ls_amdp_in-kind.
+      ls_amdp-portable    = ls_amdp_in-portable.
+      ls_amdp-refusal     = ls_amdp_in-refusal.
+      engine( EXPORTING iv_db         = ls_snap-amdp-db
+                        iv_driver     = ls_snap-amdp-driver
+                        iv_configured = ls_snap-amdp-configured
+                        iv_session    = ls_snap-amdp-session
+                        iv_portable   = ls_amdp_in-portable
+                        iv_refusal    = ls_amdp_in-refusal
+              IMPORTING ev_engine     = lv_engine
+                        ev_reason     = lv_reason ).
+      ls_amdp-engine = lv_engine.
+      ls_amdp-reason = lv_reason.
+      IF ls_amdp-class_name IS INITIAL OR ls_amdp-method_name IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      READ TABLE lt_amdp WITH KEY class_name = ls_amdp-class_name method_name = ls_amdp-method_name TRANSPORTING NO FIELDS.
+      IF sy-subrc <> 0.
+        APPEND ls_amdp TO lt_amdp.
+      ENDIF.
+    ENDLOOP.
+
 * replace, rather than merge: a process that is gone must not linger, and
 * the snapshot is the whole truth about this instance
     DELETE FROM zosd_sys WHERE sid <> ''.
     DELETE FROM zosd_proc WHERE pid >= 0.
+    DELETE FROM zosd_wp WHERE wpno >= 0.
     DELETE FROM zosd_port WHERE port >= 0.
     DELETE FROM zosd_svc WHERE path <> ''.
     DELETE FROM zosd_pack WHERE name <> ''.
     DELETE FROM zosd_db WHERE name <> ''.
+*   AMDP facts nobody observed are not a snapshot of the AMDP rows
+    IF ls_snap-amdp-unknown = abap_false.
+      DELETE FROM zosd_amdp WHERE class_name <> ''.
+    ELSE.
+      CLEAR lt_amdp.
+    ENDIF.
 
     INSERT zosd_sys FROM ls_sys.
     rv_rows = 1.
     IF lt_proc IS NOT INITIAL.
       INSERT zosd_proc FROM TABLE lt_proc.
       rv_rows = rv_rows + lines( lt_proc ).
+    ENDIF.
+    IF lt_wp IS NOT INITIAL.
+      INSERT zosd_wp FROM TABLE lt_wp.
+      rv_rows = rv_rows + lines( lt_wp ).
     ENDIF.
     IF lt_port IS NOT INITIAL.
       INSERT zosd_port FROM TABLE lt_port.
@@ -290,11 +477,17 @@ CLASS zcl_osd_status IMPLEMENTATION.
       INSERT zosd_db FROM TABLE lt_db.
       rv_rows = rv_rows + lines( lt_db ).
     ENDIF.
+    IF lt_amdp IS NOT INITIAL.
+      INSERT zosd_amdp FROM TABLE lt_amdp.
+      rv_rows = rv_rows + lines( lt_amdp ).
+    ENDIF.
   ENDMETHOD.
 
   METHOD snapshot.
     DATA ls_snap    TYPE ty_snapshot.
     DATA ls_proc_out TYPE ty_process.
+    DATA ls_wp_out   TYPE ty_wp.
+    DATA ls_wp       TYPE zosd_wp.
     DATA ls_port_out TYPE ty_port.
     DATA ls_svc_out  TYPE ty_service.
     DATA ls_pack_out TYPE ty_pack.
@@ -305,6 +498,8 @@ CLASS zcl_osd_status IMPLEMENTATION.
     DATA ls_svc     TYPE zosd_svc.
     DATA ls_pack    TYPE zosd_pack.
     DATA ls_db      TYPE zosd_db.
+    DATA ls_amdp_out TYPE ty_amdp_method.
+    DATA ls_amdp    TYPE zosd_amdp.
 
     SELECT SINGLE * FROM zosd_sys INTO ls_sys.
     IF sy-subrc = 0.
@@ -332,6 +527,18 @@ CLASS zcl_osd_status IMPLEMENTATION.
       ls_proc_out-rss_mb     = ls_proc-rss_mb.
       ls_proc_out-alive      = boolc( ls_proc-alive = 'X' ).
       APPEND ls_proc_out TO ls_snap-processes.
+    ENDSELECT.
+
+    SELECT * FROM zosd_wp INTO ls_wp ORDER BY wpno.
+      CLEAR ls_wp_out.
+      ls_wp_out-wpno       = ls_wp-wpno.
+      ls_wp_out-kind       = ls_wp-kind.
+      ls_wp_out-state      = ls_wp-state.
+      ls_wp_out-generation = ls_wp-generation.
+      ls_wp_out-started    = ls_wp-started.
+      ls_wp_out-user       = ls_wp-username.
+      ls_wp_out-report     = ls_wp-report.
+      APPEND ls_wp_out TO ls_snap-workprocesses.
     ENDSELECT.
 
     SELECT * FROM zosd_port INTO ls_port ORDER BY port.
@@ -371,6 +578,20 @@ CLASS zcl_osd_status IMPLEMENTATION.
       ls_db_out-value   = ls_db-value.
       ls_db_out-note    = ls_db-note.
       APPEND ls_db_out TO ls_snap-database.
+    ENDSELECT.
+
+*   the classification travels back with each method; the four facts it was
+*   made from are not stored, so they are not pretended here
+    SELECT * FROM zosd_amdp INTO ls_amdp ORDER BY class_name method_name.
+      CLEAR ls_amdp_out.
+      ls_amdp_out-clsname  = ls_amdp-class_name.
+      ls_amdp_out-mtdname  = ls_amdp-method_name.
+      ls_amdp_out-kind     = ls_amdp-kind.
+      ls_amdp_out-portable = boolc( ls_amdp-portable = 'X' ).
+      ls_amdp_out-refusal  = ls_amdp-refusal.
+      ls_amdp_out-engine   = ls_amdp-engine.
+      ls_amdp_out-reason   = ls_amdp-reason.
+      APPEND ls_amdp_out TO ls_snap-amdp-methods.
     ENDSELECT.
 
     rv_json = /ui2/cl_json=>serialize( data = ls_snap ).

@@ -19,3 +19,4 @@ One file per Node route family: behaviour to keep byte-equal, host dependencies,
 - If one owner is required: dell.
 - [write-includes (slice 4a): PUT source/main, PUT class include (both forms), POST class include create](write-includes-slice-4a-put-source-main.md): port-to-abap, M, stoker
 - [information-system-search-tree](information-system-search-tree.md): port-to-abap, L, dell
+- [functions-messages-xref](functions-messages-xref.md): abap-first (no Node route existed), M, dell: function groups and their parts, message classes, the main programs of an include, program/include preflight, where-used over WBCROSSGT, the core discovery form

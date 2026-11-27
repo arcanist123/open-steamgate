@@ -7,6 +7,8 @@ import {join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {execFile} from "node:child_process";
 import {renderPreviewIndex} from "./pages-index.mjs";
+import {assertPublicSystem} from "../tools/osd-system.mjs";
+import {verifyPublicArtefact} from "../tools/osd-provenance.mjs";
 
 const exec = promisify(execFile);
 const repository = process.cwd();
@@ -41,6 +43,7 @@ async function main() {
       || (operation === "index" && (directory || source))) {
     throw new Error("Usage: pages-push.mjs publish <main|pr-N> <build-dir> | index | remove <main|pr-N>");
   }
+  if (operation === "publish") { assertPublicSystem(repository); verifyPublicArtefact(resolve(source)); }
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     // FETCH_HEAD is the actual fetched commit even in a shallow checkout;
@@ -84,4 +87,5 @@ async function main() {
   }
 }
 
-await main();
+try { await main(); }
+catch (error) { console.error(`${error.code ?? "ERROR"}: ${error.message}`); process.exitCode = ["PRIVATE_LAYER", "BAD_PROVENANCE"].includes(error.code) ? 2 : 1; }

@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {convertTrace, convertFiles, serializeJson, serializeTrace, readTrace, expandLines, readTraceFile} from '../tools/dsl-trace.mjs';
 import {renderWithEngine} from '../tools/dsl-build.mjs';
-import {buildRule, checkRule, compileRule, renderRule} from '../tools/dsl-l2.mjs';
+import {buildRule, checkRule, compileRule, modelHash, renderModel, renderRule} from '../tools/dsl-l2.mjs';
 import {compileSet, renderSet, ruleVersion} from '../tools/dsl-l3.mjs';
 import {renderDaemonModel} from '../tools/dsl-samc.mjs';
 import {renderReport} from '../tools/dsl-report.mjs';
@@ -42,6 +42,12 @@ describe('trace v1 contract and phase 0.7 stability', function () {
   let scratch;
   before(() => {scratch=mkdtempSync(join(tmpdir(),'trace-v1-'));});
   after(() => rmSync(scratch,{recursive:true,force:true}));
+
+  it('keeps the existing demo model hash recorded in its committed trace sidecar', () => {
+    const model=compileRule('src/l2demo/maintenance_ship.l2.yaml');
+    const meta=JSON.parse(readFileSync(`src/l2demo/${model.class}.clas.trace.meta.json`,'utf8'));
+    expect(modelHash(renderModel(model))).equal(meta.model);
+  });
 
   it('serializes maximal ranges, expands offsets, and uses fixed key order and decimal integers', () => {
     const text=serializeTrace(sample), parsed=JSON.parse(text);

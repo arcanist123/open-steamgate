@@ -219,6 +219,72 @@ export function generationTmpProblem(generationDir) {
     : `${generationDir} was built with ${TMP_FOLDER} as a layer (${local.slice(0, 3).join(", ")}): it holds ${TMP_PACKAGE} objects and is never published. Rebuild with OSD_TMP=off (osd-build --publish).`;
 }
 
+// gen/hana-src (H4, tools/hana-src-gen.mjs) and gen/hana-ddic (H3,
+// tools/hana-ddic-gen.mjs) are private the way $TMP is: the tenant's own
+// sources, and their dictionary -- its table and field names -- in layers. A
+// generation built with any of them is refused by every publisher that
+// bundles a build -- the preview, the docker image, the download bundle, the
+// release directory -- by the twin below, sitting exactly where
+// generationTmpProblem sits in theirs; and the same ONE list of the private
+// prefixes is what every publisher's gen/ copy filter drops, so a stale
+// folder on disk never rides along with a generation whose record is clean.
+// One difference is deliberate: no second witness. The $TMP check also reads
+// the generation's abap_transpile.json, but this tree's own config names
+// "gen/hana-src/*" whether or not a build ever saw one of these layers; only
+// the generation's manifest -- the EXPANDED folder list the build recorded
+// (tools/osd-build.mjs) -- knows what was actually read. gen/hana-closure
+// holds the closure walk's state, request and gaps files (H5c fix round 1):
+// tenant object names, private the same way.
+//
+// gen/hana-segw (H5b, tools/hana-segw-gen.mjs) joins the list the same way:
+// the dump's registration facts -- five strings per service, but the
+// tenant's service and class names -- as a hashed input folder of their
+// own. The registry CLASS they feed lives at gen/segw, where it always has;
+// during a dump-fed phase it carries tenant names too, and it cannot ride a
+// prefix (the XML source writes the same path and must keep publishing), so
+// segwPrivateGen below drops it from the publishers' gen/ copy filters for
+// exactly as long as the facts exist -- the filter runs at copy time over
+// the tree the folder sits in, so there is no staleness window in the copy.
+const HANA_PRIVATE_FOLDERS = ["gen/hana-src", "gen/hana-ddic", "gen/hana-closure", "gen/hana-segw"];
+
+/** whether a path (root-relative, as the publishers' filters hand them) is
+ *  gen/segw of a tree whose registry is currently fed from a dump: the
+ *  facts folder decides, by existing. A missing or unreadable facts file is
+ *  no mark -- the XML source holds no facts and must keep publishing. */
+export function segwPrivateGen(path, root) {
+  const p = String(path).replaceAll("\\", "/");
+  if (p !== "gen/segw" && p.startsWith("gen/segw/") === false) return false;
+  try {
+    readFileSync(join(root, "gen", "hana-segw", "from-dump.json"), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** the private gen/ prefix a path sits under, or undefined: the one list,
+ *  shared by the check below and by every publisher's copy filter. Paths
+ *  are root-relative; the bundle and the release see absolute paths from
+ *  cpSync and hand it relative(root, path). */
+export const privateGenFolder = (path) => {
+  const p = String(path).replaceAll("\\", "/");
+  return HANA_PRIVATE_FOLDERS.find((f) => p === f || p.startsWith(f + "/"));
+};
+
+export function generationHanaSrcProblem(generationDir) {
+  let folders;
+  try {
+    const manifest = JSON.parse(readFileSync(join(generationDir, "manifest.json"), "utf8"));
+    folders = manifest.inputs?.folders;
+    if (!Array.isArray(folders)) throw new Error("it lists no input folders");
+  } catch (e) {
+    return `${generationDir} has no readable record of its layers (manifest.json: ${e.message}); it cannot be shown to be free of ${HANA_PRIVATE_FOLDERS.join(" and ")} (the tenant's content)`;
+  }
+  const carrying = folders.filter((f) => privateGenFolder(f) !== undefined);
+  return carrying.length === 0 ? undefined
+    : `${generationDir} was built with private gen/ layers (${carrying.slice(0, 3).join(", ")}): the tenant's content (${HANA_PRIVATE_FOLDERS.join(", ")}) is private and is never published. Rebuild without it: move ${HANA_PRIVATE_FOLDERS.join(" and ")} out of the tree, then run node tools/osd-build.mjs --publish.`;
+}
+
 // ------------------------------------------------------------ names
 //
 // SAP's character set for repository names: A-Z, 0-9 and _, an optional

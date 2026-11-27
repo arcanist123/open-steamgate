@@ -1,0 +1,288 @@
+INTERFACE /iwbep/if_mgw_appl_srv_runtime PUBLIC.
+
+  TYPES ty_s_mgw_response_entity_cntxt TYPE string.
+
+  TYPES: BEGIN OF ty_s_operation_info,
+           entity_set     TYPE string,
+           operation_type TYPE string,
+           content_id     TYPE string,
+* Overlay (H5x-3): the Content-ID the operation references ($batch
+* Content-ID referencing) -- the member the SEGW sample's CHANGESET_BEGIN
+* reads off the operation info (framework-gaps.json of bed run 18 --
+* private evidence).
+           content_id_ref TYPE string,
+         END OF ty_s_operation_info.
+  TYPES ty_t_operation_info TYPE STANDARD TABLE OF ty_s_operation_info WITH DEFAULT KEY.
+
+* Overlay (H5x-3): the changeset request and response rows carry the
+* Content-ID of the operation and the Content-ID it references, the way a
+* Gateway hands $batch changesets with Content-ID referencing to the DPC.
+  TYPES: BEGIN OF ty_s_changeset_request,
+           operation_no         TYPE i,
+           operation_type       TYPE string,
+           entity_set           TYPE string,
+           content_id           TYPE string,
+           content_id_ref       TYPE string,
+           entry_provider       TYPE REF TO /iwbep/if_mgw_entry_provider,
+           tech_request_context TYPE REF TO object,
+         END OF ty_s_changeset_request.
+  TYPES ty_t_changeset_request TYPE STANDARD TABLE OF ty_s_changeset_request WITH DEFAULT KEY.
+
+  TYPES: BEGIN OF ty_s_changeset_response,
+           operation_no TYPE i,
+           content_id   TYPE string,
+           entity_data  TYPE REF TO data,
+         END OF ty_s_changeset_response.
+  TYPES ty_t_changeset_response TYPE STANDARD TABLE OF ty_s_changeset_response WITH DEFAULT KEY.
+
+  METHODS changeset_begin
+    IMPORTING
+      it_operation_info TYPE ty_t_operation_info
+    CHANGING
+      cv_defer_mode     TYPE abap_bool
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS changeset_process
+    IMPORTING
+      it_changeset_request  TYPE ty_t_changeset_request
+    CHANGING
+      ct_changeset_response TYPE ty_t_changeset_response
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS changeset_end
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+  TYPES ty_s_mgw_response_context      TYPE /iwbep/if_mgw_appl_types=>ty_s_mgw_response_context.
+  TYPES ty_s_media_resource            TYPE /iwbep/if_mgw_appl_types=>ty_s_media_resource.
+
+  METHODS get_stream
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity OPTIONAL
+    EXPORTING
+      er_stream               TYPE REF TO data
+      es_response_context     TYPE ty_s_mgw_response_entity_cntxt
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS update_stream
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      is_media_resource       TYPE ty_s_media_resource
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_u OPTIONAL
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS create_deep_entity
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      io_data_provider        TYPE REF TO /iwbep/if_mgw_entry_provider
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_expand               TYPE REF TO /iwbep/if_mgw_odata_expand
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_c OPTIONAL
+    EXPORTING
+      er_deep_entity          TYPE REF TO data
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS create_entity
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      io_data_provider        TYPE REF TO /iwbep/if_mgw_entry_provider
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_c OPTIONAL
+    EXPORTING
+      er_entity               TYPE REF TO data
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS delete_entity
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_d OPTIONAL
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS get_entity
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity OPTIONAL
+    EXPORTING
+      er_entity               TYPE REF TO data
+      es_response_context     TYPE ty_s_mgw_response_entity_cntxt
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS get_entityset
+    IMPORTING
+      iv_entity_name           TYPE string OPTIONAL
+      iv_entity_set_name       TYPE string OPTIONAL
+      iv_source_name           TYPE string OPTIONAL
+      it_filter_select_options TYPE /iwbep/t_mgw_select_option OPTIONAL
+      it_order                 TYPE /iwbep/t_mgw_sorting_order OPTIONAL
+      is_paging                TYPE /iwbep/s_mgw_paging OPTIONAL
+      it_navigation_path       TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      it_key_tab               TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      iv_filter_string         TYPE string OPTIONAL
+      iv_search_string         TYPE string OPTIONAL
+      io_tech_request_context  TYPE REF TO /iwbep/if_mgw_req_entityset OPTIONAL
+    EXPORTING
+      er_entityset             TYPE REF TO data
+      es_response_context      TYPE ty_s_mgw_response_context
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS update_entity
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      io_data_provider        TYPE REF TO /iwbep/if_mgw_entry_provider
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_u OPTIONAL
+    EXPORTING
+      er_entity               TYPE REF TO data
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+* what a generated DPC asks before deciding whether an operation or an
+* action is implemented conditionally (SADL-backed sets say yes)
+  METHODS get_is_conditional_implemented
+    IMPORTING
+      iv_operation_type            TYPE string
+      iv_entity_set_name           TYPE string
+    RETURNING
+      VALUE(rv_conditional_active) TYPE abap_bool
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS get_is_condi_imple_for_action
+    IMPORTING
+      iv_action_name               TYPE string
+    RETURNING
+      VALUE(rv_conditional_active) TYPE abap_bool
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS execute_action
+    IMPORTING
+      iv_action_name          TYPE string OPTIONAL
+      it_parameter            TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_func_import OPTIONAL
+    EXPORTING
+      er_data                 TYPE REF TO data
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS get_expanded_entity
+    IMPORTING
+      iv_entity_name           TYPE string OPTIONAL
+      iv_entity_set_name       TYPE string OPTIONAL
+      iv_source_name           TYPE string OPTIONAL
+      it_key_tab               TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path       TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_expand                TYPE REF TO /iwbep/if_mgw_odata_expand OPTIONAL
+      io_tech_request_context  TYPE REF TO /iwbep/if_mgw_req_entity OPTIONAL
+    EXPORTING
+      er_entity                TYPE REF TO data
+      es_response_context      TYPE ty_s_mgw_response_entity_cntxt
+      et_expanded_clauses      TYPE string_table
+      et_expanded_tech_clauses TYPE string_table
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS get_expanded_entityset
+    IMPORTING
+      iv_entity_name           TYPE string OPTIONAL
+      iv_entity_set_name       TYPE string OPTIONAL
+      iv_source_name           TYPE string OPTIONAL
+      it_filter_select_options TYPE /iwbep/t_mgw_select_option OPTIONAL
+      it_order                 TYPE /iwbep/t_mgw_sorting_order OPTIONAL
+      is_paging                TYPE /iwbep/s_mgw_paging OPTIONAL
+      it_navigation_path       TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      it_key_tab               TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      iv_filter_string         TYPE string OPTIONAL
+      iv_search_string         TYPE string OPTIONAL
+      io_expand                TYPE REF TO /iwbep/if_mgw_odata_expand OPTIONAL
+      io_tech_request_context  TYPE REF TO /iwbep/if_mgw_req_entityset OPTIONAL
+    EXPORTING
+      er_entityset             TYPE REF TO data
+      et_expanded_clauses      TYPE string_table
+      et_expanded_tech_clauses TYPE string_table
+      es_response_context      TYPE ty_s_mgw_response_context
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS patch_entity
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      io_data_provider        TYPE REF TO /iwbep/if_mgw_entry_provider
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_p OPTIONAL
+    EXPORTING
+      er_entity               TYPE REF TO data
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+  METHODS create_stream
+    IMPORTING
+      iv_entity_name          TYPE string OPTIONAL
+      iv_entity_set_name      TYPE string OPTIONAL
+      iv_source_name          TYPE string OPTIONAL
+      is_media_resource       TYPE ty_s_media_resource
+      it_key_tab              TYPE /iwbep/t_mgw_name_value_pair OPTIONAL
+      it_navigation_path      TYPE /iwbep/t_mgw_navigation_path OPTIONAL
+      iv_slug                 TYPE string
+      io_tech_request_context TYPE REF TO /iwbep/if_mgw_req_entity_c OPTIONAL
+    EXPORTING
+      er_entity               TYPE REF TO data
+    RAISING
+      /iwbep/cx_mgw_busi_exception
+      /iwbep/cx_mgw_tech_exception.
+
+ENDINTERFACE.

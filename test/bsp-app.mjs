@@ -9,7 +9,7 @@ import {expect} from "chai";
 import {existsSync, readFileSync, readdirSync, mkdtempSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {MAX_APP_NAME, PAGE_LINE, buildApp, checkAppName, longLine, icfNodeFile, icfNodeXml, icfUrlOf, pageFile, pageKey, wapaXml} from "../tools/osd-bsp-app.mjs";
+import {MAX_APP_NAME, PAGE_LINE, buildApp, checkAppName, longLine, icfNodeFile, icfNodeXml, icfUrlOf, manifestFor, manifestRebased, pageFile, pageKey, wapaXml} from "../tools/osd-bsp-app.mjs";
 
 const CORPUS = ".local/corpus/ui5-code-search/src";
 const APP = "ZUI5_CODE_SEA";
@@ -74,6 +74,15 @@ describe("tools/osd-bsp-app: a folder of web files as a BSP application", () => 
     for (const f of readdirSync("src/l2demo/cockpit/zosd_fleet2").filter((f) => !/\.trace(?:\.meta)?\.json$/.test(f))) {
       if (f !== "i18n") longLine(f, readFileSync(join("src/l2demo/cockpit/zosd_fleet2", f)));
     }
+  });
+
+  it("re-bases a data source onto the OData root of its version (V2 odata, V4 odata4)", () => {
+    const manifest = (uri, odataVersion) => JSON.stringify({"sap.app": {dataSources: {main: {uri, type: "OData", settings: {odataVersion}}}}});
+    const uri = (text) => JSON.parse(text)["sap.app"].dataSources.main.uri;
+    expect(uri(manifestFor(manifest("../../sap/opu/odata/sap/X_SRV/", "2.0"), "X_SRV"))).to.equal("../../../../opu/odata/sap/X_SRV/");
+    expect(uri(manifestFor(manifest("../../sap/opu/odata4/sap/X_SRV/", "4.0"), "X_SRV"))).to.equal("../../../../opu/odata4/sap/X_SRV/");
+    expect(uri(manifestRebased(manifest("../../sap/opu/odata4/sap/X_SRV/", "4.0")))).to.equal("../../../../opu/odata4/sap/X_SRV/");
+    expect(uri(manifestRebased(manifest("/sap/opu/odata/sap/X_SRV/", "2.0")))).to.equal("../../../../opu/odata/sap/X_SRV/");
   });
 
   it("refuses a name longer than 15, which is the limit the system checks", () => {

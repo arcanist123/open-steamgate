@@ -19,5 +19,11 @@ export async function osqlSemanticsError(error) {
   }
   const exception = await new cx().constructor_({sqlmsg: text});
   exception.message = text;
+  // the engine error's identity travels: a caller (and a test's assertion)
+  // reads .code off what query() threw -- the 259 the bed measured is 259
+  // again after the conversion, not undefined (FIX-4: the hana suite's
+  // strict 259 under the suite runner, whose shared process has a runtime
+  // booted by an earlier suite, so this conversion ran).
+  if (error?.code !== undefined) exception.code = error.code;
   return exception;
 }

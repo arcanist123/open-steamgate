@@ -1,0 +1,236 @@
+CLASS zcl_oao_entity_typ DEFINITION PUBLIC.
+* Overlay of open-abap-odata's entity type (src/gateway/compat/README.md):
+* bind_structure reads the dictionary.
+* Milestone 4: the type is a thing type (sap:is-thing-type), has a label
+* from the text pool (sap:label), can be disabled with its sets, and hands
+* out a navigation property by name; disabled sets, navigation properties
+* and properties are left out of the lists the readers get.
+  PUBLIC SECTION.
+    INTERFACES /iwbep/if_mgw_odata_entity_typ.
+
+* sap: annotations of the entity type (semantics="aggregate", label, ...)
+    DATA mo_annotation TYPE REF TO zcl_oao_annotation.
+* a media entity: its content is a stream, read and written at <entity>/$value
+    DATA mv_is_media   TYPE abap_bool.
+    DATA mv_is_thing_type  TYPE abap_bool.
+    DATA mv_text_symbol    TYPE textpoolky.
+    DATA mv_text_container TYPE string.
+    DATA mv_disabled       TYPE abap_bool.
+
+    TYPES: BEGIN OF ty_entity_set,
+             name       TYPE /iwbep/if_mgw_med_odata_types=>ty_e_med_entity_name,
+             entity_set TYPE REF TO zcl_oao_entity_set,
+           END OF ty_entity_set.
+    TYPES ty_entity_sets TYPE STANDARD TABLE OF ty_entity_set WITH DEFAULT KEY.
+
+    TYPES ty_nav_props TYPE STANDARD TABLE OF REF TO zcl_oao_nav_prop WITH DEFAULT KEY.
+
+* the sets that are part of the service (none of a disabled type)
+    METHODS get_entity_sets
+      RETURNING
+        VALUE(rt_entity_sets) TYPE ty_entity_sets.
+
+* every set of the type, disabled or not
+    METHODS get_all_entity_sets
+      RETURNING
+        VALUE(rt_entity_sets) TYPE ty_entity_sets.
+
+    METHODS get_navigation_properties
+      RETURNING
+        VALUE(rt_nav_props) TYPE ty_nav_props.
+
+* the model this type belongs to, complex properties look their type up there
+    DATA mo_model TYPE REF TO /iwbep/if_mgw_odata_model.
+  PRIVATE SECTION.
+    DATA mv_structure_name TYPE string.
+    DATA mt_properties  TYPE /iwbep/if_mgw_med_odata_types=>ty_t_mgw_odata_properties.
+    DATA mt_entity_sets TYPE ty_entity_sets.
+    DATA mt_nav_props   TYPE ty_nav_props.
+ENDCLASS.
+
+CLASS zcl_oao_entity_typ IMPLEMENTATION.
+
+  METHOD /iwbep/if_mgw_odata_item~set_label_from_text_element.
+    mv_text_symbol    = iv_text_element_symbol.
+    mv_text_container = iv_text_element_container.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_item~set_disabled.
+    mv_disabled = iv_disabled.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~set_is_thing_type.
+    mv_is_thing_type = iv_is_thing_type.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~get_navigation_property.
+    DATA lo_nav TYPE REF TO zcl_oao_nav_prop.
+
+    LOOP AT mt_nav_props INTO lo_nav.
+      IF lo_nav->mv_name = iv_name.
+        ro_navigation_property = lo_nav.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
+    RAISE EXCEPTION TYPE /iwbep/cx_mgw_med_exception.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_annotatabl~create_annotation.
+    IF mo_annotation IS NOT BOUND.
+      CREATE OBJECT mo_annotation.
+    ENDIF.
+    ro_annotation = mo_annotation.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~create_navigation_property.
+    DATA lo_nav TYPE REF TO zcl_oao_nav_prop.
+
+    CREATE OBJECT lo_nav.
+    lo_nav->mv_name           = iv_property_name.
+    lo_nav->mv_association    = iv_association_name.
+    lo_nav->mv_abap_fieldname = iv_abap_fieldname.
+    APPEND lo_nav TO mt_nav_props.
+    ro_navigation_property = lo_nav.
+  ENDMETHOD.
+
+  METHOD get_navigation_properties.
+* the enabled ones over an association that is part of the service (a
+* navigation over a dropped association would name nothing)
+    DATA lo_nav   TYPE REF TO zcl_oao_nav_prop.
+    DATA lo_model TYPE REF TO zcl_oao_model.
+
+    IF mo_model IS BOUND.
+      lo_model ?= mo_model.
+    ENDIF.
+    LOOP AT mt_nav_props INTO lo_nav.
+      IF lo_nav->mv_disabled = abap_true.
+        CONTINUE.
+      ENDIF.
+      IF lo_model IS BOUND AND lo_model->association_enabled( lo_nav->mv_association ) = abap_false.
+        CONTINUE.
+      ENDIF.
+      APPEND lo_nav TO rt_nav_props.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~create_entity_set.
+    DATA ls_row LIKE LINE OF mt_entity_sets.
+
+    CREATE OBJECT ro_entity_set TYPE zcl_oao_entity_set.
+
+    ls_row-name = iv_entity_set_name.
+    ls_row-entity_set ?= ro_entity_set.
+    APPEND ls_row TO mt_entity_sets.
+  ENDMETHOD.
+
+  METHOD get_entity_sets.
+    DATA ls_set LIKE LINE OF mt_entity_sets.
+
+    IF mv_disabled = abap_true.
+      RETURN.
+    ENDIF.
+    LOOP AT mt_entity_sets INTO ls_set.
+      IF ls_set-entity_set->mv_disabled = abap_false.
+        APPEND ls_set TO rt_entity_sets.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+  METHOD get_all_entity_sets.
+    rt_entity_sets = mt_entity_sets.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~set_is_media.
+    mv_is_media = iv_is_media.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~bind_structure.
+* what the Gateway derives from the bound structure's dictionary types
+* (overlay, milestone 3 B4): labels, units and semantics through
+* zcl_osd_ddic_info=>bind. A date field behind Edm.DateTime is marked a
+* date for the V4 facade (Edm.Date) and gets no sap:display-format="Date":
+* the system writes none for a DATS-bound property (measured on a SEGW
+* sample's $metadata, milestone 3), the library used to
+    DATA lo_descr    TYPE REF TO cl_abap_typedescr.
+    DATA lo_struct   TYPE REF TO cl_abap_structdescr.
+    DATA ls_prop     LIKE LINE OF mt_properties.
+    DATA lo_property TYPE REF TO zcl_oao_property.
+    DATA lt_comp     TYPE abap_component_tab.
+    DATA ls_comp     LIKE LINE OF lt_comp.
+
+    mv_structure_name = iv_structure_name.
+    cl_abap_typedescr=>describe_by_name( EXPORTING p_name = iv_structure_name
+                                         RECEIVING type   = lo_descr
+                                         EXCEPTIONS type_not_found = 1 OTHERS = 2 ).
+    IF sy-subrc <> 0 OR lo_descr IS NOT BOUND OR lo_descr->kind <> cl_abap_typedescr=>kind_struct.
+      RETURN.
+    ENDIF.
+    lo_struct ?= lo_descr.
+    lt_comp = lo_struct->get_components( ).
+
+    LOOP AT mt_properties INTO ls_prop.
+      lo_property ?= ls_prop-property.
+      READ TABLE lt_comp INTO ls_comp WITH KEY name = lo_property->mv_abap_fieldname.
+      IF sy-subrc = 0 AND ls_comp-type IS BOUND AND ls_comp-type->type_kind = cl_abap_typedescr=>typekind_date.
+        lo_property->mv_is_date = abap_true.
+      ENDIF.
+    ENDLOOP.
+    zcl_osd_ddic_info=>bind( iv_structure  = iv_structure_name
+                             it_properties = mt_properties ).
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~create_property.
+    DATA ls_row      LIKE LINE OF mt_properties.
+    DATA lo_property TYPE REF TO zcl_oao_property.
+
+    CREATE OBJECT lo_property.
+    lo_property->mv_abap_fieldname = iv_abap_fieldname.
+    ro_property = lo_property.
+
+    ls_row-name = iv_property_name.
+    ls_row-property = ro_property.
+    INSERT ls_row INTO TABLE mt_properties.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~create_complex_property.
+    DATA ls_row      LIKE LINE OF mt_properties.
+    DATA lo_property TYPE REF TO zcl_oao_property.
+
+    CREATE OBJECT lo_property.
+    lo_property->mv_abap_fieldname = iv_abap_fieldname.
+    lo_property->mv_complex_type   = iv_complex_type_name.
+
+    ls_row-name = iv_property_name.
+    ls_row-property = lo_property.
+    INSERT ls_row INTO TABLE mt_properties.
+
+    IF mo_model IS BOUND.
+      ro_complex_type = mo_model->get_complex_type( iv_complex_type_name ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~get_property.
+    DATA ls_row LIKE LINE OF mt_properties.
+
+    READ TABLE mt_properties INTO ls_row WITH KEY name = iv_property_name.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_med_exception.
+    ENDIF.
+    ro_property = ls_row-property.
+  ENDMETHOD.
+
+  METHOD /iwbep/if_mgw_odata_entity_typ~get_properties.
+* the properties that are part of the type (get_property still hands out
+* a disabled one by name)
+    DATA ls_row      LIKE LINE OF mt_properties.
+    DATA lo_property TYPE REF TO zcl_oao_property.
+
+    LOOP AT mt_properties INTO ls_row.
+      lo_property ?= ls_row-property.
+      IF lo_property->mv_disabled = abap_false.
+        INSERT ls_row INTO TABLE rt_properties.
+      ENDIF.
+    ENDLOOP.
+  ENDMETHOD.
+
+ENDCLASS.

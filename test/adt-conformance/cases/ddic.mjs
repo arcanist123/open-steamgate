@@ -1,0 +1,65 @@
+// Read-only families: DDIC reads, repository type structure and virtual
+// folders, the data preview (F8 and the SQL console), the inactive-objects
+// feed. Fixtures are the $ZOSD_TEST package (src/zosd_test) and its seed rows
+// (data/zosd_test_item.tabu.json, six items I0001..I0006).
+const NS = {
+  blue: 'http://www.sap.com/wbobj/dictionary/dtel', dp: 'http://www.sap.com/adt/dataPreview',
+  vfs: 'http://www.sap.com/adt/ris/virtualFolders', ioc: 'http://www.sap.com/abapxml/inactiveCtsObjects',
+  chkrun: 'http://www.sap.com/adt/checkrun', asx: 'http://www.sap.com/abapxml'};
+const text = {'content-type': 'text/plain'};
+const tableData = /application\/(?:xml|vnd\.sap\.adt\.datapreview\.table\.v1\+xml)/;
+const vfsRequest = '<vfs:virtualFoldersRequest xmlns:vfs="http://www.sap.com/adt/ris/virtualFolders" objectSearchPattern="ZOSD_TEST_ITEM*">'
+  + '<vfs:preselection facet="package"><vfs:value>$ZOSD_TEST</vfs:value></vfs:preselection><vfs:facet>type</vfs:facet></vfs:virtualFoldersRequest>';
+export default [
+  {id: 'D1-dataelement', point: 'D1', title: 'Data element document', request: {path: '/ddic/dataelements/zosd_test_status'},
+    expect: {status: 200, contentType: /application\/vnd\.sap\.adt\.dataelements\.v2\+xml/, namespaces: NS,
+      xml: [{xpath: '/blue:wbobj/@adtcore:name', value: 'ZOSD_TEST_STATUS'}, {xpath: '/blue:wbobj/@adtcore:type', value: 'DTEL/DE'}]}},
+  {id: 'D2-table', point: 'D2', title: 'Table document', request: {path: '/ddic/tables/zosd_test_item'},
+    expect: {status: 200, contentType: /application\/vnd\.sap\.adt\.tables\.v2\+xml/,
+      xml: [{xpath: '/*/@adtcore:name', value: 'ZOSD_TEST_ITEM'}]}},
+  {id: 'D3-table-source', point: 'D3', title: 'Table source in the DDL form', request: {path: '/ddic/tables/zosd_test_item/source/main'},
+    expect: {status: 200, contentType: /text\/plain/, body: /define table zosd_test_item \{[\s\S]*key item_id/}},
+  {id: 'D4-structure', point: 'D4', title: 'Structure through the tables collection', request: {path: '/ddic/tables/zosd_test_item_s'},
+    expect: {status: 200, xml: [{xpath: '/*/@adtcore:name', value: 'ZOSD_TEST_ITEM_S'}]}},
+  {id: 'D5-typestructure', point: 'D5', title: 'Repository type structure lists the class type first',
+    request: {method: 'POST', path: '/repository/typestructure'},
+    expect: {status: 200, contentType: /dataname=com\.sap\.adt\.RepositoryTypeList/, namespaces: NS,
+      xml: [{xpath: '/asx:abap/asx:values/DATA/SEU_ADT_OBJECT_TYPE_DESCRIPTOR/OBJECT_TYPE', regexp: /^[A-Z]{4}/}],
+      body: /<OBJECT_TYPE>CLAS\/OC<\/OBJECT_TYPE>/}},
+  {id: 'D6-vfs-facets', point: 'D6', title: 'Virtual folder facets', request: {path: '/repository/informationsystem/virtualfolders/facets'},
+    expect: {status: 200, body: /key="package"[\s\S]*key="type"/}},
+  {id: 'D7-vfs-contents', point: 'D7', title: 'Virtual folders of a package by type',
+    request: {method: 'POST', path: '/repository/informationsystem/virtualfolders/contents',
+      headers: {'content-type': 'application/vnd.sap.adt.repository.virtualfolders.request.v1+xml'}, body: vfsRequest},
+    expect: {status: 200, namespaces: NS, xml: [{xpath: '/vfs:virtualFoldersResult/vfs:virtualFolder[@name="TABL"]/@counter', value: '2'}]}},
+  {id: 'P1-freestyle', point: 'P1', title: 'SQL console runs one SELECT with the row limit',
+    request: {method: 'POST', path: '/datapreview/freestyle', query: {rowNumber: '3'}, headers: text,
+      body: 'SELECT item_id, quantity FROM zosd_test_item ORDER BY item_id'},
+    expect: {status: 200, contentType: tableData, namespaces: NS,
+      xml: [{xpath: '/dp:tableData/dp:totalRows', value: '3'},
+        {xpath: '/dp:tableData/dp:columns/dp:metadata/@dp:name', value: ['ITEM_ID', 'QUANTITY']},
+        {xpath: '/dp:tableData/dp:columns/dp:dataSet/dp:data', value: ['I0001', 'I0002', 'I0003', '12', '40', '7']}]}},
+  {id: 'P2-freestyle-refuses-write', point: 'P2', title: 'SQL console refuses anything but SELECT',
+    request: {method: 'POST', path: '/datapreview/freestyle', headers: text, body: 'DELETE FROM zosd_test_item'},
+    expect: {status: 400, body: /only SELECT is allowed here, not DELETE/}},
+  {id: 'P3-freestyle-check', point: 'P3', title: 'SQL console syntax check reports the error',
+    request: {method: 'POST', path: '/datapreview/freestyle', query: {action: 'checkSyntax'}, headers: text,
+      body: 'SELECT nope FROM zosd_test_item'},
+    expect: {status: 200, contentType: /application\/vnd\.sap\.adt\.checkmessages\+xml/, namespaces: NS,
+      xml: [{xpath: '/chkrun:checkRunReports/chkrun:checkReport/chkrun:checkMessageList/chkrun:checkMessage/@chkrun:type', value: 'E'}],
+      body: /nope/}},
+  {id: 'P4-ddic-metadata', point: 'P4', title: 'Table preview metadata names the key fields',
+    request: {path: '/datapreview/ddic/zosd_test_item/metadata'},
+    expect: {status: 200, namespaces: NS,
+      xml: [{xpath: '/dp:tableData/dp:columns/dp:metadata[@dp:keyAttribute="true"]/@dp:name', value: ['MANDT', 'ITEM_ID']}]}},
+  {id: 'P5-ddic-rows', point: 'P5', title: 'Table preview (F8) reads the seeded rows',
+    request: {method: 'POST', path: '/datapreview/ddic', query: {rowNumber: '100', ddicEntityName: 'ZOSD_TEST_ITEM'}, headers: text,
+      body: 'SELECT * FROM ZOSD_TEST_ITEM'},
+    expect: {status: 200, contentType: tableData, namespaces: NS,
+      xml: [{xpath: '/dp:tableData/dp:totalRows', value: '6'},
+        {xpath: '/dp:tableData/dp:columns/dp:metadata/@dp:name', value: ['MANDT', 'ITEM_ID', 'NAME', 'STATUS', 'QUANTITY', 'CREATED_ON']}]}},
+  {id: 'A1-inactiveobjects', point: 'A1', title: 'Inactive objects feed', request: {path: '/activation/inactiveobjects'},
+    expect: {status: 200, contentType: /application\/vnd\.sap\.adt\.inactivectsobjects\.v1\+xml/, namespaces: NS,
+      xml: [{xpath: '/ioc:inactiveObjects/ioc:entry/ioc:object/ioc:ref[@adtcore:name="ZOSD_TEST_ITEM"]', count: 0}],
+      body: /<ioc:inactiveObjects [^>]*>[\s\S]*<\/ioc:inactiveObjects>/}},
+];

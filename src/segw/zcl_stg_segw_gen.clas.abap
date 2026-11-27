@@ -1752,6 +1752,7 @@ CLASS zcl_stg_segw_gen IMPLEMENTATION.
            END OF ty_text_el.
     DATA lt_text      TYPE STANDARD TABLE OF ty_text_el.
     DATA ls_text_el   TYPE ty_text_el.
+    DATA lv_incl      TYPE abap_bool.
     DATA lt_methods   TYPE string_table.
     DATA lv_method    TYPE string.
     DATA lt_impls     TYPE STANDARD TABLE OF ty_file.
@@ -1888,7 +1889,18 @@ CLASS zcl_stg_segw_gen IMPLEMENTATION.
 *   the first attempt put it beside the entity constants in the public
 *   section and moved the first difference from line 81 to line 67 instead of
 *   removing it.
-    IF lt_text IS NOT INITIAL.
+*   A function import and its parameters name the container too, so a
+*   model whose only text elements are theirs needs it declared as well.
+    lv_incl = xsdbool( lt_text IS NOT INITIAL ).
+    LOOP AT is_model-function_imports INTO ls_fi.
+      IF ls_fi-text_element IS NOT INITIAL.
+        lv_incl = abap_true.
+      ENDIF.
+      LOOP AT ls_fi-parameters INTO ls_fp WHERE text_element IS NOT INITIAL.
+        lv_incl = abap_true.
+      ENDLOOP.
+    ENDLOOP.
+    IF lv_incl = abap_true.
       rv_source = rv_source
         && |  constants GC_INCL_NAME type STRING value '{ lv_cls WIDTH = 30 PAD = '=' }CP' ##NO_TEXT.\n\n|.
     ENDIF.

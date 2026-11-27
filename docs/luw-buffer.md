@@ -110,8 +110,10 @@ read of the first row. It fails without the bracket and passes with it.
 
 ## What is not built yet
 
-- **The save sequence.** `delta( )` gives the changes in order; nothing yet
-  runs determinations or validations over them, and nothing writes them.
+- **The save sequence, outside RAP.** `delta( )` gives the changes in order.
+  For a managed RAP behavior definition `ZCL_OSD_RAP_RUNTIME` runs
+  determinations and validations over them and writes them
+  ([docs/rap-runtime.md](rap-runtime.md)); nothing else does yet.
 - **Reading through the buffer.** `operation_of` and `row_of` are the two
   answers a reader needs, but the SADL DPC does not consult them yet, so a
   read still goes straight to the database.

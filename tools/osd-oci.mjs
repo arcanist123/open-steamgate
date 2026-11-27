@@ -48,6 +48,9 @@ export function treeDigest(files) {
 
 /** host/repository[:tag][@sha256:hex] as its parts; the host is required */
 export function parseRef(ref) {
+  if (/^[^/]+\/[^:@]*[A-Z]/.test(ref))
+    throw new OciError("BAD_REF", `${ref}: repository path must be lowercase`);
+  ref = ref.replace(/^([^/]+)\//, (_, host) => `${host.toLowerCase()}/`);
   const m = /^([a-z0-9.-]+(?::\d+)?)\/([a-z0-9._\/-]+?)(?::([\w][\w.-]{0,127}))?(?:@(sha256:[0-9a-f]{64}))?$/.exec(ref);
   // a host is told from a path by a dot, a port or the name localhost, as docker does
   if (!m || !/[.:]|^localhost$/.test(m[1]) || (!m[3] && !m[4]) || m[2].split("/").some((p) => p === "." || p === "..")) throw new OciError("BAD_REF", `${ref}: expected host/repository@sha256:<64 hex> (or :tag to resolve)`);
@@ -116,7 +119,25 @@ export function client(ref, options = {}) {
   return {ref: parsed, request, get: (path, headers) => request(path, {headers})};
 }
 
-const JSON_LIMIT = 4 * 1024 * 1024;
+export const JSON_LIMIT = 4 * 1024 * 1024;
+
+const normalizedRegistry = value => {
+  const match = /^([^:]+)(?::(\d+))?$/.exec(value.toLowerCase());
+  if (!match) return null;
+  return {host: match[1].replace(/\.+$/, ""), port: match[2]};
+};
+
+/** Refuse public hosts regardless of the private registry allow-list. */
+export function assertPrivateTarget(ref, layers, env = readEnvironment(["OSD_PRIVATE_REGISTRIES"])) {
+  const registry = parseRef(ref).registry;
+  const layer = layers.find(item => item.config?.private === true);
+  if (!layer) return;
+  const target = normalizedRegistry(registry);
+  const allowed = (env.OSD_PRIVATE_REGISTRIES ?? "").split(/[\s,]+/).filter(Boolean)
+    .map(normalizedRegistry).some(entry => entry && target && entry.host === target.host && entry.port === target.port);
+  if (!target || target.host === "ghcr.io" || target.host === "github.io" || target.host.endsWith(".github.io") || !allowed)
+    throw new OciError("PRIVATE_LAYER", `private layer ${layer.config.name} cannot be published to ${registry}`);
+}
 
 /** Check headers before reading, and cancel before retaining an oversized chunk. */
 async function boundedBody(res, cap) {
@@ -248,6 +269,7 @@ export async function pushManifest(ref, bytes, options = {}) {
 
 /** Push a built layer's blobs followed by its manifest. */
 export async function push(ref, layer, options = {}) {
+  assertPrivateTarget(ref, [layer], options.env);
   const c = client(ref, {...options, push: true});
   for (const bytes of [layer.configBytes, layer.zip]) await pushBlob(ref, bytes, {...options, client: c});
   return pushManifest(ref, layer.manifestBytes, {...options, client: c});

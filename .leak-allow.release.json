@@ -152,6 +152,22 @@
       "category": "частный адрес",
       "count": 1,
       "reason": "Class A: packed-byte coincidence inside the expected SHA-256 of the public MIT license text; the test recomputes that digest."
+    },
+    {
+      "layer": "rap-flight",
+      "file": "upstream/package.devc.xml",
+      "fileSha256": "sha256:09ea5f5ee4cca99d9359160dd5727228f23dd966ca946ca8337b8a1ef3e9adbd",
+      "category": "identifier",
+      "count": 1,
+      "reason": "Class C: package-interface name in a public SAP-samples package file (Apache-2.0), fetched unchanged at the pinned commit; SAP itself publishes it. Bytes verified at https://github.com/SAP-samples/abap-platform-refscen-flight/blob/5353cbeb013a3a2fbd7f1ba6be89e54f68cfe22c/src/package.devc.xml."
+    },
+    {
+      "layer": "rap-flight",
+      "file": "upstream/managed/package.devc.xml",
+      "fileSha256": "sha256:06dc99866eb7d39134c8db40628fe384bd74827161f96c34e43aa1d454ec780c",
+      "category": "identifier",
+      "count": 1,
+      "reason": "Class C: package-interface name in a public SAP-samples package file (Apache-2.0), fetched unchanged at the pinned commit; SAP itself publishes it. Bytes verified at https://github.com/SAP-samples/abap-platform-refscen-flight/blob/5353cbeb013a3a2fbd7f1ba6be89e54f68cfe22c/src/managed/package.devc.xml."
     }
   ]
 }

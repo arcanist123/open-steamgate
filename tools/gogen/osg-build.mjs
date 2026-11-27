@@ -4,10 +4,15 @@ import {copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync} 
 import {dirname, join} from "node:path";
 import {compileProgram} from "./frontend.mjs";
 import {assertTableFieldsTyped} from "./frontend-ddic.mjs";
+import {dbCacheRead, dbCacheWrite, dbContributions, dbFlat, incrAssemble, incrRecorder} from "./osgo-incr.mjs";
 import {home} from "./home.mjs";
 import {libraryPath} from "../osd-lib-path.mjs";
 
-const walk = (d) => readdirSync(d, {withFileTypes: true}).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
+// a listed folder that is not on disk reads as empty (H3/FIX-4:
+// gen/hana-ddic is listed before its first build writes it, and the osgo
+// host imports this module on a fresh clone): tools/osd-inputs.mjs
+// walkListed, the one walker the layer list shares
+const walk = (d) => walkListed(d);
 
 /*
  * The layers in the order the Node build reads them (tools/osd-inputs.mjs):
@@ -18,7 +23,7 @@ const walk = (d) => readdirSync(d, {withFileTypes: true}).flatMap((e) => (e.isDi
  * (`hidden`), the way osd-build.mjs hands the transpiler the winner only.
  */
 const {inputFoldersOf} = await import(`${home}/tools/osd-packs.mjs`);
-const {layers: layersOf} = await import(`${home}/tools/osd-inputs.mjs`);
+const {layers: layersOf, walkListed} = await import(`${home}/tools/osd-inputs.mjs`);
 const {unfetched, describeUnfetched} = await import(`${home}/tools/osd-fetch.mjs`);
 const transpileConfig = JSON.parse(readFileSync(`${home}/abap_transpile.json`, "utf8"));
 const layerFolders = inputFoldersOf(home, transpileConfig).filter((f) => f !== "test");
@@ -74,8 +79,12 @@ for (const f of libs.flatMap(walk)) if (layerFiles.has(f.split("/").pop())) hidd
 const {cockpitAppsOf} = await import(`${home}/tools/osd-cockpit-apps.mjs`);
 for (const app of cockpitAppsOf(home, layerFolders)) for (const f of walk(app.dir)) hidden.add(f);
 
-/** every class, interface and function group of the layers and libraries, compiled (a statement outside the subset is a stub) */
-export function compileOsg({extraFolders = []} = {}) {
+/**
+ * What compileOsg hands the front end: the folders in layer order, the objects
+ * and the files left out (`hidden`). One definition, so a harness that replays
+ * the build (tools/selfhost/) compiles exactly what osgo.mjs compiles.
+ */
+export function osgCompileInputs({extraFolders = []} = {}) {
   // a pack that fetches a folder and has not: a smaller system than its
   // manifest describes, refused as osd-build.mjs's prepare() refuses it,
   // rather than compiled from whatever is on disk
@@ -88,10 +97,44 @@ export function compileOsg({extraFolders = []} = {}) {
   }
   const folders = [...layers, ...libs, ...extraFolders];
   const objects = [...new Set(folders.flatMap(walk).filter((f) => !hidden.has(f) && (/\.(clas|intf)\.abap$/.test(f) || /\.fugr\.xml$/.test(f)) && !f.includes("testclasses")).map((f) => f.split("/").pop().split(".")[0]))];
+  return {folders, objects, hidden};
+}
+
+/** every class, interface and function group of the layers and libraries, compiled (a statement outside the subset is a stub)
+ *
+ * `incr` is the per-object cache of the fast path (tools/gogen/osgo-incr.mjs):
+ * `{proof}` assembles the program out of the live generation's cache when the
+ * proof holds (and says why it did not when it cannot), `{recordGen}` records
+ * what a full front end lowered into that generation's cache. Without `incr`
+ * nothing of it runs. */
+export function compileOsg({extraFolders = [], includeTests = new Set(), incr} = {}) {
+  const {folders, objects} = osgCompileInputs({extraFolders});
   const t0 = performance.now();
-  const program = compileProgram({folders, objects, tolerant: true, skip: (path) => hidden.has(path)});
+  let program;
+  let incrInfo;
+  let note = "";
+  if (incr?.proof?.ok) {
+    // a cache that cannot be read or assembled is a miss like any other:
+    // the full front end below runs, never an abort
+    let attempt;
+    try { attempt = incrAssemble({root: home, folders, objects, hidden, includeTests, proof: incr.proof}); }
+    catch (e) { attempt = {ok: false, reason: `the per-object cache could not be used: ${e.message}`}; }
+    if (attempt.ok) {
+      program = attempt.program;
+      incrInfo = {read: attempt, proofBase: incr.proof.base};
+      note = `\nosgo incr: ${attempt.reused} objects from the cache of generation ${incr.proof.base}, ${attempt.lowered.length} lowered fresh; ${attempt.notes.join("; ")}`;
+    } else {
+      incrInfo = {refused: attempt.reason};
+      note = `\nosgo incr: the full front end runs (${attempt.reason})`;
+    }
+  }
+  if (!program) {
+    const recorder = incr?.recordGen ? incrRecorder({root: home, folders, hidden, objects, includeTests}) : undefined;
+    program = compileProgram({folders, objects, tolerant: true, skip: (path) => hidden.has(path), ...(includeTests.size ? {includeTests} : {}), ...(recorder ? {incr: recorder} : {})});
+    if (recorder) incrInfo = {written: recorder.finish({gen: incr.recordGen})};
+  }
   const summary = `front end: ${program.classes.length} classes, ${program.partial.length} statement stubs, ${program.skipped.length} methods not compiled, ${program.broken.length} objects with syntax errors (${Math.round(performance.now() - t0)} ms)`;
-  return {program, summary: `${summary}\nlayers: ${layerFolders.join(", ")}${overridden.length ? `; overridden: ${overridden.map((o) => `${o.object} by ${o.winner}`).join(", ")}` : ""}`};
+  return {program, summary: `${summary}\nlayers: ${layerFolders.join(", ")}${overridden.length ? `; overridden: ${overridden.map((o) => `${o.object} by ${o.winner}`).join(", ")}` : ""}${note}`, incr: incrInfo};
 }
 
 /**
@@ -100,10 +143,34 @@ export function compileOsg({extraFolders = []} = {}) {
  * Rows of a table this program has no definition for (a pack's) are left out,
  * and said so in the summary.
  */
-export async function osgDatabase(program) {
+export async function osgDatabase(program, options = {}) {
   const {DatabaseSetup} = await import(`${home}/node_modules/@abaplint/transpiler/build/src/db/index.js`);
-  assertTableFieldsTyped(program.reg);
-  const setup = new DatabaseSetup(program.reg).run();
+  // options.incr is what compileOsg's cache did: a read assembles the
+  // statements out of the recorded per-object lists with the re-lowered
+  // objects' rows derived again; a write records them after proving the
+  // reconstruction is exactly what the real run produced
+  /** @type {{schemas: {sqlite: string[]}, insert: string[]}} */ let setup;
+  if (options.incr?.read) {
+    // validated with the index before the cache was taken (osgo-incr-meta.mjs)
+    const cached = options.incr.read.incrDb.db ?? dbCacheRead(options.incr.read.incrDb.dir);
+    if (cached === undefined) throw new Error(`osgo incr: the cache of generation ${options.incr.proofBase} has no database record`);
+    const fresh = dbContributions(program.reg, new Set(options.incr.read.incrDb.relower));
+    const flat = dbFlat(cached, fresh);
+    setup = {schemas: {sqlite: flat.schemas}, insert: flat.insert};
+  } else {
+    assertTableFieldsTyped(program.reg);
+    setup = new DatabaseSetup(program.reg).run();
+    if (options.incr?.written) {
+      const mine = dbContributions(program.reg);
+      const flat = dbFlat(mine);
+      if (flat.schemas.join("\n") === setup.schemas.sqlite.join("\n") && flat.insert.join("\n") === setup.insert.join("\n")) {
+        dbCacheWrite(options.incr.written.dir, mine);
+      } else {
+        options.incr.dbMismatch = true;
+        console.log("osgo incr: the database statements did not attribute per object; the next fast build runs the full front end");
+      }
+    }
+  }
   process.env.OSD_ROOT ??= home;
   const {seedStatements} = await import(`${home}/test/seed.mjs`);
   const seed = seedStatements();
@@ -116,8 +183,20 @@ export async function osgDatabase(program) {
     skipped.set(t, (skipped.get(t) ?? 0) + 1);
     return false;
   });
-  const summary = `database: ${created.size} tables and views, ${kept.length} inserts${skipped.size ? `; left out, no table in this program: ${[...skipped].map(([t, n]) => `${t} (${n})`).join(", ")}` : ""}`;
-  return {statements: [...setup.schemas.sqlite, ...kept], summary};
+  // the cross-reference the Node hosts seed at start (tools/osd-xref-seed.mjs,
+  // CROSS / WBCROSSGT / WBCROSSGTX / D010INC derived from the tree), here
+  // once at build time, so where-used and the main programs of an include
+  // answer on osgo as they do on Node; only the tables this program defines
+  const {rows: xrefRows, insertStatements: xrefInserts, counts: xrefCounts} = await import(`${home}/tools/osd-xref-seed.mjs`);
+  // options.xref: rows the caller has already (the osgo fast path's, osgo-fast.mjs)
+  const xref = options.xref ?? await xrefRows(home);
+  const xrefStatements = xrefInserts(xref).filter((x) => {
+    const t = /^(?:INSERT\s+INTO|DELETE\s+FROM)\s+['"]?([\w\/]+)/i.exec(x)?.[1]?.toLowerCase();
+    return t !== undefined && created.has(t);
+  });
+  const xrefSummary = Object.entries(xrefCounts(xref)).map(([t, n]) => `${t} ${n}`).join(", ");
+  const summary = `database: ${created.size} tables and views, ${kept.length} inserts${skipped.size ? `; left out, no table in this program: ${[...skipped].map(([t, n]) => `${t} (${n})`).join(", ")}` : ""}; cross-reference: ${xrefSummary}`;
+  return {statements: [...setup.schemas.sqlite, ...kept, ...xrefStatements], summary};
 }
 
 /*

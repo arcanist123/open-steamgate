@@ -26,6 +26,7 @@
 //                   parameters: [{inOut: {Status: Status}}, {displayOnly: Text}]}
 const UI = "com.sap.vocabularies.UI.v1.";
 const COMMON = "com.sap.vocabularies.Common.v1.";
+const SESSION = "com.sap.vocabularies.Session.v1.";
 const expandAlias = (path) => String(path).replaceAll("@UI.", "@" + UI).replaceAll("@Common.", "@" + COMMON);
 const lit = (v) => `'${String(v).replaceAll("'", "''")}'`;
 
@@ -157,8 +158,53 @@ export class AnnotationWriter {
     }
   }
 
+  // The target of one annotations: entry. R8: Common.DraftRoot / DraftNode
+  // apply to the entity set, which the V2 model names inside its container
+  // (the V4 facade moves the target); written here, and false when the
+  // entry says nothing else, so no entity-type target follows
+  targetOf(namespace, a) {
+    if (!a.property && (a.spec.draftRoot || a.spec.draftNode)) {
+      const d = a.spec.draftRoot ?? a.spec.draftNode;
+      this.target(`${namespace}.${namespace}_Entities/${d.set ?? a.entity.set}`);
+      this.draft(a.spec);
+      if (Object.keys(a.spec).every((k) => k === "draftRoot" || k === "draftNode")) {
+        return false;
+      }
+    }
+    this.target(`${namespace}.${a.target}`);
+    return true;
+  }
+
+  // R8: a draft-enabled entity set (docs/rap-runtime.md, R8):
+  //   draftRoot: {set, activation, edit, prepare}  Common.DraftRoot
+  //   draftNode: {set, prepare}                    Common.DraftNode
+  draft(s) {
+    if (s.draftRoot) {
+      this.line(`lo_record = lo_target->create_annotation( ${lit(COMMON + "DraftRoot")} )->create_record( ${lit(COMMON + "DraftRootType")} ).`);
+      for (const [key, name] of [["activation", "ActivationAction"], ["edit", "EditAction"], ["prepare", "PreparationAction"]]) {
+        if (s.draftRoot[key]) {
+          this.value("lo_record", name, "set_string", s.draftRoot[key]);
+        }
+      }
+    }
+    if (s.draftNode) {
+      this.line(`lo_record = lo_target->create_annotation( ${lit(COMMON + "DraftNode")} )->create_record( ${lit(COMMON + "DraftNodeType")} ).`);
+      if (s.draftNode.prepare) {
+        this.value("lo_record", "PreparationAction", "set_string", s.draftNode.prepare);
+      }
+    }
+  }
+
   entity(a) {
     const s = a.spec;
+    // sticky: true asks the OData V4 facade for sticky-session editing of
+    // this entity's set (what Fiori Elements V4 edits and creates through,
+    // docs/odata-v4.md). The marker is Session.StickySessionSupported on the
+    // type with an empty record; the facade defines the actions and names
+    // them on the entity set, where Fiori Elements reads them.
+    if (s.sticky === true) {
+      this.line(`lo_record = lo_target->create_annotation( ${lit(SESSION + "StickySessionSupported")} )->create_record( ${lit(SESSION + "StickySessionSupportedType")} ).`);
+    }
     if (s.header) {
       this.line(`lo_record = lo_target->create_annotation( ${lit(UI + "HeaderInfo")} )->create_record( ${lit(UI + "HeaderInfoType")} ).`);
       if (s.header.typeName) {

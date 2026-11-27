@@ -180,7 +180,8 @@ describe("verified lift R3", () => {
     ].map(([name, abapResult, where]) => [name, abapResult, db.prepare(`SELECT * FROM pairs WHERE ${where}`).all().length > 0]);
     expect(observed).to.deep.equal([
       ["CHAR shorter", true, false], ["CHAR longer", true, false],
-      ["NUMC number", true, false], ["NUMC literal", false, false],
+      // n against c compares as numbers (transpiler 2.14.38, #2216, measured on a system)
+      ["NUMC number", true, false], ["NUMC literal", true, false],
       ["case", false, false], ["packed number", false, false],
       ["NULL initial", true, false],
     ]);

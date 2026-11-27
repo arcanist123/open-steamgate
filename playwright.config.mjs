@@ -20,11 +20,17 @@ export default defineConfig({
     headless: true,
     screenshot: "only-on-failure",
   },
-  webServer: {
+  // OSD_E2E_BASE_URL: a spec run by hand against a host somewhere else
+  // (test/e2e/h5x-app.spec.mjs on a bed, docs/hana-milestone-3.md) needs no
+  // gateway of its own
+  webServer: process.env.OSD_E2E_BASE_URL ? undefined : {
     command: "node test/run.mjs",
     // CRUD suites must not reuse the developer's persistent default DB.
     // Explicit adapter selection is retained for targeted backend checks.
     // The cockpit browser fixture opts in here; ordinary ABAP Unit has no fleet rows.
+    // The pack is a generation input: a tree built without it is transpiled
+    // again at the server's start, inside the timeout below. CI builds it
+    // first (tests.yml, e2e job); `npm run e2e` pays it at the first start.
     env: {OSD_PACKS: [process.env.OSD_PACKS, "demo/cockpit-fleet"].filter(Boolean).join(delimiter), STG_DB: process.env.STG_DB ?? "sqlite",
       STG_DB_PATH: process.env.STG_DB ? process.env.STG_DB_PATH ?? "" : ""},
     url: `http://localhost:${PORT}/`,

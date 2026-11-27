@@ -98,7 +98,8 @@ describe("tools/osd-dumps: ZOSD_DUMP, written after the rollback", function () {
       // the shared connection by either the failed step or the dump write
       const next = await fetch(`${base}/TravelSet`, {method: "POST", headers, body: JSON.stringify({TravelId: "H003", Description: "after", Seats: 1})});
       expect(next.status).to.equal(201);
-      await fetch(`${base}/TravelSet('H003')`, {method: "DELETE", headers});
+      // Travel declares an ETag, so its DELETE takes If-Match
+      await fetch(`${base}/TravelSet('H003')`, {method: "DELETE", headers: {...headers, "if-match": "*"}});
     } finally {
       await runtime.stop();
     }

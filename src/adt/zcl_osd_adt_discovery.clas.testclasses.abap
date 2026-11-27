@@ -3,6 +3,7 @@ CLASS ltcl_discovery DEFINITION FINAL FOR TESTING DURATION SHORT RISK LEVEL HARM
     METHODS ordered_collections FOR TESTING.
     METHODS workspace_order FOR TESTING.
     METHODS document_quirks FOR TESTING.
+    METHODS core_one_collection_each FOR TESTING.
     METHODS head_and_get FOR TESTING RAISING cx_static_check.
 ENDCLASS.
 
@@ -68,8 +69,30 @@ CLASS ltcl_discovery IMPLEMENTATION.
     cl_abap_unit_assert=>assert_equals( act = ls_response-content_type exp = `application/atomsvc+xml` ).
     cl_abap_unit_assert=>assert_initial( ls_response-body ).
     ls_request-method = `GET`.
+    ls_request-path = `/sap/bc/adt/discovery`.
     ls_response = lo_route->handle( ls_request ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-content_type exp = `application/atomsvc+xml; charset=utf-8` ).
     cl_abap_unit_assert=>assert_equals( act = ls_response-body exp = zcl_osd_adt_discovery=>document( ) ).
+    ls_request-path = `/sap/bc/adt/core/discovery`.
+    ls_response = lo_route->handle( ls_request ).
+    cl_abap_unit_assert=>assert_equals( act = ls_response-body exp = zcl_osd_adt_discovery=>document( abap_true ) ).
+  ENDMETHOD.
+  METHOD core_one_collection_each.
+    DATA lv_xml TYPE string.
+    DATA lv_workspaces TYPE i.
+    DATA lv_collections TYPE i.
+    DATA lt_rows TYPE zcl_osd_adt_discovery=>tt_collection.
+    lv_xml = zcl_osd_adt_discovery=>document( abap_true ).
+    lt_rows = zcl_osd_adt_discovery=>collections( ).
+    FIND ALL OCCURRENCES OF `<app:workspace>` IN lv_xml MATCH COUNT lv_workspaces.
+    FIND ALL OCCURRENCES OF `<app:collection ` IN lv_xml MATCH COUNT lv_collections.
+    cl_abap_unit_assert=>assert_equals( act = lv_workspaces exp = lines( lt_rows ) ).
+    cl_abap_unit_assert=>assert_equals( act = lv_collections exp = lines( lt_rows ) ).
+*   the plain form keeps the collections, grouped
+    lv_xml = zcl_osd_adt_discovery=>document( ).
+    FIND ALL OCCURRENCES OF `<app:collection ` IN lv_xml MATCH COUNT lv_collections.
+    cl_abap_unit_assert=>assert_equals( act = lv_collections exp = lines( lt_rows ) ).
+    FIND ALL OCCURRENCES OF `<app:workspace>` IN lv_xml MATCH COUNT lv_workspaces.
+    cl_abap_unit_assert=>assert_true( boolc( lv_workspaces < lines( lt_rows ) ) ).
   ENDMETHOD.
 ENDCLASS.

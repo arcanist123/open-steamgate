@@ -44,6 +44,13 @@ export async function storeConfig(root, options = {}) {
       active[file] = path;
     }
   }
+  // the osgo fast path (osgo-fast.mjs): the files edited since the live
+  // generation are active as they are now, from a copy of their bytes, as a
+  // full build's snapshot would hold them
+  for (const [file, {digest: d, path}] of options.edited ?? []) {
+    built[file] = d;
+    active[file] = path;
+  }
   return {roots, libs, excluded, built, active};
 }
 

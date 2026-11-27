@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import {mkdirSync, writeFileSync} from 'node:fs';
 import {startLifecycleServer, lifecycleIdentity} from './adt-lifecycle-server.mjs';
 import {MISSING_VALIDATIONS, checkReport, renderReport, checkVspSyntax} from './adt-lifecycle-report.mjs';
-import {vspClient} from './adt-lifecycle-vsp.mjs';
+import {vspClient, vspCallTimeoutS, WARM_TYPES, warmReadyTimeoutS} from './adt-lifecycle-vsp.mjs';
 import {resolve, join} from 'node:path';
 const url = process.env.URL ?? `http://127.0.0.1:${process.env.STG_PORT ?? 8099}`;
 const target = new URL(url);
@@ -21,7 +21,6 @@ mkdirSync(out, {recursive:true});
 const results = [], owned = [], suffix = Date.now().toString(36).slice(-7).toUpperCase();
 const report = {schema:1, identity:lifecycleIdentity(), repeats, complete:false, results};
 let server, vsp;
-const warmTypes = new Set(['CLAS', 'INTF', 'INCL']);
 const defs = [
  ['DEVC', 'DEVC/K', 'packages', '$OSD_LC', null],
  ['CLAS', 'CLAS/OC', 'oo/classes', 'ZCL_OSD_LC', n => `CLASS ${n.toLowerCase()} DEFINITION PUBLIC FINAL CREATE PUBLIC. PUBLIC SECTION. CONSTANTS value TYPE i VALUE 1. ENDCLASS.\nCLASS ${n.toLowerCase()} IMPLEMENTATION. ENDCLASS.\n`],
@@ -48,6 +47,7 @@ async function step(f, operation, fn, sample) {
 }
 function na(f, operation, note) { results.push({client:f.client,type:f.type,operation,status:'N/A',note}); flush(); }
 const is404 = e => e.err === 404 || e.response?.status === 404 || e.status === 404;
+// Every VSP call's budget comes from vspCallTimeoutS (adt-lifecycle-vsp.mjs).
 async function absent(f) { try {await c.objectStructure(f.uri);} catch(e) {if(is404(e)) return; throw e;} throw Error('Object already exists / remains after cleanup'); }
 async function write(f, source) {
  const lock=await c.lock(f.uri); assert(lock.LOCK_HANDLE,'Empty lock handle');
@@ -64,7 +64,7 @@ async function serving() {
 async function warmOperation(f, work) {
  const before=await serving();
  await work();
- if(warmTypes.has(f.type)) {
+ if(WARM_TYPES.has(f.type)) {
   const after=await serving();
   assert(after.warm?.swaps > before.warm?.swaps && after.warm?.generation !== before.warm?.generation,
    `${f.type} content edit did not publish a warm swap`);
@@ -73,7 +73,7 @@ async function warmOperation(f, work) {
 async function warmReady(f) {
  let prepared=false;
  // Inspect compiler availability rather than a fixed delay (server local status).
- const until=Date.now()+90000;
+ const until=Date.now()+warmReadyTimeoutS()*1000;
  while(Date.now()<until) {
   const r=await serving();
   if(r.warm?.state === 'primed') return;
@@ -84,6 +84,7 @@ async function warmReady(f) {
   }
    if(!r.warm) throw Error('Server does not expose warm status');
   if(r.warm.state === 'off') throw Error('Warm compiler disabled');
+  if(r.warm.disabled === true) throw Error(`Warm compiler turned off for good: ${r.warm.reason}`);
   await new Promise(r=>setTimeout(r,250));
  }
  throw Error('Warm compiler did not become ready');
@@ -127,15 +128,15 @@ try {
    await step(f,'create',async()=>{await tool('CreatePackage',{name:f.name,description:'Disposable lifecycle probe',parent:'$TMP'});await c.objectStructure(f.uri);});
    na(f,'edit','VSP has CreatePackage; no package metadata update tool');na(f,'activate','Created active');continue;
   }
-  const made=await step(f,'create+write+activate',async()=>{await tool('WriteSource',{object_type:f.type,name:f.name,package:'$TMP',mode:'create',description:'Disposable lifecycle probe',source:f.source,timeout:90});assert(unchanged(await c.getObjectSource(`${f.uri}/source/main`),f.source),'Create source mismatch');});
+  const made=await step(f,'create+write+activate',async()=>{await tool('WriteSource',{object_type:f.type,name:f.name,package:'$TMP',mode:'create',description:'Disposable lifecycle probe',source:f.source,timeout:vspCallTimeoutS(f.type,'create')});assert(unchanged(await c.getObjectSource(`${f.uri}/source/main`),f.source),'Create source mismatch');});
   if(!made.ok) continue;
   let edited;
   for(let sample=0; sample<repeats; sample++) {
   await warmReady(f); edited=changed(f.source,sample);
-  await step(f,'edit+check+activate',()=>warmOperation(f,async()=>{await tool('WriteSource',{object_type:f.type,name:f.name,mode:'update',source:edited,timeout:90});assert(unchanged(await c.getObjectSource(`${f.uri}/source/main`,{version:'active'}),edited),'Active source mismatch');}),sample);
+  await step(f,'edit+check+activate',()=>warmOperation(f,async()=>{await tool('WriteSource',{object_type:f.type,name:f.name,mode:'update',source:edited,timeout:vspCallTimeoutS(f.type,'edit')});assert(unchanged(await c.getObjectSource(`${f.uri}/source/main`,{version:'active'}),edited),'Active source mismatch');}),sample);
   }
   await step(f,'check-explicit',async()=>checkVspSyntax(await tool('SyntaxCheck',{object_url:f.uri,content:edited})));
-  await step(f,'activate-explicit',()=>tool('Activate',{object_url:f.uri,object_name:f.name,timeout:90}));
+  await step(f,'activate-explicit',()=>tool('Activate',{object_url:f.uri,object_name:f.name,timeout:vspCallTimeoutS(f.type,'activate')}));
   await step(f,'readback-vsp',async()=>{const r=await tool('GetSource',{object_type:f.type,name:f.name,include_context:false});assert(r.content?.some(b=>b.text?.includes(edited.trim())),'VSP readback mismatch');});
  }
  report.complete=true;

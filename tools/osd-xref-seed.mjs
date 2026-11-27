@@ -156,6 +156,8 @@ export function wellFormed(tables) {
  *    identity, already inside hashOf, stands for them.
  *
  *  Undefined where there is no tree to hash, which only costs the cache. */
+// options.hash names another generation of this tree than its own hash (the
+// osgo fast path asks for the live generation's rows, tools/gogen/osgo-fast.mjs)
 export async function cacheKey(root, options = {}) {
   try {
     const {hashOf, genHash, generatorClosure} = await import(/* webpackIgnore: true */ "./osd-build.mjs");
@@ -164,7 +166,7 @@ export async function cacheKey(root, options = {}) {
     const {readFileSync} = await import(/* webpackIgnore: true */ "node:fs");
     const {fileURLToPath} = await import(/* webpackIgnore: true */ "node:url");
     const h = createHash("sha256");
-    h.update(DERIVATION).update("\0").update(hashOf(root)).update("\0").update(genHash(root)).update("\0");
+    h.update(DERIVATION).update("\0").update(options.hash ?? hashOf(root)).update("\0").update(genHash(root)).update("\0");
     if (!hosted()) {
       // `tools` is for the test that proves a change to the derivation
       // moves the key, over a copy of this folder
@@ -268,6 +270,11 @@ export const counts = (tables) => Object.fromEntries(TABLES.map((t) => [t, (tabl
  *  this" to every tool that asks them. */
 export async function seedAtStartup(client, options = {}) {
   const say = options.say ?? ((line) => console.log(line));
+  // a warning goes to stderr unless the caller takes the lines: under quiet
+  // stdout is the caller's (the unit runner's child answers its JSON there,
+  // and a row left out printed beside it broke the parse -- R11, a
+  // namespaced class whose include name is longer than D010INC's column)
+  const warn = options.say ?? ((line) => console.error(line));
   try {
     const started = Date.now();
     const tables = await rows(options.root ?? process.cwd(), options);
@@ -277,7 +284,7 @@ export async function seedAtStartup(client, options = {}) {
     }
     // said even when quiet: a row left out is a where-used that is short
     for (const {table, column, row} of n.refused) {
-      say(`cross-reference: ${table} row left out, ${column} longer than its column: ${JSON.stringify(row)}`);
+      warn(`cross-reference: ${table} row left out, ${column} longer than its column: ${JSON.stringify(row)}`);
     }
     return n;
   } catch (e) {

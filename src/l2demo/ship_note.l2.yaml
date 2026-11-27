@@ -1,0 +1,18 @@
+rule: ship-note
+class: zcl_l2_ship_note
+title: Airship notes need attention
+for: ZOSD_L2_NOTE as ship
+when: ship.status = 'M'
+forbid: row
+alert: "{ship.ship_id}: {ship.note}"
+boundaries: auto
+examples:
+  - name: full width note
+    date: 20261001
+    rows:
+      ZOSD_L2_NOTE:
+        - ship_id: S001
+          status: M
+          note: "Airship `Albatross` navigation note: clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies c!"
+    expect:
+      - "S001: Airship `Albatross` navigation note: clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies clear skies c!"

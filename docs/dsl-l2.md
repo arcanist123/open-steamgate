@@ -1,6 +1,6 @@
 # DSL L2: a domain rule compiled to L1
 
-Status: slices 1 to 8, 2026-10-03. Built on L1 (`docs/dsl-l1.md`) and the template engine
+Status: slices 1 to 8 and row rules, 2026-11-24. Built on L1 (`docs/dsl-l1.md`) and the template engine
 (`docs/abap-templates.md`).
 
 ## What L2 is
@@ -253,6 +253,40 @@ the other clause too.
 row that meets `when` when **no** row matches. Its alert names only `for` fields (there is no row
 of the other table to name).
 
+### Row rules
+
+`forbid: row` emits one alert for every `for` row that passes `when`, without
+reading a second table:
+
+```yaml
+rule: grounded-ship
+title: Grounded airships need attention
+for: ZOSD_L2_SHIP as ship
+when: ship.status = 'M' or ship.status = 'D'
+forbid: row
+alert: "{ship.ship_id} {ship.name}: grounded"
+examples:
+  - name: maintenance
+    date: 20261001
+    rows:
+      ZOSD_L2_SHIP: [{ship_id: S001, name: Albatross, status: M}]
+    expect: ["S001 Albatross: grounded"]
+```
+
+`when:` is required; omitting it is refused at the `forbid:` line because it
+would flag every row. Only fields of the `for` alias may appear in the alert.
+The scalar `row` stands alone: `exists` and `where` belong to the other
+rule forms. The compiler uses the same L1 model and templates to produce one
+SELECT with `when` as its WHERE, ordered by the driving table's keys.
+Comparisons stay on separate lines and boolean groups keep their parentheses.
+`range:`, `params:`, `keys:`, and `examples:` work as for other rules;
+`boundaries: auto` derives cases only from `when`. The generated check and
+ABAP Unit keep the `osd-trace/1` origins of the rule's lines.
+
+The complete demo is `src/l2demo/grounded_ship.l2.yaml`: maintenance and dry
+dock statuses, with a parameter override, a driving-key range and returned keys.
+The ship table has no duration field.
+
 **Duplicates** in one conjunction (or disjunction) are an error at the second one's line. Two
 comparisons are the same after the mirroring every comparison gets anyway (the selected table's
 field on the left: `a = b` and `b = a`, `a < b` and `b > a` meet), the other side compared as the
@@ -273,7 +307,10 @@ compared as units, the items of a group in any order: `not a and not a` is refus
   its parentheses.
 - **No line over 255 characters.** An alert text (up to 255 characters as a literal) is cut into
   pieces of at most 100, each its own `&&` line; an expected alert of a test method that does not
-  fit one literal is built in `lv_exp` the same way (`APPEND` takes no expression in 7.02). What
+  fit one literal is built in `lv_exp` the same way (`APPEND` takes no expression in 7.02).
+  Wide character values assigned to example and derived-case row fields also use pieces
+  joined with `&&`. These are string literals, preserving blanks between pieces and the
+  complete field value (the CHAR 255 airship-note demo covers G23). What
   the `abap` profile still refuses (a long example name in the assert call's line, a long CHAR
   literal after its column) is a `RuleError` at the rule line of the node the line traces to,
   raised by `renderRule` before any file is written, so `build`, `check` and the API refuse it

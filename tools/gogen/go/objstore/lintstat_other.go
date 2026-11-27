@@ -13,3 +13,6 @@ type fileIdentity struct {
 func lintIdentity(os.FileInfo) (fileIdentity, bool) { return fileIdentity{}, false }
 
 func lintFilesystemType(string) (int64, error) { return 0, nil }
+
+// Without a verified change-time identity the index is walked on every call.
+func storeStampIdentity(os.FileInfo) (fileIdentity, bool) { return fileIdentity{}, false }

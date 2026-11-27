@@ -3,6 +3,7 @@ import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {execFile} from "node:child_process";
 import {join, resolve} from "node:path";
 import {promisify} from "node:util";
+import {writeArtefactProvenance} from "../tools/osd-provenance.mjs";
 
 const exec = promisify(execFile);
 const script = resolve("scripts/pages-push.mjs");
@@ -92,6 +93,7 @@ describe("GitHub Pages concurrent pushes", function () {
     const build = join(root, "build");
     await mkdir(join(build, "app"), {recursive: true});
     await writeFile(join(build, "app", "flp.html"), "new main");
+    writeArtefactProvenance(build, {generation: "pages-fixture", systemDigest: null, systemPrivate: false, inputs: []});
     await runWithRace(["publish", "main", build]);
     expect(await published("main/app/flp.html")).to.equal("new main");
     expect(await published("pr-9/app/flp.html")).to.equal("competing preview\n");

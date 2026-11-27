@@ -10,6 +10,8 @@
 
 `instance/` validates instance numbers for the four standard ports; `hostports/`
 selects OSGo HTTP/HTTPS overrides, TLS credentials and the startup banner.
+`serving/` is the supervised-host contract: `/osd/serving`, `X-OSD-Generation`
+on every answer and the drain on SIGTERM (ADR 0010 slice 1).
 
 `crc32x/` updates the pure CRC-32 register used by the zip reader.
 

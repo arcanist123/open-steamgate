@@ -1,0 +1,26 @@
+# A small piled rule whose examples can be combined without changing their meaning.
+rule: proof-maintenance-ship
+class: zcl_l2_proof_ship
+title: Maintenance ships need attention
+for: ZOSD_L2_SHIP as ship
+range: ship.ship_id
+when: ship.status = 'M'
+forbid: row
+alert: "{ship.ship_id}: maintenance"
+boundaries: auto
+examples:
+  - name: maintenance
+    date: 20261001
+    rows:
+      ZOSD_L2_SHIP: [{ship_id: S001, name: Albatross, status: M}]
+    expect: ["S001: maintenance"]
+  - name: in service
+    date: 20261001
+    rows:
+      ZOSD_L2_SHIP: [{ship_id: S002, name: Tern, status: A}]
+    expect: []
+  - name: another date
+    date: 20261002
+    rows:
+      ZOSD_L2_SHIP: [{ship_id: S003, name: Heron, status: M}]
+    expect: ["S003: maintenance"]

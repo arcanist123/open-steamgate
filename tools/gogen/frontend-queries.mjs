@@ -17,13 +17,14 @@ export function selectionHas(wanted, name) {
 /** @type {WeakMap<import("./frontend-session-types.ts").Registry, Map<string, string[]>>} */ const localAnswers = new WeakMap();
 /** @param {Pick<import("./frontend-session-types.ts").ArtifactObject, "getType" | "getName">} obj @returns {string} */ const keyOf = (obj) => `${obj.getType()} ${obj.getName().toUpperCase()}`;
 
-/** @param {import("./frontend-session-types.ts").Registry} reg @param {ReadonlySet<string>} wanted @param {typeof import("@abaplint/core")} core @param {(file: import("@abaplint/core").ABAPFile) => import("./frontend-types.ts").SuppliedMethod[]} methodsOf @param {(reg: import("./frontend-session-types.ts").Registry, owner: string, name: string, kind: "method") => string | null | undefined} declaringClass @returns {Map<string, Set<string>>} */ export function suppliedIndex(reg, wanted, core, methodsOf, declaringClass) {
+/** @param {import("./frontend-session-types.ts").Registry} reg @param {ReadonlySet<string>} wanted @param {typeof import("@abaplint/core")} core @param {(file: import("@abaplint/core").ABAPFile) => import("./frontend-types.ts").SuppliedMethod[]} methodsOf @param {(reg: import("./frontend-session-types.ts").Registry, owner: string, name: string, kind: "method") => string | null | undefined} declaringClass @param {(owner: string, contributed: [string, string[]][]) => void} [collect] @returns {Map<string, Set<string>>} */ export function suppliedIndex(reg, wanted, core, methodsOf, declaringClass, collect) {
   localAnswers.set(reg, new Map());
   const /** @type {Map<string, Set<string>>} */ out = new Map(), /** @type {Map<string, Set<string>>} */ providers = new Map(), /** @type {Map<string, string>} */ declarations = new Map(), recording = recordingProvenance();
   for (/** @type {import("@abaplint/core").Objects.Class} */ const obj of enumerateObjects(reg, "supplied-index", [], "scheduling",
     /** @param {import("@abaplint/core").IObject} o */ (o) => o instanceof core.Objects.Class && wanted.has(o.getName().toUpperCase()))) {
     withArtifact({reg}, obj, () => {
       const file = obj.getMainABAPFile();
+      /** @type {[string, string[]][] | undefined} */ let mine;
       for (const {name, found} of file ? methodsOf(file) : []) {
         if (!recording && !found.length) continue;
         const key = name.includes("~") ? name.replace("~", "=>")
@@ -33,8 +34,14 @@ export function selectionHas(wanted, name) {
           if (!providers.has(key)) providers.set(key, new Set());
           providers.get(key).add(keyOf(obj));
         }
-        if (found.length) out.set(key, new Set([...(out.get(key) ?? []), ...found]));
+        if (found.length) {
+          out.set(key, new Set([...(out.get(key) ?? []), ...found]));
+          // the osgo per-object cache (osgo-incr.mjs) records which parameters
+          // this class's own file asks about, keyed by the declaring class
+          (mine ??= []).push([key, [...found]]);
+        }
       }
+      if (mine) collect?.(obj.getName().toUpperCase(), mine);
     }, "supplied-index");
   }
   suppliedIndexes.set(reg, recording ? {reg, providers, declarations, providerLists: new Map()} : undefined);

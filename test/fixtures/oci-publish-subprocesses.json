@@ -179,7 +179,7 @@
     "script": "tools/osd-leak-scan.mjs",
     "source": "spawnSync(scannerCommand, scannerArgs, {cwd: temp, env: scannerEnv, encoding: \"utf8\", maxBuffer: 4 * 1024 * 1024})",
     "envDeclaration": "const scannerEnv = publishChildEnv();",
-    "commandDeclaration": "const [scannerCommand, ...scannerArgs] = toolCommandIn(scannerEnv, join(toolRoot, \"tools/osd-leak-scan.mjs\"), [...identifierArgs, \"--redact\", \"--publication-allow\", \"--paths\", ...paths]);"
+    "commandDeclaration": "const [scannerCommand, ...scannerArgs] = toolCommandIn(scannerEnv, join(toolRoot, \"tools/osd-leak-scan.mjs\"), [...identifierArgs, ...(privateLayer ? [\"--private-layer\"] : []), \"--redact\", \"--publication-allow\", \"--paths\", ...paths]);"
   },
   {
     "file": "tools/osd-layer.mjs",

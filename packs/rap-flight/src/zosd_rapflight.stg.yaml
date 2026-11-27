@@ -1,0 +1,222 @@
+# The RAP flight reference scenario, read-only, over SADL: every CDS interface
+# view of the managed scenario and of the reuse layer that the CDS generator
+# takes (one-table projections), served as plain entity sets so the data the
+# pack seeds can be looked at and tested over the wire. No behavior: the
+# business objects behind these views are what the RAP runtime cannot run
+# yet (docs/rap-flight-pack.md). Property names are the CDS element names
+# in CamelCase; the managed views keep SAP's snake_case elements as they are.
+project: ZOSD_RAPFLIGHT
+service: ZOSD_RAPFLIGHT_SRV
+model: ZOSD_RAPFLIGHT_MDL
+description: "RAP flight reference scenario (SAP-samples, Apache-2.0), read-only over SADL"
+
+entities:
+  Travel:
+    set: TravelSet
+    source: {cds: /DMO/I_TRAVEL_M}
+    keys: [TravelId]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      TravelId: {type: String(8), field: TRAVEL_ID, readonly: true, label: "TRAVEL_ID"}
+      AgencyId: {type: String(6), field: AGENCY_ID, readonly: true, label: "AGENCY_ID"}
+      CustomerId: {type: String(6), field: CUSTOMER_ID, readonly: true, label: "CUSTOMER_ID"}
+      BeginDate: {type: DateTime, field: BEGIN_DATE, readonly: true, label: "BEGIN_DATE"}
+      EndDate: {type: DateTime, field: END_DATE, readonly: true, label: "END_DATE"}
+      BookingFee: {type: "Decimal(17,2)", field: BOOKING_FEE, readonly: true, label: "BOOKING_FEE"}
+      TotalPrice: {type: "Decimal(17,2)", field: TOTAL_PRICE, readonly: true, label: "TOTAL_PRICE"}
+      CurrencyCode: {type: String(5), field: CURRENCY_CODE, readonly: true, label: "CURRENCY_CODE"}
+      OverallStatus: {type: String(1), field: OVERALL_STATUS, readonly: true, label: "OVERALL_STATUS"}
+      Description: {type: String(1024), field: DESCRIPTION, readonly: true, label: "DESCRIPTION"}
+      CreatedBy: {type: String(12), field: CREATED_BY, readonly: true, label: "CREATED_BY"}
+      CreatedAt: {type: "Decimal(21,7)", field: CREATED_AT, readonly: true, label: "CREATED_AT"}
+      LastChangedBy: {type: String(12), field: LAST_CHANGED_BY, readonly: true, label: "LAST_CHANGED_BY"}
+      LastChangedAt: {type: "Decimal(21,7)", field: LAST_CHANGED_AT, readonly: true, label: "LAST_CHANGED_AT"}
+
+  Booking:
+    set: BookingSet
+    source: {cds: /DMO/I_BOOKING_M}
+    keys: [TravelId, BookingId]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      TravelId: {type: String(8), field: TRAVEL_ID, readonly: true, label: "TRAVEL_ID"}
+      BookingId: {type: String(4), field: BOOKING_ID, readonly: true, label: "BOOKING_ID"}
+      BookingDate: {type: DateTime, field: BOOKING_DATE, readonly: true, label: "BOOKING_DATE"}
+      CustomerId: {type: String(6), field: CUSTOMER_ID, readonly: true, label: "CUSTOMER_ID"}
+      CarrierId: {type: String(3), field: CARRIER_ID, readonly: true, label: "CARRIER_ID"}
+      ConnectionId: {type: String(4), field: CONNECTION_ID, readonly: true, label: "CONNECTION_ID"}
+      FlightDate: {type: DateTime, field: FLIGHT_DATE, readonly: true, label: "FLIGHT_DATE"}
+      FlightPrice: {type: "Decimal(17,2)", field: FLIGHT_PRICE, readonly: true, label: "FLIGHT_PRICE"}
+      CurrencyCode: {type: String(5), field: CURRENCY_CODE, readonly: true, label: "CURRENCY_CODE"}
+      BookingStatus: {type: String(1), field: BOOKING_STATUS, readonly: true, label: "BOOKING_STATUS"}
+      LastChangedAt: {type: "Decimal(21,7)", field: LAST_CHANGED_AT, readonly: true, label: "LAST_CHANGED_AT"}
+
+  BookingSupplement:
+    set: BookingSupplementSet
+    source: {cds: /DMO/I_BOOKSUPPL_M}
+    keys: [TravelId, BookingId, BookingSupplementId]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      TravelId: {type: String(8), field: TRAVEL_ID, readonly: true, label: "TRAVEL_ID"}
+      BookingId: {type: String(4), field: BOOKING_ID, readonly: true, label: "BOOKING_ID"}
+      BookingSupplementId: {type: String(2), field: BOOKING_SUPPLEMENT_ID, readonly: true, label: "BOOKING_SUPPLEMENT_ID"}
+      SupplementId: {type: String(10), field: SUPPLEMENT_ID, readonly: true, label: "SUPPLEMENT_ID"}
+      Price: {type: "Decimal(17,2)", field: PRICE, readonly: true, label: "PRICE"}
+      CurrencyCode: {type: String(5), field: CURRENCY_CODE, readonly: true, label: "CURRENCY_CODE"}
+      LastChangedAt: {type: "Decimal(21,7)", field: LAST_CHANGED_AT, readonly: true, label: "LAST_CHANGED_AT"}
+
+  Carrier:
+    set: CarrierSet
+    source: {cds: /DMO/I_CARRIER}
+    keys: [Airlineid]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Airlineid: {type: String(3), field: AIRLINEID, readonly: true, label: "AIRLINEID"}
+      Name: {type: String(40), field: NAME, readonly: true, label: "NAME"}
+      Currencycode: {type: String(5), field: CURRENCYCODE, readonly: true, label: "CURRENCYCODE"}
+      Lastchangedat: {type: "Decimal(21,7)", field: LASTCHANGEDAT, readonly: true, label: "LASTCHANGEDAT"}
+      Localcreatedat: {type: "Decimal(21,7)", field: LOCALCREATEDAT, readonly: true, label: "LOCALCREATEDAT"}
+      Localcreatedby: {type: String(12), field: LOCALCREATEDBY, readonly: true, label: "LOCALCREATEDBY"}
+      Locallastchangedat: {type: "Decimal(21,7)", field: LOCALLASTCHANGEDAT, readonly: true, label: "LOCALLASTCHANGEDAT"}
+      Locallastchangedby: {type: String(12), field: LOCALLASTCHANGEDBY, readonly: true, label: "LOCALLASTCHANGEDBY"}
+
+  Customer:
+    set: CustomerSet
+    source: {cds: /DMO/I_CUSTOMER}
+    keys: [Customerid]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Customerid: {type: String(6), field: CUSTOMERID, readonly: true, label: "CUSTOMERID"}
+      Firstname: {type: String(40), field: FIRSTNAME, readonly: true, label: "FIRSTNAME"}
+      Lastname: {type: String(40), field: LASTNAME, readonly: true, label: "LASTNAME"}
+      Title: {type: String(10), field: TITLE, readonly: true, label: "TITLE"}
+      Street: {type: String(60), field: STREET, readonly: true, label: "STREET"}
+      Postalcode: {type: String(10), field: POSTALCODE, readonly: true, label: "POSTALCODE"}
+      City: {type: String(40), field: CITY, readonly: true, label: "CITY"}
+      Countrycode: {type: String(3), field: COUNTRYCODE, readonly: true, label: "COUNTRYCODE"}
+      Phonenumber: {type: String(30), field: PHONENUMBER, readonly: true, label: "PHONENUMBER"}
+      Emailaddress: {type: String(40), field: EMAILADDRESS, readonly: true, label: "EMAILADDRESS"}
+
+  Agency:
+    set: AgencySet
+    source: {cds: /DMO/I_AGENCY}
+    keys: [Agencyid]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Agencyid: {type: String(6), field: AGENCYID, readonly: true, label: "AGENCYID"}
+      Name: {type: String(80), field: NAME, readonly: true, label: "NAME"}
+      Street: {type: String(60), field: STREET, readonly: true, label: "STREET"}
+      Postalcode: {type: String(10), field: POSTALCODE, readonly: true, label: "POSTALCODE"}
+      City: {type: String(40), field: CITY, readonly: true, label: "CITY"}
+      Countrycode: {type: String(3), field: COUNTRYCODE, readonly: true, label: "COUNTRYCODE"}
+      Phonenumber: {type: String(30), field: PHONENUMBER, readonly: true, label: "PHONENUMBER"}
+      Emailaddress: {type: String(40), field: EMAILADDRESS, readonly: true, label: "EMAILADDRESS"}
+      Webaddress: {type: String(40), field: WEBADDRESS, readonly: true, label: "WEBADDRESS"}
+      Attachment: {type: String(40), field: ATTACHMENT, readonly: true, label: "ATTACHMENT"}
+      Mimetype: {type: String(128), field: MIMETYPE, readonly: true, label: "MIMETYPE"}
+      Filename: {type: String(128), field: FILENAME, readonly: true, label: "FILENAME"}
+      Localcreatedby: {type: String(12), field: LOCALCREATEDBY, readonly: true, label: "LOCALCREATEDBY"}
+      Localcreatedat: {type: "Decimal(21,7)", field: LOCALCREATEDAT, readonly: true, label: "LOCALCREATEDAT"}
+      Locallastchangedby: {type: String(12), field: LOCALLASTCHANGEDBY, readonly: true, label: "LOCALLASTCHANGEDBY"}
+      Locallastchangedat: {type: "Decimal(21,7)", field: LOCALLASTCHANGEDAT, readonly: true, label: "LOCALLASTCHANGEDAT"}
+      Lastchangedat: {type: "Decimal(21,7)", field: LASTCHANGEDAT, readonly: true, label: "LASTCHANGEDAT"}
+
+  Connection:
+    set: ConnectionSet
+    source: {cds: /DMO/I_CONNECTION}
+    keys: [Airlineid, Connectionid]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Airlineid: {type: String(3), field: AIRLINEID, readonly: true, label: "AIRLINEID"}
+      Connectionid: {type: String(4), field: CONNECTIONID, readonly: true, label: "CONNECTIONID"}
+      Departureairport: {type: String(3), field: DEPARTUREAIRPORT, readonly: true, label: "DEPARTUREAIRPORT"}
+      Destinationairport: {type: String(3), field: DESTINATIONAIRPORT, readonly: true, label: "DESTINATIONAIRPORT"}
+      Departuretime: {type: Time, field: DEPARTURETIME, readonly: true, label: "DEPARTURETIME"}
+      Arrivaltime: {type: Time, field: ARRIVALTIME, readonly: true, label: "ARRIVALTIME"}
+      Distance: {type: Int32, field: DISTANCE, readonly: true, label: "DISTANCE"}
+      Distanceunit: {type: String(3), field: DISTANCEUNIT, readonly: true, label: "DISTANCEUNIT"}
+
+  Flight:
+    set: FlightSet
+    source: {cds: /DMO/I_FLIGHT}
+    keys: [Airlineid, Connectionid, Flightdate]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Airlineid: {type: String(3), field: AIRLINEID, readonly: true, label: "AIRLINEID"}
+      Connectionid: {type: String(4), field: CONNECTIONID, readonly: true, label: "CONNECTIONID"}
+      Flightdate: {type: DateTime, field: FLIGHTDATE, readonly: true, label: "FLIGHTDATE"}
+      Price: {type: "Decimal(17,2)", field: PRICE, readonly: true, label: "PRICE"}
+      Currencycode: {type: String(5), field: CURRENCYCODE, readonly: true, label: "CURRENCYCODE"}
+      Planetype: {type: String(10), field: PLANETYPE, readonly: true, label: "PLANETYPE"}
+      Maximumseats: {type: Int32, field: MAXIMUMSEATS, readonly: true, label: "MAXIMUMSEATS"}
+      Occupiedseats: {type: Int32, field: OCCUPIEDSEATS, readonly: true, label: "OCCUPIEDSEATS"}
+
+  Airport:
+    set: AirportSet
+    source: {cds: /DMO/I_AIRPORT}
+    keys: [Airportid]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Airportid: {type: String(3), field: AIRPORTID, readonly: true, label: "AIRPORTID"}
+      Name: {type: String(40), field: NAME, readonly: true, label: "NAME"}
+      City: {type: String(40), field: CITY, readonly: true, label: "CITY"}
+      Countrycode: {type: String(3), field: COUNTRYCODE, readonly: true, label: "COUNTRYCODE"}
+
+  Supplement:
+    set: SupplementSet
+    source: {cds: /DMO/I_SUPPLEMENT}
+    keys: [Supplementid]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Supplementid: {type: String(10), field: SUPPLEMENTID, readonly: true, label: "SUPPLEMENTID"}
+      Supplementcategory: {type: String(2), field: SUPPLEMENTCATEGORY, readonly: true, label: "SUPPLEMENTCATEGORY"}
+      Price: {type: "Decimal(17,2)", field: PRICE, readonly: true, label: "PRICE"}
+      Currencycode: {type: String(5), field: CURRENCYCODE, readonly: true, label: "CURRENCYCODE"}
+      Localcreatedby: {type: String(12), field: LOCALCREATEDBY, readonly: true, label: "LOCALCREATEDBY"}
+      Localcreatedat: {type: "Decimal(21,7)", field: LOCALCREATEDAT, readonly: true, label: "LOCALCREATEDAT"}
+      Locallastchangedby: {type: String(12), field: LOCALLASTCHANGEDBY, readonly: true, label: "LOCALLASTCHANGEDBY"}
+      Locallastchangedat: {type: "Decimal(21,7)", field: LOCALLASTCHANGEDAT, readonly: true, label: "LOCALLASTCHANGEDAT"}
+      Lastchangedat: {type: "Decimal(21,7)", field: LASTCHANGEDAT, readonly: true, label: "LASTCHANGEDAT"}
+
+  OverallStatusText:
+    set: OverallStatusTextSet
+    source: {cds: /DMO/I_OVERALL_STATUS_VH_TEXT}
+    keys: [Overallstatus, Language]
+    creatable: false
+    updatable: false
+    deletable: false
+    operations: [R, Q]
+    properties:
+      Overallstatus: {type: String(1), field: OVERALLSTATUS, readonly: true, label: "OVERALLSTATUS"}
+      Language: {type: String(1), field: LANGUAGE, readonly: true, label: "LANGUAGE"}
+      Text: {type: String(40), field: TEXT, readonly: true, label: "TEXT"}
+

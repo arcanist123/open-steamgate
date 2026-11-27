@@ -18,15 +18,15 @@ const imageSeed = `["CREATE TABLE unit_image (id INTEGER PRIMARY KEY AUTOINCREME
 
 func seedImage(t *testing.T) []byte {
 	t.Helper()
-	if err := OpenDB([]byte(imageSeed)); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(CloseUnitDB)
-	image, err := DBImage()
+	d, err := OpenDB([]byte(imageSeed))
 	if err != nil {
 		t.Fatal(err)
 	}
-	CloseUnitDB()
+	defer d.Close()
+	image, err := d.Image()
+	if err != nil {
+		t.Fatal(err)
+	}
 	return image
 }
 
@@ -38,10 +38,10 @@ type imageState struct {
 
 // Compare sqlite_master and every table, including sqlite_sequence. Sorting
 // encoded rows gives a stable checksum independent of query iteration order.
-func snapshotImage(t *testing.T) imageState {
+func snapshotImage(t *testing.T, d *Database) imageState {
 	t.Helper()
 	state := imageState{Counts: map[string]int{}, Checksums: map[string][32]byte{}}
-	rows, err := DB().Query("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name")
+	rows, err := d.SQL().Query("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func snapshotImage(t *testing.T) imageState {
 	}
 	rows.Close()
 	for _, table := range tables {
-		rows, err := DB().Query(`SELECT * FROM "` + table + `"`)
+		rows, err := d.SQL().Query(`SELECT * FROM "` + table + `"`)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,15 +99,18 @@ func snapshotImage(t *testing.T) imageState {
 
 func TestDBImageMatchesFreshSeed(t *testing.T) {
 	image := seedImage(t)
-	if err := OpenDB([]byte(imageSeed)); err != nil {
+	fresh, err := OpenDB([]byte(imageSeed))
+	if err != nil {
 		t.Fatal(err)
 	}
-	want := snapshotImage(t)
-	CloseUnitDB()
-	if err := OpenDBImage(image); err != nil {
+	want := snapshotImage(t, fresh)
+	fresh.Close()
+	copy, err := OpenDBImage(image)
+	if err != nil {
 		t.Fatal(err)
 	}
-	got := snapshotImage(t)
+	defer copy.Close()
+	got := snapshotImage(t, copy)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("image differs from fresh seed:\n got %#v\nwant %#v", got, want)
 	}
@@ -119,11 +122,10 @@ func TestUnitImageClassBoundary(t *testing.T) {
 		t.Run(finish, func(t *testing.T) {
 			session.BeginTestClass()
 			first := &Session{}
-			if err := OpenDBImage(image); err != nil {
+			if err := first.OpenUnitDB(image); err != nil {
 				t.Fatal(err)
 			}
-			BeginUnitLUW()
-			if _, err := conn().Exec("INSERT INTO unit_image (MANDT, value) VALUES ('123', 'first class')"); err != nil {
+			if _, err := first.conn().Exec("INSERT INTO unit_image (MANDT, value) VALUES ('123', 'first class')"); err != nil {
 				t.Fatal(err)
 			}
 			if finish == "commit" {
@@ -132,24 +134,24 @@ func TestUnitImageClassBoundary(t *testing.T) {
 				RollbackWork(first)
 			}
 			EndTestClass(first)
-			if db != nil || tx != nil {
+			if first.DB != nil || first.tx != nil {
 				t.Fatal("first class retained DB or LUW")
 			}
 
 			session.BeginTestClass()
-			EndTestClass(&Session{}) // class without SQL
-			if db != nil || tx != nil {
+			none := &Session{}
+			EndTestClass(none) // class without SQL
+			if none.DB != nil || none.tx != nil {
 				t.Fatal("non-DB class retained DB or LUW")
 			}
 
 			session.BeginTestClass()
 			second := &Session{}
-			if err := OpenDBImage(image); err != nil {
+			if err := second.OpenUnitDB(image); err != nil {
 				t.Fatal(err)
 			}
-			BeginUnitLUW()
 			var count int
-			if err := tx.QueryRow("SELECT count(*) FROM unit_image WHERE value = 'first class'").Scan(&count); err != nil {
+			if err := second.tx.QueryRow("SELECT count(*) FROM unit_image WHERE value = 'first class'").Scan(&count); err != nil {
 				t.Fatal(err)
 			}
 			if count != 0 {
@@ -165,16 +167,15 @@ func TestUnitImageCopiesDoNotAccumulate(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		session.BeginTestClass()
 		s := &Session{}
-		if err := OpenDBImage(image); err != nil {
+		if err := s.OpenUnitDB(image); err != nil {
 			t.Fatal(err)
 		}
-		copy := db
-		BeginUnitLUW()
-		if _, err := conn().Exec("INSERT INTO unit_image (MANDT, value) VALUES ('123', 'temporary')"); err != nil {
+		copy := s.DB.SQL()
+		if _, err := s.conn().Exec("INSERT INTO unit_image (MANDT, value) VALUES ('123', 'temporary')"); err != nil {
 			t.Fatal(err)
 		}
 		EndTestClass(s)
-		if db != nil || tx != nil || copy.Stats().OpenConnections != 0 {
+		if s.DB != nil || s.tx != nil || copy.Stats().OpenConnections != 0 {
 			t.Fatalf("class %d retained DB copy or LUW: %+v", i, copy.Stats())
 		}
 	}
@@ -182,29 +183,35 @@ func TestUnitImageCopiesDoNotAccumulate(t *testing.T) {
 
 func TestUnitImageOpensOnDynamicSQL(t *testing.T) {
 	image := seedImage(t)
-	SetUnitDBImage(image)
-	t.Cleanup(func() { CloseUnitDB(); SetUnitDBImage(nil) })
 	session.BeginTestClass()
 	first := &Session{}
+	first.UseUnitImage(image)
 	// The runner's static SQL detection can miss a dynamically called method.
 	// Its first statement still needs the private image and an active LUW.
-	if _, err := conn().Exec("INSERT INTO unit_image (MANDT, value) VALUES ('123', 'dynamic')"); err != nil {
+	if _, err := first.conn().Exec("INSERT INTO unit_image (MANDT, value) VALUES ('123', 'dynamic')"); err != nil {
 		t.Fatal(err)
 	}
-	if tx == nil {
+	if first.tx == nil {
 		t.Fatal("dynamic SQL did not begin a Unit LUW")
 	}
 	RollbackWork(first)
 	EndTestClass(first)
+	if first.DB != nil {
+		t.Fatal("class kept its DB copy")
+	}
 	session.BeginTestClass()
-	EndTestClass(&Session{})
-	if db != nil {
-		t.Fatal("class without SQL kept a DB copy")
+	none := &Session{}
+	none.UseUnitImage(image)
+	EndTestClass(none)
+	if none.DB != nil {
+		t.Fatal("class without SQL opened a DB copy")
 	}
 	session.BeginTestClass()
 	second := &Session{}
+	second.UseUnitImage(image)
+	t.Cleanup(func() { EndTestClass(second) })
 	var count int
-	rows, err := conn().Query("SELECT count(*) FROM unit_image WHERE value = 'dynamic'")
+	rows, err := second.conn().Query("SELECT count(*) FROM unit_image WHERE value = 'dynamic'")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,5 +222,4 @@ func TestUnitImageOpensOnDynamicSQL(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("second class sees %d writes", count)
 	}
-	EndTestClass(second)
 }

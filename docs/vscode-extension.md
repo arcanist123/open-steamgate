@@ -1653,6 +1653,92 @@ hit rather than the ~20-23 s cold build it is today (2026-09-26,
 `vsix-prebuilt-generation` task; fallback (b) taken on Alice's call within
 the hour the task set aside for the portable-hash design).
 
+## Engine
+
+*2026-11-10, ADR 0010 slice 8.* `osd.engine` chooses what **osd: Start**
+runs: `"node"` (the default, everything above: `tools/osd-build.mjs`, then
+`node test/run.mjs`) or `"osgo"`, the Go executable of a release
+(`docs/osgo-release.md`). The code is `editors/vscode/osgo-engine.js`
+(download and verify) and one branch in `Launcher.start()`.
+
+With `"osgo"` a start does this:
+
+1. **The asset for this machine** -- `osgo-linux-x64`, `osgo-linux-arm64`,
+   `osgo-darwin-arm64`, `osgo-darwin-x64`, `osgo-windows-x64.exe` or
+   `osgo-windows-arm64.exe`. Any other platform is refused with
+   `OSGO_NO_ASSET`.
+2. **The release tag the extension was built with**: `vscode-v<version>`,
+   then `vscode-stable-v<version>` (release.yml tags one commit either way,
+   and the version is stamped from that commit, so both carry the same
+   executables). `osd.osgo.releaseTag` names another tag; a development
+   build (version `0.7.0`, unstamped) has no release of its own and needs it.
+3. **Download and verify**: `<asset>.sha256` first, then the asset (GitHub
+   answers with a redirect, followed), streamed into a temporary name in
+   `<globalStorage>/osgo/<tag>/` and hashed on the way; only a match is
+   renamed into place and made executable, and the `.sha256` is written
+   after it, so a kept pair is always complete. A mismatch keeps nothing
+   (`OSGO_CHECKSUM`). The executable is never in the `.vsix`.
+4. **Re-use**: the next start finds the kept pair, hashes the file again
+   (about 0.4 s for 73 MB) and runs it without the network. A kept copy that
+   no longer matches is downloaded again, never run.
+5. **Spawn** `<binary> -port N -root <osdHome> -home <home> -adt`, where `N`
+   is the port the Node host would get (3531-3539), `-root` is the same tree
+   the Node host would build, and `<home>` is
+   `<globalStorage>/osgo-home/<the osd-instance hash of osdHome>`
+   (`osgo.sqlite` lives there and survives restarts). `OSD_LAUNCHER_IDENTITY`
+   is set as for Node.
+6. **Readiness**: the same `waitForServing` poll of `/osd/serving` as Node
+   (osgo answers it since slice 1, with `launcherPid` = its own pid and the
+   launcher identity), so no `/health` fallback is needed for any release
+   built after this change. Stop is the same SIGTERM; osgo drains within 55 s.
+
+Errors a person sees, each with **Open log** and **Use the Node engine**
+(which sets `osd.engine` back to `"node"` and starts): `OSGO_NO_ASSET`,
+`OSGO_NOT_RELEASED` (no tag with the asset; points at
+`osd.osgo.releaseTag`), `OSGO_NETWORK` ("no network?", and that a later start
+re-uses the kept copy), `OSGO_CHECKSUM`, and `OSGO_DATABASE` (osgo keeps its
+rows in its own SQLite file, so `osd.database.system` must be `sqlite`).
+`osd.osgo.binary` runs a local executable instead (a checkout's
+`tools/gogen/.out/osgo`), as it is and without a checksum.
+
+What osgo does not do here, on purpose for this slice:
+
+- **Workspace ABAP is not compiled in.** The executable serves the services
+  it was built with; a workspace layer is logged and not projected. ADT
+  reads and writes the tree at `-root`; an activation is published and
+  answers "rebuild osgo", which is what osgo says today.
+- **No hot swap from the extension: it starts `osgo`, not `osgw -build`.**
+  Slices 3 and 4 made the gateway (`cmd/osgw`) and the generation swap, but
+  `osgw` is not a release asset (the release carries `osgo-*` and `osd-*`
+  only), and its `-build` command is `node tools/gogen/osgo.mjs --fast`, which
+  needs a Go toolchain, Node, the npm dependencies and a full checkout with
+  the transpiler -- none of which a `.vsix` user has, and the first build of
+  the tree's package is about two minutes. It does not work offline from the
+  bundled seed. When `osgw` ships as an asset and the build runs from what
+  the extension carries, the launcher spawns
+  `osgw -binary <osgo> -build ... -port N -- -root ... -home ... -adt`
+  instead; the readiness and stop contract is the same (`osgw` answers
+  `/osd/serving` for its sidecar).
+- **No compiler sidecar.** osgo looks for `osd` beside itself for ADT
+  CHECK, activation and outline; the release has it as `osd-<platform>`, but
+  downloading a second large asset is a follow-up. Without it those answer
+  that they cannot compile; reads, locks, saves, the data preview and OData
+  work.
+- **No debugger and no job worker**: `osd.debug` is the Node host's
+  inspector and is ignored (logged); background jobs need osgo's scheduler,
+  ADR 0010 slice 7.
+
+Proven by `test/vscode-launcher.mjs` (`--grep osgo`): a local HTTP server
+stands in for the release (a 404 for the prerelease tag, a 302 for the
+asset) and a stub executable for osgo; download, verification, re-use, a
+tampered kept copy, mismatch refusal, no release, no network, the spawn
+arguments, readiness and stop. By hand on 2026-11-10 (Linux x64, no VS Code
+or display on that machine, so through the `Launcher` the extension calls):
+`vscode-v0.7.2382`'s `osgo-linux-x64` downloaded and verified, started in
+4.0 s, `TravelSet?$top=1` 200 with `X-OSD-Generation` = the serving
+generation, `/sap/bc/adt/discovery` 200, stopped in 2.5 s, restarted from
+the kept copy without the network in 3.2 s.
+
 ## Warm
 
 *2026-09-26 (T7).* B0 launches the whole system by itself; this makes the

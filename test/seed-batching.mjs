@@ -3,7 +3,7 @@ import {mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import {tmpdir} from "node:os";
 import {SQLiteDatabaseClient} from "@abaplint/database-sqlite";
 import {join} from "node:path";
-import {reseedPackRows, seedStatements} from "./seed.mjs";
+import {dbTableName, reseedPackRows, seedStatements} from "./seed.mjs";
 import {dataDirsOf} from "../tools/osd-packs.mjs";
 import {save} from "../tools/osd-persist.mjs";
 import {reseedExistingHana, schemaTables, setup} from "./setup.mjs";
@@ -73,6 +73,27 @@ describe("pack table ownership on fresh and existing databases", () => {
     await db.execute("INSERT INTO zshared VALUES ('1', 'stale');");
     await reseedPackRows(db);
     expect((await db.select({select: 'SELECT value FROM zshared'})).rows).to.deep.equal([{value: "later"}]);
+  });
+
+  // A namespaced table cannot be a file name (a slash is a path separator),
+  // so abapGit writes /DMO/TRAVEL as #dmo#travel and the runtime's database
+  // holds it under the ABAP name: buildDbTableName in @abaplint/runtime
+  // lowercases and quotes, it does not rename. packs/rap-flight was the
+  // first pack with such tables; before this, the reader refused the file
+  // ("invalid seed table #dmo#travel") and would have written #dmo#travel
+  // into the SQL, a table no statement of the runtime ever touches.
+  it("seeds and reseeds a namespaced table under its ABAP name", async () => {
+    writeFileSync(join(root, "packs", "later", "data", "#dmo#travel.tabu.json"), JSON.stringify([{travel_id: "1"}]));
+    const db = new SQLiteDatabaseClient();
+    await db.connect();
+    await db.execute('CREATE TABLE zshared (id TEXT PRIMARY KEY, value TEXT);');
+    await db.execute('CREATE TABLE "/dmo/travel" (travel_id TEXT PRIMARY KEY);');
+    await db.execute(seedStatements());
+    expect((await db.select({select: 'SELECT travel_id FROM "/dmo/travel"'})).rows).to.deep.equal([{travel_id: "1"}]);
+    await db.execute('INSERT INTO "/dmo/travel" VALUES (\'9\');');
+    await reseedPackRows(db);
+    expect((await db.select({select: 'SELECT travel_id FROM "/dmo/travel" ORDER BY travel_id'})).rows)
+      .to.deep.equal([{travel_id: "1"}]);
   });
 
   it("converts ISO dates and pads keys when DDIC lives beside a generated set", () => {
@@ -156,7 +177,7 @@ describe("the seed inserts every row it has, in batches", () => {
       for (const file of readdirSync(dir).filter((f) => f.endsWith(".tabu.json"))) {
         const count = JSON.parse(readFileSync(join(dir, file), "utf8")).length;
         if (count === 0) continue;
-        const table = file.slice(0, -".tabu.json".length).toLowerCase();
+        const table = dbTableName(file.slice(0, -".tabu.json".length).toLowerCase());
         inFiles.set(table, (inFiles.get(table) ?? 0) + count);
       }
     }

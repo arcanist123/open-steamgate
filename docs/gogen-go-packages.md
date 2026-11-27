@@ -174,7 +174,7 @@ osql imports abap (for `Type`/`Data`/`MoveData`), and abap never imports osql.
 - **sy fields.** select.go:22, luw.go:230-250 and dbwrite.go:199-260 write `s.Sy.Subrc` / `s.Sy.Dbcnt`. Core adds `func (s *Session) SetSubrc(int32)` and `SetDbcnt(int32)`, and osql takes `type Sy interface{ SetSubrc(int32); SetDbcnt(int32) }`. Generated code still passes `*abap.Session`, which satisfies it.
 - **Emitter.** Emitted `abap.Select/CommitWork/InsertRows/DBC/IRType/Table/Column/...` switch to `osql.X` with a fixed `osg/gogen/osql` import plus a `var _` keeper. The keeper also guarantees osql's `init()` runs. Core forwarders are not an option, because they would reintroduce the import.
 - **Host templates in the same PR.** These change:
-  - `abap.OpenDB`, `DBImage`, `CloseUnitDB`, `OpenDBImage`, `BeginUnitLUW`, `SetUnitDBImage` at unit.mjs:385/399
+  - `abap.OpenDB`, `Database.Image`, `CloseUnitDB`, `OpenDBImage`, `BeginUnitLUW`, `Session.UseUnitImage` / `Session.OpenUnitDB` in unit.mjs (since ADR 0010 slice 2 the test class's session owns its copy of the seed image)
   - `abap.OpenDB` and `abap.DialogStep` at semantics.mjs:827
   - gateway.mjs:242
   - cmd/osgo, cmd/osabap and httpc.mjs

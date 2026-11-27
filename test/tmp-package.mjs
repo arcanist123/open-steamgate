@@ -337,7 +337,7 @@ describe("$TMP, the local package", () => {
     for (const name of ["web:preview", "web:preview:duckdb"]) {
       expect(scripts[name], name).to.match(/^node tools\/osd-build\.mjs --publish && /);
     }
-    expect(read("../tools/osd-build.mjs"), "osd-build --publish").to.match(/args\.includes\("--publish"\)\) forPublishing\(/);
+    expect(read("../tools/osd-build.mjs"), "osd-build --publish").to.match(/args\.includes\("--publish"\)\) \{[^}]*forPublishing\(process\.env\); \}/);
     expect(read("../scripts/build-preview.mjs"), "preview").to.match(/forPublishing\(process\.env\)[\s\S]*generationTmpProblem\(generation\)/);
     expect(read("../scripts/build-vsix.mjs"), "VSIX and binary seed").to.match(/forPublishing\(\{\.\.\.env\}\)[\s\S]*generationTmpProblem\(live\)/);
     expect(read("../scripts/build-binary.mjs"), "the binary seeds through the VSIX staging").to.match(/stageSystemSeed/);

@@ -229,6 +229,21 @@ export function generate(folders, out = DEFAULT_OUT, options = {}) {
           message: String(error?.message ?? error),
         };
       }
+      // The IR is kept either way (the call path is unchanged), but a body
+      // DuckDB's lowering refuses is refused when it is called, so the build
+      // writes the refusal down beside the IR: the status facet reads it and
+      // does not label the method portable-duckdb (docs/amdp-engine-status.md).
+      let portableDuckdbRefusal;
+      if (portable !== undefined) {
+        try {
+          dialectCheck(portable, "duckdb");
+        } catch (error) {
+          portableDuckdbRefusal = {
+            code: error?.code ?? "UNSUPPORTED_DIALECT",
+            message: String(error?.message ?? error),
+          };
+        }
+      }
       procedures.push({
         module: fm,
         class: cls,
@@ -243,6 +258,7 @@ export function generate(folders, out = DEFAULT_OUT, options = {}) {
         body: m.body,
         hash: createHash("sha1").update(m.body).digest("hex").slice(0, 16),
         ...(portable === undefined ? {portableRefusal} : {portable}),
+        ...(portableDuckdbRefusal === undefined ? {} : {portableDuckdbRefusal}),
       });
     }
   }
@@ -270,7 +286,58 @@ if (basename(process.argv[1] ?? "") === "amdp-gen.mjs") {
   }
 }
 
-/** Advisory only: HANA source remains valid even if a portable engine refuses it. */
+/** Throws the first refusal the engine's lowering raises for a compiled
+ *  program, with the statement's position; returns quietly otherwise. The
+ *  compiler (compileProcedure) checks the SQLScript subset, not a dialect,
+ *  so a body can compile and still be refused by the engine when it is
+ *  called: FLOOR, LEFT, TO_NCHAR and others have no measured rendering. */
+export function dialectCheck(program, engine) {
+  // A table variable is bound at call time (the binder inlines it or points
+  // it at a materialised relation), so a static check stands a placeholder
+  // table in for it: what is checked is the dialect, not the binding.
+  const bound = (node) => {
+    if (Array.isArray(node)) return node.map(bound);
+    if (node === null || typeof node !== "object") return node;
+    if (node.rel === "var") return scan(`VAR_${node.name}`);
+    const out = {};
+    for (const [key, value] of Object.entries(node)) out[key] = bound(value);
+    return out;
+  };
+  const check = (relation) => lower(bound(relation), engine);
+  const visit = (statements) => {
+    for (const statement of statements) {
+      try {
+        for (const relation of [statement.rel, statement.cursor, statement.write]) {
+          if (relation !== undefined) check(relation);
+        }
+        // The runtime sends scalar expressions that the host cannot handle
+        // through a one-column DUMMY projection. Check that dialect path as
+        // well, including declarations, loop bounds and branch conditions.
+        const expressions = [statement.initial, statement.expr, statement.condition,
+          statement.from, statement.to, ...(statement.defaults ?? []),
+          ...(statement.branches ?? []).map((branch) => branch.condition)];
+        for (const expr of expressions) {
+          if (expr !== undefined) check(project(scan("DUMMY"), [{as: "V", expr}]));
+        }
+        if (statement.body) visit(statement.body);
+        if (statement.otherwise) visit(statement.otherwise);
+        for (const branch of statement.branches ?? []) visit(branch.body ?? []);
+      } catch (error) {
+        // Dialect refusals have no parser location. The procedure IR keeps
+        // the syntax node on every statement, including nested writes.
+        error.line ??= statement.source?.line;
+        error.col ??= statement.source?.col;
+        throw error;
+      }
+    }
+  };
+  visit(program.body ?? []);
+}
+
+/** Advisory only: HANA source remains valid even if a portable engine refuses it.
+ *  "sqlite" and "postgres" are accepted as lowering dialects (the value-parity
+ *  instrument uses them), not as engines an AMDP call runs on: the destination
+ *  runs the IR only on a DuckDB system connection (docs/amdp-engine-status.md). */
 export function portabilityWarnings(source, filename, store, engine) {
   if (!["sqlite", "duckdb", "postgres"].includes(engine) || !/BY\s+DATABASE\s+(?:PROCEDURE|FUNCTION)/i.test(source)) return [];
   let parsed;
@@ -287,34 +354,7 @@ export function portabilityWarnings(source, filename, store, engine) {
           return found.KIND === "DTEL" && found.DATATYPE !== "" ? found : undefined;
         },
       });
-      const visit = (statements) => {
-        for (const statement of statements) {
-          try {
-            for (const relation of [statement.rel, statement.cursor, statement.write]) {
-              if (relation !== undefined) lower(relation, engine);
-            }
-            // The runtime sends scalar expressions that the host cannot handle
-            // through a one-column DUMMY projection. Check that dialect path as
-            // well, including declarations, loop bounds and branch conditions.
-            const expressions = [statement.initial, statement.expr, statement.condition,
-              statement.from, statement.to, ...(statement.defaults ?? []),
-              ...(statement.branches ?? []).map((branch) => branch.condition)];
-            for (const expr of expressions) {
-              if (expr !== undefined) lower(project(scan("DUMMY"), [{as: "V", expr}]), engine);
-            }
-            if (statement.body) visit(statement.body);
-            if (statement.otherwise) visit(statement.otherwise);
-            for (const branch of statement.branches ?? []) visit(branch.body ?? []);
-          } catch (error) {
-            // Dialect refusals have no parser location. The procedure IR keeps
-            // the syntax node on every statement, including nested writes.
-            error.line ??= statement.source?.line;
-            error.col ??= statement.source?.col;
-            throw error;
-          }
-        }
-      };
-      visit(program.body);
+      dialectCheck(program, engine);
     } catch (error) {
       issues.push({severity: "W", line: firstLine + Math.max(0, (error?.line ?? 1) - 1),
         column: error?.col ?? 1,

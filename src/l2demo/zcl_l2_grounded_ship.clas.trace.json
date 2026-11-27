@@ -1,0 +1,601 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcl_l2_grounded_ship.clas.abap",
+      "lines": [
+        {
+          "line": 1,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 2,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/rule"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/title"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 3,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 4,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 5,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/field"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [6, 7],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 8,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 9,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/default"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/ref"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/type_name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 10,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "lines": [11, 14],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 15,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/default"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/ref"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/param/maintenance", "selector": "/type_name"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 16,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "lines": [17, 18],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 19,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/class"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 20,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 21,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/comment"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 22,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/type"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 23,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/column"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/name"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 24,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/column"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/name"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 25,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/column"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/name"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 26,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/type"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 27,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/itab"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/type"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 28,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/type"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/wa"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 29,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 30,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 31,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/name"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/1", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 32,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/name"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/2", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 33,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/name"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/field/3", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 34,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/for", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/for", "selector": "/alias"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/for", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 35,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/itab"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 36,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/is_cmp"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/lhs"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/op"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/pre"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/sref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 37,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/is_cmp"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/lhs"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/op"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/post"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/pre"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/value"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 38,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/is_cmp"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/lhs"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/op"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/pre"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/sref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 39,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 40,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/order/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join/order/1", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 41,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/itab"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/wa"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "line": 42,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/hole/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/hole/1", "selector": "/jref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 43,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/text/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/text/1", "selector": "/value"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 44,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/hole/2", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/hole/2", "selector": "/jref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 45,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/text/2", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/text/2", "selector": "/value"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 46,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/hole/3", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/hole/3", "selector": "/jref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 47,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/text/3", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/alert/text/3", "selector": "/value"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [48, 49],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 50,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "lines": [51, 54],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "lines": [55, 56],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/field"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 57,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 58,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 10},
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 59,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/for", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/for", "selector": "/alias"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/for", "selector": "/table"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 60,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 61,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/is_cmp"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/lhs"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/op"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/pre"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/1", "selector": "/sref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 62,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/is_cmp"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/lhs"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/op"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/post"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/pre"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/when/2", "selector": "/value"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 63,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/is_cmp"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/lhs"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/op"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/pre"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/range", "selector": "/sref"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 64,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/join", "selector": "/"},
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/source"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 12},
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "lines": [65, 73],
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship/keys", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 74,
+          "sources": [
+            {"file": "src/l2demo/grounded_ship.l2.yaml", "node": "rule/grounded-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l2-check/template.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        }
+      ]
+    }
+  ]
+}

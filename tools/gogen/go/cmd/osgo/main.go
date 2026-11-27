@@ -9,8 +9,9 @@
 // the handler class: ZCL_STG_HTTP_HANDLER below /sap/opu/odata/sap/, and the
 // class of each SICF node of the tree that this program compiled. Each such
 // request is one dialog step (abap.DialogStep: committed when it returns,
-// rolled back when it dumps), and the steps run one at a time, because class
-// statics are per process here as they are in one Node process. The static
+// rolled back when it dumps) in a Session of the one instance, and the
+// steps run one at a time, because the instance's sessions share one statics
+// store here as they do in one Node process. The static
 // files are the tree's webapp/ and each pack's, at the URLs Node serves them.
 //
 // The generated half (zz_*.go, zz_db.json) says which program this is:
@@ -32,6 +33,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"runtime/pprof"
 	"sort"
@@ -49,6 +51,7 @@ import (
 	"osg/gogen/profiling"
 	"osg/gogen/storecompiler"
 	"osg/gogen/sysid"
+	"osg/gogen/workpool"
 )
 
 //go:embed zz_db.json
@@ -85,11 +88,19 @@ func lookupDefault(name string, lookup func(string) (string, bool), fallback str
 	return fallback
 }
 
-// one work process: class statics are per process (see the package comment).
-// It is abap.WorkProcess, the lock the APC channels' steps take as well
+// one work process: the instance's sessions share one statics store and
+// its database has one connection (see the package comment). It is
+// abap.WorkProcess, the lock the APC channels' steps take as well
 // (go/abap/apc.go), so an ICF request and a push-channel message never run
 // ABAP at the same time (ultra/packs).
 var workProcess = &abap.WorkProcess
+
+// instance owns what every session of this process runs on: the database
+// main opened and the statics the sessions share (ADR 0010 slice 2); every
+// dialog step runs in a Session minted from it. Until main opens the
+// database it is an instance without one, as the package's own tests run it
+// (a statement there is refused by name, a step opens no LUW).
+var instance = abap.NewInstance(nil)
 
 // a push channel (*.sapc.xml) this program serves: its path and handler class
 type apcChannel struct {
@@ -125,7 +136,10 @@ func channelRoutes() func(w http.ResponseWriter, r *http.Request) bool {
 		// (ultra/packs review); Handler names the class in a start dump's 503
 		ch := &apc.Channel{Name: c.Name, Handler: c.Handler, AnyOrigin: true,
 			New:  func(s *abap.Session, r *http.Request) apc.Host { return newAPCHost(s, c.Handler, r) },
-			Step: runAPCStep}
+			Step: runAPCStep,
+			// a channel is one logical internal session: its statics are its
+			// own, and its steps run one at a time on the channel's socket
+			NewSession: func() *abap.Session { return &abap.Session{DB: instance.DB, Shared: instance.Statics} }}
 		byPath[c.Path] = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// the receipt the Node host writes into its 101 (tools/osd-apc.mjs)
 			w.Header().Set("X-OSD-Channel", c.Name)
@@ -223,23 +237,33 @@ func dumpText(r any) string {
 	return castdiag.DumpText(r)
 }
 
-// step runs one ICF request through the shim as a dialog step. The dump, if
-// there is one, comes back with its ABAP frames; the response is then not
-// the shim's.
-func step(x *abap.ICFExchange, base string, profileRoute func(string)) (dump any, frames []string) {
-	workProcess.Lock()
-	defer workProcess.Unlock()
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				dump, frames = r, abapStack(r)
+// step runs one ICF request through the shim as a dialog step on a work
+// process (workprocesses.go): the logical session borrowed by the kind's
+// transaction. The dump, if there is one, comes back with its ABAP frames;
+// the response is then not the shim's.
+func step(x *abap.ICFExchange, base string, r *http.Request, profileRoute func(string)) (dump any, frames []string) {
+	work := func(s *abap.Session) {
+		s.ProfileRoute = profileRoute
+		dialog := func() {
+			runShim(s, x, base)
+			if base == "/sap/bc/adt" {
+				completeADTWrite(s, x)
 			}
-		}()
-		s := &abap.Session{Statics: abap.ProcessStatics, ProfileRoute: profileRoute}
-		dialog := func() { abap.DialogStepIn(s, func() { runShim(s, x, base) }) }
+		}
 		runDialogStep(s, dialog, base == "/sap/bc/adt" || base == "/sap/public/bc/icf/logoff")
-	}()
+	}
+	dump, frames, _ = runWorkStep(r, stepKindOf(x.Method, base), adtSessionKey(r), stepReport(x.Method, x.Path, base), work)
 	return dump, frames
+}
+
+// stepReport names the step in its work-process row (ZOSD_WP-REPORT): the
+// service and the path the SM50 shape shows.
+func stepReport(method, path, base string) string {
+	p := strings.TrimPrefix(strings.TrimPrefix(path, strings.TrimSuffix(base, "/")), "/")
+	if p == "" {
+		return strings.Trim(base, "/")
+	}
+	return strings.Trim(base, "/") + " " + p
 }
 
 func runDialogStep(s *abap.Session, dialog func(), adt bool) {
@@ -266,7 +290,24 @@ func runDialogStep(s *abap.Session, dialog func(), adt bool) {
 
 func runAPCStep(s *abap.Session, name string, work func()) error {
 	adtHost.Begin(s)
-	err := abap.APCStep(name, work, s)
+	var err error
+	if wp == nil {
+		err = abap.APCStep(s, name, work)
+	} else {
+		// an APC message is a modifying step (ADR 0010): on a work process,
+		// the channel's session borrowed, a dump returned as APCStep does
+		if stepErr := wp.Step(context.Background(), workpool.Write, func(st *workpool.Step) {
+			st.SetReport("APC " + name)
+			defer func() {
+				if r := recover(); r != nil {
+					err = &abap.ErrDump{Step: name, Dump: r}
+				}
+			}()
+			abap.DialogStepOn(s, stepKindOn(st), st, work)
+		}); stepErr != nil {
+			err = stepErr
+		}
+	}
 	adtHost.Finish(s, err != nil)
 	return err
 }
@@ -291,7 +332,7 @@ func icfHandler(class, base string, onDump func(w http.ResponseWriter, r *http.R
 		if _, ok := pprof.Label(r.Context(), "path"); ok {
 			label = func(template string) { profiling.Matched(r, template) }
 		}
-		if dump, frames := step(x, base, label); dump != nil {
+		if dump, frames := step(x, base, r, label); dump != nil {
 			log.Printf("runtime error: %s %s: %s  at %s", r.Method, r.RequestURI, dumpText(dump), strings.Join(frames, " <- "))
 			onDump(w, r, dump, frames)
 			return
@@ -465,7 +506,7 @@ func selectedDB(db, home string, explicit bool, getenv func(string) string) stri
 func main() {
 	portFlag := flag.String("port", "", "HTTP port (OSD_PORT, STG_PORT, else 80nn with INSTANCE or 3095)")
 	addr := flag.String("addr", "", "address to listen on (default OSD_BIND, else loopback: 127.0.0.1 and ::1)")
-	dbFile := flag.String("db", "", "an SQLite file (WAL) instead of the in-memory database; seeded once, when it has no tables, and refused when another build seeded it")
+	dbFile := flag.String("db", "", "an SQLite file (WAL) instead of the in-memory database; seeded once, when it has no tables, and refused when its tables are another build's (go/dbschema)")
 	homeDir := flag.String("home", "", "data directory; defaults -db to <home>/osgo.sqlite and makes a fresh directory a full database reset")
 	compilerStatus := flag.Bool("compiler-status", false, "print compiler sidecar status as JSON")
 	version := flag.Bool("version", false, "print release tag and commit")
@@ -477,6 +518,10 @@ func main() {
 	root := flag.String("root", osgRoot, "the checkout whose webapp/ is served")
 	media := flag.String("media", "", "the SMW0 media directory (w3mi.json and the data files); default media/ beside the binary when it is there")
 	tlsFlags := httpsFlags()
+	sidecarDir := flag.String("sidecar", "", "run as a gateway's work sidecar (cmd/osgw): HTTP on <dir>/http-<pid>.sock, locks from <dir>/enq.sock")
+	candidateFlag := flag.Bool("candidate", false, "with -sidecar: start as a swap candidate, the database read-only and the boot writes deferred to the gateway's POST /osd/promote (candidate.go)")
+	gatewayBuilds := flag.Bool("gateway-builds", false, "with -sidecar: the gateway builds a new generation after an activation; the activation answer says so (candidate.go)")
+	wpFlag := flag.Int("wp", 0, "work processes over the database, each a connection of its own (OSD_WPS, else the cores; an in-memory database keeps one)")
 	flag.Parse()
 	lintEngine, lintErr := selectedLintEngine(*lintEngineFlag)
 	if lintErr != nil {
@@ -528,6 +573,7 @@ func main() {
 		}
 	}
 	started := time.Now()
+	host := newServingHost(*root, *dbFile, started)
 	profileConfig := profiling.Selected(*pprofFlag, *pprofAddr, os.Getenv)
 	profileServer, profileListener, err := profileConfig.Start()
 	if err != nil {
@@ -539,6 +585,10 @@ func main() {
 		log.Printf("pprof: http://%s/debug/pprof/ (separate loopback listener)", profileListener.Addr())
 	}
 	abap.HostFacts = append(abap.HostFacts, "host\tosgo: net/http in front of cl_express_icf_shim, one dialog step per request", buildFacts)
+	if wp != nil {
+		abap.HostFacts = append(abap.HostFacts, fmt.Sprintf("work processes\t%d of %d asked for; read steps deferred and query_only, modifying steps BEGIN IMMEDIATE, busy_timeout %s",
+			wp.Workers(), workProcesses(strconv.Itoa(*wpFlag), os.LookupEnv, runtime.NumCPU()), workpool.DefaultBusyTimeout))
+	}
 
 	if *media == "" {
 		if exe, err := os.Executable(); err == nil {
@@ -561,54 +611,44 @@ func main() {
 	if err := abap.SetStore(*root, storeConfig, ""); err != nil {
 		log.Fatalf("store: %v", err)
 	}
+	restorePublished() // what activation published before this process (candidate.go)
 
+	if (*candidateFlag || *gatewayBuilds) && *sidecarDir == "" {
+		log.Fatal("-candidate and -gateway-builds are a gateway's sidecar flags: they need -sidecar")
+	}
+	candidate.Store(*candidateFlag)
+	if *gatewayBuilds {
+		useGatewayBuilds() // candidate.go
+	}
+	startSidecarLocks(*sidecarDir) // a gateway's sidecar: its locks before any step (sidecar.go)
 	compilerClient := compiler.New(compiler.Options{Root: *root, Version: releaseTag})
 	defer compilerClient.Close()
 	objstore.SetCompiler(selectCheckCompiler(*root, storecompiler.Adapter{Client: compilerClient}, lintEngine), liveGeneration(*root))
 
-	if *dbFile == "" {
-		if err := abap.OpenDB(dbScript); err != nil {
-			log.Fatalf("database: %v", err)
-		}
-		log.Printf("database: in memory (use -home or -db to keep data)")
-		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), in memory, seeded at start")
-	} else {
-		seeded, err := abap.OpenDBFile(*dbFile, dbScript)
-		if err != nil {
-			log.Fatalf("database: %v", err)
-		}
-		log.Printf("database: %s (WAL)%s", *dbFile, map[bool]string{true: ", new: seeded", false: ", as it was"}[seeded])
-		abap.HostFacts = append(abap.HostFacts, "database\tSQLite (modernc.org/sqlite, pure Go), file "+filepath.Base(*dbFile)+", WAL")
-	}
+	openDatabase(*dbFile, *sidecarDir) // database.go
+	openWorkProcesses(*dbFile, workProcesses(strconv.Itoa(*wpFlag), os.LookupEnv, runtime.NumCPU()))
+	mintADTState() // the ADT session rows outside the step's LUW (workprocesses.go)
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Fatalf("boot: %s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
 			}
 		}()
-		abap.DialogStep(func() { boot(&abap.Session{Statics: abap.ProcessStatics}) })
+		if err := runSystemStep(abap.WriteStep, "boot", func(s *abap.Session) { boot(s) }); err != nil {
+			log.Fatalf("boot: %v", err)
+		}
 	}()
-	// the synthetic demo rows (ZCL_OSD_DEMO_DATA=>BOOT, as the Node hosts run
-	// it through tools/osd-demo-data.mjs): the same class and the same knob,
-	// OSD_DEMO_ROWS; one dialog step of its own, and a dump there is reported
-	// and the server starts without the rows
-	if hasDemoData {
-		func() {
-			started := time.Now()
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("demo data: ZCL_OSD_DEMO_DATA=>BOOT failed, serving without it: %s  at %s", dumpText(r), strings.Join(abapStack(r), " <- "))
-				}
-			}()
-			var report string
-			abap.DialogStep(func() { report = demoData(&abap.Session{Statics: abap.ProcessStatics}, os.Getenv("OSD_DEMO_ROWS")) })
-			log.Printf("demo data: %s (%d ms)", report, time.Since(started).Milliseconds())
-		}()
+	// the synthetic demo rows: a candidate writes them when it is promoted
+	if !candidate.Load() {
+		runDemoData()
 	}
 
 	webapp := filepath.Join(*root, "webapp")
 	var routes []route
 	if adtEnabled(*adtFlag, os.Getenv) {
+		abap.ADTPreview = true
+		// the compiler-backed ADT routes fail late and quietly without it
+		log.Print(compiler.Describe(compiler.Locate()))
 		routes = append(routes, route{"/sap/bc/adt", false, icfHandler("ZCL_OSD_ADT_HANDLER", "/sap/bc/adt", adtDump)},
 			// the ADT logoff is the ABAP front's too, as on Node (tools/adt-facade.mjs)
 			route{"/sap/public/bc/icf/logoff", true, icfHandler("ZCL_OSD_ADT_HANDLER", "/sap/public/bc/icf/logoff", adtDump)})
@@ -643,6 +683,15 @@ func main() {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		fmt.Fprintf(w, "{\"status\":\"ready\",\"version\":%q,\"commit\":%q}\n", releaseTag, releaseCommit)
 	}})
+	// readiness for a supervisor: the generation, ready or draining (serving.go)
+	routes = append(routes, servingRoute(host))
+	if *gatewayBuilds {
+		routes = append(routes, inactiveRoute()) // candidate.go: the gateway's build-time gate
+	}
+	status := statusHost{port: *port, root: *root, dbFile: *dbFile, started: started}
+	if candidate.Load() {
+		routes = append(routes, promoteRoute(*dbFile, status)) // candidate.go
+	}
 	// the tiles the packs declare (test/start.mjs pack-tiles), read when this binary was built
 	routes = append(routes, route{"/app/packs.json", true, func(w http.ResponseWriter, r *http.Request) {
 		profiling.Matched(r, "/app/packs.json")
@@ -674,7 +723,6 @@ func main() {
 		routes = append(routes, route{n.Path, false, refusal(n)})
 	}
 	odata := icfHandler("ZCL_STG_HTTP_HANDLER", odataBase, odataDump)
-	status := statusHost{port: *port, root: *root, dbFile: *dbFile, started: started}
 	routes = append(routes, route{statusODataPath, false, odata})
 	routes = append(routes, route{odataBase + "/", false, odata})
 	// every route under a path test/start.mjs refreshes the status tables
@@ -692,7 +740,8 @@ func main() {
 	sort.SliceStable(routes, func(i, j int) bool { return len(routes[i].prefix) > len(routes[j].prefix) })
 
 	upgrade := channelRoutes()
-	mux := profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade))
+	// every answer carries X-OSD-Generation; a drain refuses newcomers here
+	mux := host.Wrap(profiling.HTTP(profileConfig.Enabled, routeMatcher(routes, notFound, upgrade)))
 
 	rfcPort, diagPort := protocols.start(sid, adtEnabled(*adtFlag, os.Getenv), binds, mux)
 	for _, svc := range icfServices {
@@ -708,20 +757,19 @@ func main() {
 		log.Printf("not served   %s: %s (an upgrade answers 501)", n.Path, n.Why)
 	}
 	server := &http.Server{Addr: net.JoinHostPort(binds[0], strconv.Itoa(*port)), Handler: mux, ReadHeaderTimeout: 30 * time.Second}
-	lns, err := osdbind.ListenAll(binds, *port)
-	if err != nil {
-		log.Fatal(err)
-	}
+	lns := listeners(*sidecarDir, binds, *port) // sidecar.go
 	for _, extra := range lns[1:] {
 		go func(ln net.Listener) { log.Printf("listener %s: %v", ln.Addr(), server.Serve(ln)) }(extra)
 	}
 	ln := lns[0]
-	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit {
+	if hint := osdbind.Hint(binds); hint != "" && !addrExplicit && *sidecarDir == "" {
 		log.Print(hint)
 	}
 	// the status tables have this process in them before anybody asks, with
 	// the listener already open (its state is read off /proc/net/tcp)
-	if rows, err := refreshStatus(status); err != nil {
+	if candidate.Load() {
+		log.Printf("status       deferred: a candidate writes its status rows when it is promoted")
+	} else if rows, err := refreshStatus(status); err != nil {
 		log.Printf("status refresh: %v", err)
 	} else {
 		log.Printf("status       %d rows of this process in the status tables, refreshed before each %s request", rows, statusODataPath)
@@ -730,7 +778,7 @@ func main() {
 		log.Fatal(err)
 	}
 	log.Print(hostports.EndpointBanner(*port, tlsConfig, rfcPort, diagPort, osdbind.Describe(lns)))
-	log.Fatal(server.Serve(ln))
+	serveUntilSignal(host, server, ln)
 }
 
 func routeMatcher(routes []route, notFound http.HandlerFunc, upgrade func(http.ResponseWriter, *http.Request) bool) http.Handler {

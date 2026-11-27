@@ -9,7 +9,7 @@ import {basename, dirname, join, resolve} from "node:path";
 import {abapgitXml} from "./osd-abapgit-xml.mjs";
 import {zipFiles} from "./osd-zip.mjs";
 import {archiveFiles} from "./osd-source-zip.mjs";
-import {MEDIA, OciError, client, formatRef, manifest, parseRef, pull, push, pushBlob, pushManifest, sha256, treeDigest} from "./osd-oci.mjs";
+import {MEDIA, JSON_LIMIT, OciError, assertPrivateTarget, client, formatRef, manifest, parseRef, pull, push, pushBlob, pushManifest, sha256, treeDigest} from "./osd-oci.mjs";
 import {hostedLeakScanner, toolCommandIn} from "./osd-host.mjs";
 import {runsAs} from "./osd-main.mjs";
 import {CAPTURE, MAX_SCAN_BYTES} from "./osd-leak-scan.mjs";
@@ -23,9 +23,67 @@ const SYSTEM = "application/vnd.osd.system.v1";
 const CONFIG = "application/vnd.osd.layer.config.v1+json";
 const ZIP = "application/vnd.osd.abapgit.zip";
 const NAME = "org.osd.layer.name", KIND = "org.osd.layer.kind", ORDER = "org.osd.layer.order";
+const PRIVATE = "org.osd.layer.private";
 const jsonBytes = (value) => Buffer.from(JSON.stringify(value));
 const descriptor = (mediaType, bytes) => ({mediaType, digest: sha256(bytes), size: bytes.length});
 const fail = (code, message) => { throw new OciError(code, message); };
+
+function privateContent(folder) {
+  const names = new Set([".osd-source.json", ".osd-layer.json", ".osd-system.json"]);
+  const read = file => {
+    let value;
+    try { value = JSON.parse(readFileSync(file, "utf8")); }
+    catch { fail("BAD_LAYER", `invalid identity at ${file}`); }
+    if (basename(file) === ".osd-source.json" && typeof value.private !== "boolean")
+      fail("BAD_LAYER", `fetched identity with no recorded privacy cannot be published without --private (rerun node tools/osd-fetch.mjs; an empty-config OCI zip stays unknown): ${file}`);
+    return value.private === true || value.layers?.some(layer => layer.private === true);
+  };
+  const walk = dir => {
+    for (const item of readdirSync(dir, {withFileTypes: true})) {
+      if (item.name === ".git" || item.name === "node_modules") continue;
+      const path = join(dir, item.name);
+      if (item.isFile() && names.has(item.name) && read(path)) return true;
+      if (item.isDirectory() && walk(path)) return true;
+    }
+    return false;
+  };
+  for (let dir = resolve(folder); ; dir = dirname(dir)) {
+    for (const name of names) if (existsSync(join(dir, name)) && read(join(dir, name))) return true;
+    if (dir === toolRoot || dirname(dir) === dir) break;
+  }
+  return walk(resolve(folder));
+}
+
+// osd-build's store (build/by-input, build/source-by-digest, build/xref)
+// holds the sources and output of every generation, private ones included,
+// and no file in it carries an identity privateContent could read. So any
+// folder inside a build store, or holding a generation manifest, is private
+// unless proven otherwise: only --private builds a layer from it. Files
+// copied out of the store lose that context and cannot be recognised.
+const STORE = ["by-input", "source-by-digest"];
+function generationManifest(file) {
+  try {
+    const value = JSON.parse(readFileSync(file, "utf8"));
+    return typeof value?.hash === "string" && ["gen", "systemPrivate", "provenance", "builtAt"].some(key => Object.hasOwn(value, key));
+  } catch { return false; }
+}
+function generationCache(folder) {
+  const start = resolve(folder);
+  for (let dir = start; ; dir = dirname(dir)) {
+    if (dir === join(toolRoot, "build")) return true;
+    if (basename(dir) === "build" && STORE.some(part => existsSync(join(dir, part)))) return true;
+    if (generationManifest(join(dir, "manifest.json"))) return true;
+    if (dirname(dir) === dir) break;
+  }
+  const walk = dir => readdirSync(dir, {withFileTypes: true}).some(item => {
+    if (item.name === ".git" || item.name === "node_modules") return false;
+    const path = join(dir, item.name);
+    if (item.isFile()) return item.name === "manifest.json" && generationManifest(path);
+    if (!item.isDirectory()) return false;
+    return (item.name === "build" && STORE.some(part => existsSync(join(path, part)))) || walk(path);
+  });
+  return walk(start);
+}
 
 /** Read every file, without following links or carrying fetch identity. */
 function folderFiles(folder) {
@@ -46,10 +104,30 @@ function folderFiles(folder) {
   return files;
 }
 
-export function build(folder, {name, kind, source, annotations: extraAnnotations} = {}) {
+export function readClosure(file) {
+  let bytes;
+  try { bytes = readFileSync(file); } catch { fail("BAD_CLOSURE", `${file}: cannot read closure`); }
+  if (bytes.length > JSON_LIMIT) fail("BAD_CLOSURE", `${file}: closure exceeds 4 MiB`);
+  let value;
+  try { value = JSON.parse(bytes); } catch { fail("BAD_CLOSURE", `${file}: invalid JSON`); }
+  validateClosure(value);
+  return value;
+}
+
+function validateClosure(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !Number.isSafeInteger(value.unresolved) || value.unresolved < 0
+    || Object.keys(value).some(key => !["unresolved", "items"].includes(key))
+    || !Array.isArray(value.items) || value.items.some(item => !item || typeof item !== "object" || Array.isArray(item))
+    || Buffer.byteLength(JSON.stringify(value)) > JSON_LIMIT) fail("BAD_CLOSURE", "closure needs nonnegative integer unresolved and an array of objects within 4 MiB");
+}
+export {assertPrivateTarget} from "./osd-oci.mjs";
+
+export function build(folder, {name, kind, source, annotations: extraAnnotations, private: isPrivate = false, closure} = {}) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name ?? "")) fail("BAD_NAME", "--name must be a simple filename");
   if (!["lib", "input", "pack", "customer"].includes(kind)) fail("BAD_KIND", "--kind must be lib, input, pack or customer");
   if (!lstatSync(resolve(folder)).isDirectory()) fail("UNSAFE_ENTRY", "input must be a folder");
+  if (!isPrivate && generationCache(folder)) fail("PRIVATE_LAYER", "a build cache (build/, or a folder holding a generation manifest) requires --private");
+  if (!isPrivate && privateContent(folder)) fail("PRIVATE_LAYER", "private input requires --private");
   let files = folderFiles(resolve(folder));
   if (kind === "pack") validatePack(files, name);
   if (!files.some((f) => f.path === ".abapgit.xml")) {
@@ -57,6 +135,8 @@ export function build(folder, {name, kind, source, annotations: extraAnnotations
   }
   const config = {schema: 1, name, kind, treeDigest: treeDigest(files.map(({path, bytes}) => [path, bytes]))};
   const annotations = {[NAME]: name, [KIND]: kind};
+  if (isPrivate) { config.private = true; annotations["org.osd.layer.private"] = "true"; }
+  if (closure !== undefined) { validateClosure(closure); config.closure = closure; }
   if (source) {
     const m = /^(.+)@([^@:]+):(.+)$/.exec(source);
     if (!m) fail("BAD_SOURCE", "--source must be repo@commit:path");
@@ -64,8 +144,11 @@ export function build(folder, {name, kind, source, annotations: extraAnnotations
     annotations["org.opencontainers.image.source"] = m[1];
   }
   Object.assign(annotations, extraAnnotations, {[NAME]: name, [KIND]: kind});
+  if (isPrivate) annotations["org.osd.layer.private"] = "true";
+  else if (annotations["org.osd.layer.private"] !== undefined) fail("BAD_LAYER", "private annotation requires --private");
   files.sort((a, b) => Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)));
   const zip = layerZip(files), configBytes = jsonBytes(config);
+  if (configBytes.length > JSON_LIMIT) fail("BAD_CLOSURE", "layer config exceeds 4 MiB including closure");
   // Apply the pull reader's path, collision and size rules before publishing.
   archiveFiles(zip);
   const manifest = {schemaVersion: 2, mediaType: MEDIA.manifest, artifactType: LAYER,
@@ -106,7 +189,7 @@ export function readLeakAllow(file) {
 }
 
 /** Scan the exact publishable tree and metadata, before the first write. */
-export function leakGate(trees, metadata, documents = [], allow = [], layerNames = []) {
+export function leakGate(trees, metadata, documents = [], allow = [], layerNames = [], privateLayer = false) {
   const temp = mkdtempSync(join(tmpdir(), "osd-layer-scan-"));
   try {
     const paths = [], archivePaths = [], labels = new Map(), archive = [];
@@ -161,8 +244,8 @@ export function leakGate(trees, metadata, documents = [], allow = [], layerNames
     // the explicit list path or this tool's own checkout's, never the caller's cwd
     const identifierArgs = process.env.OSD_LEAK_IDENTIFIERS ? ["--identifiers", resolve(process.env.OSD_LEAK_IDENTIFIERS)] : [];
     const scannerEnv = publishChildEnv();
-    const [scannerCommand, ...scannerArgs] = toolCommandIn(scannerEnv, join(toolRoot, "tools/osd-leak-scan.mjs"), [...identifierArgs, "--redact", "--publication-allow", "--paths", ...paths]);
-    const result = hostedLeakScanner ? hostedLeakScanner(temp, paths) : spawnSync(scannerCommand, scannerArgs, {cwd: temp, env: scannerEnv, encoding: "utf8", maxBuffer: 4 * 1024 * 1024});
+    const [scannerCommand, ...scannerArgs] = toolCommandIn(scannerEnv, join(toolRoot, "tools/osd-leak-scan.mjs"), [...identifierArgs, ...(privateLayer ? ["--private-layer"] : []), "--redact", "--publication-allow", "--paths", ...paths]);
+    const result = hostedLeakScanner ? hostedLeakScanner(temp, paths, privateLayer) : spawnSync(scannerCommand, scannerArgs, {cwd: temp, env: scannerEnv, encoding: "utf8", maxBuffer: 4 * 1024 * 1024});
     const reason = result.error?.message ?? result.stderr?.trim() ?? result.stdout?.trim();
     const named = (reason ?? "").replace(/content\/\d{6}\.txt/g, (n) => labels.get(n) ?? n);
     if (result.status === 3) fail("BAD_ALLOW", named);
@@ -179,6 +262,8 @@ export function validateLayer(layer) {
     || !["lib", "input", "pack", "customer"].includes(c.kind) || typeof c.name !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(c.name)
     || m.annotations?.["org.osd.layer.name"] !== c.name || m.annotations?.["org.osd.layer.kind"] !== c.kind
     || m.layers[0].annotations?.["org.opencontainers.image.title"] !== `${c.name}.zip`) fail("BAD_LAYER", "invalid OSD layer");
+  if (c.private !== undefined && c.private !== true || m.annotations?.["org.osd.layer.private"] !== (c.private === true ? "true" : undefined)) fail("BAD_LAYER", "private marker differs from layer config");
+  if (c.closure !== undefined) validateClosure(c.closure);
   const files = [...archiveFiles(layer.layers[0].bytes)].map(([path, bytes]) => ({path, bytes}));
   if (!files.some(f => f.path === ".abapgit.xml")) fail("BAD_LAYER", "a layer needs root .abapgit.xml");
   if (c.kind === "pack") validatePack(files, c.name);
@@ -213,12 +298,25 @@ function systemAnnotations(root, release = false) {
 }
 
 export function prepareSystem(target, layers, options = {}) {
+  assertPrivateTarget(target, layers.map(({layer}) => layer), options.env);
+  if (options.annotations?.["org.osd.system.unresolved"] !== undefined) fail("BAD_SYSTEM", "system unresolved annotation is computed from layer closures");
+  if (layers.length > 1 && options.allow?.some(entry => entry.layer === undefined)) fail("BAD_ALLOW", "a system needs layer on every allow entry");
+  const names = layers.map(({layer}) => layer.config.name);
+  if (options.allow?.some(entry => names.filter(name => name === entry.layer).length > 1)) fail("BAD_ALLOW", "an allow entry names more than one system layer");
+  for (const entry of options.allow ?? []) if (entry.layer !== undefined && !layers.some(({layer}) => layer.config.name === entry.layer)) fail("BAD_ALLOW", `allow entry names no system layer: ${entry.layer}`);
   const index = {schemaVersion: 2, mediaType: MEDIA.index, artifactType: SYSTEM,
     manifests: layers.map(({layer}, i) => ({...descriptor(MEDIA.manifest, layer.manifest.bytes),
-      annotations: {[NAME]: layer.config.name, [KIND]: layer.config.kind, [ORDER]: String(i)}})),
+      annotations: {[NAME]: layer.config.name, [KIND]: layer.config.kind, [ORDER]: String(i), ...(layer.config.private ? {[PRIVATE]: "true"} : {})}})),
     annotations: {...systemAnnotations(options.root ?? process.env.OSD_ROOT ?? process.cwd(), options.release), ...options.annotations}};
-  leakGate(layers.map((l) => l.files), {destination: target, index, layers: layers.map(({layer}) => ({manifest: layer.manifest.json, config: layer.config}))},
-    [jsonBytes(index), ...layers.flatMap(({layer}) => [layer.configBytes, layer.manifest.bytes])], options.allow, layers.map(({layer}) => layer.config.name));
+  const withClosure = layers.filter(({layer}) => layer.config.closure !== undefined);
+  if (withClosure.length) {
+    const sum = withClosure.reduce((n, {layer}) => n + layer.config.closure.unresolved, 0);
+    if (!Number.isSafeInteger(sum)) fail("BAD_CLOSURE", "system unresolved count exceeds safe integer range");
+    index.annotations["org.osd.system.unresolved"] = String(sum);
+  }
+  for (const {layer, files} of layers) leakGate([files], {destination: target, config: layer.config, manifest: layer.manifest.json},
+    [layer.configBytes, layer.manifest.bytes], options.allow?.filter(e => e.layer === undefined || e.layer === layer.config.name), [layer.config.name], layer.config.private === true);
+  leakGate([], {destination: target, index}, [jsonBytes(index)], [], []);
   return index;
 }
 
@@ -228,8 +326,10 @@ export async function pushSystem(target, refs, options = {}) {
   for (const ref of refs) {
     if (!parseRef(ref).digest) fail("TAG_ONLY", "system layers must be digest references");
     const layer = await pull(ref, options);
+    assertPrivateTarget(target, [layer], options.env);
     layers.push({ref, layer, files: validateLayer(layer)});
   }
+  assertPrivateTarget(target, layers.map(({layer}) => layer), options.env);
   const index = prepareSystem(target, layers, options);
   const c = client(target, {...options, push: true});
   for (const {ref, layer} of layers) {
@@ -249,16 +349,28 @@ export async function inspect(ref, options = {}) {
     const layer = await pull(ref, options);
     validateLayer(layer);
     if (expectedSize !== undefined && layer.manifest.bytes.length !== expectedSize) fail("SIZE_MISMATCH", "index manifest descriptor size differs from layer manifest");
-    return {digest: layer.manifest.digest, ...layer.config};
+    const {closure, ...config} = layer.config;
+    return {digest: layer.manifest.digest, ...config, ...(closure === undefined ? {} : {closure: {unresolved: closure.unresolved}})};
   };
   if (m.json.mediaType !== MEDIA.index) return layerSummary(formatRef({...parseRef(ref), digest: m.digest}));
   const layers = [];
   for (const d of systemLayers(m.json)) {
     const summary = await layerSummary(formatRef({...parseRef(ref), digest: d.digest}), d.size);
     if (summary.name !== d.annotations["org.osd.layer.name"] || summary.kind !== d.annotations["org.osd.layer.kind"]) fail("BAD_LAYER", "index identity differs from layer config");
+    if (d.annotations["org.osd.layer.private"] !== (summary.private ? "true" : undefined)) fail("BAD_LAYER", "index private marker differs from layer config");
     layers.push(summary);
   }
+  const closures = layers.filter(layer => layer.closure !== undefined);
+  const total = closures.reduce((sum, layer) => sum + layer.closure.unresolved, 0);
+  if (!Number.isSafeInteger(total) || m.json.annotations?.["org.osd.system.unresolved"] !== (closures.length ? String(total) : undefined)) fail("BAD_SYSTEM", "system unresolved annotation differs from layer closures");
   return {digest: m.digest, artifactType: SYSTEM, annotations: m.json.annotations, layers};
+}
+
+export function unresolvedLines(summary) {
+  const layers = summary.layers ?? [summary];
+  const lines = layers.filter(layer => layer.closure !== undefined).map(layer => `layer ${layer.name}: unresolved ${layer.closure.unresolved}`);
+  if (summary.layers && lines.length) lines.push(`system: unresolved ${layers.reduce((sum, layer) => sum + (layer.closure?.unresolved ?? 0), 0)}`);
+  return lines;
 }
 
 function readAnnotations(file) {
@@ -270,7 +382,9 @@ function readAnnotations(file) {
 export async function main(args) {
   const [command, ...rest] = args;
   if (command === "inspect" && rest.length === 1) {
-    console.log(JSON.stringify(await inspect(rest[0]), null, 2));
+    const summary = await inspect(rest[0]);
+    console.log(JSON.stringify(summary, null, 2));
+    for (const line of unresolvedLines(summary)) console.log(line);
     return 0;
   }
   if (command === "system" && rest[0] === "push") {
@@ -292,10 +406,12 @@ export async function main(args) {
   for (let i = 0; i < rest.length; i++) {
     if (rest.at(i).startsWith("--")) {
       const key = rest.at(i).slice(2);
-      if (!["name", "kind", "source", "out", "leak-allow", "annotations"].includes(key) || !rest.at(i + 1) || rest.at(i + 1).startsWith("--")) fail("USAGE", `invalid option ${rest.at(i)}`);
+      if (key === "private") { options.private = true; continue; }
+      if (!["name", "kind", "source", "out", "leak-allow", "annotations", "closure"].includes(key) || !rest.at(i + 1) || rest.at(i + 1).startsWith("--")) fail("USAGE", `invalid option ${rest.at(i)}`);
       if (key === "leak-allow" && command === "build") fail("USAGE", "build has no leak gate; --leak-allow belongs to push");
       if (key === "leak-allow") (options.allow ??= []).push(...readLeakAllow(rest.at(++i)));
       else if (key === "annotations") options.annotations = readAnnotations(rest.at(++i));
+      else if (key === "closure") options.closure = readClosure(rest.at(++i));
       else Object.assign(options, {[key]: rest.at(++i)});
     } else positionals.push(rest.at(i));
   }
@@ -307,8 +423,9 @@ export async function main(args) {
     for (const [name, bytes] of [[`${options.name}.zip`, layer.zip], ["config.json", layer.configBytes], ["manifest.json", layer.manifestBytes]]) writeFileSync(join(options.out, name), bytes);
     console.log(`treeDigest ${layer.config.treeDigest}\nmanifest ${layer.digest}`);
   } else {
+    assertPrivateTarget(positionals[0], [layer]);
     leakGate([layer.files], {destination: positionals[0], config: layer.config, manifest: layer.manifest}, [layer.configBytes, layer.manifestBytes],
-      options.allow, [layer.config.name]);
+      options.allow, [layer.config.name], layer.config.private === true);
     const digest = await push(positionals[0], layer);
     console.log(formatRef({...parseRef(positionals[0]), digest}));
   }
@@ -318,6 +435,6 @@ export async function main(args) {
 if (runsAs("osd-layer.mjs")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (error) => {
     console.error(`osd-layer: ${error.code ?? "ERROR"}: ${error.message}`);
-    process.exit(error.code === "LEAK" ? 2 : 1);
+    process.exit(["LEAK", "PRIVATE_LAYER"].includes(error.code) ? 2 : 1);
   });
 }

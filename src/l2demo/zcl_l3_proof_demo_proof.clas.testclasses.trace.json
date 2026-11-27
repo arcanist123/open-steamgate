@@ -1,0 +1,1811 @@
+{
+  "format": "osd-trace/1",
+  "outputs": [
+    {
+      "file": "zcl_l3_proof_demo_proof.clas.testclasses.abap",
+      "lines": [
+        {
+          "lines": [1, 6],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 7,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 8,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 9,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [10, 16],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 17,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/in service", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 18,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 19,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 20,
+          "sources": [
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/departs on the check date", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/flagged", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/one alert per voyage", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/past voyage is fine", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/ship in service is fine", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/the range keeps the inner ship", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [21, 27],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "lines": [28, 32],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [33, 37],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [38, 42],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "lines": [43, 74],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "line": 75,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 76,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 77,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "lines": [78, 80],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 52}
+          ]
+        },
+        {
+          "lines": [81, 86],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [87, 92],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [93, 98],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [99, 173],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 55}
+          ]
+        },
+        {
+          "line": 174,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/in service", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 175,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "lines": [176, 181],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/in service", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [182, 183],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 184,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 185,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 186,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 187,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 188,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 189,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 190,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 191,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "lines": [192, 193],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 194,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 195,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 196,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 197,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "line": 198,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "line": 199,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "line": 200,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/in service/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 201,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 22}
+          ]
+        },
+        {
+          "lines": [202, 203],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/in service/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 204,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance/expect/1/piece/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 205,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance/expect/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 206,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 130}
+          ]
+        },
+        {
+          "line": 207,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 131}
+          ]
+        },
+        {
+          "lines": [208, 209],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 210,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 23}
+          ]
+        },
+        {
+          "line": 211,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 24}
+          ]
+        },
+        {
+          "line": 212,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 25}
+          ]
+        },
+        {
+          "line": 213,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 26}
+          ]
+        },
+        {
+          "line": 214,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 27}
+          ]
+        },
+        {
+          "line": 215,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 28}
+          ]
+        },
+        {
+          "line": 216,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 217,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 29}
+          ]
+        },
+        {
+          "lines": [218, 219],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 220,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date/expect/1/piece/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 221,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date/expect/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 222,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 132}
+          ]
+        },
+        {
+          "line": 223,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 11},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 133}
+          ]
+        },
+        {
+          "line": 224,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/another date", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/in service", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "rule/proof-maintenance-ship/example/maintenance", "selector": "/"},
+            {"file": "src/l2demo/proof_ship.l2.yaml", "node": "set/proof_demo/proof/rule/proof-maintenance-ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 225,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 226,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "lines": [227, 232],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [233, 234],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 235,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 236,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 237,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 238,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 239,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 240,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/2", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 241,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1/field/note/value/piece/3", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 242,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 243,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 244,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/table/zosd_l2_note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "lines": [245, 246],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/row/zosd_l2_note/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 247,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/expect/1/piece/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 248,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/expect/1/piece/2", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 249,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/expect/1/piece/3", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 250,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note/expect/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 251,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 134}
+          ]
+        },
+        {
+          "line": 252,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 135}
+          ]
+        },
+        {
+          "line": 253,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "rule/ship-note/example/full width note", "selector": "/"},
+            {"file": "src/l2demo/ship_note.l2.yaml", "node": "set/proof_demo/proof/rule/ship-note", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 254,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 255,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 256,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "lines": [257, 262],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "lines": [263, 264],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 265,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 266,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 267,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3}
+          ]
+        },
+        {
+          "line": 268,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 269,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 5}
+          ]
+        },
+        {
+          "line": 270,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 271,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 272,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "lines": [273, 274],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 275,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 276,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 277,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 278,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 279,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 280,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 281,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_ship/2", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 282,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "lines": [283, 284],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_ship/2", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 285,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 286,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "line": 287,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 288,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 289,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "line": 290,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "line": 291,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 292,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_ship", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "lines": [293, 294],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id/row/zosd_l2_ship/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 295,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9}
+          ]
+        },
+        {
+          "line": 296,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "line": 297,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 11}
+          ]
+        },
+        {
+          "line": 298,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 12}
+          ]
+        },
+        {
+          "line": 299,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 13}
+          ]
+        },
+        {
+          "line": 300,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 14}
+          ]
+        },
+        {
+          "line": 301,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 15}
+          ]
+        },
+        {
+          "line": 302,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_crew/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 303,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 16}
+          ]
+        },
+        {
+          "lines": [304, 305],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_crew/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 306,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 17}
+          ]
+        },
+        {
+          "line": 307,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 18}
+          ]
+        },
+        {
+          "line": 308,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 19}
+          ]
+        },
+        {
+          "line": 309,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 20}
+          ]
+        },
+        {
+          "line": 310,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 21}
+          ]
+        },
+        {
+          "line": 311,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 22}
+          ]
+        },
+        {
+          "line": 312,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 23}
+          ]
+        },
+        {
+          "line": 313,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_crew/2", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 314,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 24}
+          ]
+        },
+        {
+          "lines": [315, 316],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_crew/2", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 317,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 25}
+          ]
+        },
+        {
+          "line": 318,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 26}
+          ]
+        },
+        {
+          "line": 319,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 27}
+          ]
+        },
+        {
+          "line": 320,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 28}
+          ]
+        },
+        {
+          "line": 321,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 29}
+          ]
+        },
+        {
+          "line": 322,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 30}
+          ]
+        },
+        {
+          "line": 323,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 31}
+          ]
+        },
+        {
+          "line": 324,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_crew/3", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 325,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 32}
+          ]
+        },
+        {
+          "lines": [326, 327],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/row/zosd_l2_crew/3", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 328,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 33}
+          ]
+        },
+        {
+          "line": 329,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 34}
+          ]
+        },
+        {
+          "line": 330,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 35}
+          ]
+        },
+        {
+          "line": 331,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 36}
+          ]
+        },
+        {
+          "line": 332,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 37}
+          ]
+        },
+        {
+          "line": 333,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 38}
+          ]
+        },
+        {
+          "line": 334,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 39}
+          ]
+        },
+        {
+          "line": 335,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id/row/zosd_l2_crew/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2}
+          ]
+        },
+        {
+          "line": 336,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/table/zosd_l2_crew", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 40}
+          ]
+        },
+        {
+          "lines": [337, 338],
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id/row/zosd_l2_crew/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 4}
+          ]
+        },
+        {
+          "line": 339,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/expect/1/piece/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 340,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two/expect/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 341,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id/expect/1/piece/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 342,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id/expect/1", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0}
+          ]
+        },
+        {
+          "line": 343,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 2},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 136}
+          ]
+        },
+        {
+          "line": 344,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 3},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 9},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 137}
+          ]
+        },
+        {
+          "line": 345,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/initial crew id", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "rule/ship-min-captains/example/zero and two", "selector": "/"},
+            {"file": "src/l2demo/ship_min_captains.l2.yaml", "node": "set/proof_demo/proof/rule/ship-min-captains", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 10}
+          ]
+        },
+        {
+          "lines": [346, 350],
+          "sources": [
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/departs on the check date", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/flagged", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/one alert per voyage", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/past voyage is fine", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/ship in service is fine", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/the range keeps the inner ship", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 351,
+          "sources": [
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage/skip/piece/1", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 6}
+          ]
+        },
+        {
+          "line": 352,
+          "sources": [
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage/skip/piece/2", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 0},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1}
+          ]
+        },
+        {
+          "line": 353,
+          "sources": [
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage/skip/piece/3", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 1},
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 7}
+          ]
+        },
+        {
+          "lines": [354, 355],
+          "sources": [
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/departs on the check date", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/flagged", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/one alert per voyage", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/past voyage is fine", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/ship in service is fine", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "rule/maintenance-ship-no-future-voyage/example/the range keeps the inner ship", "selector": "/"},
+            {"file": "src/l2demo/maintenance_ship.l2.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"},
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof/rule/maintenance-ship-no-future-voyage", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 8}
+          ]
+        },
+        {
+          "line": 356,
+          "sources": [
+            {"file": "src/l2demo/proof_demo.l3.yaml", "node": "set/proof_demo/proof", "selector": "/"}
+          ],
+          "locations": [
+            {"recipe": "recipes/l3-proof/testclasses.tpl", "anchor": "<partial>", "offset": 138}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -58,6 +58,7 @@ import yaml from "js-yaml";
 import {generate} from "./segw-gen.mjs";
 import {AnnotationWriter} from "./stg-compile-annotations.mjs";
 import {loadFunctionGroups} from "./segw-gen-mapping.mjs";
+import {dictionaryDates} from "./osd-ddic-info-registry.mjs";
 import SPEC from "./segw-tables.json" with {type: "json"};
 
 // ------------------------------------------------------------- the model
@@ -141,6 +142,8 @@ function property(name, spec, isKey, complexTypes = []) {
     label: s.label ?? "",
     semantics: s.semantics ?? "",
     unicode: s.unicode !== false,
+    // SEGW's "ETag" flag: the property is (part of) the entity's ETag
+    etag: s.etag === true,
   };
 }
 
@@ -382,7 +385,7 @@ export function annotationsClass(m) {
   const cls = m.classes.mpcAnn;
   const w = new AnnotationWriter();
   for (const a of m.annotations) {
-    w.target(`${m.namespace}.${a.target}`);
+    if (!w.targetOf(m.namespace, a)) continue;
     if (a.property) {
       w.property(a);
     } else {
@@ -583,6 +586,7 @@ export function iwprXml(m, opts = {}) {
       SEMANTICS: p.semantics, EDM_CORE_TYPE: p.type, REF_TYPE: "T", ABAP_FIELD: p.field, ABTY_XU: "X", SORT_ORDER: String(p.order),
       TYPE_NAME: p.typeName ?? "", TYPE_KIND: p.typeKind ?? "", LENGTH: p.abapLength ?? "",
       IS_UNICODE_XU: X(!p.unicode), DESCRIPTION_XU: "X",
+      ...(p.etag ? {AS_ETAG: "X"} : {}),
     });
   for (const c of m.complexTypes ?? []) {
     rows.SBO_CT.push({PROJECT: P, NODE_UUID: ctId(c), NAME: c.name, MODEL: modelId, REF_TYPE: "T", TECH_NAME: c.name.toUpperCase(), ABAP_STRUCT: c.abapStruct, BASE_TYPE_XU: "X", DESCRIPTION_XU: "X"});
@@ -841,7 +845,7 @@ const objectFile = (name, ext) => name.toLowerCase().replaceAll("/", "#") + ext;
 const versionedFile = (name, ext) => {
   const width = KEY_WIDTH[ext];
   if (width === undefined) throw new Error(`no key width known for ${ext}`);
-  return name.toLowerCase().padEnd(width, " ") + "0001" + ext;
+  return name.toLowerCase().replaceAll("/", "#").padEnd(width, " ") + "0001" + ext; // namespace -> `#`, as above
 };
 
 // everything the folder gets: the tree, the registration objects, the
@@ -855,7 +859,7 @@ export function compile(text, opts = {}) {
     [versionedFile(m.model, ".iwmo.xml")]: iwmoXml(m),
   };
   const warnings = [];
-  const generated = generate(iwpr, {functionModules: opts.functionModules ?? new Map(), warnings, labelAnnotations: true, ...(opts.generateOptions ?? {})});
+  const generated = generate(iwpr, {functionModules: opts.functionModules ?? new Map(), warnings, labelAnnotations: true, dateDisplayFormat: opts.dates ?? true, ...(opts.generateOptions ?? {})});
   const classes = {...generated.files, ...annotationsClass(m)};
   const ext = {...generated.ext};
   if (m.annotations.length > 0) {
@@ -915,13 +919,14 @@ export function compileAll(root = "src", out = "gen/stg", libs = [], extraRoots 
     .map((file) => [objectOf(file), file]));
   const existing = new Set(existingPaths.keys());
   const functionModules = loadFunctionGroups([...libs, ...roots]);
+  const dates = dictionaryDates(roots);
   const report = [];
   // The configured layer order also applies to models another generator wrote
   // (a CDS view published with @OData.publish, gen/cds/*.stg.yaml).
   const files = winningByLayer(roots, (dir) => walk(dir).filter((p) => p.endsWith(".stg.yaml")),
     (file) => readModel(readFileSync(file, "utf8"), basename(file)).project);
   for (const file of files) {
-    const result = compile(readFileSync(file, "utf8"), {file: basename(file), functionModules});
+    const result = compile(readFileSync(file, "utf8"), {file: basename(file), functionModules, dates});
     const target = join(out, result.model.project.toLowerCase().replaceAll("/", "#"));
     const written = [];
     const kept = [];
@@ -975,7 +980,8 @@ export function compileAll(root = "src", out = "gen/stg", libs = [], extraRoots 
 }
 
 export function compileConfiguredAll(root = process.env.OSD_ROOT ?? process.cwd(), out = "gen/stg", libs = [], env = process.env) {
-  return compileAll(generatorFoldersOf(root, env).map((f) => f === "gen" ? "gen/cds" : f), out, libs);
+  // gen/cds: views published with @OData.publish; gen/rap: service definitions
+  return compileAll(generatorFoldersOf(root, env).flatMap((f) => f === "gen" ? ["gen/cds", "gen/rap"] : [f]), out, libs);
 }
 
 /** Everything a compiled project puts in a folder. Lifted out of the CLI
@@ -1002,7 +1008,7 @@ export function writeCompiled(result, out) {
 /** Compile one `.stg.yaml` into a folder, the way the command does. */
 export function compileFile(file, out, libs = []) {
   const result = compile(readFileSync(file, "utf8"),
-    {file: basename(file), functionModules: loadFunctionGroups([...libs, dirname(file)])});
+    {file: basename(file), functionModules: loadFunctionGroups([...libs, dirname(file)]), dates: dictionaryDates([...libs, dirname(file)])});
   if (out !== undefined) {
     writeCompiled(result, out);
   }

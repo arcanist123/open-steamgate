@@ -14,8 +14,6 @@ const roots = ["frontend.mjs", "emit-go.mjs", "emit-js.mjs", "symbols.ts", "go-s
 
 // Exact imports, not file-wide exemptions: a new builtin/API still fails.
 const exceptions = {
-  // The npm parser exports its downport rule too; that leaf uses SHA-1 only.
-  "node_modules/@abaplint/core/build/src/rules/downport.js": {crypto: ["*"]},
   // Parser module loading still requires callable Node require adapters.
   // This is not a filesystem API with a primitive-valued contract.
   "tools/gogen/frontend-base.mjs": {"node:module": ["createRequire"]},
@@ -60,6 +58,26 @@ const exceptions = {
   "tools/gogen/frontend-v3-key.mjs": {"node:crypto": ["createHash"]},
   "tools/gogen/frontend-v3-queries.mjs": {"node:module": ["createRequire"]},
 };
+// The npm parser exports its downport rule too; that leaf uses SHA-1 only.
+// So does its ICF service renamer since @abaplint/core 2.120.121 (the hash
+// in a renamed node's name, crypto.createHash("sha1") twice and nothing
+// else of the module): the parser's index exports the renamer, the compiler
+// never calls it.
+// Matched by path suffix, not exactly: since 789170ef the gogen job links the
+// pinned transpiler build, and @abaplint/core then resolves inside that
+// build's own node_modules (../.cache/osd/transpiler-<sha>/packages/
+// transpiler/node_modules/...). Same upstream file, same import; gogen's own
+// closure is unchanged, and every other exception stays exact.
+const coreLeaves = ["node_modules/@abaplint/core/build/src/rules/downport.js",
+  "node_modules/@abaplint/core/build/src/objects/rename/rename_icf_service.js"];
+const coreLeafImports = {crypto: ["*"]};
+const coreLeafOf = (file) => {
+  const posix = file.split(path.sep).join("/");
+  return coreLeaves.find((leaf) => posix === leaf || posix.endsWith(`/${leaf}`));
+};
+function exceptionsOf(file) {
+  return coreLeafOf(file) ? coreLeafImports : exceptions[file];
+}
 const hostImports = {"node:fs": ["readFileSync", "readdirSync", "writeFileSync"],
   "node:path": ["*"], "node:child_process": ["execFileSync"]};
 
@@ -115,7 +133,7 @@ function importsInClosure(entries) {
 
 function forbidden(imports) {
   return imports.filter(({file, spec, names}) => {
-    const allowed = (file === "tools/gogen/host-io.ts" ? hostImports : exceptions[file])?.[spec];
+    const allowed = (file === "tools/gogen/host-io.ts" ? hostImports : exceptionsOf(file))?.[spec];
     return !allowed || names.some((name) => !allowed.includes(name));
   }).map(({file, spec, line}) => `${file}:${line}: ${spec}`);
 }
@@ -134,6 +152,7 @@ describe("gogen compiler host boundary", () => {
     assert.ok(seen.has("tools/gogen/host-io.ts"));
     assert.deepEqual(forbidden(imports), []);
     for (const file of Object.keys(exceptions)) assert.ok(seen.has(file), `stale exception: ${file}`);
+    for (const leaf of coreLeaves) assert.ok([...seen].some((file) => coreLeafOf(file) === leaf), `stale exception: ${leaf}`);
   });
 
   it("finds forbidden static imports, reexports, dynamic imports, require and bare builtins through transitive edges", () => {
@@ -150,6 +169,19 @@ describe("gogen compiler host boundary", () => {
     assert.deepEqual(vendorImports.map((i) => i.spec), ["node:net"]);
     assert.equal(forbidden(vendorImports).length, 1);
     assert.equal(forbidden([{file: "tools/gogen/frontend.mjs", spec: "node:fs", names: ["writeFileSync"], line: 1}]).length, 1);
+    // The two parser leaves keep their exception wherever node_modules
+    // sits, and nowhere else: crypto in gogen's own code still fails, and
+    // so does any other builtin in the leaves themselves.
+    for (const leaf of coreLeaves) {
+      const pinned = `../../../.cache/osd/transpiler-0/packages/transpiler/${leaf}`;
+      assert.deepEqual(forbidden([{file: pinned, spec: "crypto", names: ["*"], line: 38}]), []);
+      assert.deepEqual(forbidden([{file: leaf, spec: "crypto", names: ["*"], line: 38}]), []);
+      assert.equal(forbidden([{file: pinned, spec: "node:fs", names: ["*"], line: 1}]).length, 1);
+    }
+    for (const file of ["tools/gogen/frontend.mjs", "tools/gogen/downport.js", "tools/gogen/rules/downport.js", "tools/gogen/rename_icf_service.js",
+      "node_modules/@abaplint/core/build/src/objects/rename/renamer.js", ...coreLeaves.map((leaf) => `${leaf}.bak`)])
+      for (const spec of ["crypto", "node:crypto"])
+        assert.equal(forbidden([{file, spec, names: ["createHash"], line: 1}]).length, 1, `${file}: ${spec}`);
   });
 
   it("preserves UTF-8 bytes, errors, native entry order and directory-symlink classification", () => {
@@ -175,6 +207,51 @@ describe("gogen compiler host boundary", () => {
     assert.equal(host.dirname(""), path.dirname(""));
     assert.equal(host.join("a", "..", "b/"), path.join("a", "..", "b/"));
     assert.equal(host.join(), path.join());
+  });
+
+  describe("a listed folder that is not on disk reads as empty", () => {
+    // The rule is tools/osd-inputs.mjs walkListed's (H3/FIX-4), and it is
+    // keyed on NOTHING: fix round 4 fixed tools/gogen/osg-build.mjs's own
+    // walk, the compileProgram walk over the same layer list kept the
+    // propagation, and gen/hana-segw -- the NEXT listed folder after
+    // gen/hana-ddic -- died the same death in the osgo-host job. So this
+    // case names a folder no reader has ever heard of: the next listed
+    // folder after this fix must not repeat it either.
+    const probe = `CLASS zcl_listed_probe DEFINITION PUBLIC FINAL CREATE PUBLIC.
+  PUBLIC SECTION.
+    CLASS-METHODS run RETURNING VALUE(rv) TYPE string.
+ENDCLASS.
+CLASS zcl_listed_probe IMPLEMENTATION.
+  METHOD run.
+    rv = 'ok'.
+  ENDMETHOD.
+ENDCLASS.
+`;
+    it("compiles the same objects with the folder missing as with it present empty", async () => {
+      const root = mkdtempSync(path.join(scratch, "listed-"));
+      mkdirSync(path.join(root, "src"), {recursive: true});
+      writeFileSync(path.join(root, "src", "zcl_listed_probe.clas.abap"), probe);
+      const missing = path.join(root, "gen/hana-next");
+      const empty = path.join(root, "gen/hana-empty");
+      mkdirSync(empty, {recursive: true});
+      const {compileProgram} = await import("../tools/gogen/frontend.mjs");
+      const objects = ["zcl_listed_probe"];
+      const withMissing = compileProgram({folders: [missing, path.join(root, "src")], objects});
+      const withEmpty = compileProgram({folders: [empty, path.join(root, "src")], objects});
+      assert.deepEqual(withMissing.classes.map((c) => c.name), ["ZCL_LISTED_PROBE"]);
+      assert.deepEqual(withMissing.classes, withEmpty.classes);
+    });
+    it("walkListed's gogen twin lists a missing folder as empty and keeps the walk's own shape", async () => {
+      const root = mkdtempSync(path.join(scratch, "listed-helper-"));
+      mkdirSync(path.join(root, "in"), {recursive: true});
+      writeFileSync(path.join(root, "in", "a.clas.abap"), probe);
+      const {listListed} = await import("../tools/gogen/host-io-compat.mjs");
+      assert.deepEqual(listListed(path.join(root, "gen/hana-next")), []);
+      assert.deepEqual(listListed(path.join(root, "in")).map((e) => e.name), ["a.clas.abap"]);
+      assert.equal(listListed(path.join(root, "in"))[0].isDirectory(), false);
+      // the primitives underneath keep their error: only the listed-read helper swallows
+      assert.throws(() => compat.readdirEntries(path.join(root, "gen/hana-next")), {code: "ENOENT"});
+    });
   });
 
   it("keeps git failure fallback and live empty/absent environment values", () => {

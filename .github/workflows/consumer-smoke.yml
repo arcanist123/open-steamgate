@@ -23,7 +23,9 @@ defaults:
 jobs:
   consumer-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    # The budget the steps below must fit in: their own bounds add up to 45,
+    # and the checkout plus the six fleet commands need about 46 more.
+    timeout-minutes: 95
     env:
       OSD_HOME: ${{ github.workspace }}/osd
       GOTOOLCHAIN: local
@@ -38,12 +40,21 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: osd/package-lock.json
-      - name: Install and bootstrap runtime
+      - name: Install runtime dependencies
         timeout-minutes: 10
         working-directory: osd
-        run: |
-          npm ci
-          npm run bootstrap
+        run: npm ci
+      # The runtime under test transpiles with the transpiler libs.lock.json
+      # pins, the same build and link tests.yml uses; the published npm one
+      # refuses the EML demo classes src/ now carries.
+      - name: Build and link the pinned transpiler
+        timeout-minutes: 15
+        working-directory: osd
+        run: npm run transpiler:pin
+      - name: Bootstrap the runtime under test
+        timeout-minutes: 10
+        working-directory: osd
+        run: npm run bootstrap
       - name: Read consumer pin
         id: consumer
         working-directory: osd

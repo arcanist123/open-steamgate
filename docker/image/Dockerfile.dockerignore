@@ -17,6 +17,12 @@
 packs/*/upstream/**
 packs/*/games/**
 packs/*/.osd-fetched.json
+# the tenant's content (docs/db-backends.md, "Sources out of the tenant"),
+# private: named explicitly so a widened allowlist cannot carry them in
+gen/hana-src
+gen/hana-ddic
+gen/hana-closure
+gen/hana-segw
 **/.git
 **/.env*
 **/*.pcap
