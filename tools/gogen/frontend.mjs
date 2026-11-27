@@ -5538,6 +5538,11 @@ function eventInfo(ctx, owner, evName) {
   const parts = kids[0].findDirectExpression(Expressions.FieldChain)?.getChildren() ?? [];
   const at = parts.findIndex((p) => isExpr(p, Expressions.TableExpression));
   if (at < 1) throw new Unsupported(`VALUE with ${optional ? "OPTIONAL" : "DEFAULT"} on something other than a table expression: ${c.text}`);
+  // only the first table expression is tested; a later one that misses would raise
+  if (parts.slice(at + 1).some((p) => isExpr(p, Expressions.TableExpression))) throw new Unsupported(`VALUE with ${optional ? "OPTIONAL" : "DEFAULT"} on a chain of table expressions: ${c.text}`);
+  // the key is evaluated for the test and again for the read
+  const te = parts[at];
+  if (isExpr(te, Expressions.TableExpression) && te.findAllExpressions(Expressions.MethodCallChain).length > 0) throw new Unsupported(`VALUE with ${optional ? "OPTIONAL" : "DEFAULT"} and a call in the key, which would run twice: ${c.text}`);
   // @ts-expect-error -- abapiti form pending
   const exists = tableExpressionExists(parts.slice(0, at), parts[at], ctx);
   const to = c.typeNode.concatTokens() === "#" && inferred === undefined
@@ -6593,13 +6598,13 @@ const FUNCTIONS = {
  * it, the keys as in line_exists */
 /** @param {readonly (import("@abaplint/core").Nodes.ExpressionNode | import("@abaplint/core").Nodes.TokenNode)[]} head @param {import("@abaplint/core").Nodes.ExpressionNode} te @param {import("./frontend-types.ts").MethodContext} ctx @returns {import("./ir.ts").Condition} */ function tableExpressionExists(head, te, ctx) {
   const table = head.length === 1 ? sourceOperand(head[0], ctx) : fieldChainParts(head, () => head.map((k) => k.concatTokens()).join(""), ctx);
-  if (table.type.k !== "table") throw new Unsupported("line_exists of a non-table");
+  if (table.type.k !== "table") throw new Unsupported("table expression on a non-table");
   const inner = te.getChildren().filter((c) => !isTok(c, "[") && !isTok(c, "]"));
   /** @type {import("./ir.ts").TableKey[]} */ const keys = [];
   for (let i = 0; i < inner.length; i += 3) {
     const comp = inner[i];
     if (!isExpr(comp, Expressions.ComponentChainSimple) || !isTok(inner[i + 1], "=") || !isExpr(inner[i + 2], Expressions.Source)) {
-      throw new Unsupported(`line_exists key form: ${te.concatTokens()}`);
+      throw new Unsupported(`table expression key form: ${te.concatTokens()}`);
     }
     const cname = upper(comp.concatTokens());
     if (cname === "TABLE_LINE") keys.push({line: true, value: convert(source(inner[i + 2], ctx, table.type.row), table.type.row)});
@@ -6608,7 +6613,7 @@ const FUNCTIONS = {
       keys.push({name: f.name, value: convert(source(inner[i + 2], ctx, f.type), f.type)});
     }
   }
-  if (keys.length === 0) throw new Unsupported(`line_exists key form: ${te.concatTokens()}`);
+  if (keys.length === 0) throw new Unsupported(`table expression key form: ${te.concatTokens()}`);
   return {c: "line_exists", table, keys};
 }
 
