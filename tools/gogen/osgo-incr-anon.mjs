@@ -2,13 +2,15 @@
 // declaration owns an instance, and the name a fast build gives it. Part of
 // tools/gogen/osgo-incr.mjs (README tools/gogen/osgo-incr.md), carved out of
 // it (the size rule).
+import {structShape} from "./struct-shape.mjs";
 const upper = (text) => String(text).toUpperCase();
 const keyOf = (type, name) => `${type} ${name}`;
 
-/** the component names of an anonymous structure: what both builds can
- *  name it by (abaplint keys it by type instance, which a new registry
- *  does not share) */
-export const shapeOf = (t) => { try { return t.getComponents().map((c) => upper(c.name)).join(","); } catch { return undefined; } };
+/** the components of an anonymous structure, names and types (the shape
+ *  the front end stores with the structure, struct-shape.mjs): what both
+ *  builds can name it by (abaplint keys it by type instance, which a new
+ *  registry does not share) */
+export const shapeOf = (t) => { try { return structShape(t); } catch { return undefined; } };
 
 /** where each anonymous structure instance of a registry is declared: the
  *  global class or interface member that owns it, as paths
@@ -48,7 +50,7 @@ export function anonOrigins(reg) {
 }
 
 /** abaplint keys anonymous structures by type instance; a new registry has
- *  new instances, so the substitute answers by the component names the
+ *  new instances, so the substitute answers by the shape the
  *  write-time build named, which is the same answer whenever abaplint
  *  shared the instance -- and never invents one (a miss lowers as the full
  *  build would, naming the structure after the class that reached it) */
