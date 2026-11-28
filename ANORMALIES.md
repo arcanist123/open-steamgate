@@ -98,17 +98,17 @@ Format adapted from `larshp/hithub` (MIT).
 
 ### ANOMALY-2026-11-09-space-eq-string-substring -- `x+off(1) = space` is false for a blank: a String substring never equals the Character constant
 
-- Status: `open`
+- Status: `not-an-anomaly` (2026-11-28): ABAP is expected to answer false as well, see "Expected SAP behaviour"
 - Discovery date: `2026-11-09` (dell, keylen2, `zcl_stg_model_info=>check_length` measuring a value without its trailing blanks, PR #889)
 - Affected versions: the pinned runtime (oisee/transpiler `9792b3c8`), `compare/eq.ts`
 - Affected ABAP statement, runtime API or adapter: `=` / `<>` between `space` and a substring of a `string`
-- Minimal ABAP reproducer: `DATA lv TYPE string VALUE 'A '. IF lv+1(1) = space.` -- false here
+- Minimal ABAP reproducer: ``DATA lv TYPE string VALUE `A `. IF lv+1(1) = space.`` -- false here. With the text literal `'A '` the string is `A` (a `c` value moved into a string loses its trailing blanks), and `lv+1(1)` raises `CX_SY_RANGE_OUT_OF_BOUNDS`
 - Exact command used to run it: `TravelCount?Status='A '` answered 400 `STG/VALUE_TOO_LONG`, the measured length 2 and not 1, so the blank-strip loop broke on its first character
-- Expected SAP behaviour: true (unmeasured; the substring is c length 1 and blank, `space` is c length 1 and blank, and a c comparison of equal lengths is a character comparison)
+- Expected SAP behaviour: false. A substring of a `string` is a `string`, not a `c`, so the comparison with `space` (a `c`) has the comparison type `string`: per the ABAP keyword documentation, the `c` operand is converted to a string by the conversion rules, which drop its trailing blanks, so `space` becomes the empty string. Trailing blanks count when two strings are compared, and a string of one blank is greater than the empty string. The same holds for `' '` and a blank `c LENGTH 1` field; only the string literal `` ` ` `` is equal. (Before 2026-11-28 this line said true, taking the substring for a `c`.)
 - Actual open-abap behaviour: `String#getOffset` returns a `String`, `space` is a `Character`, and the mixed branch of `eq` compares `right.getTrimEnd() === left.get()`: the constant's only blank is trimmed to the empty string and cannot equal any character
-- Impact on open-steamgate: any blank test written `x+off(1) = space` over a string silently takes the non-blank branch. `zcl_stg_json=>skip_blanks` compares with a backtick literal instead (found independently, before this entry); `zcl_stg_batch` compares `lv_first = space` on a `c LENGTH 1` field, which takes the Character fast path and is correct
-- Smallest safe workaround: compare with the string literal `` ` ` `` (backticks), which is a `String` and hits the fast path: `x+off(1) <> ` ``
-- Upstream issue: needs an issue in abaplint/transpiler (the mixed `eq` branch trims the `Character` side before comparing it with a one-character `String`; either compare untrimmed, or make `space` a `String`)
+- Impact on open-steamgate: any blank test written `x+off(1) = space` over a string takes the non-blank branch in ABAP as well as here, so it is a defect of the ABAP, not of the runtime. `zcl_stg_json=>skip_blanks` compares with a backtick literal instead (found independently, before this entry); `zcl_stg_batch` compares `lv_first = space` on a `c LENGTH 1` field, which takes the Character fast path and is correct
+- Smallest safe workaround: compare with the string literal `` ` ` `` (backticks), which is a `String` and hits the fast path: `x+off(1) <> ` ``. This is the right code in ABAP too
+- Upstream issue: none needed: trimming the `Character` side before comparing it with the `String` is the conversion ABAP applies
 - Regression-test location: `test/mocha.mjs` ("trailing blanks never make a key or a parameter too long ...")
 - Upstream version containing a fix: `unknown`
 
@@ -690,6 +690,11 @@ Format adapted from `larshp/hithub` (MIT).
   `10.50-` for negative `-10.50` after `CONDENSE ... NO-GAPS`. Assigning
   through fixed CHAR first gives `10.5` / `-10.5`. The direct runtime API
   `String.set(Packed("10.50"))` likewise gives `10.50 `.
+  Without the `CONDENSE`, the direct assignment is expected to keep the
+  place of the sign, as a move into a `c` field does: `10.50 ` (six
+  characters, a trailing blank) and `10.50-`, the same as
+  `String.set(Packed("10.50"))`. `&&` and a string template format the value
+  without it: `10.50` and `-10.50`, the minus in front (2026-11-28).
 - Impact on open-steamgate: a direct DEC/CURR/QUAN field alert hole still exposes this runtime difference. Slice 6 aggregate holes use a formatter that avoids both conversion paths and are checked against the interpreter by the SUM/MIN/MAX tests.
 - Smallest safe workaround: aggregate alerts convert the absolute packed
   accumulator directly to STRING, condense it, then prefix `-` for a negative
@@ -4638,7 +4643,7 @@ Not an anomaly, recorded for porting: on 7.58, `FIND ... REGEX` (POSIX) raises a
 - Affected ABAP statement, runtime API or adapter: `lv_string = iv_packed` / `|{ iv_packed }|` for `TYPE p LENGTH 11 DECIMALS 7` (a long timestamp, `TIMESTAMPL`)
 - Minimal ABAP reproducer: `DATA lv_p TYPE p LENGTH 11 DECIMALS 7 VALUE '20210102030405.0000000'. DATA lv_s TYPE string. lv_s = lv_p.`
 - Exact command used to run it: a node probe over the runtime's `abap.types.Packed({length: 11, decimals: 7})`, set from the string, read back as a String
-- Expected SAP behaviour: `20210102030405.0000000`
+- Expected SAP behaviour: `20210102030405.0000000 ` for the move of the reproducer, with a trailing blank in the place of the sign (23 characters), and `20210102030405.0000000` for `|{ iv_packed }|`, without it (corrected 2026-11-28: the line gave the second for both)
 - Actual open-abap behaviour: `20210102030404.9995776` -- 21 digits do not fit a double
 - Impact on open-steamgate: every Edm.DateTime over a long timestamp (a SEGW sample's created/changed fields) serialised one second early
 - Smallest safe workaround: `ZCL_STG_JSON=>VALUE` takes a packed timestamp's whole seconds by a rounding move to `p LENGTH 8 DECIMALS 0` before formatting (fractions of a second are not written either way)
